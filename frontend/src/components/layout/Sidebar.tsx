@@ -2,7 +2,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Map, Factory, Users, Tractor,
   Layers, CloudRain, FlaskConical, ActivitySquare,
-  Leaf, X, ChevronRight,
+  Leaf, ChevronRight,
 } from 'lucide-react'
 
 interface NavItem {
