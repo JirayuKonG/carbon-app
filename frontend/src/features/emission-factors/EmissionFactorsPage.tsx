@@ -97,8 +97,8 @@ export function EmissionFactorsPage() {
       </div>
 
       <div className="card">
-        {tab === 'ef'       && <DataTable data={efs}      columns={efCols}      isLoading={efLoad}  rowKey={(r) => r.coefficient_emission_factor_id} actions={(r) => <button className="btn-icon btn-ghost btn-sm"><Pencil size={13} /></button>} />}
-        {tab === 'gwp'      && <DataTable data={gwps}     columns={gwpCols}     isLoading={gwpLoad} rowKey={(r) => r.coefficients_emissions_factors_gwp_id} actions={(r) => <button className="btn-icon btn-ghost btn-sm"><Pencil size={13} /></button>} />}
+        {tab === 'ef'       && <DataTable data={efs}      columns={efCols}      isLoading={efLoad}  rowKey={(r) => r.coefficient_emission_factor_id} actions={() => <button className="btn-icon btn-ghost btn-sm"><Pencil size={13} /></button>} />}
+        {tab === 'gwp'      && <DataTable data={gwps}     columns={gwpCols}     isLoading={gwpLoad} rowKey={(r) => r.coefficients_emissions_factors_gwp_id} actions={() => <button className="btn-icon btn-ghost btn-sm"><Pencil size={13} /></button>} />}
         {tab === 'cf-types' && <DataTable data={cfTypes}  columns={cfTypeCols}  isLoading={ctLoad}  rowKey={(r) => r.carbonfootprint_type_id} />}
         {tab === 'groups'   && <DataTable data={efGroups} columns={groupCols}   isLoading={egLoad}  rowKey={(r) => r.group_emission_factor_id} />}
         {tab === 'units'    && (

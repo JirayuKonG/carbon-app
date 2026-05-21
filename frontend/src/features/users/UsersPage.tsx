@@ -89,7 +89,7 @@ export function UsersPage() {
         )}
         {tab === 'roles' && (
           <DataTable data={roles} columns={roleColumns} isLoading={rLoad} rowKey={(r) => r.role_id}
-            actions={(row) => (
+            actions={() => (
               <div className="flex items-center gap-1 justify-end">
                 <button className="btn-icon btn-ghost btn-sm"><ShieldCheck size={13} /></button>
               </div>

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import { get, post, put, del } from '@/lib/api'
+import { get, del } from '@/lib/api'
 import { Factory, Plus, Pencil, Trash2 } from 'lucide-react'
 
 interface FactoryRow    { factory_id: number; name: string; initial: string; note: string }
@@ -45,12 +45,15 @@ export function InfraPage() {
     { key: 'name',           header: 'ชื่อแผนก' },
   ]
 
-  const rowActions = (type: ModalTarget) => (row: Record<string, unknown>) => (
-    <div className="flex items-center gap-1 justify-end">
-      <button className="btn-icon btn-ghost btn-sm" onClick={() => { setEditing(row); setModal(type) }}><Pencil size={13} /></button>
-      <button className="btn-icon btn-ghost btn-sm text-red-400" onClick={() => setDeleteTarget({ type, id: row[`${type}_id`] as number, name: row.name as string })}><Trash2 size={13} /></button>
-    </div>
-  )
+  const rowActions = (type: ModalTarget) => (row: FactoryRow | ServiceArea | Department) => {
+    const r = row as unknown as Record<string, unknown>
+    return (
+      <div className="flex items-center gap-1 justify-end">
+        <button className="btn-icon btn-ghost btn-sm" onClick={() => { setEditing(r); setModal(type) }}><Pencil size={13} /></button>
+        <button className="btn-icon btn-ghost btn-sm text-red-400" onClick={() => setDeleteTarget({ type, id: r[`${type}_id`] as number, name: r.name as string })}><Trash2 size={13} /></button>
+      </div>
+    )
+  }
 
   return (
     <div>
