@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Map, Factory, Users, Tractor,
   Layers, CloudRain, FlaskConical, ActivitySquare, Settings2,
-  Leaf, ChevronDown, ChevronRight, X,
+  Leaf, ChevronDown, ChevronRight, X, BarChart3, Sprout, MapPin, GitBranch, Truck, FileText,
 } from 'lucide-react'
 
 interface NavItem {
@@ -21,6 +21,17 @@ interface NavGroup {
 }
 
 const NAV_GROUPS: NavGroup[] = [
+  {
+    section: 'Carbon Analytics',
+    items: [
+      { path: '/overview', label: 'ภาพรวม Carbon', labelEn: 'Overview', icon: <BarChart3 size={16} /> },
+      { path: '/process', label: 'กระบวนการเพาะปลูก', labelEn: 'Process', icon: <Sprout size={16} /> },
+      { path: '/transport', label: 'การขนส่งเข้าโรงงาน', labelEn: 'Transport', icon: <Truck size={16} /> },
+      { path: '/spatial', label: 'แผนที่พื้นที่', labelEn: 'Spatial', icon: <MapPin size={16} /> },
+      { path: '/report', label: 'รายงาน Premium T-VER', labelEn: 'Report', icon: <FileText size={16} /> },
+      { path: '/pipeline', label: 'Pipeline Proof', labelEn: 'Pipeline', icon: <GitBranch size={16} /> },
+    ],
+  },
   {
     section: 'ภาพรวม',
     items: [
