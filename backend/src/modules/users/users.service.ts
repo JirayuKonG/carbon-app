@@ -15,7 +15,11 @@ export class UsersService {
     })
   }
 
-  getRoles() { return this.prisma.role.findMany({ orderBy: { role_id: 'asc' } }) }
+  getRoles() { 
+    return this.prisma.role.findMany({ 
+      orderBy: { role_id: 'asc' } 
+    }) 
+  }
 
   async createUser(data: {
     username: string; first_name: string; last_name: string

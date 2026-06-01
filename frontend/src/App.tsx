@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { GeoPage }              from '@/features/geo/GeoPage'
 import { InfraPage }            from '@/features/infra/InfraPage'
@@ -8,7 +8,13 @@ import { LandsPage }            from '@/features/lands/LandsPage'
 import { WeatherPage }          from '@/features/weather/WeatherPage'
 import { EmissionFactorsPage }  from '@/features/emission-factors/EmissionFactorsPage'
 import { ActivitiesPage }       from '@/features/activities/ActivitiesPage'
+import { ActivityLogListPage }  from '@/features/activities/ActivityLogListPage'
 import { DashboardPage }        from '@/features/dashboard/DashboardPage'
+
+function RedirectWithSearch({ to }: { to: string }) {
+  const location = useLocation()
+  return <Navigate to={{ pathname: to, search: location.search }} replace />
+}
 
 export default function App() {
   return (
@@ -23,7 +29,10 @@ export default function App() {
         <Route path="lands"             element={<LandsPage />} />
         <Route path="lands/weather"     element={<WeatherPage />} />
         <Route path="emission-factors"  element={<EmissionFactorsPage />} />
-        <Route path="activities"        element={<ActivitiesPage />} />
+        <Route path="activities"        element={<Navigate to="/activities/logs" replace />} />
+        <Route path="activities/logs"   element={<ActivityLogListPage />} />
+        <Route path="activities/manage" element={<ActivitiesPage />} />
+        <Route path="activities/logs/new" element={<RedirectWithSearch to="/activities/manage" />} />
         <Route path="*"                 element={<Navigate to="/dashboard" replace />} />
       </Route>
     </Routes>

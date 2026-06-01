@@ -12,14 +12,19 @@ export function AppLayout() {
       {/* Desktop sidebar */}
       <Sidebar />
 
-      {/* Mobile sidebar overlay */}
+      {/* Drawer overlay for tablet/mobile widths */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/40 z-30 md:hidden"
+          className="fixed inset-0 bg-black/40 z-30 xl:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
-      <div className={`sidebar md:translate-x-0 ${sidebarOpen ? 'open' : ''}`}>
+
+      <div
+        className={`fixed inset-y-0 left-0 z-40 w-[var(--sidebar-width)] transform bg-surface-900 shadow-card-lg transition-transform duration-200 xl:hidden ${
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
         <Sidebar onClose={() => setSidebarOpen(false)} mobile />
       </div>
 
@@ -27,7 +32,7 @@ export function AppLayout() {
       <div className="main-content flex flex-col min-h-screen">
         <Topbar onMenuClick={() => setSidebarOpen(true)} />
 
-        <main className="flex-1 p-4 md:p-6 lg:p-8 animate-fade max-w-screen-2xl w-full mx-auto">
+        <main className="flex-1 w-full max-w-screen-2xl mx-auto animate-fade p-4 md:p-6 xl:p-8">
           <Outlet />
         </main>
       </div>

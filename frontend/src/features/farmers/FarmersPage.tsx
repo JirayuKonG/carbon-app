@@ -94,6 +94,7 @@ export function FarmersPage() {
     { key: 'phone',           header: 'โทรศัพท์' },
     { key: 'thai_national_id',header: 'เลขบัตรประชาชน', render: (r) => <span className="font-mono text-xs">{r.thai_national_id}</span> },
     { key: 'factory_id',      header: 'โรงงาน',        render: (r) => <span className="badge-blue">{factMap[r.factory_id] ?? '—'}</span> },
+    { key: 'line_user_id', header: 'Line  ID', render: (r) => <span className="badge-gray">{r.line_user_id || '—'}</span> },
     { key: 'service_area_id', header: 'พื้นที่บริการ', render: (r) => <span className="badge-gray">{saMap[r.service_area_id] ?? '—'}</span> },
   ]
 

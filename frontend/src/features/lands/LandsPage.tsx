@@ -1,68 +1,314 @@
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { FormEvent, useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { DataTable, Column } from '@/components/ui/DataTable'
-import { get } from '@/lib/api'
-import { Layers, Plus, Map, Tent } from 'lucide-react'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { del, get, post, put } from '@/lib/api'
+import { Layers, Plus, Map, Tent, Pencil, Trash2, ActivitySquare } from 'lucide-react'
 
 interface Land {
-  land_id: number; farmer_id: number; land_code: string; name: string
-  area_size: number; land_size: number; land_camp_id: number
-  village: string; zip_code: string; latitude: number; longitude: number
+  land_id: number
+  farmer_id?: number
+  subdistrict_code?: number
+  land_camp_id?: number
+  land_code?: string
+  name?: string
+  quota_code?: string
+  area_size?: number
+  land_size?: number
+  land_unit_prefix_id?: number
+  land_unit_id?: number
+  land_planSize?: number
+  village?: string
+  zip_code?: string
+  latitude?: number
+  longitude?: number
+  subdistricts?: { name_th?: string; zip_code?: string }
 }
+
 interface LandCamp {
-  land_camp_id: number; land_camp_idCode: string; land_camp_name: string
-  land_camp_latitude: number; land_camp_longitude: number
+  land_camp_id: number
+  land_camp_idCode?: string
+  land_camp_name?: string
+  land_camp_latitude?: number
+  land_camp_longitude?: number
+  land_camp_info?: string
 }
+
 interface Landmap {
-  landmap_id: number; landmap_idCode: string; landmap_area_size: number
-  landmap_latitude: number; landmap_longitude: number
+  landmap_id: number
+  landmap_idCode?: string
+  landmap_area_size?: number
+  landmap_unit_prefix_id?: number
+  landmap_unit_id?: number
+  landmap_latitude?: number
+  landmap_longitude?: number
+  landmap_info?: string
 }
-interface Farmer { farmer_id: number; first_name: string; last_name: string }
+
+interface Unit { unit_id: number; unit_name?: string; unit_initial?: string }
+interface UnitPrefix { unit_prefix_id: number; unit_prefix_name?: string; unit_prefix_initial?: string; unit_prefix_value?: number }
+interface Farmer { farmer_id: number; first_name?: string; last_name?: string }
+interface Subdistrict { subdistricts_id: number; name_th?: string; zip_code?: string }
+interface ActivityHeaderType { act_header_type_id: number; act_header_type_name_th?: string }
+interface ActivityDetailType { act_header_detail_type_id: number; act_header_detail_type_name_th?: string }
+interface LogActivityDetail {
+  log_act_detail_id: number
+  act_header_type_id?: number
+  act_header_detail_type_id?: number
+  activities_header?: {
+    land_id?: number
+  }
+}
 
 type TabKey = 'lands' | 'camps' | 'landmaps'
+type ModalState =
+  | { type: 'lands'; row?: Land }
+  | { type: 'camps'; row?: LandCamp }
+  | { type: 'landmaps'; row?: Landmap }
+  | null
+type DeleteState =
+  | { type: 'lands'; id: number; name: string }
+  | { type: 'camps'; id: number; name: string }
+  | { type: 'landmaps'; id: number; name: string }
+  | null
+
+const toNumber = (value: FormDataEntryValue | null) => {
+  const text = String(value ?? '').trim()
+  return text === '' ? undefined : Number(text)
+}
+
+const toStringValue = (value: FormDataEntryValue | null) => {
+  const text = String(value ?? '').trim()
+  return text === '' ? undefined : text
+}
+
+const field = (data: FormData, key: string) => data.get(key)
 
 export function LandsPage() {
-  const [tab, setTab]   = useState<TabKey>('lands')
+  const qc = useQueryClient()
+  const navigate = useNavigate()
+  const [tab, setTab] = useState<TabKey>('lands')
   const [selectedCamp, setSelectedCamp] = useState<number | null>(null)
+  const [modal, setModal] = useState<ModalState>(null)
+  const [deleteTarget, setDeleteTarget] = useState<DeleteState>(null)
+  const [formError, setFormError] = useState<string | null>(null)
 
-  const { data: lands    = [], isLoading: lLoad } = useQuery({ queryKey: ['lands'],     queryFn: () => get<Land[]>('/lands') })
-  const { data: camps    = [], isLoading: cLoad } = useQuery({ queryKey: ['camps'],     queryFn: () => get<LandCamp[]>('/lands/camps') })
-  const { data: landmaps = [], isLoading: mLoad } = useQuery({ queryKey: ['landmaps'],  queryFn: () => get<Landmap[]>('/lands/landmaps') })
-  const { data: farmers  = [] }                   = useQuery({ queryKey: ['farmers'],   queryFn: () => get<Farmer[]>('/farmers') })
+  const { data: lands = [], isLoading: lLoad, error: landsError } = useQuery({ queryKey: ['lands'], queryFn: () => get<Land[]>('/lands') })
+  const { data: camps = [], isLoading: cLoad, error: campsError } = useQuery({ queryKey: ['camps'], queryFn: () => get<LandCamp[]>('/lands/camps') })
+  const { data: landmaps = [], isLoading: mLoad, error: landmapsError } = useQuery({ queryKey: ['landmaps'], queryFn: () => get<Landmap[]>('/lands/landmaps') })
+  const { data: units = [] } = useQuery({ queryKey: ['units'], queryFn: () => get<Unit[]>('/emission-factors/units') })
+  const { data: unitPfxs = [] } = useQuery({ queryKey: ['unit-prefixs'], queryFn: () => get<UnitPrefix[]>('/emission-factors/unit-prefixs') })
+  const { data: farmers = [] } = useQuery({ queryKey: ['farmers'], queryFn: () => get<Farmer[]>('/farmers') })
+  const { data: subdistricts = [] } = useQuery({ queryKey: ['subdistricts-all'], queryFn: () => get<Subdistrict[]>('/geo/subdistricts') })
+  const { data: activityDetails = [] } = useQuery({ queryKey: ['activity-details'], queryFn: () => get<LogActivityDetail[]>('/activities/details') })
+  const { data: headerTypes = [] } = useQuery({ queryKey: ['header-types'], queryFn: () => get<ActivityHeaderType[]>('/activities/header-types') })
+  const { data: detailTypes = [] } = useQuery({ queryKey: ['detail-types-all'], queryFn: () => get<ActivityDetailType[]>('/activities/detail-types') })
 
-  const farmerMap = Object.fromEntries(farmers.map(f => [f.farmer_id, `${f.first_name} ${f.last_name}`]))
-  const campMap   = Object.fromEntries(camps.map(c => [c.land_camp_id, c.land_camp_name]))
+  const farmerMap = useMemo(() => Object.fromEntries(farmers.map((f) => [f.farmer_id, `${f.first_name ?? ''} ${f.last_name ?? ''}`.trim()])), [farmers])
+  const campMap = useMemo(() => Object.fromEntries(camps.map((c) => [c.land_camp_id, c.land_camp_name ?? ''])), [camps])
+  const unitMap = useMemo(() => Object.fromEntries(units.map((u) => [u.unit_id, u.unit_name ?? u.unit_initial ?? ''])), [units])
+  const unitPfxMap = useMemo(() => Object.fromEntries(unitPfxs.map((u) => [u.unit_prefix_id, u.unit_prefix_name ?? u.unit_prefix_initial ?? ''])), [unitPfxs])
+  const subdistrictMap = useMemo(() => Object.fromEntries(subdistricts.map((s) => [s.subdistricts_id, s.name_th ?? ''])), [subdistricts])
+  const headerTypeMap = useMemo(() => Object.fromEntries(headerTypes.map((t) => [t.act_header_type_id, t.act_header_type_name_th ?? `#${t.act_header_type_id}`])), [headerTypes])
+  const detailTypeMap = useMemo(() => Object.fromEntries(detailTypes.map((t) => [t.act_header_detail_type_id, t.act_header_detail_type_name_th ?? `#${t.act_header_detail_type_id}`])), [detailTypes])
+  const landActivityMap = useMemo(() => {
+    return activityDetails.reduce<Record<number, LogActivityDetail[]>>((acc, detail) => {
+      const landId = detail.activities_header?.land_id
+      if (!landId) return acc
+      if (!acc[landId]) acc[landId] = []
+      acc[landId].push(detail)
+      return acc
+    }, {})
+  }, [activityDetails])
 
-  const filteredLands = selectedCamp ? lands.filter(l => l.land_camp_id === selectedCamp) : lands
+  const invalidateLands = () => {
+    qc.invalidateQueries({ queryKey: ['lands'] })
+    qc.invalidateQueries({ queryKey: ['camps'] })
+    qc.invalidateQueries({ queryKey: ['landmaps'] })
+  }
+
+  const saveMut = useMutation({
+    mutationFn: async ({ modalState, payload }: { modalState: Exclude<ModalState, null>; payload: Record<string, unknown> }) => {
+      if (modalState.type === 'lands') {
+        return modalState.row ? put(`/lands/${modalState.row.land_id}`, payload) : post('/lands', payload)
+      }
+      if (modalState.type === 'camps') {
+        return modalState.row ? put(`/lands/camps/${modalState.row.land_camp_id}`, payload) : post('/lands/camps', payload)
+      }
+      return modalState.row ? put(`/lands/landmaps/${modalState.row.landmap_id}`, payload) : post('/lands/landmaps', payload)
+    },
+    onSuccess: () => {
+      invalidateLands()
+      setModal(null)
+      setFormError(null)
+    },
+    onError: (error) => setFormError(error instanceof Error ? error.message : 'Save failed'),
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: async (target: Exclude<DeleteState, null>) => {
+      if (target.type === 'lands') return del(`/lands/${target.id}`)
+      if (target.type === 'camps') return del(`/lands/camps/${target.id}`)
+      return del(`/lands/landmaps/${target.id}`)
+    },
+    onSuccess: () => {
+      invalidateLands()
+      setDeleteTarget(null)
+    },
+  })
+
+  const filteredLands = selectedCamp ? lands.filter((l) => l.land_camp_id === selectedCamp) : lands
+  const queryError = [landsError, campsError, landmapsError].find((error): error is Error => error instanceof Error)
+
+  const openCreate = (type: TabKey) => {
+    setFormError(null)
+    setModal({ type })
+  }
+
+  const openEdit = (state: Exclude<ModalState, null>) => {
+    setFormError(null)
+    setModal(state)
+  }
+
+  const actions = <T,>(onEdit: (row: T) => void, onDelete: (row: T) => void) => (row: T) => (
+    <div className="flex gap-1 justify-end">
+      <button className="btn-icon btn-ghost btn-sm" onClick={() => onEdit(row)} title="แก้ไข">
+        <Pencil size={13} />
+      </button>
+      <button className="btn-icon btn-ghost btn-sm text-red-500" onClick={() => onDelete(row)} title="ลบ">
+        <Trash2 size={13} />
+      </button>
+    </div>
+  )
+
+  const landActions = (row: Land) => (
+    <div className="flex gap-1 justify-end">
+      <button
+        className="btn-icon btn-ghost btn-sm text-primary-600"
+        onClick={() => navigate(`/activities/logs?land_id=${row.land_id}${row.land_camp_id ? `&camp_id=${row.land_camp_id}` : ''}`)}
+        title="ดูกิจกรรมของแปลงนี้"
+      >
+        <ActivitySquare size={13} />
+      </button>
+      {actions<Land>(
+        (item) => openEdit({ type: 'lands', row: item }),
+        (item) => setDeleteTarget({ type: 'lands', id: item.land_id, name: item.name || item.land_code || `#${item.land_id}` }),
+      )(row)}
+    </div>
+  )
 
   const landColumns: Column<Land>[] = [
-    { key: 'land_id',      header: 'ID', width: '60px' },
-    { key: 'land_code',    header: 'รหัสแปลง' },
-    { key: 'name',         header: 'ชื่อแปลง' },
-    { key: 'farmer_id',    header: 'เกษตรกร', render: (r) => farmerMap[r.farmer_id] ?? '—' },
-    { key: 'land_camp_id', header: 'แคมป์', render: (r) => <span className="badge-green">{campMap[r.land_camp_id] ?? '—'}</span> },
-    { key: 'area_size',    header: 'เนื้อที่ (ไร่)', render: (r) => r.area_size?.toFixed(2) ?? '—' },
-    { key: 'village',      header: 'หมู่บ้าน' },
+    { key: 'land_id', header: 'ID', width: '60px' },
+    { key: 'land_code', header: 'รหัสแปลง' },
+    { key: 'name', header: 'ชื่อแปลง' },
+    { key: 'farmer_id', header: 'เกษตรกร', render: (r) => r.farmer_id ? farmerMap[r.farmer_id] ?? r.farmer_id : '-' },
+    { key: 'land_camp_id', header: 'แคมป์', render: (r) => <span className="badge-green">{r.land_camp_id ? campMap[r.land_camp_id] ?? r.land_camp_id : '-'}</span> },
+    {
+      key: 'operations',
+      header: 'การดำเนินงาน',
+      render: (r) => {
+        const details = landActivityMap[r.land_id] ?? []
+        if (details.length === 0) return <span className="text-surface-400">-</span>
+
+        const labels = Array.from(new Set(details.map((detail) => {
+          const detailTypeName = detail.act_header_detail_type_id ? detailTypeMap[detail.act_header_detail_type_id] : undefined
+          const headerTypeName = detail.act_header_type_id ? headerTypeMap[detail.act_header_type_id] : undefined
+          return detailTypeName ?? headerTypeName ?? ''
+        }).filter((label) => Boolean(label && label.trim()))))
+
+        if (labels.length === 0) return <span className="text-surface-400">-</span>
+
+        return (
+          <div className="flex flex-wrap items-center gap-1.5 max-w-[280px]">
+            {labels.slice(0, 3).map((label) => (
+              <span key={label} className="badge-blue">{label}</span>
+            ))}
+            {labels.length > 3 && <span className="badge-gray">+{labels.length - 3} รายการ</span>}
+          </div>
+        )
+      },
+    },
+    { key: 'area_size', header: 'เนื้อที่โฉนด', render: (r) => r.area_size?.toFixed(2) ?? '-' },
+    { key: 'land_size', header: 'ขนาดปลูก', render: (r) => r.land_size?.toFixed(2) ?? '-' },
+    { key: 'land_planSize', header: 'ขนาดแผน', render: (r) => r.land_planSize?.toFixed(2) ?? '-' },
+    { key: 'land_unit_prefix_id', header: 'คำนำหน้าหน่วย', render: (r) => r.land_unit_prefix_id ? unitPfxMap[r.land_unit_prefix_id] ?? r.land_unit_prefix_id : '-' },
+    { key: 'land_unit_id', header: 'หน่วยนับ', render: (r) => r.land_unit_id ? unitMap[r.land_unit_id] ?? r.land_unit_id : '-' },
+    { key: 'village', header: 'หมู่บ้าน' },
+    { key: 'quota_code', header: 'รหัสอ้างอิง' },
+    { key: 'subdistrict_code', header: 'ตำบล', render: (r) => r.subdistricts?.name_th ?? (r.subdistrict_code ? subdistrictMap[r.subdistrict_code] ?? r.subdistrict_code : '-') },
+    { key: 'zip_code', header: 'รหัสไปรษณีย์', render: (r) => r.zip_code ?? r.subdistricts?.zip_code ?? '-' },
   ]
+
   const campColumns: Column<LandCamp>[] = [
-    { key: 'land_camp_id',     header: 'ID', width: '60px' },
+    { key: 'land_camp_id', header: 'ID', width: '60px' },
     { key: 'land_camp_idCode', header: 'รหัสแคมป์' },
-    { key: 'land_camp_name',   header: 'ชื่อแคมป์' },
-    { key: 'land_camp_latitude',  header: 'Lat',  render: (r) => r.land_camp_latitude?.toFixed(6) ?? '—' },
-    { key: 'land_camp_longitude', header: 'Lng',  render: (r) => r.land_camp_longitude?.toFixed(6) ?? '—' },
+    { key: 'land_camp_name', header: 'ชื่อแคมป์' },
+    { key: 'land_camp_latitude', header: 'Lat', render: (r) => r.land_camp_latitude?.toFixed(6) ?? '-' },
+    { key: 'land_camp_longitude', header: 'Lng', render: (r) => r.land_camp_longitude?.toFixed(6) ?? '-' },
+    { key: 'land_camp_info', header: 'หมายเหตุ', render: (r) => <span className="text-surface-400">{r.land_camp_info || '-'}</span> },
   ]
+
   const landmapColumns: Column<Landmap>[] = [
-    { key: 'landmap_id',       header: 'ID', width: '60px' },
-    { key: 'landmap_idCode',   header: 'รหัสโฉนด' },
-    { key: 'landmap_area_size',header: 'เนื้อที่', render: (r) => r.landmap_area_size?.toFixed(2) ?? '—' },
-    { key: 'landmap_latitude', header: 'Lat', render: (r) => r.landmap_latitude?.toFixed(6) ?? '—' },
+    { key: 'landmap_id', header: 'ID', width: '60px' },
+    { key: 'landmap_idCode', header: 'รหัสโฉนด' },
+    { key: 'landmap_area_size', header: 'เนื้อที่', render: (r) => r.landmap_area_size?.toFixed(2) ?? '-' },
+    { key: 'landmap_unit_prefix_id', header: 'คำนำหน้าหน่วย', render: (r) => r.landmap_unit_prefix_id ? unitPfxMap[r.landmap_unit_prefix_id] ?? r.landmap_unit_prefix_id : '-' },
+    { key: 'landmap_unit_id', header: 'หน่วยนับ', render: (r) => r.landmap_unit_id ? unitMap[r.landmap_unit_id] ?? r.landmap_unit_id : '-' },
+    { key: 'landmap_latitude', header: 'Lat', render: (r) => r.landmap_latitude?.toFixed(6) ?? '-' },
+    { key: 'landmap_longitude', header: 'Lng', render: (r) => r.landmap_longitude?.toFixed(6) ?? '-' },
+    { key: 'landmap_info', header: 'หมายเหตุ', render: (r) => <span className="text-surface-400">{r.landmap_info || '-'}</span> },
   ]
 
   const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
-    { key: 'lands',    label: `แปลงที่ดิน (${filteredLands.length})`,  icon: <Layers size={14} /> },
-    { key: 'camps',    label: `แคมป์ (${camps.length})`,              icon: <Tent size={14} /> },
-    { key: 'landmaps', label: `โฉนด (${landmaps.length})`,            icon: <Map size={14} /> },
+    { key: 'lands', label: `แปลงที่ดิน (${filteredLands.length})`, icon: <Layers size={14} /> },
+    { key: 'camps', label: `แคมป์ (${camps.length})`, icon: <Tent size={14} /> },
+    { key: 'landmaps', label: `โฉนด (${landmaps.length})`, icon: <Map size={14} /> },
   ]
+
+  const submitForm = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!modal) return
+    const data = new FormData(event.currentTarget)
+    const payload =
+      modal.type === 'lands'
+        ? {
+            land_code: toStringValue(field(data, 'land_code')),
+            name: toStringValue(field(data, 'name')),
+            quota_code: toStringValue(field(data, 'quota_code')),
+            farmer_id: toNumber(field(data, 'farmer_id')),
+            land_camp_id: toNumber(field(data, 'land_camp_id')),
+            subdistrict_code: toNumber(field(data, 'subdistrict_code')),
+            area_size: toNumber(field(data, 'area_size')),
+            land_size: toNumber(field(data, 'land_size')),
+            land_planSize: toNumber(field(data, 'land_planSize')),
+            land_unit_prefix_id: toNumber(field(data, 'land_unit_prefix_id')),
+            land_unit_id: toNumber(field(data, 'land_unit_id')),
+            latitude: toNumber(field(data, 'latitude')),
+            longitude: toNumber(field(data, 'longitude')),
+            village: toStringValue(field(data, 'village')),
+            zip_code: toStringValue(field(data, 'zip_code')),
+          }
+        : modal.type === 'camps'
+          ? {
+              land_camp_idCode: toStringValue(field(data, 'land_camp_idCode')),
+              land_camp_name: toStringValue(field(data, 'land_camp_name')),
+              land_camp_latitude: toNumber(field(data, 'land_camp_latitude')),
+              land_camp_longitude: toNumber(field(data, 'land_camp_longitude')),
+              land_camp_info: toStringValue(field(data, 'land_camp_info')),
+            }
+          : {
+              landmap_idCode: toStringValue(field(data, 'landmap_idCode')),
+              landmap_area_size: toNumber(field(data, 'landmap_area_size')),
+              landmap_unit_prefix_id: toNumber(field(data, 'landmap_unit_prefix_id')),
+              landmap_unit_id: toNumber(field(data, 'landmap_unit_id')),
+              landmap_latitude: toNumber(field(data, 'landmap_latitude')),
+              landmap_longitude: toNumber(field(data, 'landmap_longitude')),
+              landmap_info: toStringValue(field(data, 'landmap_info')),
+            }
+
+    saveMut.mutate({ modalState: modal, payload })
+  }
 
   return (
     <div>
@@ -71,12 +317,18 @@ export function LandsPage() {
           <h1 className="page-title flex items-center gap-2"><Layers size={20} className="text-primary-600" /> จัดการพื้นที่เพาะปลูก</h1>
           <p className="page-subtitle">แปลงที่ดิน แคมป์เกษตร และโฉนดที่ดิน</p>
         </div>
-        <div className="flex gap-2">
-          <button className="btn-secondary btn-sm"><Plus size={13} /> เพิ่มแปลง</button>
-        </div>
+        <button className="btn-primary btn-sm flex items-center gap-1" onClick={() => openCreate(tab)}>
+          <Plus size={13} /> {tab === 'lands' ? 'เพิ่มแปลง' : tab === 'camps' ? 'เพิ่มแคมป์' : 'เพิ่มโฉนด'}
+        </button>
       </div>
 
-      {/* Camp quick filter */}
+      {queryError && (
+        <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <p className="font-medium">ไม่สามารถโหลดข้อมูลพื้นที่จาก PostgreSQL ได้</p>
+          <p className="mt-1">{queryError.message}</p>
+        </div>
+      )}
+
       {tab === 'lands' && camps.length > 0 && (
         <div className="card mb-5">
           <p className="text-xs font-medium text-surface-600 mb-2">กรองตามแคมป์</p>
@@ -84,19 +336,18 @@ export function LandsPage() {
             <button onClick={() => setSelectedCamp(null)} className={`btn btn-sm rounded-full ${!selectedCamp ? 'btn-primary' : 'btn-secondary'}`}>
               ทั้งหมด ({lands.length})
             </button>
-            {camps.map(c => (
+            {camps.map((c) => (
               <button key={c.land_camp_id} onClick={() => setSelectedCamp(c.land_camp_id)}
                 className={`btn btn-sm rounded-full ${selectedCamp === c.land_camp_id ? 'btn-primary' : 'btn-secondary'}`}>
-                {c.land_camp_name} ({lands.filter(l => l.land_camp_id === c.land_camp_id).length})
+                {c.land_camp_name} ({lands.filter((l) => l.land_camp_id === c.land_camp_id).length})
               </button>
             ))}
           </div>
         </div>
       )}
 
-      {/* Tabs */}
       <div className="flex gap-1 mb-5 bg-surface-100 p-1 rounded-xl w-fit">
-        {TABS.map(t => (
+        {TABS.map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === t.key ? 'bg-white shadow-card text-surface-900' : 'text-surface-500 hover:text-surface-700'}`}>
             {t.icon}{t.label}
@@ -106,18 +357,176 @@ export function LandsPage() {
 
       <div className="card">
         {tab === 'lands' && (
-          <DataTable data={filteredLands} columns={landColumns} isLoading={lLoad}
-            rowKey={(r) => r.land_id} searchPlaceholder="ค้นหารหัสแปลง, ชื่อ..." />
+          <DataTable
+            data={filteredLands} columns={landColumns} isLoading={lLoad}
+            rowKey={(r) => r.land_id} searchPlaceholder="ค้นหารหัสแปลง, ชื่อ..."
+            actions={landActions}
+          />
         )}
         {tab === 'camps' && (
-          <DataTable data={camps} columns={campColumns} isLoading={cLoad}
-            rowKey={(r) => r.land_camp_id} />
+          <DataTable
+            data={camps} columns={campColumns} isLoading={cLoad}
+            rowKey={(r) => r.land_camp_id}
+            actions={actions<LandCamp>(
+              (row) => openEdit({ type: 'camps', row }),
+              (row) => setDeleteTarget({ type: 'camps', id: row.land_camp_id, name: row.land_camp_name || row.land_camp_idCode || `#${row.land_camp_id}` }),
+            )}
+          />
         )}
         {tab === 'landmaps' && (
-          <DataTable data={landmaps} columns={landmapColumns} isLoading={mLoad}
-            rowKey={(r) => r.landmap_id} />
+          <DataTable
+            data={landmaps} columns={landmapColumns} isLoading={mLoad}
+            rowKey={(r) => r.landmap_id}
+            actions={actions<Landmap>(
+              (row) => openEdit({ type: 'landmaps', row }),
+              (row) => setDeleteTarget({ type: 'landmaps', id: row.landmap_id, name: row.landmap_idCode || `#${row.landmap_id}` }),
+            )}
+          />
         )}
       </div>
+
+      {modal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setModal(null)} />
+          <form onSubmit={submitForm} className="relative bg-white rounded-2xl shadow-card-lg p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto animate-slide-up">
+            <h3 className="font-semibold mb-5">
+              {modal.row ? 'แก้ไข' : 'เพิ่ม'} {modal.type === 'lands' ? 'แปลงที่ดิน' : modal.type === 'camps' ? 'แคมป์' : 'โฉนด'}
+            </h3>
+            {formError && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{formError}</div>}
+
+            {modal.type === 'lands' && <LandForm row={modal.row} farmers={farmers} camps={camps} units={units} unitPfxs={unitPfxs} subdistricts={subdistricts} />}
+            {modal.type === 'camps' && <CampForm row={modal.row} />}
+            {modal.type === 'landmaps' && <LandmapForm row={modal.row} units={units} unitPfxs={unitPfxs} />}
+
+            <div className="flex gap-3 mt-5">
+              <button type="button" className="btn-secondary flex-1" onClick={() => setModal(null)}>ยกเลิก</button>
+              <button type="submit" className="btn-primary flex-1" disabled={saveMut.isPending}>
+                {saveMut.isPending ? 'กำลังบันทึก...' : 'บันทึก'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="ยืนยันการลบ"
+        message={`คุณต้องการลบ "${deleteTarget?.name}" หรือไม่? ถ้ามีข้อมูลอื่นอ้างอิงอยู่ PostgreSQL อาจปฏิเสธการลบ`}
+        confirmLabel="ลบออก"
+        onConfirm={() => deleteTarget && deleteMut.mutate(deleteTarget)}
+        onCancel={() => setDeleteTarget(null)}
+        isLoading={deleteMut.isPending}
+      />
+    </div>
+  )
+}
+
+function LandForm({
+  row,
+  farmers,
+  camps,
+  units,
+  unitPfxs,
+  subdistricts,
+}: {
+  row?: Land
+  farmers: Farmer[]
+  camps: LandCamp[]
+  units: Unit[]
+  unitPfxs: UnitPrefix[]
+  subdistricts: Subdistrict[]
+}) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <TextField name="land_code" label="รหัสแปลง" defaultValue={row?.land_code} />
+      <TextField name="name" label="ชื่อแปลง" defaultValue={row?.name} />
+      <SelectField name="farmer_id" label="เกษตรกร" defaultValue={row?.farmer_id} options={farmers.map((f) => ({ value: f.farmer_id, label: `${f.first_name ?? ''} ${f.last_name ?? ''}`.trim() || `#${f.farmer_id}` }))} />
+      <SelectField name="land_camp_id" label="แคมป์" defaultValue={row?.land_camp_id} options={camps.map((c) => ({ value: c.land_camp_id, label: c.land_camp_name || c.land_camp_idCode || `#${c.land_camp_id}` }))} />
+      <TextField name="quota_code" label="รหัสอ้างอิงแปลง" defaultValue={row?.quota_code} />
+      <SelectField name="subdistrict_code" label="ตำบล" defaultValue={row?.subdistrict_code} options={subdistricts.map((s) => ({ value: s.subdistricts_id, label: `${s.name_th ?? '-'}${s.zip_code ? ` (${s.zip_code})` : ''}` }))} />
+      <NumberField name="area_size" label="เนื้อที่ตามโฉนด" defaultValue={row?.area_size} />
+      <NumberField name="land_size" label="ขนาดแปลงปลูก" defaultValue={row?.land_size} />
+      <NumberField name="land_planSize" label="ขนาดแผนแปลงปลูก" defaultValue={row?.land_planSize} />
+      <SelectField name="land_unit_prefix_id" label="คำนำหน้าหน่วย" defaultValue={row?.land_unit_prefix_id} options={unitPfxs.map((u) => ({ value: u.unit_prefix_id, label: u.unit_prefix_name || u.unit_prefix_initial || `#${u.unit_prefix_id}` }))} />
+      <SelectField name="land_unit_id" label="หน่วยนับ" defaultValue={row?.land_unit_id} options={units.map((u) => ({ value: u.unit_id, label: u.unit_name || u.unit_initial || `#${u.unit_id}` }))} />
+      <TextField name="village" label="หมู่บ้าน" defaultValue={row?.village} />
+      <TextField name="zip_code" label="รหัสไปรษณีย์" defaultValue={row?.zip_code} />
+      <NumberField name="latitude" label="Latitude" defaultValue={row?.latitude} step="0.00000001" />
+      <NumberField name="longitude" label="Longitude" defaultValue={row?.longitude} step="0.00000001" />
+    </div>
+  )
+}
+
+function CampForm({ row }: { row?: LandCamp }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <TextField name="land_camp_idCode" label="รหัสแคมป์" defaultValue={row?.land_camp_idCode} />
+      <TextField name="land_camp_name" label="ชื่อแคมป์" defaultValue={row?.land_camp_name} />
+      <NumberField name="land_camp_latitude" label="Latitude" defaultValue={row?.land_camp_latitude} step="0.00000001" />
+      <NumberField name="land_camp_longitude" label="Longitude" defaultValue={row?.land_camp_longitude} step="0.00000001" />
+      <div className="md:col-span-2">
+        <label className="label">หมายเหตุ</label>
+        <textarea name="land_camp_info" className="input" rows={3} defaultValue={row?.land_camp_info ?? ''} />
+      </div>
+    </div>
+  )
+}
+
+function LandmapForm({ row, units, unitPfxs }: { row?: Landmap; units: Unit[]; unitPfxs: UnitPrefix[] }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <TextField name="landmap_idCode" label="รหัสโฉนด" defaultValue={row?.landmap_idCode} />
+      <NumberField name="landmap_area_size" label="เนื้อที่" defaultValue={row?.landmap_area_size} />
+      <SelectField name="landmap_unit_prefix_id" label="คำนำหน้าหน่วย" defaultValue={row?.landmap_unit_prefix_id} options={unitPfxs.map((u) => ({ value: u.unit_prefix_id, label: u.unit_prefix_name || u.unit_prefix_initial || `#${u.unit_prefix_id}` }))} />
+      <SelectField name="landmap_unit_id" label="หน่วยนับ" defaultValue={row?.landmap_unit_id} options={units.map((u) => ({ value: u.unit_id, label: u.unit_name || u.unit_initial || `#${u.unit_id}` }))} />
+      <NumberField name="landmap_latitude" label="Latitude" defaultValue={row?.landmap_latitude} step="0.00000001" />
+      <NumberField name="landmap_longitude" label="Longitude" defaultValue={row?.landmap_longitude} step="0.00000001" />
+      <div className="md:col-span-2">
+        <label className="label">หมายเหตุ</label>
+        <textarea name="landmap_info" className="input" rows={3} defaultValue={row?.landmap_info ?? ''} />
+      </div>
+    </div>
+  )
+}
+
+function TextField({ name, label, defaultValue }: { name: string; label: string; defaultValue?: string }) {
+  return (
+    <div>
+      <label className="label">{label}</label>
+      <input name={name} className="input" defaultValue={defaultValue ?? ''} />
+    </div>
+  )
+}
+
+function NumberField({ name, label, defaultValue, step = '0.01' }: { name: string; label: string; defaultValue?: number; step?: string }) {
+  return (
+    <div>
+      <label className="label">{label}</label>
+      <input name={name} type="number" step={step} className="input" defaultValue={defaultValue ?? ''} />
+    </div>
+  )
+}
+
+function SelectField({
+  name,
+  label,
+  defaultValue,
+  options,
+}: {
+  name: string
+  label: string
+  defaultValue?: number
+  options: { value: number; label: string }[]
+}) {
+  return (
+    <div>
+      <label className="label">{label}</label>
+      <select name={name} className="select" defaultValue={defaultValue ?? ''}>
+        <option value="">- ไม่ระบุ -</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
     </div>
   )
 }

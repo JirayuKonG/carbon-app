@@ -12,8 +12,8 @@ type UserPayload = {
   username: string
   first_name: string
   last_name: string
-  email?: string
-  role_id?: number
+  email?: string  // ? is for optional email, as it's not required in the form
+  role_id?: number // ? is for the case when editing user but not changing role, we can allow role_id to be optional and use existing one
   department_id?: number
 }
 
@@ -22,16 +22,20 @@ type TabKey = 'users' | 'roles' | 'departments'
 export function UsersPage() {
   const qc = useQueryClient()
   const [tab, setTab]               = useState<TabKey>('users')
+  
+  // model open/edit states
   const [showModal, setShowModal]   = useState(false)
   const [showRoleModal, setShowRoleModal] = useState(false)
   const [editing, setEditing]       = useState<User | null>(null)
   const [editingRole, setEditingRole] = useState<Role | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null)
 
+  // query data
   const { data: users       = [], isLoading: uLoad } = useQuery({ queryKey: ['users'],       queryFn: () => get<User[]>('/users') })
   const { data: roles       = [], isLoading: rLoad } = useQuery({ queryKey: ['roles'],       queryFn: () => get<Role[]>('/users/roles') })
   const { data: departments = [], isLoading: dLoad } = useQuery({ queryKey: ['departments'], queryFn: () => get<Department[]>('/infra/departments') })
 
+  // mutations
   const deleteMut = useMutation({
     mutationFn: () => del(`/users/${deleteTarget?.id}`),
     onSuccess:  () => { qc.invalidateQueries({ queryKey: ['users'] }); setDeleteTarget(null) },
@@ -60,10 +64,9 @@ export function UsersPage() {
   const handleSaveRole = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
-    const role_name = String(form.get('role_name') ?? '').trim()
+    const role_name     = String(form.get('role_name')      ?? '').trim()
     const role_name_eng = String(form.get('role_name_eng') ?? '').trim()
     if (!role_name) return
-
     saveRoleMut.mutate({
       id: editingRole?.role_id,
       payload: { role_name, role_name_eng: role_name_eng || undefined },

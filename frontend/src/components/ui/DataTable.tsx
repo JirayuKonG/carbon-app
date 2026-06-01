@@ -1,11 +1,12 @@
 import { useState, useMemo } from 'react'
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Search } from 'lucide-react'
+import { ArrowUpDown, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronUp, Search } from 'lucide-react'
 
 export interface Column<T> {
   key: keyof T | string
   header: string
   render?: (row: T) => React.ReactNode
   sortable?: boolean
+  sortValue?: (row: T) => unknown
   width?: string
 }
 
@@ -32,7 +33,7 @@ export function DataTable<T>({
   searchable = true,
   searchPlaceholder = 'ค้นหา...',
   pageSizeOptions = PAGE_SIZES,
-  defaultPageSize = 25,
+  defaultPageSize = 10,
   rowKey,
   onRowClick,
   actions,
@@ -41,6 +42,51 @@ export function DataTable<T>({
   const [search, setSearch]     = useState('')
   const [page, setPage]         = useState(1)
   const [pageSize, setPageSize] = useState(defaultPageSize)
+  const [sortKey, setSortKey] = useState<string | null>(null)
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+
+  const getValue = (row: T, key: string): unknown => {
+    return key.split('.').reduce((obj, k) => (obj as Record<string, unknown>)?.[k], row as unknown)
+  }
+
+  const getSortValue = (row: T, column: Column<T>) => {
+    if (column.sortValue) return column.sortValue(row)
+    return getValue(row, String(column.key))
+  }
+
+  const normalizeSortValue = (value: unknown): number | string => {
+    if (value == null) return ''
+    if (typeof value === 'number') return Number.isNaN(value) ? Number.NEGATIVE_INFINITY : value
+    if (value instanceof Date) return value.getTime()
+    if (typeof value === 'boolean') return value ? 1 : 0
+    if (typeof value === 'string') {
+      const trimmed = value.trim()
+      if (!trimmed) return ''
+
+      const numeric = Number(trimmed.replace(/,/g, ''))
+      if (!Number.isNaN(numeric) && /^-?[\d,.]+$/.test(trimmed)) return numeric
+
+      const parsedDate = Date.parse(trimmed)
+      if (!Number.isNaN(parsedDate)) return parsedDate
+
+      return trimmed.toLocaleLowerCase()
+    }
+
+    return String(value).toLocaleLowerCase()
+  }
+
+  const compareValues = (left: unknown, right: unknown) => {
+    const a = normalizeSortValue(left)
+    const b = normalizeSortValue(right)
+
+    if (a === b) return 0
+    if (typeof a === 'number' && typeof b === 'number') return a - b
+
+    return String(a).localeCompare(String(b), ['th', 'en'], {
+      numeric: true,
+      sensitivity: 'base',
+    })
+  }
 
   const filtered = useMemo(() => {
     if (!search.trim()) return data
@@ -52,14 +98,35 @@ export function DataTable<T>({
     )
   }, [data, search])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const sorted = useMemo(() => {
+    if (!sortKey) return filtered
+
+    const column = columns.find((item) => String(item.key) === sortKey)
+    if (!column?.sortable) return filtered
+
+    const direction = sortDirection === 'asc' ? 1 : -1
+
+    return [...filtered].sort((left, right) => (
+      compareValues(getSortValue(left, column), getSortValue(right, column)) * direction
+    ))
+  }, [columns, filtered, sortDirection, sortKey])
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
   const safePage   = Math.min(page, totalPages)
-  const slice      = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
+  const slice      = sorted.slice((safePage - 1) * pageSize, safePage * pageSize)
 
   const goTo = (p: number) => setPage(Math.max(1, Math.min(p, totalPages)))
+  const toggleSort = (column: Column<T>) => {
+    if (!column.sortable) return
 
-  const getValue = (row: T, key: string): unknown => {
-    return key.split('.').reduce((obj, k) => (obj as Record<string, unknown>)?.[k], row as unknown)
+    const columnKey = String(column.key)
+    if (sortKey === columnKey) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortKey(columnKey)
+      setSortDirection('asc')
+    }
+    setPage(1)
   }
 
   return (
@@ -99,7 +166,20 @@ export function DataTable<T>({
             <tr>
               {columns.map((col) => (
                 <th key={String(col.key)} style={{ width: col.width }}>
-                  {col.header}
+                  {col.sortable ? (
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-1 text-left"
+                      onClick={() => toggleSort(col)}
+                    >
+                      <span>{col.header}</span>
+                      {sortKey === String(col.key) ? (
+                        sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+                      ) : (
+                        <ArrowUpDown size={14} className="text-surface-400" />
+                      )}
+                    </button>
+                  ) : col.header}
                 </th>
               ))}
               {actions && <th className="w-24 text-right">การดำเนินการ</th>}
@@ -152,7 +232,7 @@ export function DataTable<T>({
       {/* Pagination */}
       <div className="flex items-center justify-between text-xs text-surface-500">
         <span>
-          {filtered.length === 0 ? 'ไม่มีข้อมูล' : `แสดง ${(safePage - 1) * pageSize + 1}–${Math.min(safePage * pageSize, filtered.length)} จาก ${filtered.length} รายการ`}
+          {sorted.length === 0 ? 'ไม่มีข้อมูล' : `แสดง ${(safePage - 1) * pageSize + 1}–${Math.min(safePage * pageSize, sorted.length)} จาก ${sorted.length} รายการ`}
         </span>
         <div className="pagination">
           <button className="pagination-btn" onClick={() => goTo(1)} disabled={safePage === 1}>

@@ -27,6 +27,8 @@ export class ActivitiesController {
   @ApiQuery({ name: 'header_id', required: false, type: Number })
   getDetails(@Query('header_id') hid?: string) { return this.svc.getDetails(hid ? +hid : undefined) }
   @Post('details') createDetail(@Body() b: any) { return this.svc.createDetail(b) }
+  @Put('details/:id') updateDetail(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateDetail(id, b) }
+  @Delete('details/:id') deleteDetail(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteDetail(id) }
 
   // Reference lists
   @Get('header-types')    getHeaderTypes()   { return this.svc.getHeaderTypes() }

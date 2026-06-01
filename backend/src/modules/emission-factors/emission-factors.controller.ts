@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, ParseIntPipe } from '@nestjs/common'
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, ParseIntPipe, BadRequestException } from '@nestjs/common'
 import { ApiTags } from '@nestjs/swagger'
 import { EmissionFactorsService } from './emission-factors.service'
 
@@ -28,13 +28,48 @@ export class EmissionFactorsController {
   @Post('groups')     createGroup(@Body() b: any)                    { return this.svc.createGroup(b) }
   @Put('groups/:id')  updateGroup(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateGroup(id, b) }
 
-  // Units
-  @Get('units')        getUnits()               { return this.svc.getUnits() }
-  @Post('units')       createUnit(@Body() b: any){ return this.svc.createUnit(b) }
-  @Put('units/:id')    updateUnit(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateUnit(id, b) }
+  // --------------------Units
+  @Get('units') getUnits() { return this.svc.getUnits() }
 
-  // Unit prefixes
-  @Get('unit-prefixs')       getUnitPrefixs()                { return this.svc.getUnitPrefixs() }
-  @Post('unit-prefixs')      createUnitPrefix(@Body() b: any){ return this.svc.createUnitPrefix(b) }
-  @Put('unit-prefixs/:id')   updateUnitPrefix(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateUnitPrefix(id, b) }
+  @Post('units')
+  async createUnit(@Body() b: any) {
+    // try { return await this.svc.createUnit(b) }
+    try { return this.svc.createUnit(b) }
+    catch (e: any) { throw new BadRequestException(e?.message ?? 'Insert unit failed') }
+  }
+
+  @Put('units/:id')
+  async updateUnit(@Param('id', ParseIntPipe) id: number, @Body() b: any) {
+    try { return this.svc.updateUnit(id, b) }
+    // try { return await this.svc.updateUnit(id, b) }
+    catch (e: any) { throw new BadRequestException(e?.message ?? 'Update unit failed') }
+  }
+
+  @Delete('units/:id')
+  async deleteUnit(@Param('id', ParseIntPipe) id: number) {
+    // try { return await this.svc.deleteUnit(id) }
+    try { return this.svc.deleteUnit(id) }
+    catch (e: any) { throw new BadRequestException(e?.message ?? 'Delete unit failed') }
+  }
+
+  // --------------------Unit prefixes
+  @Get('unit-prefixs')   getUnitPrefixs() { return this.svc.getUnitPrefixs() }
+
+  @Post('unit-prefixs')
+  async createUnitPrefix(@Body() b: any) {
+    try { return await this.svc.createUnitPrefix(b) }
+    catch (e: any) { throw new BadRequestException(e?.message ?? 'Insert unit prefix failed') }
+  }
+
+  @Put('unit-prefixs/:id')
+  async updateUnitPrefix(@Param('id', ParseIntPipe) id: number, @Body() b: any) {
+    try { return await this.svc.updateUnitPrefix(id, b) }
+    catch (e: any) { throw new BadRequestException(e?.message ?? 'Update unit prefix failed') }
+  }
+
+  @Delete('unit-prefixs/:id')
+  async deleteUnitPrefix(@Param('id', ParseIntPipe) id: number) {
+    try { return await this.svc.deleteUnitPrefix(id) }
+    catch (e: any) { throw new BadRequestException(e?.message ?? 'Delete unit prefix failed') }
+  }
 }
