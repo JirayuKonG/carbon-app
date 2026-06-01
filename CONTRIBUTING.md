@@ -15,6 +15,7 @@ This file explains how to keep project changes and documentation consistent.
 - Update `GUIDE.md` for setup, build, database, or environment changes.
 - Update `COMPONENT_PJ.md` when routes, pages, shared components, or module locations change.
 - Update `BUG_LOG.md` when you confirm, fix, or re-test a bug.
+- Update `SECURITY.md` when security contacts, reporting process, or sensitive-data handling rules change.
 
 ## Change Workflow
 

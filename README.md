@@ -20,6 +20,7 @@ carbon-app/
 |- README.md
 |- GUIDE.md
 |- CONTRIBUTING.md
+|- SECURITY.md
 |- COMPONENT_PJ.md
 `- BUG_LOG.md
 ```
@@ -33,6 +34,7 @@ Use the project docs like this:
 - [COMPONENT_PJ.md](COMPONENT_PJ.md): frontend/backend file map
 - [BUG_LOG.md](BUG_LOG.md): active bugs, fixed bugs, and verification notes
 - [CONTRIBUTING.md](CONTRIBUTING.md): how to keep docs and project changes consistent
+- [SECURITY.md](SECURITY.md): vulnerability reporting and security handling guidance
 
 ## Quick Start
 

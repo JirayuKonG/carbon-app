@@ -47,6 +47,7 @@ const NAV_GROUPS: NavGroup[] = [
     section: 'Carbon Footprint',
     items: [
       { path: '/emission-factors', label: 'EF / GWP / หน่วย', labelEn: 'Emission Factors', icon: <FlaskConical size={16} /> },
+      { path: '/activities/resources', label: 'ปุ๋ย / เคมี / อุปกรณ์', labelEn: 'Activity Resources', icon: <FlaskConical size={16} /> },
       {
         label: 'บันทึกกิจกรรม',
         labelEn: 'Activities',
