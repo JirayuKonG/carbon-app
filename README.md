@@ -95,6 +95,33 @@ npm run prisma:introspect --workspace=backend
 npm run prisma:studio --workspace=backend
 ```
 
+## Deploying `main`
+
+This project is production-ready to deploy from the `main` branch with:
+
+- frontend: static site
+- backend: NestJS web service
+- database: PostgreSQL, such as Aiven
+
+The repository includes [render.yaml](render.yaml) for a Render deployment flow.
+
+Minimum production environment variables:
+
+- backend:
+  - `DATABASE_URL`
+  - `JWT_SECRET`
+  - `ALLOWED_ORIGINS`
+- frontend:
+  - `VITE_API_BASE_URL`
+- optional frontend benchmark page:
+  - `VITE_CF_API_URL`
+
+Important:
+
+- `ALLOWED_ORIGINS` accepts a comma-separated list, for example `https://carbon-footprint-web.onrender.com`
+- `VITE_API_BASE_URL` should point to your deployed backend API, for example `https://carbon-footprint-api.onrender.com/api`
+- the Carbon Analytics benchmark page uses a separate benchmark API that is not part of this repository
+
 ## Main Functional Areas
 
 - `geo`: geography reference data

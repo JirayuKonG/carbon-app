@@ -131,6 +131,45 @@ Build backend only:
 npm run build --workspace=backend
 ```
 
+## Deploy To Production From `main`
+
+This repository can be deployed from the `main` branch without using the dev branch.
+
+Recommended setup:
+
+1. Keep PostgreSQL on Aiven or another managed PostgreSQL service.
+2. Deploy the backend as a Node web service.
+3. Deploy the frontend as a static site.
+4. Point the frontend to the backend with `VITE_API_BASE_URL`.
+5. Allow the frontend domain in backend `ALLOWED_ORIGINS`.
+
+### Render deployment
+
+The repository includes [render.yaml](render.yaml) for Render.
+
+Backend production variables:
+
+```dotenv
+DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/defaultdb?sslmode=require&schema=public"
+JWT_SECRET="change-this-to-a-long-random-secret"
+JWT_EXPIRES_IN=7d
+ALLOWED_ORIGINS=https://your-frontend-domain.onrender.com
+NODE_ENV=production
+```
+
+Frontend production variables:
+
+```dotenv
+VITE_API_BASE_URL=https://your-backend-domain.onrender.com/api
+VITE_CF_API_URL=
+```
+
+Notes:
+
+- `ALLOWED_ORIGINS` can contain multiple comma-separated domains if needed.
+- `VITE_CF_API_URL` is optional and is only needed for the benchmark page in Carbon Analytics.
+- The benchmark API is not part of this repository, so leaving `VITE_CF_API_URL` empty will keep the main app deployable while that page shows a configuration message.
+
 ## Local URLs
 
 | URL | Purpose |
