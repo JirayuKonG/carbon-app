@@ -6,18 +6,18 @@ interface TopbarProps {
 
 export function Topbar({ onMenuClick }: TopbarProps) {
   return (
-    <header className="sticky top-0 z-20 h-14 bg-white border-b border-surface-100 flex items-center px-4 gap-3 shadow-sm md:hidden lg:flex lg:px-6">
+    <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-surface-100 bg-white px-4 shadow-sm lg:px-6">
       {/* Mobile menu button */}
       <button
         onClick={onMenuClick}
-        className="btn-icon btn-ghost md:hidden"
+        className="btn-icon btn-ghost xl:hidden"
         aria-label="เปิดเมนู"
       >
         <Menu size={18} />
       </button>
 
       {/* Search */}
-      <div className="flex-1 max-w-md hidden md:flex items-center gap-2 bg-surface-50 border border-surface-200 rounded-lg px-3 py-1.5">
+      <div className="hidden max-w-md flex-1 items-center gap-2 rounded-lg border border-surface-200 bg-surface-50 px-3 py-1.5 md:flex">
         <Search size={14} className="text-surface-400 shrink-0" />
         <input
           type="text"

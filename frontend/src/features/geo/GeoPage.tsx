@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { get } from '@/lib/api'
-import { Plus, MapPin } from 'lucide-react'
+import { MapPin } from 'lucide-react'
 
 interface Province   { provinces_id: number; geography_id: number; name_th: string; name_th_short: string; name_en: string;}
 interface District   { districts_id: number; province_code: number; name_th: string; name_en: string; }

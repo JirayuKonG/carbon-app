@@ -22,7 +22,7 @@ interface LandCamp { land_camp_id: number; land_camp_name: string }
 
 // Target columns matching lands_weatherStationRec schema v1.3
 const WEATHER_TARGET_COLUMNS: TargetColumn[] = [
-  { key: 'land_camp_id',                               label: 'แคมป์ (land_camp)',           required: true,  type: 'fk', fkTable: 'lands_camps' },
+  { key: 'land_camp_id',                               label: 'แคมป์',                        required: true,  type: 'fk', fkTable: 'lands_camps' },
   { key: 'land_weatherStationRec_airTemperature',       label: 'อุณหภูมิอากาศ (°C)',           required: false, type: 'number' },
   { key: 'land_weatherStationRec_relativeHumidity',     label: 'ความชื้นสัมพัทธ์ (%)',         required: false, type: 'number' },
   { key: 'land_weatherStationRec_barometricPressure',   label: 'ความดันบรรยากาศ (hPa)',        required: false, type: 'number' },
@@ -78,7 +78,7 @@ export function WeatherPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title flex items-center gap-2"><CloudRain size={20} className="text-primary-600" /> ข้อมูลสภาพอากาศ</h1>
-          <p className="page-subtitle">บันทึกจากสถานีตรวจวัดในแคมป์เกษตร — lands_weatherStationRec</p>
+          <p className="page-subtitle">บันทึกจากสถานีตรวจวัดในแคมป์เกษตร</p>
         </div>
         <div className="flex gap-2">
           <button className="btn-secondary" onClick={() => setShowManual(true)}><Plus size={14} /> เพิ่มรายการ</button>

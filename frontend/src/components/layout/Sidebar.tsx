@@ -1,16 +1,18 @@
+import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Map, Factory, Users, Tractor,
-  Layers, CloudRain, FlaskConical, ActivitySquare,
-  Leaf, X, ChevronRight,
+  Layers, CloudRain, FlaskConical, ActivitySquare, Settings2,
+  Leaf, ChevronDown, ChevronRight, X, BarChart3, Sprout, MapPin, GitBranch, Truck, FileText,
 } from 'lucide-react'
 
 interface NavItem {
-  path: string
   label: string
   labelEn: string
   icon: React.ReactNode
+  path?: string
   badge?: string
+  children?: NavItem[]
 }
 
 interface NavGroup {
@@ -19,6 +21,17 @@ interface NavGroup {
 }
 
 const NAV_GROUPS: NavGroup[] = [
+  {
+    section: 'Carbon Analytics',
+    items: [
+      { path: '/overview', label: 'ภาพรวม Carbon', labelEn: 'Overview', icon: <BarChart3 size={16} /> },
+      { path: '/process', label: 'กระบวนการเพาะปลูก', labelEn: 'Process', icon: <Sprout size={16} /> },
+      { path: '/transport', label: 'การขนส่งเข้าโรงงาน', labelEn: 'Transport', icon: <Truck size={16} /> },
+      { path: '/spatial', label: 'แผนที่พื้นที่', labelEn: 'Spatial', icon: <MapPin size={16} /> },
+      { path: '/report', label: 'รายงาน Premium T-VER', labelEn: 'Report', icon: <FileText size={16} /> },
+      { path: '/pipeline', label: 'Pipeline Proof', labelEn: 'Pipeline', icon: <GitBranch size={16} /> },
+    ],
+  },
   {
     section: 'ภาพรวม',
     items: [
@@ -45,7 +58,17 @@ const NAV_GROUPS: NavGroup[] = [
     section: 'Carbon Footprint',
     items: [
       { path: '/emission-factors', label: 'EF / GWP / หน่วย', labelEn: 'Emission Factors', icon: <FlaskConical size={16} /> },
-      { path: '/activities',       label: 'บันทึกกิจกรรม',     labelEn: 'Activities',       icon: <ActivitySquare size={16} />, badge: 'Import' },
+      { path: '/activities/resources', label: 'ปุ๋ย / เคมี / อุปกรณ์', labelEn: 'Activity Resources', icon: <FlaskConical size={16} /> },
+      {
+        label: 'บันทึกกิจกรรม',
+        labelEn: 'Activities',
+        icon: <ActivitySquare size={16} />,
+        badge: 'Import',
+        children: [
+          { path: '/activities/logs', label: 'รายการบันทึกกิจกรรม', labelEn: 'Activity Logs', icon: <ActivitySquare size={14} /> },
+          { path: '/activities/manage', label: 'จัดการกิจกรรม', labelEn: 'Manage Activities', icon: <Settings2 size={14} /> },
+        ],
+      },
     ],
   },
 ]
@@ -57,15 +80,34 @@ interface SidebarProps {
 
 export function Sidebar({ mobile, onClose }: SidebarProps) {
   const location = useLocation()
-  const navItems = NAV_GROUPS.flatMap((group) => group.items)
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
+
+  const navItems = NAV_GROUPS.flatMap((group) => group.items.flatMap((item) => item.children ?? [item]))
   const activePath = navItems
+    .filter((item): item is NavItem & { path: string } => Boolean(item.path))
     .filter((item) =>
       location.pathname === item.path || location.pathname.startsWith(`${item.path}/`),
     )
     .sort((a, b) => b.path.length - a.path.length)[0]?.path
 
+  useEffect(() => {
+    const nextOpenGroups = Object.fromEntries(
+      NAV_GROUPS.flatMap((group) =>
+        group.items
+          .filter((item) => item.children?.some((child) => child.path === activePath))
+          .map((item) => [item.label, true]),
+      ),
+    )
+
+    setOpenGroups((prev) => ({ ...prev, ...nextOpenGroups }))
+  }, [activePath])
+
+  const toggleGroup = (label: string) => {
+    setOpenGroups((prev) => ({ ...prev, [label]: !prev[label] }))
+  }
+
   return (
-    <aside className={`sidebar flex flex-col ${mobile ? '' : 'hidden md:flex'}`}>
+    <aside className={mobile ? 'flex h-full flex-col bg-surface-900 text-surface-100' : 'sidebar hidden xl:flex flex-col'}>
       {/* Logo */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-surface-800">
         <div className="flex items-center gap-2.5">
@@ -77,11 +119,11 @@ export function Sidebar({ mobile, onClose }: SidebarProps) {
             <p className="text-[10px] text-surface-500 leading-tight">อุตสาหกรรมอ้อย</p>
           </div>
         </div>
-        {/* {mobile && onClose && (
+        {mobile && onClose && (
           <button onClick={onClose} className="btn-icon btn-ghost text-surface-400 hover:text-surface-200">
             <X size={16} />
           </button>
-        )} */}
+        )}
       </div>
 
       {/* Nav groups */}
@@ -91,11 +133,56 @@ export function Sidebar({ mobile, onClose }: SidebarProps) {
             <p className="sidebar-section">{group.section}</p>
             <ul className="px-2 space-y-0.5">
               {group.items.map((item) => {
-                const isActive = activePath === item.path
+                const childActive = item.children?.some((child) => child.path === activePath) ?? false
+                const isActive = item.path ? activePath === item.path : childActive
+                const isOpen = openGroups[item.label] ?? childActive
+
+                if (item.children?.length) {
+                  return (
+                    <li key={item.label}>
+                      <button
+                        type="button"
+                        className={`sidebar-item w-full ${isActive ? 'active' : ''}`}
+                        onClick={() => toggleGroup(item.label)}
+                      >
+                        <span className="shrink-0">{item.icon}</span>
+                        <span className="flex-1 truncate text-left">{item.label}</span>
+                        {item.badge && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary-700/50 text-primary-300 border border-primary-700/40 shrink-0">
+                            {item.badge}
+                          </span>
+                        )}
+                        <ChevronDown size={12} className={`shrink-0 transition-transform ${isOpen ? 'rotate-180 text-primary-300' : 'text-surface-500'}`} />
+                      </button>
+
+                      {isOpen && (
+                        <ul className="sidebar-submenu">
+                          {item.children.map((child) => {
+                            const childIsActive = activePath === child.path
+                            return (
+                              <li key={child.path}>
+                                <NavLink
+                                  to={child.path ?? '/'}
+                                  onClick={onClose}
+                                  className={`sidebar-subitem ${childIsActive ? 'active' : ''}`}
+                                >
+                                  <span className="shrink-0">{child.icon}</span>
+                                  <span className="flex-1 truncate">{child.label}</span>
+                                  {childIsActive && <ChevronRight size={12} className="shrink-0 text-primary-300" />}
+                                </NavLink>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      )}
+                    </li>
+                  )
+                }
+
                 return (
                   <li key={item.path}>
                     <NavLink
-                      to={item.path}
+                      to={item.path ?? '/'}
                       onClick={onClose}
                       className={`sidebar-item ${isActive ? 'active' : ''}`}
                     >

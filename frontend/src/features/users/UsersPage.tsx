@@ -1,31 +1,102 @@
-import { useState } from 'react'
+import { type FormEvent, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import { get, del } from '@/lib/api'
+import { get, post, put, del } from '@/lib/api'
 import { Users, Plus, Pencil, Trash2, ShieldCheck } from 'lucide-react'
 
 interface User       { user_id: number; username: string; first_name: string; last_name: string; email: string; role_id: number; department_id: number }
 interface Role       { role_id: number; role_name: string; role_name_eng: string }
 interface Department { departments_id: number; name: string }
+type UserPayload = {
+  username: string
+  first_name: string
+  last_name: string
+  email?: string  // ? is for optional email, as it's not required in the form
+  role_id?: number // ? is for the case when editing user but not changing role, we can allow role_id to be optional and use existing one
+  department_id?: number
+}
 
 type TabKey = 'users' | 'roles' | 'departments'
 
 export function UsersPage() {
   const qc = useQueryClient()
   const [tab, setTab]               = useState<TabKey>('users')
+  
+  // model open/edit states
   const [showModal, setShowModal]   = useState(false)
+  const [showRoleModal, setShowRoleModal] = useState(false)
   const [editing, setEditing]       = useState<User | null>(null)
+  const [editingRole, setEditingRole] = useState<Role | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null)
 
+  // query data
   const { data: users       = [], isLoading: uLoad } = useQuery({ queryKey: ['users'],       queryFn: () => get<User[]>('/users') })
   const { data: roles       = [], isLoading: rLoad } = useQuery({ queryKey: ['roles'],       queryFn: () => get<Role[]>('/users/roles') })
   const { data: departments = [], isLoading: dLoad } = useQuery({ queryKey: ['departments'], queryFn: () => get<Department[]>('/infra/departments') })
 
+  // mutations
   const deleteMut = useMutation({
     mutationFn: () => del(`/users/${deleteTarget?.id}`),
     onSuccess:  () => { qc.invalidateQueries({ queryKey: ['users'] }); setDeleteTarget(null) },
   })
+
+  const saveUserMut = useMutation({
+    mutationFn: ({ id, payload }: { id?: number; payload: UserPayload }) =>
+      id ? put(`/users/${id}`, payload) : post('/users', payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['users'] })
+      setShowModal(false)
+      setEditing(null)
+    },
+  })
+
+  const saveRoleMut = useMutation({
+    mutationFn: ({ id, payload }: { id?: number; payload: { role_name: string; role_name_eng?: string } }) =>
+      id ? put(`/users/roles/${id}`, payload) : post('/users/roles', payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['roles'] })
+      setShowRoleModal(false)
+      setEditingRole(null)
+    },
+  })
+
+  const handleSaveRole = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const role_name     = String(form.get('role_name')      ?? '').trim()
+    const role_name_eng = String(form.get('role_name_eng') ?? '').trim()
+    if (!role_name) return
+    saveRoleMut.mutate({
+      id: editingRole?.role_id,
+      payload: { role_name, role_name_eng: role_name_eng || undefined },
+    })
+  }
+
+  const handleSaveUser = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const username = String(form.get('username') ?? '').trim()
+    const first_name = String(form.get('first_name') ?? '').trim()
+    const last_name = String(form.get('last_name') ?? '').trim()
+    const email = String(form.get('email') ?? '').trim()
+    const roleId = Number(form.get('role_id'))
+    const departmentId = Number(form.get('department_id'))
+
+    if (!username || !first_name || !last_name || !roleId) return
+
+    saveUserMut.mutate({
+      id: editing?.user_id,
+      payload: {
+        username,
+        first_name,
+        last_name,
+        email: email || undefined,
+        role_id: roleId,
+        department_id: departmentId || undefined,
+      },
+    })
+  }
 
   const roleMap = Object.fromEntries(roles.map(r => [r.role_id, r.role_name]))
   const deptMap = Object.fromEntries(departments.map(d => [d.departments_id, d.name]))
@@ -88,13 +159,20 @@ export function UsersPage() {
           />
         )}
         {tab === 'roles' && (
-          <DataTable data={roles} columns={roleColumns} isLoading={rLoad} rowKey={(r) => r.role_id}
-            actions={(row) => (
-              <div className="flex items-center gap-1 justify-end">
-                <button className="btn-icon btn-ghost btn-sm"><ShieldCheck size={13} /></button>
-              </div>
-            )}
-          />
+          <>
+            <div className="flex items-center justify-end mb-4">
+              <button className="btn-primary btn-sm" onClick={() => { setEditingRole(null); setShowRoleModal(true) }}>
+                <Plus size={13} /> เพิ่มบทบาท
+              </button>
+            </div>
+            <DataTable data={roles} columns={roleColumns} isLoading={rLoad} rowKey={(r) => r.role_id}
+              actions={(row) => (
+                <div className="flex items-center gap-1 justify-end">
+                  <button className="btn-icon btn-ghost btn-sm" onClick={() => { setEditingRole(row); setShowRoleModal(true) }}><ShieldCheck size={13} /></button>
+                </div>
+              )}
+            />
+          </>
         )}
         {tab === 'departments' && (
           <DataTable data={departments} columns={deptColumns} isLoading={dLoad} rowKey={(r) => r.departments_id} />
@@ -107,31 +185,64 @@ export function UsersPage() {
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowModal(false)} />
           <div className="relative bg-white rounded-2xl shadow-card-lg p-6 w-full max-w-md animate-slide-up">
             <h3 className="font-semibold mb-5">{editing ? 'แก้ไขผู้ใช้' : 'เพิ่มผู้ใช้ใหม่'}</h3>
-            <div className="grid grid-cols-2 gap-3">
-              <div><label className="label">ชื่อ *</label><input className="input" defaultValue={editing?.first_name ?? ''} /></div>
-              <div><label className="label">นามสกุล *</label><input className="input" defaultValue={editing?.last_name ?? ''} /></div>
-              <div className="col-span-2"><label className="label">Username *</label><input className="input" defaultValue={editing?.username ?? ''} /></div>
-              <div className="col-span-2"><label className="label">อีเมล</label><input className="input" type="email" defaultValue={editing?.email ?? ''} /></div>
-              {!editing && <div className="col-span-2"><label className="label">รหัสผ่าน *</label><input className="input" type="password" /></div>}
-              <div>
-                <label className="label">บทบาท *</label>
-                <select className="select" defaultValue={editing?.role_id ?? ''}>
-                  <option value="">— เลือก —</option>
-                  {roles.map(r => <option key={r.role_id} value={r.role_id}>{r.role_name}</option>)}
-                </select>
+            <form onSubmit={handleSaveUser}>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="label">ชื่อ *</label><input className="input" name="first_name" required defaultValue={editing?.first_name ?? ''} /></div>
+                <div><label className="label">นามสกุล *</label><input className="input" name="last_name" required defaultValue={editing?.last_name ?? ''} /></div>
+                <div className="col-span-2"><label className="label">Username *</label><input className="input" name="username" required defaultValue={editing?.username ?? ''} /></div>
+                <div className="col-span-2"><label className="label">อีเมล</label><input className="input" name="email" type="email" defaultValue={editing?.email ?? ''} /></div>
+                <div>
+                  <label className="label">บทบาท *</label>
+                  <select className="select" name="role_id" required defaultValue={editing?.role_id ?? ''}>
+                    <option value="">— เลือก —</option>
+                    {roles.map(r => <option key={r.role_id} value={r.role_id}>{r.role_name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">แผนก</label>
+                  <select className="select" name="department_id" defaultValue={editing?.department_id ?? ''}>
+                    <option value="">— เลือก —</option>
+                    {departments.map(d => <option key={d.departments_id} value={d.departments_id}>{d.name}</option>)}
+                  </select>
+                </div>
               </div>
-              <div>
-                <label className="label">แผนก</label>
-                <select className="select" defaultValue={editing?.department_id ?? ''}>
-                  <option value="">— เลือก —</option>
-                  {departments.map(d => <option key={d.departments_id} value={d.departments_id}>{d.name}</option>)}
-                </select>
+              {saveUserMut.isError && <p className="mt-3 text-sm text-red-600">{saveUserMut.error.message}</p>}
+              <div className="flex gap-3 mt-5">
+                <button type="button" className="btn-secondary flex-1" onClick={() => setShowModal(false)}>ยกเลิก</button>
+                <button type="submit" className="btn-primary flex-1" disabled={saveUserMut.isPending}>
+                  {saveUserMut.isPending ? 'กำลังบันทึก...' : 'บันทึก'}
+                </button>
               </div>
-            </div>
-            <div className="flex gap-3 mt-5">
-              <button className="btn-secondary flex-1" onClick={() => setShowModal(false)}>ยกเลิก</button>
-              <button className="btn-primary flex-1">บันทึก</button>
-            </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add/Edit Role Modal */}
+      {showRoleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowRoleModal(false)} />
+          <div className="relative bg-white rounded-2xl shadow-card-lg p-6 w-full max-w-md animate-slide-up">
+            <h3 className="font-semibold mb-5">{editingRole ? 'แก้ไขบทบาท' : 'เพิ่มบทบาท'}</h3>
+            <form onSubmit={handleSaveRole}>
+              <div className="space-y-3">
+                <div>
+                  <label className="label">ชื่อบทบาท *</label>
+                  <input className="input" name="role_name" required defaultValue={editingRole?.role_name ?? ''} />
+                </div>
+                <div>
+                  <label className="label">Role (EN)</label>
+                  <input className="input" name="role_name_eng" defaultValue={editingRole?.role_name_eng ?? ''} />
+                </div>
+              </div>
+              {saveRoleMut.isError && <p className="mt-3 text-sm text-red-600">{saveRoleMut.error.message}</p>}
+              <div className="flex gap-3 mt-5">
+                <button type="button" className="btn-secondary flex-1" onClick={() => setShowRoleModal(false)}>ยกเลิก</button>
+                <button type="submit" className="btn-primary flex-1" disabled={saveRoleMut.isPending}>
+                  {saveRoleMut.isPending ? 'กำลังบันทึก...' : 'บันทึก'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

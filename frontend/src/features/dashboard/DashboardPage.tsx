@@ -14,9 +14,9 @@ export function DashboardPage() {
   const [groupBy, setGroupBy] = useState<'camp' | 'activity' | 'land'>('camp')
   const [selectedCamps, setSelectedCamps] = useState<number[]>([])
 
-  const { data: summary,      isLoading: sLoad } = useQuery({ queryKey: ['ghg-summary'],        queryFn: () => get<GhgSummary[]>('/analytics/summary') })
-  const { data: byCamp,       isLoading: cLoad } = useQuery({ queryKey: ['ghg-by-camp'],         queryFn: () => get<GhgByCamp[]>('/analytics/by-camp') })
-  const { data: byActivity,   isLoading: aLoad } = useQuery({ queryKey: ['ghg-by-activity'],     queryFn: () => get<GhgByActivity[]>('/analytics/by-activity') })
+  useQuery({ queryKey: ['ghg-summary'],    queryFn: () => get<GhgSummary[]>('/analytics/summary') })
+  const { data: byCamp }     = useQuery({ queryKey: ['ghg-by-camp'],     queryFn: () => get<GhgByCamp[]>('/analytics/by-camp') })
+  const { data: byActivity } = useQuery({ queryKey: ['ghg-by-activity'], queryFn: () => get<GhgByActivity[]>('/analytics/by-activity') })
   const { data: camps = [] }                      = useQuery({ queryKey: ['camps'],               queryFn: () => get<{ land_camp_id: number; land_camp_name: string }[]>('/lands/camps') })
 
   // Mock data for skeleton display when API has no data yet

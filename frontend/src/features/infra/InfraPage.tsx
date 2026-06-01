@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { type FormEvent, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -10,6 +10,25 @@ interface ServiceArea   { service_area_id: number; factory_id: number; code: str
 interface Department    { departments_id: number; name: string }
 
 type ModalTarget = 'factory' | 'service_area' | 'department' | null
+type InfraPayload = {
+  name: string
+  initial?: string
+  code?: string
+  factory_id?: number
+  note?: string
+}
+
+const endpointByType = {
+  factory: '/infra/factories',
+  service_area: '/infra/service-areas',
+  department: '/infra/departments',
+} as const
+
+const idKeyByType = {
+  factory: 'factory_id',
+  service_area: 'service_area_id',
+  department: 'departments_id',
+} as const
 
 export function InfraPage() {
   const qc = useQueryClient()
@@ -23,10 +42,42 @@ export function InfraPage() {
 
   const invalidate = () => { qc.invalidateQueries({ queryKey: ['factories'] }); qc.invalidateQueries({ queryKey: ['service-areas'] }); qc.invalidateQueries({ queryKey: ['departments'] }) }
 
+  const saveMut = useMutation({
+    mutationFn: ({ type, id, payload }: { type: Exclude<ModalTarget, null>; id?: number; payload: InfraPayload }) =>
+      id ? put(`${endpointByType[type]}/${id}`, payload) : post(endpointByType[type], payload),
+    onSuccess: () => { invalidate(); setModal(null); setEditing(null) },
+  })
+
   const deleteMut = useMutation({
-    mutationFn: () => del(`/infra/${deleteTarget?.type}s/${deleteTarget?.id}`),
+    mutationFn: () => {
+      if (!deleteTarget?.type) throw new Error('ไม่พบรายการที่ต้องการลบ')
+      return del(`${endpointByType[deleteTarget.type]}/${deleteTarget.id}`)
+    },
     onSuccess: () => { invalidate(); setDeleteTarget(null) },
   })
+
+  const handleSave = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!modal) return
+
+    const form = new FormData(event.currentTarget)
+    const name = String(form.get('name') ?? '').trim()
+    if (!name) return
+
+    const payload: InfraPayload = { name }
+    if (modal === 'factory') {
+      payload.initial = String(form.get('initial') ?? '').trim() || undefined
+      payload.note = String(form.get('note') ?? '').trim() || undefined
+    }
+    if (modal === 'service_area') {
+      payload.code = String(form.get('code') ?? '').trim() || undefined
+      payload.factory_id = Number(form.get('factory_id')) || undefined
+      payload.note = String(form.get('note') ?? '').trim() || undefined
+    }
+
+    const id = editing?.[idKeyByType[modal]] as number | undefined
+    saveMut.mutate({ type: modal, id, payload })
+  }
 
   const factoryColumns: Column<FactoryRow>[] = [
     { key: 'factory_id', header: 'ID', width: '60px' },
@@ -45,12 +96,16 @@ export function InfraPage() {
     { key: 'name',           header: 'ชื่อแผนก' },
   ]
 
-  const rowActions = (type: ModalTarget) => (row: Record<string, unknown>) => (
-    <div className="flex items-center gap-1 justify-end">
-      <button className="btn-icon btn-ghost btn-sm" onClick={() => { setEditing(row); setModal(type) }}><Pencil size={13} /></button>
-      <button className="btn-icon btn-ghost btn-sm text-red-400" onClick={() => setDeleteTarget({ type, id: row[`${type}_id`] as number, name: row.name as string })}><Trash2 size={13} /></button>
-    </div>
-  )
+  const rowActions = (type: ModalTarget) => (row: FactoryRow | ServiceArea | Department) => {
+    const r = row as unknown as Record<string, unknown>
+    if (!type) return null
+    return (
+      <div className="flex items-center gap-1 justify-end">
+        <button className="btn-icon btn-ghost btn-sm" onClick={() => { setEditing(r); setModal(type) }}><Pencil size={13} /></button>
+        <button className="btn-icon btn-ghost btn-sm text-red-400" onClick={() => setDeleteTarget({ type, id: r[idKeyByType[type]] as number, name: r.name as string })}><Trash2 size={13} /></button>
+      </div>
+    )
+  }
 
   return (
     <div>
@@ -96,23 +151,29 @@ export function InfraPage() {
           <div className="absolute inset-0 bg-black/40" onClick={() => setModal(null)} />
           <div className="relative bg-white rounded-2xl shadow-card-lg p-6 w-full max-w-md animate-slide-up">
             <h3 className="font-semibold mb-4">{editing ? 'แก้ไข' : 'เพิ่ม'} {modal === 'factory' ? 'โรงงาน' : modal === 'service_area' ? 'พื้นที่บริการ' : 'แผนก'}</h3>
-            <div className="space-y-3">
-              <div><label className="label">ชื่อ *</label><input className="input" defaultValue={editing?.name as string ?? ''} /></div>
-              {modal === 'factory' && <div><label className="label">รหัสย่อ</label><input className="input" defaultValue={editing?.initial as string ?? ''} /></div>}
+            <form onSubmit={handleSave}>
+              <div className="space-y-3">
+              <div><label className="label">ชื่อ *</label><input className="input" name="name" required defaultValue={editing?.name as string ?? ''} /></div>
+              {modal === 'factory' && <div><label className="label">รหัสย่อ</label><input className="input" name="initial" defaultValue={editing?.initial as string ?? ''} /></div>}
               {modal === 'service_area' && (
-                <div>
-                  <label className="label">โรงงาน *</label>
-                  <select className="select">
-                    {factories.map(f => <option key={f.factory_id} value={f.factory_id}>{f.name}</option>)}
-                  </select>
-                </div>
+                <>
+                  <div><label className="label">รหัส</label><input className="input" name="code" defaultValue={editing?.code as string ?? ''} /></div>
+                  <div>
+                    <label className="label">โรงงาน *</label>
+                    <select className="select" name="factory_id" required defaultValue={editing?.factory_id as number ?? factories[0]?.factory_id ?? ''}>
+                      {factories.map(f => <option key={f.factory_id} value={f.factory_id}>{f.name}</option>)}
+                    </select>
+                  </div>
+                </>
               )}
-              {(modal === 'factory' || modal === 'service_area') && <div><label className="label">หมายเหตุ</label><textarea className="input" rows={2} defaultValue={editing?.note as string ?? ''} /></div>}
-            </div>
-            <div className="flex gap-3 mt-5">
-              <button className="btn-secondary flex-1" onClick={() => setModal(null)}>ยกเลิก</button>
-              <button className="btn-primary flex-1">บันทึก</button>
-            </div>
+              {(modal === 'factory' || modal === 'service_area') && <div><label className="label">หมายเหตุ</label><textarea className="input" name="note" rows={2} defaultValue={editing?.note as string ?? ''} /></div>}
+              </div>
+              {saveMut.isError && <p className="mt-3 text-sm text-red-600">{saveMut.error.message}</p>}
+              <div className="flex gap-3 mt-5">
+                <button type="button" className="btn-secondary flex-1" onClick={() => setModal(null)}>ยกเลิก</button>
+                <button type="submit" className="btn-primary flex-1" disabled={saveMut.isPending}>{saveMut.isPending ? 'กำลังบันทึก...' : 'บันทึก'}</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
