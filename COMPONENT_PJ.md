@@ -40,9 +40,10 @@ Use this file to quickly find where a page, component, layout element, or relate
 | `/infra` | `frontend/src/features/infra/InfraPage.tsx` | Factories, service areas, departments. |
 | `/users` | `frontend/src/features/users/UsersPage.tsx` | Users and roles. |
 | `/farmers` | `frontend/src/features/farmers/FarmersPage.tsx` | Farmer records. |
-| `/lands` | `frontend/src/features/lands/LandsPage.tsx` | Lands, camps, landmaps. |
+| `/lands` | `frontend/src/features/lands/LandsPage.tsx` | Lands, camps, landmaps, grouped land form, and geo-assisted location selection. |
 | `/lands/weather` | `frontend/src/features/weather/WeatherPage.tsx` | Weather station records and CSV import. |
 | `/emission-factors` | `frontend/src/features/emission-factors/EmissionFactorsPage.tsx` | Emission factors, GWP, units/reference data. |
+| `/activities/resources` | `frontend/src/features/activities/ActivityResourcesPage.tsx` | Read-only activity resource reference lists for fertilizers, chemicals, and equipments. |
 | `/activities` | `frontend/src/App.tsx` | Redirects to `/activities/logs`. |
 | `/activities/logs` | `frontend/src/features/activities/ActivityLogListPage.tsx` | Simpler daily-use list for `log_activities_detail` with filters and add/edit/delete. |
 | `/activities/manage` | `frontend/src/features/activities/ActivitiesPage.tsx` | Advanced activity management page with headers, import, and full workflow tools. |

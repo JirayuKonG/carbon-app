@@ -1305,6 +1305,7 @@ export function ActivitiesPage() {
           targetColumns={ACTIVITY_TARGET_COLUMNS}
           onComplete={async (mappings, rows) => { return importMut.mutateAsync({ mappings, rows }) }}
           onCancel={() => setShowWizard(false)}
+          showImportTimeConfirmation
           onFinish={() => {
             setShowWizard(false)
             window.location.reload()

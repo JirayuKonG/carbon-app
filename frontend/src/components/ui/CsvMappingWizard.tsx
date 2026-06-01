@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Upload, ArrowRight, CheckCircle, ChevronRight, XCircle } from 'lucide-react'
+import Papa from 'papaparse'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { get } from '@/lib/api'
 import { formatFriendlyErrorMessage, toFriendlyFieldLabel } from '@/lib/friendly-text'
 
@@ -23,6 +25,7 @@ interface CsvMappingWizardProps {
   onComplete: (mappings: ColumnMapping[], rows: Record<string, string>[]) => Promise<any>
   onCancel: () => void
   onFinish?: () => void
+  showImportTimeConfirmation?: boolean
 }
 
 type Step = 'upload' | 'preview' | 'map' | 'validate' | 'done'
@@ -36,6 +39,12 @@ interface ExistingDetailType {
   act_header_detail_type_id: number
   act_header_type_id?: number | null
   act_header_detail_type_name_th?: string | null
+}
+
+function normalizeCsvCell(value: unknown) {
+  return String(value ?? '')
+    .replace(/^\uFEFF/, '')
+    .trim()
 }
 
 const TYPE_LABELS: Record<TargetColumn['type'], string> = {
@@ -58,8 +67,8 @@ const AUTO_MAP_ALIASES: Record<string, string[]> = {
   resource_item_name:           ['รายการปัจจัยการผลิต','ปัจจัยการผลิต', 'ปัจจัยผลิต' ,'resourceitem', 'resourceitemname', 'listem' ],
   resource_used_type:           ['ประเภทปัจจัยการผลิต','ประเภทปัจจัย', 'sourceusagetype', 'usagetype', 'resourceusedtype' ],
   log_act_detail_volumeAll:     ['ปริมาณรวม', 'ปริมาณ' , 'totalvolume', 'volumeall'],
-  log_act_detail_quatity:       ['จำนวน','จำนวณชิ้น', 'quantity', 'qty'],
-  log_act_detail_volumePerUnit: ['ปริมาณต่อ1จำนวน', 'ปริมาณต่อจำนวน', 'volumeperunit'],
+  log_act_detail_quatity:       ['จำนวน','จำนวณชิ้น', 'quantity', 'qty', 'math'],
+  log_act_detail_volumePerUnit: ['ปริมาณต่อ1จำนวน', 'ปริมาณต่อจำนวน','ปริมาณใช้','ปริมาณต่อหน่วย','ปริมาณ/unit' ,'volumeperunit'],
   unit_name:                    ['หน่วยนับ', 'unit', 'unitname'],
 }
 
@@ -71,7 +80,45 @@ type ImportRowAssessment = {
   message: string
 }
 
-export function CsvMappingWizard({ title, subtitle, targetColumns, onComplete, onCancel, onFinish }: CsvMappingWizardProps) {
+type ImportEstimate = {
+  durationLabel: string
+  variant: 'warning' | 'info'
+  warningText: string
+}
+
+function getImportEstimate(rowCount: number): ImportEstimate {
+  if (rowCount >= 500) {
+    return {
+      durationLabel: 'หลาย นาที',
+      variant: 'warning',
+      warningText: 'ไฟล์ขนาดใหญ่และรายการที่ต้องสร้างข้อมูลอ้างอิงใหม่อาจใช้เวลานานกว่าปกติ กรุณาเปิดหน้านี้ไว้จนกว่าจะเสร็จ',
+    }
+  }
+
+  if (rowCount >= 150) {
+    return {
+      durationLabel: 'ประมาณ 1-3 นาที',
+      variant: 'warning',
+      warningText: 'ถ้ามีการผูกข้อมูลหลายตารางหรือสร้างข้อมูลอ้างอิงใหม่ เวลาที่ใช้จริงอาจเพิ่มขึ้นเล็กน้อย',
+    }
+  }
+
+  return {
+    durationLabel: 'ไม่เกินประมาณ 1 นาที',
+    variant: 'info',
+    warningText: 'โดยปกติระบบจะประมวลผลได้ค่อนข้างเร็ว แต่เวลาอาจเพิ่มขึ้นได้หากต้องสร้างหรือผูกข้อมูลอ้างอิงเพิ่ม',
+  }
+}
+
+export function CsvMappingWizard({
+  title,
+  subtitle,
+  targetColumns,
+  onComplete,
+  onCancel,
+  onFinish,
+  showImportTimeConfirmation = false,
+}: CsvMappingWizardProps) {
   const [step, setStep] = useState<Step>('upload')
   const [sourceHeaders, setSourceHeaders] = useState<string[]>([])
   const [previewRows, setPreviewRows]     = useState<Record<string, string>[]>([])
@@ -86,6 +133,7 @@ export function CsvMappingWizard({ title, subtitle, targetColumns, onComplete, o
   const [resourceItemCategories, setResourceItemCategories] = useState<Record<string, 'fertilizer' | 'equipment' | 'chemical' | ''>>({})
   const [detailTypeSelections, setDetailTypeSelections] = useState<Record<string, DetailTypeResolution>>({})
   const [existingDetailTypes, setExistingDetailTypes] = useState<ExistingDetailType[]>([])
+  const [showImportConfirm, setShowImportConfirm] = useState(false)
 
   const STEPS: Step[] = ['upload', 'preview', 'map', 'validate', 'done']
   const stepLabels: Record<Step, string> = {
@@ -164,16 +212,32 @@ export function CsvMappingWizard({ title, subtitle, targetColumns, onComplete, o
 
   function handleFile(file: File) {
     setFileName(file.name)
+    setSubmitError(null)
+    setSourceHeaders([])
+    setPreviewRows([])
+    setAllRows([])
     const reader = new FileReader()
     reader.onload = (e) => {
       const text = e.target?.result as string
-      const lines = text.trim().split('\n').filter(Boolean)
-      if (lines.length < 2) return
-      const headers = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''))
-      const rows = lines.slice(1).map((line) => {
-        const vals = line.split(',').map((v) => v.trim().replace(/^"|"$/g, ''))
-        return Object.fromEntries(headers.map((h, i) => [h, vals[i] ?? '']))
+      const parsed = Papa.parse<string[]>(text, {
+        skipEmptyLines: 'greedy',
       })
+
+      if (parsed.errors.length > 0) {
+        setSubmitError(`อ่านไฟล์ CSV ไม่สำเร็จ: ${parsed.errors[0].message}`)
+        return
+      }
+
+      const parsedRows = parsed.data.map((row) => row.map((value) => normalizeCsvCell(value)))
+      if (parsedRows.length < 2) {
+        setSubmitError('ไฟล์ CSV ต้องมีอย่างน้อย 1 header และ 1 แถวข้อมูล')
+        return
+      }
+
+      const headers = parsedRows[0]
+      const rows = parsedRows.slice(1).map((values) =>
+        Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ''])),
+      )
       setSourceHeaders(headers)
       setPreviewRows(rows.slice(0, 5))
       setAllRows(rows)
@@ -185,6 +249,9 @@ export function CsvMappingWizard({ title, subtitle, targetColumns, onComplete, o
         return { targetKey: tc.key, sourceKey: auto }
       }))
       setStep('preview')
+    }
+    reader.onerror = () => {
+      setSubmitError('ไม่สามารถอ่านไฟล์ CSV ได้ กรุณาลองอัปโหลดใหม่อีกครั้ง')
     }
     reader.readAsText(file)
   }
@@ -261,6 +328,9 @@ export function CsvMappingWizard({ title, subtitle, targetColumns, onComplete, o
         return !(resolution?.newName?.trim())
       })
     : []
+  const isImportBlocked = isSubmitting || unresolvedDetailTypes.length > 0 || blockingRows.length > 0
+  const importEstimate = getImportEstimate(allRows.length)
+  const importConfirmationMessage = `ข้อมูล ${allRows.length} แถว คาดว่าใช้เวลาประมวลผล${importEstimate.durationLabel}. ${importEstimate.warningText}`
 
   useEffect(() => {
     let active = true
@@ -405,6 +475,7 @@ export function CsvMappingWizard({ title, subtitle, targetColumns, onComplete, o
   }
 
   async function handleSubmit() {
+    setShowImportConfirm(false)
     setSubmitError(null)
     setIsSubmitting(true)
     try {
@@ -459,6 +530,15 @@ export function CsvMappingWizard({ title, subtitle, targetColumns, onComplete, o
     }
   }
 
+  function handleValidateSubmitClick() {
+    if (isImportBlocked) return
+    if (!showImportTimeConfirmation) {
+      void handleSubmit()
+      return
+    }
+    setShowImportConfirm(true)
+  }
+
   const currentStepIdx = STEPS.indexOf(step)
   const isLocked = isSubmitting
   const getSelectStateClass = (hasValue: boolean) =>
@@ -502,6 +582,16 @@ export function CsvMappingWizard({ title, subtitle, targetColumns, onComplete, o
 
         {/* Body */}
         <div className={`p-6 overflow-y-auto flex-1 min-h-0 ${isLocked ? 'pointer-events-none select-none' : ''}`}>
+          {submitError && step !== 'validate' && (
+            <div className="alert-error mb-4">
+              <div>
+                <p className="text-sm font-medium text-red-700">ระบบนำเข้าไม่สำเร็จ</p>
+                <p className="text-xs mt-1 text-red-700">{submitError}</p>
+              </div>
+              <XCircle size={16} className="text-red-500 shrink-0" />
+            </div>
+          )}
+
           {/* Step: upload */}
           {step === 'upload' && (
             <label className="flex flex-col items-center justify-center h-48 border-2 border-dashed border-surface-200 rounded-xl cursor-pointer hover:border-primary-400 hover:bg-primary-50/50 transition-colors group">
@@ -753,7 +843,7 @@ export function CsvMappingWizard({ title, subtitle, targetColumns, onComplete, o
               </div>
               <div className="flex gap-3 mt-5">
                 <button className="btn-secondary flex-1" onClick={() => setStep('map')} disabled={isLocked}>กลับ</button>
-                <button className="btn-primary flex-1" onClick={handleSubmit} disabled={isSubmitting || unresolvedDetailTypes.length > 0 || blockingRows.length > 0}>
+                <button className="btn-primary flex-1" onClick={handleValidateSubmitClick} disabled={isImportBlocked}>
                   {isSubmitting ? 'กำลังนำเข้า...' : 'นำเข้าข้อมูล'}
                 </button>
               </div>
@@ -826,6 +916,20 @@ export function CsvMappingWizard({ title, subtitle, targetColumns, onComplete, o
           </div>
         )}
       </div>
+
+      {showImportTimeConfirmation && (
+        <ConfirmDialog
+          open={showImportConfirm}
+          title="ยืนยันการนำเข้าข้อมูล?"
+          message={importConfirmationMessage}
+          confirmLabel="ดำเนินการต่อ"
+          cancelLabel="กลับไปตรวจสอบ"
+          variant={importEstimate.variant}
+          onConfirm={() => { void handleSubmit() }}
+          onCancel={() => setShowImportConfirm(false)}
+          isLoading={isSubmitting}
+        />
+      )}
     </div>
   )
 }
