@@ -4,7 +4,7 @@ import { LayoutDashboard, Layers, ActivitySquare, FlaskConical, Menu } from 'luc
 const MOBILE_NAV = [
   { path: '/dashboard',        icon: <LayoutDashboard size={20} />, label: 'หน้าหลัก' },
   { path: '/lands',            icon: <Layers size={20} />,          label: 'แปลง' },
-  { path: '/activities',       icon: <ActivitySquare size={20} />,  label: 'กิจกรรม' },
+  { path: '/activities/logs',  icon: <ActivitySquare size={20} />,  label: 'กิจกรรม' },
   { path: '/emission-factors', icon: <FlaskConical size={20} />,    label: 'EF/GWP' },
   { path: '/geo',              icon: <Menu size={20} />,            label: 'ตั้งค่า' },
 ]

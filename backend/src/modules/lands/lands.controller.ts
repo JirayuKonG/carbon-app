@@ -24,6 +24,8 @@ export class LandsController {
   // landmaps
   @Get('landmaps')           getLandmaps()               { return this.svc.getLandmaps() }
   @Post('landmaps')          createLandmap(@Body() b: any) { return this.svc.createLandmap(b) }
+  @Put('landmaps/:id')       updateLandmap(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateLandmap(id, b) }
+  @Delete('landmaps/:id')    deleteLandmap(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteLandmap(id) }
 
   // owners
   @Get('landmaps/owners')

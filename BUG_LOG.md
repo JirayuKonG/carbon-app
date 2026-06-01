@@ -1,6 +1,6 @@
 # Bug Tracking Log
 
-Last updated: 2026-05-20
+Last updated: 2026-05-30
 
 Use the checkboxes to track what is fixed. Keep new findings here so future work can restart quickly.
 
@@ -16,19 +16,37 @@ Use the checkboxes to track what is fixed. Keep new findings here so future work
   - Impact: when visiting `/lands/weather`, both `พื้นที่เพาะปลูก` and `ข้อมูลสภาพอากาศ` appeared active because `/lands/weather` starts with `/lands`.
   - Evidence: `frontend/src/components/layout/Sidebar.tsx` used broad `startsWith(item.path)` matching.
   - Fix: sidebar now chooses the longest matching route, so `/lands/weather` wins over `/lands`. Mobile nav links also use exact matching with `end`.
-  - Verify: frontend build still blocked by existing BUG-004 TypeScript errors.
+  - Verify: frontend build now passes.
 
 - [x] BUG-010: Geo page did not show the full database reference chain.
   - Impact: the page queried subdistricts but did not render the subdistrict table, and provinces showed raw `geography_id` instead of a geography/region name.
   - Evidence: `frontend/src/features/geo/GeoPage.tsx` had `sLoading` and `subdistrictColumns` unused.
   - Fix: added geography filter from `/api/geo/geographies`, rendered region names in the province table, and added the subdistrict table.
-  - Verify: Geo page errors are gone from the latest frontend build output; build is still blocked by other BUG-004 files.
+  - Verify: frontend build now passes.
 
 - [x] BUG-011: Geo page hid API/database loading failures.
   - Impact: when PostgreSQL/API calls failed, the Geo page could look like it simply had no province/district/subdistrict data.
   - Evidence: Geo React Query calls did not render their `error` state.
   - Fix: `frontend/src/features/geo/GeoPage.tsx` now shows a visible PostgreSQL/API error banner when any Geo query fails.
-  - Verify: Geo page still has no TypeScript errors in the latest frontend build output; build is blocked by other BUG-004 files.
+  - Verify: frontend build now passes.
+
+- [x] BUG-004: Frontend build failed.
+  - Impact: production frontend could not be built.
+  - Evidence: earlier `npm run build --workspace=frontend` failed with TypeScript errors.
+  - Fix: current frontend sources now compile successfully.
+  - Verify: `npm run build --workspace=frontend` passed on 2026-05-25.
+
+- [x] BUG-012: Lands, camps, and landmaps could not be inserted from the UI.
+  - Impact: add/edit/delete buttons existed on the lands page, but actions were console-only or missing, and PostgreSQL rejected inserts because `land_id`, `land_camp_id`, and `landmap_id` have no database default.
+  - Evidence: `frontend/src/features/lands/LandsPage.tsx` only logged edit/delete actions; PostgreSQL metadata reports no default/identity for the three primary key columns.
+  - Fix: wired real create/update/delete modals and mutations for lands, camps, and landmaps; added landmap `PUT`/`DELETE` routes; backend now supplies explicit next IDs for the three tables.
+  - Verify: backend build passed, frontend build passed, and a temporary PostgreSQL create-update-delete smoke test passed for all three tables with cleanup.
+
+- [x] BUG-005: Infrastructure delete URLs/IDs were wrong for some resource types.
+  - Impact: delete actions could call invalid paths such as `/api/infra/service_areas/:id`; department delete could send an undefined ID because the row key is `departments_id`, not `department_id`.
+  - Evidence: current `frontend/src/features/infra/InfraPage.tsx` now uses `endpointByType` with `/infra/service-areas` and `idKeyByType.department = 'departments_id'`.
+  - Fix: infrastructure actions were normalized to explicit endpoint and ID maps before calling `del()`.
+  - Verify: static review on 2026-05-30 confirmed the current UI delete path and ID mapping are correct.
 
 ## Open
 
@@ -39,24 +57,16 @@ Use the checkboxes to track what is fixed. Keep new findings here so future work
   - Next: if these are fixed government codes, require the ID in the DTO/UI before insert. If the app should create arbitrary geo rows, add database sequences/identity defaults first, then update Prisma.
 
 - [ ] BUG-003: API bodies are passed as `any`, so numeric fields from forms may reach Prisma as strings.
-  - Impact: PostgreSQL/Prisma inserts can fail with type errors for fields like `factory_id`, `service_area_id`, `land_camp_id`, latitude/longitude, and activity quantities when HTML form values are submitted as strings.
-  - Evidence: controllers use `@Body() b: any` across farmers, lands, activities, infra, users, and weather.
+  - Impact: PostgreSQL/Prisma inserts can fail with type errors for fields like `factory_id`, `service_area_id`, `land_camp_id`, latitude/longitude, decimals, and numeric foreign keys when HTML form values are submitted as strings.
+  - Evidence: raw request bodies still flow into Prisma in `backend/src/modules/infra/infra.controller.ts:12`, `:20`, `:26`; `backend/src/modules/users/users.controller.ts:13`, `:17`; `backend/src/modules/farmers/farmers.controller.ts:21`; `backend/src/modules/lands/lands.controller.ts:20`, `:26`, `:34`, `:45`; `backend/src/modules/weather/weather.controller.ts:17`; `backend/src/modules/emission-factors/emission-factors.controller.ts:12`, `:18`, `:23`, `:28`, `:35`, `:59`; `backend/src/modules/geo/geo.controller.ts:37`, `:52`, `:57`.
+  - Update 2026-05-30: `ActivitiesService` now normalizes many number/date fields, so this bug is no longer best evidenced by the activities module.
   - Next: add DTOs with `class-transformer` conversions or service-side normalizers before Prisma writes.
 
-- [ ] BUG-004: Frontend build currently fails.
-  - Impact: production frontend cannot be built.
-  - Evidence: `npm run build --workspace=frontend` fails with unused variables/imports and typed action callback mismatches, especially in `Toast.tsx`, `DashboardPage.tsx`, `EmissionFactorsPage.tsx`, `InfraPage.tsx`, and `UsersPage.tsx`.
-  - Next: remove unused values, fix `InfraPage` action callback types, then rebuild.
-
-- [ ] BUG-005: Infrastructure delete URLs/IDs are wrong for some resource types.
-  - Impact: delete actions can call invalid paths such as `/api/infra/service_areas/:id`; department delete may send an undefined ID because the real key is `departments_id`, not `department_id`.
-  - Evidence: `frontend/src/features/infra/InfraPage.tsx:26`, `:48`.
-  - Next: map modal targets to explicit endpoint paths and ID fields.
-
 - [ ] BUG-006: Add/edit modal save buttons are visual only in some pages.
-  - Impact: user clicks "บันทึก" but no insert/update request is sent, which can look like PostgreSQL cannot insert.
-  - Evidence: infrastructure modal save button at `frontend/src/features/infra/InfraPage.tsx:114`; weather manual save button at `frontend/src/features/weather/WeatherPage.tsx:161`.
-  - Next: wire forms to `post`/`put` mutations and invalidate the related TanStack Query keys.
+  - Impact: user clicks "บันทึก" but no insert request is sent, which can look like PostgreSQL cannot insert.
+  - Evidence: the weather manual-entry modal still has unnamed inputs and a plain button with no submit handler in `frontend/src/features/weather/WeatherPage.tsx:132-161`.
+  - Update 2026-05-30: infrastructure save is now wired through `saveMut` in `frontend/src/features/infra/InfraPage.tsx:45-79`, so this bug currently remains on the weather page only.
+  - Next: wrap the weather modal in a real form, add field names/state, call `POST /api/lands/weather`, and invalidate `weather-records`.
 
 - [ ] BUG-007: CO2e calculation result is logged but not persisted.
   - Impact: activity detail insert succeeds, calculation status changes to done/error, but calculated CO2e values are not stored for analytics.
@@ -66,12 +76,25 @@ Use the checkboxes to track what is fixed. Keep new findings here so future work
 - [ ] BUG-009: Backend cannot authenticate to PostgreSQL with current `.env`.
   - Impact: Geo API endpoints cannot read `geographies`, `provinces`, `districts`, or `subdistricts` until the database credentials are corrected.
   - Evidence: Prisma connection check from `backend` failed with `Authentication failed against database server at localhost`. Re-tested on 2026-05-20 with the same result.
-  - Next: update `backend/.env` with a valid PostgreSQL `DATABASE_URL`, then re-run `npm run prisma:generate --workspace=backend` and test `GET /api/geo/provinces`.
+  - Update 2026-05-25: current `.env` points to Aiven PostgreSQL and lands-table access works when network access is allowed. Re-test Geo endpoints specifically before closing this bug.
+
+- [ ] BUG-013: Emission factors page exposes placeholder CRUD controls for EF, GWP, CF Types, and Groups.
+  - Impact: users see add/edit/delete controls on the emission-factors screen, but most of them do nothing or only work for units/unit prefixes, which makes the page look broken.
+  - Evidence: action buttons for non-unit tabs use empty handlers in `frontend/src/features/emission-factors/EmissionFactorsPage.tsx:124`, `:131`, `:138`, `:144`; the top add button only opens a modal when `tab === 'units'` at `frontend/src/features/emission-factors/EmissionFactorsPage.tsx:190`.
+  - Backend gap: `backend/src/modules/emission-factors/emission-factors.controller.ts` has no delete routes for `gwp`, `cf-types`, or `groups`, so complete CRUD is not available even if the frontend is wired.
+  - Next: either hide unfinished controls or implement real forms/mutations and matching backend delete endpoints for each tab.
+
+- [ ] BUG-014: Several services manually compute `MAX(id) + 1` on autoincrement tables, creating a race condition under concurrent inserts.
+  - Impact: two requests that create the same resource type at the same time can calculate the same next ID and fail with duplicate primary-key errors.
+  - Evidence: manual ID generation appears in `backend/src/modules/infra/infra.service.ts:16`, `:48`, `:78`; `backend/src/modules/users/users.service.ts:31`, `:65`; `backend/src/modules/farmers/farmers.service.ts:39`; `backend/src/modules/emission-factors/emission-factors.service.ts:72`, `:112`; `backend/src/modules/activities/activities.service.ts:139`, `:217`, plus import helper ID allocators later in the same file.
+  - Schema mismatch: Prisma already marks many of these IDs as autoincrement in `backend/src/prisma/schema.prisma:51`, `:59`, `:66`, `:100`, `:112`, `:125`, `:261`, `:280`, `:469`, `:499`.
+  - Next: let PostgreSQL own IDs on autoincrement tables, and reserve manual `MAX(id) + 1` logic only for tables whose real database schema truly has no default/identity.
 
 ## Verification Notes
 
-- `npm run build --workspace=backend`: passed after BUG-001 fix.
+- `npm run build --workspace=backend`: passed after BUG-001 fix and again on 2026-05-30.
 - `npm run prisma:generate --workspace=backend`: passed.
-- `npm run build --workspace=frontend`: failed; see BUG-004.
+- `npm run build --workspace=frontend`: passed on 2026-05-25 and again on 2026-05-30.
 - PostgreSQL metadata confirmed BUG-002 for the live database configured by `backend/.env`.
-- PostgreSQL authentication currently fails with the current `backend/.env`; see BUG-009.
+- PostgreSQL metadata confirmed `land_id`, `land_camp_id`, and `landmap_id` also have no default/identity; BUG-012 backend workaround is in place.
+- Static review on 2026-05-30 confirmed BUG-005 is fixed, BUG-006 is now weather-only, and added BUG-013 and BUG-014.
