@@ -4,9 +4,10 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { CsvMappingWizard, TargetColumn, ColumnMapping } from '@/components/ui/CsvMappingWizard'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { getActivityCalStatusBadgeClass, getActivityCalStatusKind, getActivityCalStatusLabel } from '@/features/activities/cal-status'
 import { del, get, post, put } from '@/lib/api'
 import { formatBangkokDateKey, formatBangkokDateTime, formatBangkokDateTimeLocal } from '@/lib/datetime'
-import { ActivitySquare, Upload, Plus, Calculator, Zap, Leaf, Edit, Trash2 } from 'lucide-react'
+import { ActivitySquare, Upload, Plus, Calculator, Leaf, Edit, Trash2, ChevronDown, ChevronUp, CheckCircle2, Clock3, CircleAlert } from 'lucide-react'
 
 interface ActivityHeader {
   activities_header_id: number
@@ -104,8 +105,6 @@ interface UnitPrefix { unit_prefix_id: number; unit_prefix_name?: string; unit_p
 
 //   // ... your wizard mapping UI code ...
 // }
-
-type CalcMode = 'standard' | 'tver'
 
 type DetailForm = {
   activities_header_id: string
@@ -272,11 +271,11 @@ export function ActivitiesPage() {
   const [showWizard, setShowWizard]     = useState(false)
   const [showForm, setShowForm]         = useState(false)
   const [showHeaderForm, setShowHeaderForm] = useState(false)
+  const [showHeaderSection, setShowHeaderSection] = useState(false)
   const [editingHeader, setEditingHeader] = useState<ActivityHeader | null>(null)
   const [deleteHeaderTarget, setDeleteHeaderTarget] = useState<ActivityHeader | null>(null)
   const [editingDetail, setEditingDetail] = useState<LogDetail | null>(null)
   const [deleteDetailTarget, setDeleteDetailTarget] = useState<LogDetail | null>(null)
-  const [calcMode, setCalcMode]         = useState<CalcMode>('standard')
   const [formPanelOpen, setFormPanelOpen] = useState(false)
   const [selectedHeader, setSelectedHeader] = useState<ActivityHeader | null>(null)
   const [trackMethod, setTrackMethod]   = useState<'direct' | 'cascade'>('cascade')
@@ -576,7 +575,6 @@ export function ActivitiesPage() {
       log_act_detail_volumePerUnit: toNumberOrUndefined(detailForm.log_act_detail_volumePerUnit),
       log_act_detail_volumeAll: toNumberOrUndefined(detailForm.log_act_detail_volumeAll),
       log_act_detail_areawork: toNumberOrUndefined(detailForm.log_act_detail_areawork),
-      calcMode,
     })
   }
 
@@ -608,10 +606,17 @@ export function ActivitiesPage() {
     navigate('/activities/manage', { replace: true })
   }, [headers, navigate, searchParams, showForm])
 
-  const calStatusBadge = (id: number) => {  // number 
-    if (id === 1) return <span className="badge-amber">รอคำนวณ</span>
-    if (id === 2) return <span className="badge-green">คำนวณแล้ว</span>
-    return <span className="badge-red">ผิดพลาด</span>
+  const getRawCalStatusLabel = (detail: LogDetail) =>
+    detail.log_act_detail_calStatus?.log_act_detail_calStatus_name?.trim()
+    ?? calStatuses.find((status) => status.log_act_detail_calStatus_id === detail.log_act_detail_calStatus_id)?.log_act_detail_calStatus_name?.trim()
+    ?? ''
+
+  const getCalStatusLabel = (detail: LogDetail) =>
+    getActivityCalStatusLabel(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id)
+
+  const renderCalStatusBadge = (detail: LogDetail) => {
+    const label = getCalStatusLabel(detail)
+    return <span className={getActivityCalStatusBadgeClass(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id)}>{label}</span>
   }
 
   const headerCols: Column<ActivityHeader>[] = [
@@ -672,9 +677,7 @@ export function ActivitiesPage() {
       header: 'สถานะ CO₂e',
       sortable: true,
       sortValue: (row) => row.log_act_detail_calStatus?.log_act_detail_calStatus_name ?? row.log_act_detail_calStatus_id,
-      render: (r) => r.log_act_detail_calStatus?.log_act_detail_calStatus_name // If API provides status name, use it with badge. Otherwise fallback to old method using ID.
-        ? <span className="badge-yellow">{r.log_act_detail_calStatus.log_act_detail_calStatus_name}</span> // Assuming any provided status name means it's calculated successfully.
-        : calStatusBadge(r.log_act_detail_calStatus_id),
+      render: (r) => renderCalStatusBadge(r),
     }, 
   ]
 
@@ -692,28 +695,10 @@ export function ActivitiesPage() {
         <p><span className="font-medium text-surface-700">แปลง:</span> {selectedHeaderLand ? `${selectedHeaderLand.land_code} - ${selectedHeaderLand.name}` : '—'}</p>
         <p><span className="font-medium text-surface-700">วันที่กิจกรรม:</span> {formatBangkokDateTime(selectedHeader.activities_header_startDate)}</p>
       </div>
-      <div className="mb-4">
-        <label className="label">โหมดการคำนวณ CO₂e</label>
-        <div className="flex gap-2">
-          {(['standard', 'tver'] as CalcMode[]).map((mode) => (
-            <button
-              key={mode}
-              onClick={() => setCalcMode(mode)}
-              className={`flex-1 rounded-lg border py-1.5 text-xs font-medium transition-all ${
-                calcMode === mode ? 'border-primary-600 bg-primary-600 text-white' : 'border-surface-200 bg-white text-surface-600'
-              }`}
-            >
-              {mode === 'standard' ? 'Standard' : 'T-VER'}
-            </button>
-          ))}
-        </div>
-      </div>
-
       <div className="space-y-3 text-xs">
         <div className="rounded-lg bg-surface-50 p-3">
-          <p className="mb-1 font-medium text-surface-700">สูตรคำนวณ ({calcMode.toUpperCase()})</p>
-          <p className="font-mono text-[11px] text-primary-700">CO₂e = ปริมาณ × EF × GWP</p>
-          {calcMode === 'tver' && <p className="mt-1 text-surface-500">+ T-VER baseline adjustment</p>}
+          <p className="mb-1 font-medium text-surface-700">การคำนวณแยกไปอยู่ที่หน้าคำนวณ Carbon Footprint</p>
+          <p>นำเข้าข้อมูลหรือแก้ไขรายการในหน้านี้ก่อน แล้วค่อยย้ายสถานะและสั่งคำนวณจากเมนู <span className="font-medium text-primary-700">คำนวณ Carbon Footprint</span></p>
         </div>
         <DataTable
           data={selectedHeaderDetails}
@@ -729,8 +714,12 @@ export function ActivitiesPage() {
   ) : null
 
   // Summary stats
-  const doneCount    = details.filter(d => d.log_act_detail_calStatus_id === 2).length
-  const pendingCount = details.filter(d => d.log_act_detail_calStatus_id === 1).length
+  const importedCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'imported').length
+  const preparingCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'preparing').length
+  const readyCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'ready').length
+  const standardDoneCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'standardDone').length
+  const standardCfpDoneCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'cfpDone').length
+  const errorCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'error').length
 
 
   // // ----------------------------------------------------for dropzone
@@ -765,126 +754,164 @@ export function ActivitiesPage() {
           <p className="page-subtitle">หน้าจัดการขั้นสูงสำหรับหัวข้อกิจกรรม รายการบันทึกกิจกรรม และการนำเข้า CSV/XLSX</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button className="btn-secondary" onClick={() => openDetailForm()}><Plus size={14} /> เพิ่มรายการ</button>
           <button className="btn-primary"   onClick={() => setShowWizard(true)}><Upload size={14} /> นำเข้า xlsx/CSV</button>
         </div>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
         <div className="stat-card">
           <div className="flex items-center gap-2"><ActivitySquare size={14} className="text-primary-500" /><span className="stat-label">กิจกรรมทั้งหมด</span></div>
           <p className="stat-value">{headers.length}</p>
         </div>
         <div className="stat-card">
-          <div className="flex items-center gap-2"><Leaf size={14} className="text-primary-500" /><span className="stat-label">รายการบันทึกกิจกรรม</span></div>
-          <p className="stat-value">{details.length}</p>
+          <div className="flex items-center gap-2"><Upload size={14} className="text-surface-500" /><span className="stat-label">นำเข้าข้อมูลแล้ว</span></div>
+          <p className="stat-value text-surface-700">{importedCount}</p>
         </div>
         <div className="stat-card">
-          <div className="flex items-center gap-2"><Zap size={14} className="text-primary-500" /><span className="stat-label">คำนวณแล้ว</span></div>
-          <p className="stat-value text-primary-700">{doneCount}</p>  
-          {/* doneCount is not collect. It should be count of details with log_act_detail_calStatus_id === 2, but currently it's just details.length which is incorrect. Need to fix the logic to count only those with calStatus_id === 2. */}
+          <div className="flex items-center gap-2"><Edit size={14} className="text-blue-500" /><span className="stat-label">กำลังเตรียมข้อมูล</span></div>
+          <p className="stat-value text-blue-700">{preparingCount}</p>
         </div>
         <div className="stat-card">
-          <div className="flex items-center gap-2"><Calculator size={14} className="text-accent-500" /><span className="stat-label">รอคำนวณ</span></div>
-          <p className="stat-value text-accent-600">{pendingCount}</p>
+          <div className="flex items-center gap-2"><Clock3 size={14} className="text-accent-500" /><span className="stat-label">พร้อมคำนวณมาตรฐาน</span></div>
+          <p className="stat-value text-accent-600">{readyCount}</p>
+        </div>
+        <div className="stat-card">
+          <div className="flex items-center gap-2"><CheckCircle2 size={14} className="text-primary-500" /><span className="stat-label">คำนวณแล้ว(มาตรฐาน)</span></div>
+          <p className="stat-value text-primary-700">{standardDoneCount}</p>
+        </div>
+        <div className="stat-card">
+          <div className="flex items-center gap-2"><Leaf size={14} className="text-cyan-600" /><span className="stat-label">คำนวณแล้ว(มาตรฐาน,CFP)</span></div>
+          <p className="stat-value text-cyan-700">{standardCfpDoneCount}</p>
+        </div>
+        <div className="stat-card">
+          <div className="flex items-center gap-2"><CircleAlert size={14} className="text-red-500" /><span className="stat-label">คำนวณผิดพลาด</span></div>
+          <p className="stat-value text-red-700">{errorCount}</p>
         </div>
       </div>
 
       {/* Split panel: table left, detail right when selected */}
       <div className="flex flex-col gap-5 transition-all duration-300 xl:flex-row">
-        <div className={`card min-w-0 ${showSelectedHeaderPanel ? 'xl:flex-1' : 'w-full'}`}>
+        <div className={`card min-w-0 ${showHeaderSection && showSelectedHeaderPanel ? 'xl:flex-1' : 'w-full'}`}>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold">หัวข้อกิจกรรม</h2>
+            <div>
+              <h2 className="text-sm font-semibold">หัวข้อกิจกรรม</h2>
+              <p className="mt-1 text-xs text-surface-500">
+                ส่วนนี้ซ่อนไว้เป็นค่าเริ่มต้น เพื่อลดความสับสนระหว่างหัวข้อกิจกรรมกับรายการบันทึกกิจกรรม
+              </p>
+            </div>
             <div className="flex flex-wrap gap-2">
-              <button className="btn-primary btn-sm" onClick={openHeaderForm}>
-                <Plus size={13} /> เพิ่มหัวข้อกิจกรรม
+              <button
+                className="btn-secondary btn-sm"
+                onClick={() => {
+                  setShowHeaderSection((prev) => {
+                    const next = !prev
+                    if (!next) setFormPanelOpen(false)
+                    return next
+                  })
+                }}
+              >
+                {showHeaderSection ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                {showHeaderSection ? 'ซ่อนหัวข้อกิจกรรม' : 'แสดงหัวข้อกิจกรรม'}
               </button>
-              {selectedHeader && !formPanelOpen && (
+              {showHeaderSection && (
+                <button className="btn-primary btn-sm" onClick={openHeaderForm}>
+                  <Plus size={13} /> เพิ่มหัวข้อกิจกรรม
+                </button>
+              )}
+              {showHeaderSection && selectedHeader && !formPanelOpen && (
                 <button className="btn-secondary btn-sm" onClick={() => setFormPanelOpen(true)}>
                   <Calculator size={13} /> ดูรายละเอียด CO₂e
                 </button>
               )}
             </div>
           </div>
-          <div className="mb-3 rounded-lg border border-surface-200 p-3">
-            <div className="flex items-center justify-between gap-2 mb-3">
-              <h3 className="text-xs font-semibold text-surface-600">ตัวกรองหัวข้อกิจกรรม</h3>
-              <button className="btn-ghost btn-sm" onClick={() => setHeaderFilters(emptyHeaderFilters)}>
-                ล้างตัวกรอง
-              </button>
+          {showHeaderSection ? (
+            <>
+              <div className="mb-3 rounded-lg border border-surface-200 p-3">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <h3 className="text-xs font-semibold text-surface-600">ตัวกรองหัวข้อกิจกรรม</h3>
+                  <button className="btn-ghost btn-sm" onClick={() => setHeaderFilters(emptyHeaderFilters)}>
+                    ล้างตัวกรอง
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
+                  <div>
+                    <label className="label">วันที่กิจกรรมตั้งแต่</label>
+                    <input
+                      type="date"
+                      className="input"
+                      value={headerFilters.startDateFrom}
+                      onChange={(e) => setHeaderFilterValue('startDateFrom', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="label">วันที่กิจกรรมถึง</label>
+                    <input
+                      type="date"
+                      className="input"
+                      value={headerFilters.startDateTo}
+                      onChange={(e) => setHeaderFilterValue('startDateTo', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="label">แคมป์</label>
+                    <select className="select" value={headerFilters.landCampId} onChange={(e) => setHeaderFilterValue('landCampId', e.target.value)}>
+                      <option value="">ทั้งหมด</option>
+                      {camps.map(c => <option key={c.land_camp_id} value={c.land_camp_id}>{c.land_camp_name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">ประเภทกิจกรรม</label>
+                    <select className="select" value={headerFilters.actHeaderTypeId} onChange={(e) => setHeaderFilterValue('actHeaderTypeId', e.target.value)}>
+                      <option value="">ทั้งหมด</option>
+                      {hdrTypes.map(t => <option key={t.act_header_type_id} value={t.act_header_type_id}>{t.act_header_type_name_th}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">ประเภทแปลง</label>
+                    <select className="select" value={headerFilters.actHeaderTypeLandId} onChange={(e) => setHeaderFilterValue('actHeaderTypeLandId', e.target.value)}>
+                      <option value="">ทั้งหมด</option>
+                      {landTypes.map(t => <option key={t.act_header_typeLand_id} value={t.act_header_typeLand_id}>{t.act_header_typeLand_name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">ประเภทอ้อย</label>
+                    <select className="select" value={headerFilters.actHeaderTypeSugarCaneId} onChange={(e) => setHeaderFilterValue('actHeaderTypeSugarCaneId', e.target.value)}>
+                      <option value="">ทั้งหมด</option>
+                      {sugarCaneTypes.map(t => <option key={t.act_header_typeSugarCane_id} value={t.act_header_typeSugarCane_id}>{t.act_header_typeSugarCane_name}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <DataTable
+                data={filteredHeaders} columns={headerCols} isLoading={hLoad}
+                rowKey={(r) => r.activities_header_id}
+                onRowClick={(r) => { setSelectedHeader(r); setFormPanelOpen(true) }}
+                searchPlaceholder="ค้นหากิจกรรม..."
+                actions={(r) => (
+                  <div className="flex items-center justify-end gap-1">
+                    <button className="btn-secondary btn-sm" onClick={() => goToAddLogPage(r)}>
+                      <Plus size={13} /> log
+                    </button>
+                    <button className="btn-secondary btn-sm" onClick={() => openEditHeaderForm(r)}>
+                      <Edit size={13} />
+                    </button>
+                    <button className="btn-danger btn-sm" onClick={() => setDeleteHeaderTarget(r)}>
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                )}
+              />
+            </>
+          ) : (
+            <div className="rounded-lg border border-dashed border-surface-300 bg-surface-50 px-4 py-5 text-sm text-surface-600">
+              ซ่อนส่วนจัดการหัวข้อกิจกรรมไว้ก่อน กด `แสดงหัวข้อกิจกรรม` เมื่อต้องการเปิดตารางและฟอร์มของหัวข้อกิจกรรม
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
-              <div>
-                <label className="label">วันที่กิจกรรมตั้งแต่</label>
-                <input
-                  type="date"
-                  className="input"
-                  value={headerFilters.startDateFrom}
-                  onChange={(e) => setHeaderFilterValue('startDateFrom', e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="label">วันที่กิจกรรมถึง</label>
-                <input
-                  type="date"
-                  className="input"
-                  value={headerFilters.startDateTo}
-                  onChange={(e) => setHeaderFilterValue('startDateTo', e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="label">แคมป์</label>
-                <select className="select" value={headerFilters.landCampId} onChange={(e) => setHeaderFilterValue('landCampId', e.target.value)}>
-                  <option value="">ทั้งหมด</option>
-                  {camps.map(c => <option key={c.land_camp_id} value={c.land_camp_id}>{c.land_camp_name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="label">ประเภทกิจกรรม</label>
-                <select className="select" value={headerFilters.actHeaderTypeId} onChange={(e) => setHeaderFilterValue('actHeaderTypeId', e.target.value)}>
-                  <option value="">ทั้งหมด</option>
-                  {hdrTypes.map(t => <option key={t.act_header_type_id} value={t.act_header_type_id}>{t.act_header_type_name_th}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="label">ประเภทแปลง</label>
-                <select className="select" value={headerFilters.actHeaderTypeLandId} onChange={(e) => setHeaderFilterValue('actHeaderTypeLandId', e.target.value)}>
-                  <option value="">ทั้งหมด</option>
-                  {landTypes.map(t => <option key={t.act_header_typeLand_id} value={t.act_header_typeLand_id}>{t.act_header_typeLand_name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="label">ประเภทอ้อย</label>
-                <select className="select" value={headerFilters.actHeaderTypeSugarCaneId} onChange={(e) => setHeaderFilterValue('actHeaderTypeSugarCaneId', e.target.value)}>
-                  <option value="">ทั้งหมด</option>
-                  {sugarCaneTypes.map(t => <option key={t.act_header_typeSugarCane_id} value={t.act_header_typeSugarCane_id}>{t.act_header_typeSugarCane_name}</option>)}
-                </select>
-              </div>
-            </div>
-          </div>
-          <DataTable
-            data={filteredHeaders} columns={headerCols} isLoading={hLoad}
-            rowKey={(r) => r.activities_header_id}
-            onRowClick={(r) => { setSelectedHeader(r); setFormPanelOpen(true) }}
-            searchPlaceholder="ค้นหากิจกรรม..."
-            actions={(r) => (
-              <div className="flex items-center justify-end gap-1">
-                <button className="btn-secondary btn-sm" onClick={() => goToAddLogPage(r)}>
-                  <Plus size={13} /> log
-                </button>
-                <button className="btn-secondary btn-sm" onClick={() => openEditHeaderForm(r)}>
-                  <Edit size={13} />
-                </button>
-                <button className="btn-danger btn-sm" onClick={() => setDeleteHeaderTarget(r)}>
-                  <Trash2 size={13} />
-                </button>
-              </div>
-            )}
-          />
+          )}
         </div>
 
-        {selectedHeaderPanel}
+        {showHeaderSection ? selectedHeaderPanel : null}
       </div>
 
       <div className="card mt-5">
@@ -970,7 +997,7 @@ export function ActivitiesPage() {
           columns={detailCols}
           isLoading={dLoad}
           rowKey={(r) => r.log_act_detail_id}
-          searchPlaceholder="ค้นหา log activities..."
+          searchPlaceholder="ค้นหารายการบันทึกกิจกรรม..."
           defaultPageSize={10}
           emptyMessage="ยังไม่มีรายการบันทึกกิจกรรม"
           actions={(r) => (
@@ -1301,7 +1328,7 @@ export function ActivitiesPage() {
       {showWizard && (
         <CsvMappingWizard
           title="นำเข้ากิจกรรมจาก CSV"
-          subtitle="รองรับ format: วันที่ปฏิบัติ · หมวดหมู่กิจกรรมหลัก · รายละเอียดกิจกรรมย่อย · ไร่(camps) · แปลง(lands) · พื้นที่ตามแปลง · ประเภทแปลง · ประเภทอ้อย · รายการปัจจัยการผลิต(listEM - ปุ๋ย 23-12-12 Control Release) · ประเภทปัจจัย(UsageType - ปุ๋ย) · ปริมาณรวม · จำนวณ · ปริมาณต่อ1จำนวณ · ประเภทปัจจัย · หน่วยนับ · พื้นที่ปฏิบัติรวม โดย camp/land ใช้หา location ของ header ไม่ได้เก็บตรงใน log detail"
+          subtitle="รองรับคอลัมน์ เช่น วันที่ปฏิบัติ · หมวดหมู่กิจกรรมหลัก · รายละเอียดกิจกรรมย่อย · ไร่/แคมป์ · แปลง · พื้นที่ตามแปลง · ประเภทแปลง · ประเภทอ้อย · รายการปัจจัยการผลิต · ประเภทปัจจัย · ปริมาณรวม · จำนวน · ปริมาณต่อ 1 จำนวน · หน่วยนับ · พื้นที่ปฏิบัติรวม โดยระบบจะใช้ข้อมูลไร่และแปลงเพื่อเชื่อมโยงข้อมูลกิจกรรมให้โดยอัตโนมัติ"
           targetColumns={ACTIVITY_TARGET_COLUMNS}
           onComplete={async (mappings, rows) => { return importMut.mutateAsync({ mappings, rows }) }}
           onCancel={() => setShowWizard(false)}

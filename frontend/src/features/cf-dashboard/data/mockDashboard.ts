@@ -1,6 +1,7 @@
 import type {
   DashboardDataset,
   FieldCarbonDetail,
+  ProcessInputComparison,
   ProcessActivityBreakdown,
   ProcessEmission,
   SpatialSummaryNode,
@@ -8,14 +9,13 @@ import type {
 } from "../types/dashboard";
 
 export const PROCESS_STEPS = [
-  "1. ฟื้นฟูดิน",
-  "2. การปลูก",
-  "3. การบำรุงรักษา",
-  "4. การเก็บเกี่ยว",
-  "5. การขนส่งเข้าโรงงาน",
+  "1. เตรียมดิน",
+  "2. เพาะปลูก",
+  "3. ดูแลรักษา",
+  "4. เก็บเกี่ยว",
 ];
 
-export const CULTIVATION_STEPS = PROCESS_STEPS.slice(0, 4);
+export const CULTIVATION_STEPS = PROCESS_STEPS;
 export const DASHBOARD_YEARS = ["baseline", "2562/63", "2563/64", "2564/65", "2565/66", "2566/67"];
 
 export const trend: TrendPoint[] = [
@@ -27,21 +27,32 @@ export const trend: TrendPoint[] = [
 ];
 
 const processByYear: Record<string, number[]> = {
-  "2562/63": [165, 230, 260, 180, 95],
-  "2563/64": [154, 222, 252, 172, 90],
-  "2564/65": [160, 228, 255, 176, 91],
-  "2565/66": [148, 210, 242, 168, 86],
-  "2566/67": [120, 184, 205, 142, 72],
+  "2562/63": [165, 230, 260, 180],
+  "2563/64": [154, 222, 252, 172],
+  "2564/65": [160, 228, 255, 176],
+  "2565/66": [148, 210, 242, 168],
+  "2566/67": [120, 184, 205, 142],
 };
 
-export const processEmissions: ProcessEmission[] = Object.entries(processByYear).flatMap(([year, values]) =>
+const baselineAverageByProcess = PROCESS_STEPS.map((process, index) => ({
+  year: "baseline_avg",
+  process,
+  emission: Number(
+    (["2562/63", "2563/64", "2564/65", "2565/66"].reduce((sum, year) => sum + processByYear[year][index], 0) / 4).toFixed(2),
+  ),
+  isBaseline: true,
+}));
+
+export const processEmissions: ProcessEmission[] = [
+  ...baselineAverageByProcess,
+  ...Object.entries(processByYear).flatMap(([year, values]) =>
   PROCESS_STEPS.map((process, index) => ({
     year,
     process,
     emission: values[index],
     isBaseline: year !== "2566/67",
   })),
-);
+)];
 
 function activities(year: string, process: string, values: [string, number][]): ProcessActivityBreakdown {
   return {
@@ -53,20 +64,43 @@ function activities(year: string, process: string, values: [string, number][]): 
 }
 
 export const processActivities: ProcessActivityBreakdown[] = [
-  activities("baseline", "1. ฟื้นฟูดิน", [["เชื้อเพลิง", 68], ["ปูนปรับปรุงดิน", 42], ["เครื่องจักร", 38]]),
-  activities("baseline", "2. การปลูก", [["เชื้อเพลิง", 70], ["ท่อนพันธุ์", 45], ["ปุ๋ยรองพื้น", 95]]),
-  activities("baseline", "3. การบำรุงรักษา", [["ปุ๋ยเคมี", 145], ["สารเคมี", 44], ["ไฟฟ้า/น้ำ", 54]]),
-  activities("baseline", "4. การเก็บเกี่ยว", [["รถตัด", 95], ["แรงงาน/เครื่องมือ", 36], ["รวบรวมผลผลิต", 39]]),
-  activities("2566/67", "1. ฟื้นฟูดิน", [["เชื้อเพลิง", 51], ["ปูนปรับปรุงดิน", 34], ["เครื่องจักร", 35]]),
-  activities("2566/67", "2. การปลูก", [["เชื้อเพลิง", 58], ["ท่อนพันธุ์", 40], ["ปุ๋ยรองพื้น", 86]]),
-  activities("2566/67", "3. การบำรุงรักษา", [["ปุ๋ยเคมี", 116], ["สารเคมี", 34], ["ไฟฟ้า/น้ำ", 55]]),
-  activities("2566/67", "4. การเก็บเกี่ยว", [["รถตัด", 79], ["แรงงาน/เครื่องมือ", 28], ["รวบรวมผลผลิต", 35]]),
+  activities("baseline_avg", "1. เตรียมดิน", [["น้ำมัน", 68], ["ปุ๋ย/ปูนปรับปรุงดิน", 42], ["เครื่องจักร", 38]]),
+  activities("baseline_avg", "2. เพาะปลูก", [["น้ำมัน", 70], ["ท่อนพันธุ์", 45], ["ปุ๋ยรองพื้น", 95]]),
+  activities("baseline_avg", "3. ดูแลรักษา", [["ปุ๋ยเคมี", 145], ["สารเคมี", 44], ["น้ำ/ไฟฟ้า", 54]]),
+  activities("baseline_avg", "4. เก็บเกี่ยว", [["น้ำมันรถตัด", 95], ["แรงงาน/เครื่องมือ", 36], ["รวบรวมผลผลิต", 39]]),
+  activities("2566/67", "1. เตรียมดิน", [["น้ำมัน", 51], ["ปุ๋ย/ปูนปรับปรุงดิน", 34], ["เครื่องจักร", 35]]),
+  activities("2566/67", "2. เพาะปลูก", [["น้ำมัน", 58], ["ท่อนพันธุ์", 40], ["ปุ๋ยรองพื้น", 86]]),
+  activities("2566/67", "3. ดูแลรักษา", [["ปุ๋ยเคมี", 116], ["สารเคมี", 34], ["น้ำ/ไฟฟ้า", 55]]),
+  activities("2566/67", "4. เก็บเกี่ยว", [["น้ำมันรถตัด", 79], ["แรงงาน/เครื่องมือ", 28], ["รวบรวมผลผลิต", 35]]),
 ];
 
-export const transportActivities: ProcessActivityBreakdown[] = [
-  activities("baseline", "5. การขนส่งเข้าโรงงาน", [["รถบรรทุก", 52], ["ระยะทาง", 24], ["รอคิว/เดินเบา", 12]]),
-  activities("2566/67", "5. การขนส่งเข้าโรงงาน", [["รถบรรทุก", 41], ["ระยะทาง", 22], ["รอคิว/เดินเบา", 9]]),
+export const processInputComparisons: ProcessInputComparison[] = [
+  { process: "1. เตรียมดิน", baselineFertilizerKg: 18400, currentFertilizerKg: 15600, baselineFuelLiter: 8200, currentFuelLiter: 6900 },
+  { process: "2. เพาะปลูก", baselineFertilizerKg: 31200, currentFertilizerKg: 28600, baselineFuelLiter: 7600, currentFuelLiter: 6500 },
+  { process: "3. ดูแลรักษา", baselineFertilizerKg: 58400, currentFertilizerKg: 47200, baselineFuelLiter: 4200, currentFuelLiter: 3900 },
+  { process: "4. เก็บเกี่ยว", baselineFertilizerKg: 0, currentFertilizerKg: 0, baselineFuelLiter: 11200, currentFuelLiter: 9400 },
 ];
+
+export const transportActivities: ProcessActivityBreakdown[] = [];
+
+function scaleSpatialInputs(baselineEmission: number, currentEmission: number): ProcessInputComparison[] {
+  const baselineFactor = baselineEmission / 896;
+  const currentFactor = currentEmission / 723;
+  return processInputComparisons.map((item) => ({
+    process: item.process,
+    baselineFertilizerKg: Number((item.baselineFertilizerKg * baselineFactor).toFixed(1)),
+    currentFertilizerKg: Number((item.currentFertilizerKg * currentFactor).toFixed(1)),
+    baselineFuelLiter: Number((item.baselineFuelLiter * baselineFactor).toFixed(1)),
+    currentFuelLiter: Number((item.currentFuelLiter * currentFactor).toFixed(1)),
+  }));
+}
+
+function withSpatialInputs<T extends SpatialSummaryNode>(node: T): T {
+  return {
+    ...node,
+    processInputComparisons: scaleSpatialInputs(node.baselineEmission, node.currentEmission),
+  };
+}
 
 const nodes: SpatialSummaryNode[] = [
   {
@@ -81,8 +115,8 @@ const nodes: SpatialSummaryNode[] = [
     areaRai: 18450,
     baselineEmission: 896,
     currentEmission: 723,
-    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [120, 184, 205, 142, 72][index] })),
-    childrenIds: ["north", "northeast", "central"],
+    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [120, 184, 205, 142][index] })),
+    childrenIds: ["north", "northeast", "central", "east", "west", "south"],
   },
   {
     id: "north",
@@ -97,7 +131,7 @@ const nodes: SpatialSummaryNode[] = [
     areaRai: 3820,
     baselineEmission: 220,
     currentEmission: 168,
-    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [28, 42, 50, 33, 15][index] })),
+    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [28, 42, 50, 33][index] })),
     childrenIds: ["chiang-rai"],
   },
   {
@@ -113,7 +147,7 @@ const nodes: SpatialSummaryNode[] = [
     areaRai: 10280,
     baselineEmission: 486,
     currentEmission: 412,
-    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [70, 104, 118, 78, 42][index] })),
+    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [70, 104, 118, 78][index] })),
     childrenIds: ["nakhon-ratchasima"],
   },
   {
@@ -129,8 +163,56 @@ const nodes: SpatialSummaryNode[] = [
     areaRai: 4350,
     baselineEmission: 190,
     currentEmission: 143,
-    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [22, 38, 37, 31, 15][index] })),
+    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [22, 38, 37, 31][index] })),
     childrenIds: ["kanchanaburi"],
+  },
+  {
+    id: "east",
+    parentId: "thailand",
+    level: "region",
+    name: "ภาคตะวันออก",
+    lat: 13.2,
+    lng: 101.4,
+    zoom: 7,
+    fields: 0,
+    farmers: 0,
+    areaRai: 0,
+    baselineEmission: 0,
+    currentEmission: 0,
+    processBreakdown: PROCESS_STEPS.map((name) => ({ name, emission: 0 })),
+    childrenIds: [],
+  },
+  {
+    id: "west",
+    parentId: "thailand",
+    level: "region",
+    name: "ภาคตะวันตก",
+    lat: 14.3,
+    lng: 99.2,
+    zoom: 7,
+    fields: 0,
+    farmers: 0,
+    areaRai: 0,
+    baselineEmission: 0,
+    currentEmission: 0,
+    processBreakdown: PROCESS_STEPS.map((name) => ({ name, emission: 0 })),
+    childrenIds: [],
+  },
+  {
+    id: "south",
+    parentId: "thailand",
+    level: "region",
+    name: "ภาคใต้",
+    lat: 8.7,
+    lng: 99.8,
+    zoom: 7,
+    fields: 0,
+    farmers: 0,
+    areaRai: 0,
+    baselineEmission: 0,
+    currentEmission: 0,
+    processBreakdown: PROCESS_STEPS.map((name) => ({ name, emission: 0 })),
+    childrenIds: [],
   },
   {
     id: "chiang-rai",
@@ -145,7 +227,7 @@ const nodes: SpatialSummaryNode[] = [
     areaRai: 2230,
     baselineEmission: 134,
     currentEmission: 102,
-    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [18, 25, 30, 20, 9][index] })),
+    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [18, 25, 30, 20][index] })),
     childrenIds: ["mae-chan"],
   },
   {
@@ -161,7 +243,7 @@ const nodes: SpatialSummaryNode[] = [
     areaRai: 920,
     baselineEmission: 56,
     currentEmission: 41,
-    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [7, 11, 13, 7, 3][index] })),
+    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [7, 11, 13, 7][index] })),
     childrenIds: ["pa-sang"],
   },
   {
@@ -177,7 +259,7 @@ const nodes: SpatialSummaryNode[] = [
     areaRai: 315,
     baselineEmission: 20,
     currentEmission: 14,
-    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [2.4, 3.8, 4.6, 2.2, 1.0][index] })),
+    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [2.4, 3.8, 4.6, 2.2][index] })),
     childrenIds: ["field-cr-001"],
   },
   {
@@ -193,7 +275,7 @@ const nodes: SpatialSummaryNode[] = [
     areaRai: 6140,
     baselineEmission: 282,
     currentEmission: 248,
-    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [40, 62, 70, 48, 28][index] })),
+    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [40, 62, 70, 48][index] })),
     childrenIds: ["pak-chong"],
   },
   {
@@ -209,7 +291,7 @@ const nodes: SpatialSummaryNode[] = [
     areaRai: 2110,
     baselineEmission: 97,
     currentEmission: 92,
-    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [14, 22, 27, 18, 11][index] })),
+    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [14, 22, 27, 18][index] })),
     childrenIds: ["nong-sarai"],
   },
   {
@@ -225,7 +307,7 @@ const nodes: SpatialSummaryNode[] = [
     areaRai: 604,
     baselineEmission: 29,
     currentEmission: 31,
-    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [5, 7, 9, 6, 4][index] })),
+    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [5, 7, 9, 6][index] })),
     childrenIds: ["field-nm-021"],
   },
   {
@@ -241,7 +323,7 @@ const nodes: SpatialSummaryNode[] = [
     areaRai: 2480,
     baselineEmission: 104,
     currentEmission: 76,
-    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [12, 20, 19, 17, 8][index] })),
+    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [12, 20, 19, 17][index] })),
     childrenIds: [],
   },
 ];
@@ -261,7 +343,7 @@ const fields: FieldCarbonDetail[] = [
     areaRai: 48.5,
     baselineEmission: 8.6,
     currentEmission: 5.9,
-    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [0.9, 1.5, 1.8, 1.1, 0.6][index] })),
+    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [0.9, 1.5, 1.8, 1.1][index] })),
     childrenIds: [],
     fieldCode: "CR-PS-001",
     fieldName: "แปลงอ้อยบ้านป่าซาง 01",
@@ -292,7 +374,7 @@ const fields: FieldCarbonDetail[] = [
     areaRai: 62.2,
     baselineEmission: 9.4,
     currentEmission: 10.1,
-    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [1.7, 2.3, 2.9, 2.0, 1.2][index] })),
+    processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [1.7, 2.3, 2.9, 2.0][index] })),
     childrenIds: [],
     fieldCode: "NM-PC-021",
     fieldName: "แปลงอ้อยหนองสาหร่าย 21",
@@ -317,6 +399,8 @@ export const mockDashboard: DashboardDataset = {
     currentYear: "2566/67",
     machineEmission: 129.9,
     inputEmission: 649.5,
+    fertilizerAmountKg: 91400,
+    fertilizerEmission: 236.0,
     yieldTon: 1088.8,
     co2ePerTon: 3.22,
     farmers: 418,
@@ -325,7 +409,8 @@ export const mockDashboard: DashboardDataset = {
   trend,
   processEmissions,
   processActivities,
+  processInputComparisons,
   transportActivities,
-  spatialNodes: [...nodes, ...fields],
+  spatialNodes: [...nodes, ...fields].map(withSpatialInputs),
   fields,
 };

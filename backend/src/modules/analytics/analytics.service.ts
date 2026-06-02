@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 
@@ -126,15 +127,43 @@ function mapToValues(map: Map<string, number>) {
 export class AnalyticsService {
   constructor(private prisma: PrismaService) {}
 
+  private normalizeCalStatusName(value: string | null | undefined) {
+    return (value ?? '').trim().toLowerCase()
+  }
+
+  private isCalculatedStatusName(name: string) {
+    const looksDone = /คำนวณแล้ว|done|success|สำเร็จ/.test(name)
+    const looksPending = /pending|wait|รอ|ยังไม่/.test(name)
+    const looksError = /error|fail|ผิด/.test(name)
+    return looksDone && !looksPending && !looksError
+  }
+
+  private async getCalculatedStatusIds() {
+    const statuses = await this.prisma.log_act_detail_calStatus.findMany({
+      select: {
+        log_act_detail_calStatus_id: true,
+        log_act_detail_calStatus_name: true,
+      },
+      orderBy: { log_act_detail_calStatus_id: 'asc' },
+    })
+
+    const matchedIds = statuses
+      .filter((status) => this.isCalculatedStatusName(this.normalizeCalStatusName(status.log_act_detail_calStatus_name)))
+      .map((status) => status.log_act_detail_calStatus_id)
+
+    return matchedIds.length > 0 ? matchedIds : [2]
+  }
+
   async getSummary() {
     type Row = { total_records: bigint; total_volume: number; total_areawork: number }
+    const calculatedStatusIds = await this.getCalculatedStatusIds()
     const [row] = await this.prisma.$queryRaw<Row[]>`
       SELECT
         COUNT(*) AS total_records,
         COALESCE(SUM("log_act_detail_volumeAll"), 0) AS total_volume,
         COALESCE(SUM("log_act_detail_areawork"), 0) AS total_areawork
       FROM log_activities_detail
-      WHERE "log_act_detail_calStatus_id" = 2
+      WHERE "log_act_detail_calStatus_id" IN (${Prisma.join(calculatedStatusIds)})
     `
     return {
       total_records: Number(row?.total_records ?? 0),
@@ -145,6 +174,7 @@ export class AnalyticsService {
 
   async getByCamp() {
     type Row = { camp_id: number; camp_name: string | null; co2e: number }
+    const calculatedStatusIds = await this.getCalculatedStatusIds()
     const rows = await this.prisma.$queryRaw<Row[]>`
       SELECT
         lc.land_camp_id AS camp_id,
@@ -155,7 +185,7 @@ export class AnalyticsService {
       LEFT JOIN activities_header ah ON ah.land_id = l.land_id
       LEFT JOIN log_activities_detail ld
         ON ld.activities_header_id = ah.activities_header_id
-        AND ld."log_act_detail_calStatus_id" = 2
+        AND ld."log_act_detail_calStatus_id" IN (${Prisma.join(calculatedStatusIds)})
       GROUP BY lc.land_camp_id, lc.land_camp_name
       ORDER BY lc.land_camp_id
     `
@@ -168,6 +198,7 @@ export class AnalyticsService {
 
   async getByActivity() {
     type Row = { activity_type_id: number; activity_type: string | null; co2e: number }
+    const calculatedStatusIds = await this.getCalculatedStatusIds()
     const rows = await this.prisma.$queryRaw<Row[]>`
       SELECT
         ht.act_header_type_id AS activity_type_id,
@@ -177,7 +208,7 @@ export class AnalyticsService {
       LEFT JOIN activities_header ah ON ah.act_header_type_id = ht.act_header_type_id
       LEFT JOIN log_activities_detail ld
         ON ld.activities_header_id = ah.activities_header_id
-        AND ld."log_act_detail_calStatus_id" = 2
+        AND ld."log_act_detail_calStatus_id" IN (${Prisma.join(calculatedStatusIds)})
       GROUP BY ht.act_header_type_id, ht."act_header_type_name_th"
       ORDER BY ht.act_header_type_id
     `
@@ -190,6 +221,7 @@ export class AnalyticsService {
 
   async getByLand(campId?: number) {
     type Row = { land_id: number; land_code: string | null; land_name: string | null; camp_name: string | null; co2e: number }
+    const calculatedStatusIds = await this.getCalculatedStatusIds()
     const rows = campId
       ? await this.prisma.$queryRaw<Row[]>`
           SELECT
@@ -203,7 +235,7 @@ export class AnalyticsService {
           LEFT JOIN activities_header ah ON ah.land_id = l.land_id
           LEFT JOIN log_activities_detail ld
             ON ld.activities_header_id = ah.activities_header_id
-            AND ld."log_act_detail_calStatus_id" = 2
+            AND ld."log_act_detail_calStatus_id" IN (${Prisma.join(calculatedStatusIds)})
           WHERE l.land_camp_id = ${campId}
           GROUP BY l.land_id, l.land_code, l.name, lc.land_camp_name
           ORDER BY l.land_id
@@ -220,7 +252,7 @@ export class AnalyticsService {
           LEFT JOIN activities_header ah ON ah.land_id = l.land_id
           LEFT JOIN log_activities_detail ld
             ON ld.activities_header_id = ah.activities_header_id
-            AND ld."log_act_detail_calStatus_id" = 2
+            AND ld."log_act_detail_calStatus_id" IN (${Prisma.join(calculatedStatusIds)})
           GROUP BY l.land_id, l.land_code, l.name, lc.land_camp_name
           ORDER BY l.land_id
         `
@@ -359,6 +391,7 @@ export class AnalyticsService {
   }
 
   private async getEmissionRows(): Promise<EmissionRow[]> {
+    const calculatedStatusIds = await this.getCalculatedStatusIds()
     return this.prisma.$queryRaw<EmissionRow[]>`
       SELECT
         EXTRACT(YEAR FROM ah."activities_header_startDate")::int AS year,
@@ -400,7 +433,7 @@ export class AnalyticsService {
       LEFT JOIN districts d ON d.districts_id = sd.district_code
       LEFT JOIN provinces p ON p.provinces_id = d.province_code
       LEFT JOIN geographies g ON g.geographies_id = p.geography_id
-      WHERE ld."log_act_detail_calStatus_id" = 2
+      WHERE ld."log_act_detail_calStatus_id" IN (${Prisma.join(calculatedStatusIds)})
         AND ah."activities_header_startDate" IS NOT NULL
     `
   }

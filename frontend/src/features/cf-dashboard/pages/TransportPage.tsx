@@ -11,7 +11,7 @@ function yearName(year: string) {
 
 function currentYearFrom(data: ProcessEmission[]) {
   const years = data.filter((item) => !item.isBaseline).map((item) => item.year).sort();
-  return years.length ? years[years.length - 1] : "";
+  return years[years.length - 1] ?? "";
 }
 
 export function CfTransportPage() {

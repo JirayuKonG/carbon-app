@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ActivitySquare, CheckCircle2, CircleAlert, Clock3, Edit, Plus, Settings2, Trash2 } from 'lucide-react'
 import { Column, DataTable } from '@/components/ui/DataTable'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { getActivityCalStatusBadgeClass, getActivityCalStatusKind, getActivityCalStatusLabel } from '@/features/activities/cal-status'
 import { del, get, post, put } from '@/lib/api'
 import { formatBangkokDateTime } from '@/lib/datetime'
 
@@ -66,8 +67,6 @@ interface Equipment { act_equipment_id: number; act_equipment_name: string }
 interface Chemical { act_chemiscal_id: number; act_chemiscal_name: string }
 interface Unit { unit_id: number; unit_name?: string; unit_initial?: string }
 interface UnitPrefix { unit_prefix_id: number; unit_prefix_name?: string; unit_prefix_initial?: string }
-
-type CalcMode = 'standard' | 'tver'
 
 type DetailForm = {
   activities_header_id: string
@@ -160,7 +159,6 @@ export function ActivityLogListPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingDetail, setEditingDetail] = useState<LogDetail | null>(null)
   const [deleteDetailTarget, setDeleteDetailTarget] = useState<LogDetail | null>(null)
-  const [calcMode, setCalcMode] = useState<CalcMode>('standard')
   const [trackMethod, setTrackMethod] = useState<'direct' | 'cascade'>('cascade')
   const [selectedCampId, setSelectedCampId] = useState<number | null>(null)
   const [selectedLandId, setSelectedLandId] = useState<number | null>(null)
@@ -383,31 +381,12 @@ export function ActivityLogListPage() {
       log_act_detail_volumePerUnit: toNumberOrUndefined(detailForm.log_act_detail_volumePerUnit),
       log_act_detail_volumeAll: toNumberOrUndefined(detailForm.log_act_detail_volumeAll),
       log_act_detail_areawork: toNumberOrUndefined(detailForm.log_act_detail_areawork),
-      calcMode,
     })
   }
 
   const renderCalStatus = (detail: LogDetail, label: string) => {
-    const statusText = label.trim() || '—'
-    const normalized = statusText.toLowerCase()
-
-    if (normalized.includes('error') || normalized.includes('fail') || statusText.includes('ผิด')) {
-      return <span className="badge-red">{statusText}</span>
-    }
-
-    if (normalized.includes('pending') || normalized.includes('wait') || statusText.includes('รอ')) {
-      return <span className="badge-amber">{statusText}</span>
-    }
-
-    if (normalized.includes('done') || normalized.includes('success') || statusText.includes('สำเร็จ') || statusText.includes('คำนวณ')) {
-      return <span className="badge-green">{statusText}</span>
-    }
-
-    if (detail.log_act_detail_calStatus_id === 3) return <span className="badge-red">{statusText}</span>
-    if (detail.log_act_detail_calStatus_id === 1) return <span className="badge-amber">{statusText}</span>
-    if (detail.log_act_detail_calStatus_id === 2) return <span className="badge-green">{statusText}</span>
-
-    return <span className="badge-gray">{statusText}</span>
+    const statusText = getActivityCalStatusLabel(label, detail.log_act_detail_calStatus_id)
+    return <span className={getActivityCalStatusBadgeClass(label, detail.log_act_detail_calStatus_id)}>{statusText}</span>
   }
 
   const columns: Column<ActivityLogRow>[] = [
@@ -434,9 +413,12 @@ export function ActivityLogListPage() {
     { key: 'calStatusLabel', header: 'สถานะ CO₂e', sortable: true, render: (row) => renderCalStatus(row.original, row.calStatusLabel) },
   ]
 
-  const doneCount = details.filter((detail) => detail.log_act_detail_calStatus_id === 2).length
-  const pendingCount = details.filter((detail) => detail.log_act_detail_calStatus_id === 1).length
-  const errorCount = details.filter((detail) => detail.log_act_detail_calStatus_id === 3).length
+  const importedCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'imported').length
+  const preparingCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'preparing').length
+  const readyCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'ready').length
+  const standardDoneCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'standardDone').length
+  const standardCfpDoneCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'cfpDone').length
+  const errorCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'error').length
 
   return (
     <div>
@@ -455,21 +437,33 @@ export function ActivityLogListPage() {
         </div>
       </div>
 
-      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-6">
         <div className="stat-card">
           <div className="flex items-center gap-2"><ActivitySquare size={14} className="text-primary-500" /><span className="stat-label">รายการทั้งหมด</span></div>
           <p className="stat-value">{details.length}</p>
         </div>
         <div className="stat-card">
-          <div className="flex items-center gap-2"><CheckCircle2 size={14} className="text-primary-500" /><span className="stat-label">คำนวณแล้ว</span></div>
-          <p className="stat-value text-primary-700">{doneCount}</p>
+          <div className="flex items-center gap-2"><Plus size={14} className="text-surface-500" /><span className="stat-label">นำเข้าข้อมูลแล้ว</span></div>
+          <p className="stat-value text-surface-700">{importedCount}</p>
         </div>
         <div className="stat-card">
-          <div className="flex items-center gap-2"><Clock3 size={14} className="text-accent-500" /><span className="stat-label">รอคำนวณ</span></div>
-          <p className="stat-value text-accent-600">{pendingCount}</p>
+          <div className="flex items-center gap-2"><Edit size={14} className="text-blue-500" /><span className="stat-label">กำลังเตรียมข้อมูล</span></div>
+          <p className="stat-value text-blue-700">{preparingCount}</p>
         </div>
         <div className="stat-card">
-          <div className="flex items-center gap-2"><CircleAlert size={14} className="text-red-500" /><span className="stat-label">ผิดพลาด</span></div>
+          <div className="flex items-center gap-2"><Clock3 size={14} className="text-accent-500" /><span className="stat-label">พร้อมคำนวณมาตรฐาน</span></div>
+          <p className="stat-value text-accent-600">{readyCount}</p>
+        </div>
+        <div className="stat-card">
+          <div className="flex items-center gap-2"><CheckCircle2 size={14} className="text-primary-500" /><span className="stat-label">คำนวณแล้ว(มาตรฐาน)</span></div>
+          <p className="stat-value text-primary-700">{standardDoneCount}</p>
+        </div>
+        <div className="stat-card">
+          <div className="flex items-center gap-2"><CheckCircle2 size={14} className="text-cyan-600" /><span className="stat-label">คำนวณแล้ว(มาตรฐาน,CFP)</span></div>
+          <p className="stat-value text-cyan-700">{standardCfpDoneCount}</p>
+        </div>
+        <div className="stat-card">
+          <div className="flex items-center gap-2"><CircleAlert size={14} className="text-red-500" /><span className="stat-label">คำนวณผิดพลาด</span></div>
           <p className="stat-value text-red-700">{errorCount}</p>
         </div>
       </div>
@@ -568,21 +562,12 @@ export function ActivityLogListPage() {
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
                 <h3 className="mb-2 font-semibold">{editingDetail ? 'แก้ไขบันทึกกิจกรรม' : 'เพิ่มบันทึกกิจกรรม'}</h3>
-                <p className="text-xs text-surface-500">กรอกข้อมูลรายการบันทึกกิจกรรม และให้ระบบคำนวณ CO₂e ตามรูปแบบเดิม</p>
+                <p className="text-xs text-surface-500">กรอกข้อมูลรายการบันทึกกิจกรรมในหน้านี้ก่อน แล้วค่อยย้ายสถานะและคำนวณจากเมนูคำนวณ Carbon Footprint</p>
               </div>
               <div className="min-w-40">
-                <label className="label">โหมดการคำนวณ</label>
-                <div className="flex gap-2">
-                  {(['standard', 'tver'] as CalcMode[]).map((mode) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => setCalcMode(mode)}
-                      className={`flex-1 rounded-lg border py-1.5 text-xs font-medium transition-all ${calcMode === mode ? 'border-primary-600 bg-primary-600 text-white' : 'border-surface-200 bg-white text-surface-600'}`}
-                    >
-                      {mode === 'standard' ? 'Standard' : 'T-VER'}
-                    </button>
-                  ))}
+                <label className="label">การคำนวณ</label>
+                <div className="rounded-lg border border-surface-200 bg-surface-50 px-3 py-2 text-xs text-surface-600">
+                  ใช้เมนู <span className="font-medium text-primary-700">คำนวณ Carbon Footprint</span> สำหรับคำนวณมาตรฐานและ CFP
                 </div>
               </div>
             </div>
