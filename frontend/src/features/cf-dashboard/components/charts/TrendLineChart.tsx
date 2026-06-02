@@ -1,6 +1,6 @@
 import { Line } from "react-chartjs-2";
 import type { TrendPoint } from "../../types/dashboard";
-import { chartOptions } from "./ChartRegistry";
+import { chartOptions, chartPalette } from "./ChartRegistry";
 import "./ChartRegistry";
 
 export function TrendLineChart({ data }: { data: TrendPoint[] }) {
@@ -14,9 +14,9 @@ export function TrendLineChart({ data }: { data: TrendPoint[] }) {
             {
               label: "ปีฐานรายปี",
               data: data.map((item) => (item.isBaseline ? item.emission : null)),
-              borderColor: "#FFB86B",
-              backgroundColor: "rgba(255,184,107,.12)",
-              pointBackgroundColor: "#FFB86B",
+              borderColor: chartPalette.trendBaseline,
+              backgroundColor: "rgba(175,191,255,.16)",
+              pointBackgroundColor: chartPalette.trendBaseline,
               tension: 0.35,
               spanGaps: true,
               fill: false,
@@ -24,8 +24,8 @@ export function TrendLineChart({ data }: { data: TrendPoint[] }) {
             {
               label: "ค่าเฉลี่ยปีฐาน",
               data: data.map(() => baselineAverage),
-              borderColor: "#5BA4FF",
-              backgroundColor: "rgba(91,164,255,.08)",
+              borderColor: chartPalette.trendAverage,
+              backgroundColor: "rgba(206,147,216,.10)",
               pointRadius: 0,
               borderDash: [6, 5],
               tension: 0,
@@ -34,9 +34,9 @@ export function TrendLineChart({ data }: { data: TrendPoint[] }) {
             {
               label: "ปีดำเนินโครงการ",
               data: data.map((item) => (!item.isBaseline ? item.emission : null)),
-              borderColor: "#277B27",
-              backgroundColor: "rgba(39,123,39,.12)",
-              pointBackgroundColor: "#277B27",
+              borderColor: chartPalette.trendProject,
+              backgroundColor: "rgba(246,153,136,.16)",
+              pointBackgroundColor: chartPalette.trendProject,
               pointRadius: 5,
               tension: 0.35,
               spanGaps: true,
