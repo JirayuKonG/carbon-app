@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: carbon-footprint-api
+    env: node
+    branch: main
+    buildCommand: npm install --workspaces && npm run prisma:generate --workspace=backend && npm run build --workspace=backend
+    startCommand: npm run start --workspace=backend
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: ALLOWED_ORIGINS
+        sync: false
+
+  - type: static_site
+    name: carbon-footprint-web
+    branch: main
+    buildCommand: npm install --workspaces && npm run build --workspace=frontend
+    staticPublishPath: frontend/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false
+      - key: VITE_CF_API_URL
+        sync: false

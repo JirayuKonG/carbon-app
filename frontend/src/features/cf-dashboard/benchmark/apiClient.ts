@@ -1,7 +1,7 @@
 import type { BenchmarkResult } from "../types/pipeline";
 
-const BASE = import.meta.env.VITE_CF_API_URL ?? "http://localhost:8000/api";
-const FALLBACK = "http://127.0.0.1:8001/api";
+const BASE = import.meta.env.VITE_CF_API_URL?.trim() ?? "";
+const FALLBACK = import.meta.env.DEV ? "http://127.0.0.1:8001/api" : "";
 
 async function request<T>(base: string, path: string, options: RequestInit): Promise<T> {
   const res = await fetch(`${base}${path}`, options);
@@ -10,19 +10,27 @@ async function request<T>(base: string, path: string, options: RequestInit): Pro
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
+  if (!BASE && !FALLBACK) {
+    throw new Error("Benchmark API is not configured");
+  }
   const opts: RequestInit = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
   try {
     return await request<T>(BASE, path, opts);
   } catch {
+    if (!FALLBACK) throw new Error("Benchmark API is not available");
     return request<T>(FALLBACK, path, opts);
   }
 }
 
 async function get<T>(path: string): Promise<T> {
+  if (!BASE && !FALLBACK) {
+    throw new Error("Benchmark API is not configured");
+  }
   const opts: RequestInit = { method: "GET" };
   try {
     return await request<T>(BASE, path, opts);
   } catch {
+    if (!FALLBACK) throw new Error("Benchmark API is not available");
     return request<T>(FALLBACK, path, opts);
   }
 }
