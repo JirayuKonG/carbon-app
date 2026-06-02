@@ -6,7 +6,8 @@ import "./ChartRegistry";
 export function ProcessGroupedBar({ data }: { data: ProcessEmission[] }) {
   const labels = Array.from(new Set(data.map((item) => item.process)));
   const baselineAvgRows = data.filter((item) => item.year === "baseline_avg");
-  const currentYear = data.filter((item) => !item.isBaseline).map((item) => item.year).sort().at(-1);
+  const projectYears = data.filter((item) => !item.isBaseline).map((item) => item.year).sort();
+  const currentYear = projectYears[projectYears.length - 1];
   const baselineMap = new Map(baselineAvgRows.map((item) => [item.process, item.emission]));
   const currentMap = new Map(data.filter((item) => item.year === currentYear).map((item) => [item.process, item.emission]));
 

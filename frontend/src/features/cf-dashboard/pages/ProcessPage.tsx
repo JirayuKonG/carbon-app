@@ -10,7 +10,8 @@ function yearName(year: string) {
 }
 
 function currentYearFrom(data: ProcessEmission[]) {
-  return data.filter((item) => !item.isBaseline).map((item) => item.year).sort().at(-1) ?? "";
+  const years = data.filter((item) => !item.isBaseline).map((item) => item.year).sort();
+  return years[years.length - 1] ?? "";
 }
 
 function ProcessSummary({ baseline, current }: { baseline: ProcessActivityBreakdown[]; current: ProcessActivityBreakdown[] }) {
