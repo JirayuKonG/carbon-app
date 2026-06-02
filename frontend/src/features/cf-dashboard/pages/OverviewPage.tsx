@@ -61,6 +61,9 @@ export function CfOverviewPage() {
   const diff = kpi.data.baselineAvgEmission - kpi.data.currentEmission;
   const diffPct = kpi.data.baselineAvgEmission ? (diff / kpi.data.baselineAvgEmission) * 100 : 0;
   const processSummary = summarizeProcess(process.data, kpi.data.currentYear);
+  const rankedProcessSummary = [...processSummary].sort((a, b) => b.cur - a.cur);
+  const topProcess = rankedProcessSummary[0];
+  const lowProcess = rankedProcessSummary.at(-1);
 
   return (
     <div className="cf-dash">
@@ -138,7 +141,8 @@ export function CfOverviewPage() {
             <div className="summary-list">
               <div><span>น้ำมันเทียบปีฐาน</span><strong className="green-text">{inputs.data.reduce((sum, item) => sum + item.baselineFuelLiter - item.currentFuelLiter, 0).toLocaleString()} L ลดลง</strong></div>
               <div><span>ปุ๋ยเทียบปีฐาน</span><strong className="green-text">{inputs.data.reduce((sum, item) => sum + item.baselineFertilizerKg - item.currentFertilizerKg, 0).toLocaleString()} kg ลดลง</strong></div>
-              <div><span>กระบวนการที่ปล่อยสูงสุด</span><strong>{processSummary.sort((a, b) => b.cur - a.cur)[0]?.process ?? "-"}</strong></div>
+              <div><span>กระบวนการที่ปล่อยสูงสุด</span><strong>{topProcess ? `${topProcess.process} (${topProcess.cur.toFixed(0)} tCO2e)` : "-"}</strong></div>
+              <div><span>กระบวนการที่ปล่อยต่ำสุด</span><strong>{lowProcess ? `${lowProcess.process} (${lowProcess.cur.toFixed(0)} tCO2e)` : "-"}</strong></div>
             </div>
           </article>
 
@@ -168,12 +172,17 @@ export function CfOverviewPage() {
           <article className="card">
             <div className="card-title">Grouped Bar · เปรียบเทียบ 4 ขั้นตอน</div>
             <ProcessGroupedBar data={process.data} />
-            <div className="summary-list">
-              {processSummary.map((item) => (
-                <div key={item.process}>
-                  <span>{item.process}</span>
+            <div className="summary-list ranked-list">
+              {rankedProcessSummary.map((item, index) => (
+                <div key={item.process} className={index === 0 ? "rank-top" : index === rankedProcessSummary.length - 1 ? "rank-low" : ""}>
+                  <span>
+                    <b className="rank-pill">{index + 1}</b>
+                    {item.process}
+                    {index === 0 && <em>ปล่อยมากสุด</em>}
+                    {index === rankedProcessSummary.length - 1 && <em>ปล่อยน้อยสุด</em>}
+                  </span>
                   <strong className={item.diff <= 0 ? "green-text" : "red-text"}>
-                    {item.diff <= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(item.diff).toFixed(2)} tCO2e
+                    {item.cur.toFixed(2)} tCO2e · {item.diff <= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(item.diff).toFixed(2)}
                   </strong>
                 </div>
               ))}

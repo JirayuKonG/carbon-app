@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ActivityGroupedBar } from "../components/charts/ActivityGroupedBar";
+import { sortProcessLabels } from "../components/charts/ChartRegistry";
 import { ProcessInputComparisonBar } from "../components/charts/ProcessInputComparisonBar";
 import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
 import { getCfProcessActivities, getProcessEmissions, getProcessInputComparisons } from "../services/dashboardApi";
@@ -15,7 +16,7 @@ function currentYearFrom(data: ProcessEmission[]) {
 }
 
 function ProcessSummary({ baseline, current }: { baseline: ProcessActivityBreakdown[]; current: ProcessActivityBreakdown[] }) {
-  const rows = Array.from(new Set([...baseline, ...current].map((item) => item.process))).map((process) => {
+  const rows = sortProcessLabels(Array.from(new Set([...baseline, ...current].map((item) => item.process)))).map((process) => {
     const base = baseline.find((item) => item.process === process)?.totalEmission ?? 0;
     const cur = current.find((item) => item.process === process)?.totalEmission ?? 0;
     return { process, diff: cur - base };

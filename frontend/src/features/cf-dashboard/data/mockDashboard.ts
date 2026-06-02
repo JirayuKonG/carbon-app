@@ -83,6 +83,25 @@ export const processInputComparisons: ProcessInputComparison[] = [
 
 export const transportActivities: ProcessActivityBreakdown[] = [];
 
+function scaleSpatialInputs(baselineEmission: number, currentEmission: number): ProcessInputComparison[] {
+  const baselineFactor = baselineEmission / 896;
+  const currentFactor = currentEmission / 723;
+  return processInputComparisons.map((item) => ({
+    process: item.process,
+    baselineFertilizerKg: Number((item.baselineFertilizerKg * baselineFactor).toFixed(1)),
+    currentFertilizerKg: Number((item.currentFertilizerKg * currentFactor).toFixed(1)),
+    baselineFuelLiter: Number((item.baselineFuelLiter * baselineFactor).toFixed(1)),
+    currentFuelLiter: Number((item.currentFuelLiter * currentFactor).toFixed(1)),
+  }));
+}
+
+function withSpatialInputs<T extends SpatialSummaryNode>(node: T): T {
+  return {
+    ...node,
+    processInputComparisons: scaleSpatialInputs(node.baselineEmission, node.currentEmission),
+  };
+}
+
 const nodes: SpatialSummaryNode[] = [
   {
     id: "thailand",
@@ -392,6 +411,6 @@ export const mockDashboard: DashboardDataset = {
   processActivities,
   processInputComparisons,
   transportActivities,
-  spatialNodes: [...nodes, ...fields],
+  spatialNodes: [...nodes, ...fields].map(withSpatialInputs),
   fields,
 };

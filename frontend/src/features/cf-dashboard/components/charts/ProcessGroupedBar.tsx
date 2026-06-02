@@ -1,10 +1,10 @@
 import { Bar } from "react-chartjs-2";
 import type { ProcessEmission } from "../../types/dashboard";
-import { chartOptions } from "./ChartRegistry";
+import { chartOptions, chartPalette, sortProcessLabels } from "./ChartRegistry";
 import "./ChartRegistry";
 
 export function ProcessGroupedBar({ data }: { data: ProcessEmission[] }) {
-  const labels = Array.from(new Set(data.map((item) => item.process)));
+  const labels = sortProcessLabels(Array.from(new Set(data.map((item) => item.process))));
   const baselineAvgRows = data.filter((item) => item.year === "baseline_avg");
   const currentYear = data.filter((item) => !item.isBaseline).map((item) => item.year).sort().at(-1);
   const baselineMap = new Map(baselineAvgRows.map((item) => [item.process, item.emission]));
@@ -19,15 +19,15 @@ export function ProcessGroupedBar({ data }: { data: ProcessEmission[] }) {
             {
               label: "Baseline avg",
               data: labels.map((process) => baselineMap.get(process) ?? 0),
-              backgroundColor: "rgba(255,184,107,.72)",
-              borderColor: "#FFB86B",
+              backgroundColor: chartPalette.baseline.bg,
+              borderColor: chartPalette.baseline.border,
               borderWidth: 1,
             },
             {
               label: currentYear ?? "Project year",
               data: labels.map((process) => currentMap.get(process) ?? 0),
-              backgroundColor: "rgba(39,123,39,.72)",
-              borderColor: "#277B27",
+              backgroundColor: chartPalette.project.bg,
+              borderColor: chartPalette.project.border,
               borderWidth: 1,
             },
           ],

@@ -1,6 +1,6 @@
 import { Bar } from "react-chartjs-2";
 import type { ProcessInputComparison } from "../../types/dashboard";
-import { chartOptions } from "./ChartRegistry";
+import { chartOptions, chartPalette, sortProcessLabels } from "./ChartRegistry";
 import "./ChartRegistry";
 
 export function ProcessInputComparisonBar({
@@ -10,36 +10,38 @@ export function ProcessInputComparisonBar({
   data: ProcessInputComparison[];
   mode?: "byProcess" | "total";
 }) {
-  const labels = mode === "total" ? ["ปุ๋ยรวม (kg)", "น้ำมันรวม (L)"] : data.map((item) => item.process);
+  const processOrder = new Map(sortProcessLabels(data.map((item) => item.process)).map((process, index) => [process, index]));
+  const processData = mode === "total" ? data : [...data].sort((a, b) => (processOrder.get(a.process) ?? 0) - (processOrder.get(b.process) ?? 0));
+  const labels = mode === "total" ? ["ปุ๋ยรวม (kg)", "น้ำมันรวม (L)"] : processData.map((item) => item.process);
   const baselineData = mode === "total"
     ? [
         data.reduce((sum, item) => sum + item.baselineFertilizerKg, 0),
         data.reduce((sum, item) => sum + item.baselineFuelLiter, 0),
       ]
-    : data.map((item) => item.baselineFertilizerKg);
+    : processData.map((item) => item.baselineFertilizerKg);
   const currentData = mode === "total"
     ? [
         data.reduce((sum, item) => sum + item.currentFertilizerKg, 0),
         data.reduce((sum, item) => sum + item.currentFuelLiter, 0),
       ]
-    : data.map((item) => item.currentFertilizerKg);
-  const fuelBaselineData = data.map((item) => item.baselineFuelLiter);
-  const fuelCurrentData = data.map((item) => item.currentFuelLiter);
+    : processData.map((item) => item.currentFertilizerKg);
+  const fuelBaselineData = processData.map((item) => item.baselineFuelLiter);
+  const fuelCurrentData = processData.map((item) => item.currentFuelLiter);
 
   const datasets = mode === "total"
     ? [
         {
           label: "Baseline avg",
           data: baselineData,
-          backgroundColor: "rgba(255,184,107,.72)",
-          borderColor: "#FFB86B",
+          backgroundColor: chartPalette.baseline.bg,
+          borderColor: chartPalette.baseline.border,
           borderWidth: 1,
         },
         {
           label: "Project year",
           data: currentData,
-          backgroundColor: "rgba(39,123,39,.72)",
-          borderColor: "#277B27",
+          backgroundColor: chartPalette.project.bg,
+          borderColor: chartPalette.project.border,
           borderWidth: 1,
         },
       ]
@@ -47,29 +49,29 @@ export function ProcessInputComparisonBar({
         {
           label: "ปุ๋ย baseline (kg)",
           data: baselineData,
-          backgroundColor: "rgba(255,184,107,.72)",
-          borderColor: "#FFB86B",
+          backgroundColor: chartPalette.fertilizerBaseline.bg,
+          borderColor: chartPalette.fertilizerBaseline.border,
           borderWidth: 1,
         },
         {
           label: "ปุ๋ย project (kg)",
           data: currentData,
-          backgroundColor: "rgba(39,123,39,.72)",
-          borderColor: "#277B27",
+          backgroundColor: chartPalette.fertilizerProject.bg,
+          borderColor: chartPalette.fertilizerProject.border,
           borderWidth: 1,
         },
         {
           label: "น้ำมัน baseline (L)",
           data: fuelBaselineData,
-          backgroundColor: "rgba(91,164,255,.58)",
-          borderColor: "#5BA4FF",
+          backgroundColor: chartPalette.fuelBaseline.bg,
+          borderColor: chartPalette.fuelBaseline.border,
           borderWidth: 1,
         },
         {
           label: "น้ำมัน project (L)",
           data: fuelCurrentData,
-          backgroundColor: "rgba(183,156,255,.58)",
-          borderColor: "#B79CFF",
+          backgroundColor: chartPalette.fuelProject.bg,
+          borderColor: chartPalette.fuelProject.border,
           borderWidth: 1,
         },
       ];

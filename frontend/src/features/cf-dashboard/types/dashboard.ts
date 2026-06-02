@@ -80,6 +80,7 @@ export interface SpatialSummaryNode {
   baselineEmission: number;
   currentEmission: number;
   processBreakdown: ActivityValue[];
+  processInputComparisons?: ProcessInputComparison[];
   childrenIds: string[];
 }
 

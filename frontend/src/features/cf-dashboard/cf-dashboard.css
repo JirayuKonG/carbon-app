@@ -13,11 +13,11 @@
   --accent: #5BA4FF;
   --accent-soft: #DCEEFF;
   --accent-dark: #3B82F6;
-  --eco-green: #277B27;
-  --eco-green-dim: #277B27;
+  --eco-green: #4E8F6A;
+  --eco-green-dim: #5F9F7C;
   --purple: #B79CFF;
   --amber: #FFB86B;
-  --red: #BA0900;
+  --red: #D95F54;
   --teal: #72D6C9;
   --shadow-card: 0 4px 20px rgba(0,0,0,0.05);
   color: var(--text);
@@ -103,8 +103,8 @@
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 10px;
 }
-.cf-dash .delta.bad { color: var(--red); background: rgba(186,9,0,.12); }
-.cf-dash .delta.good { color: var(--eco-green); background: rgba(39,123,39,.12); }
+.cf-dash .delta.bad { color: var(--red); background: rgba(246,153,136,.18); }
+.cf-dash .delta.good { color: var(--eco-green); background: rgba(197,225,165,.24); }
 
 /* Compare row */
 .cf-dash .compare-row {
@@ -133,8 +133,8 @@
   font-weight: 800;
 }
 .cf-dash .badge-blue { border: 1px solid var(--accent); color: var(--accent-dark); background: var(--accent-soft); }
-.cf-dash .badge-green { border: 1px solid rgba(111,207,151,.7); color: var(--eco-green-dim); background: rgba(111,207,151,.16); }
-.cf-dash .badge-red { border: 1px solid rgba(255,127,127,.7); color: var(--red); background: rgba(255,127,127,.14); }
+.cf-dash .badge-green { border: 1px solid rgba(197,225,165,.9); color: var(--eco-green-dim); background: rgba(197,225,165,.24); }
+.cf-dash .badge-red { border: 1px solid rgba(246,153,136,.8); color: var(--red); background: rgba(246,153,136,.18); }
 
 /* Chart boxes */
 .cf-dash .chart-box { height: 340px; border-radius: 18px; padding: 12px; background: linear-gradient(to bottom, #FFFFFF, #F9FCFF); }
@@ -169,6 +169,46 @@
   font-size: 12px;
 }
 .cf-dash .summary-list strong { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.cf-dash .ranked-list > div { align-items: center; }
+.cf-dash .ranked-list > div > span {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+.cf-dash .rank-pill {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #d0d9ff;
+  color: #4F5F9E;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+}
+.cf-dash .ranked-list em {
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: #fff3b0;
+  color: #8A6D14;
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+}
+.cf-dash .ranked-list .rank-top {
+  border-color: #f69988;
+  background: rgba(255,224,178,.36);
+}
+.cf-dash .ranked-list .rank-low {
+  border-color: #b2ebf2;
+  background: rgba(178,235,242,.24);
+}
+.cf-dash .rank-low em {
+  background: #dcedc8;
+  color: #5D7F38;
+}
 
 /* Year tabs */
 .cf-dash .year-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
@@ -310,6 +350,63 @@
   background: var(--accent-soft);
   font-size: 11px;
 }
+.cf-dash .input-insight-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+.cf-dash .input-insight-grid > div {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(255,255,255,.66);
+}
+.cf-dash .input-insight-grid span,
+.cf-dash .input-insight-grid small {
+  display: block;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.cf-dash .input-insight-grid strong {
+  display: block;
+  margin: 2px 0;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 13px;
+}
+.cf-dash .input-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+.cf-dash .input-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.cf-dash .input-table th,
+.cf-dash .input-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+.cf-dash .input-table th {
+  background: #F1F7FD;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 700;
+}
+.cf-dash .input-table td {
+  color: var(--text-dim);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.cf-dash .input-table td:first-child {
+  color: var(--text);
+  font-family: inherit;
+  font-weight: 700;
+}
+.cf-dash .input-table tr:last-child td { border-bottom: none; }
 
 /* Architecture / Pipeline */
 .cf-dash .architecture-board { display: grid; grid-template-columns: 1.1fr 1.1fr .8fr; gap: 16px; }
