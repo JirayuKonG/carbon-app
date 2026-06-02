@@ -63,7 +63,7 @@ export function CfOverviewPage() {
   const processSummary = summarizeProcess(process.data, kpi.data.currentYear);
   const rankedProcessSummary = [...processSummary].sort((a, b) => b.cur - a.cur);
   const topProcess = rankedProcessSummary[0];
-  const lowProcess = rankedProcessSummary.at(-1);
+  const lowProcess = rankedProcessSummary[rankedProcessSummary.length - 1];
 
   return (
     <div className="cf-dash">
