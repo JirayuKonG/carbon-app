@@ -3,7 +3,7 @@ import { ActivityGroupedBar } from "../components/charts/ActivityGroupedBar";
 import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
 import { ThailandMap } from "../components/map/ThailandMap";
 import { getCfSpatialNodes } from "../services/dashboardApi";
-import type { FieldCarbonDetail, ProcessActivityBreakdown, SpatialSummaryNode } from "../types/dashboard";
+import type { FieldCarbonDetail, ProcessActivityBreakdown, SpatialLevel, SpatialSummaryNode } from "../types/dashboard";
 import "../cf-dashboard.css";
 
 function isField(node: SpatialSummaryNode): node is FieldCarbonDetail {
@@ -31,6 +31,13 @@ export function CfSpatialPage() {
   const [nodes, setNodes] = useState<SpatialSummaryNode[]>([]);
   const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState("thailand");
+  const [filters, setFilters] = useState<Record<Exclude<SpatialLevel, "country">, string>>({
+    region: "",
+    province: "",
+    district: "",
+    subdistrict: "",
+    field: "",
+  });
 
   useEffect(() => {
     getCfSpatialNodes()
@@ -43,11 +50,9 @@ export function CfSpatialPage() {
   }, []);
 
   const selected = nodes.find((node) => node.id === selectedId) ?? nodes[0];
-  const children = selected ? nodes.filter((node) => node.parentId === selected.id) : [];
-  const siblings = selected?.parentId ? nodes.filter((node) => node.parentId === selected.parentId) : [];
-  const pickerNodes = children.length ? children : siblings;
   const diff = selected ? selected.baselineEmission - selected.currentEmission : 0;
   const compare = selected ? nodeCompare(selected) : { baseline: [], current: [] };
+  const rootId = nodes.find((node) => !node.parentId)?.id ?? "thailand";
 
   const breadcrumbs = useMemo(() => {
     const list: SpatialSummaryNode[] = [];
@@ -58,6 +63,20 @@ export function CfSpatialPage() {
     }
     return list;
   }, [nodes, selected]);
+
+  const optionsFor = (level: Exclude<SpatialLevel, "country">, parentId?: string) =>
+    nodes.filter((node) => node.level === level && (!parentId || node.parentId === parentId));
+
+  const selectArea = (level: keyof typeof filters, id: string) => {
+    const order: (keyof typeof filters)[] = ["region", "province", "district", "subdistrict", "field"];
+    const levelIndex = order.indexOf(level);
+    const next = { ...filters, [level]: id };
+    order.slice(levelIndex + 1).forEach((key) => {
+      next[key] = "";
+    });
+    setFilters(next);
+    setSelectedId(id || next.subdistrict || next.district || next.province || next.region || rootId);
+  };
 
   if (!selected) {
     return <div className="cf-dash"><div className="page active"><div className="empty-state">กำลังโหลดข้อมูลแผนที่...</div></div></div>;
@@ -87,15 +106,42 @@ export function CfSpatialPage() {
               ))}
             </div>
           </div>
-          <div className="region-pills">
-            <button className="ytab" onClick={() => setSelectedId(nodes.find((node) => !node.parentId)?.id ?? "thailand")}>
-              ทั้งประเทศ
-            </button>
-            {pickerNodes.map((node) => (
-              <button key={node.id} className={`ytab ${node.id === selected.id ? "active" : ""}`} onClick={() => setSelectedId(node.id)}>
-                {node.name}
-              </button>
-            ))}
+          <div className="spatial-select-grid">
+            <label>
+              ภาค
+              <select value={filters.region} onChange={(event) => selectArea("region", event.target.value)}>
+                <option value="">ทั้งหมด</option>
+                {optionsFor("region", rootId).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+              </select>
+            </label>
+            <label>
+              จังหวัด
+              <select value={filters.province} onChange={(event) => selectArea("province", event.target.value)} disabled={!filters.region}>
+                <option value="">ทั้งหมด</option>
+                {optionsFor("province", filters.region).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+              </select>
+            </label>
+            <label>
+              อำเภอ / เขต
+              <select value={filters.district} onChange={(event) => selectArea("district", event.target.value)} disabled={!filters.province}>
+                <option value="">ทั้งหมด</option>
+                {optionsFor("district", filters.province).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+              </select>
+            </label>
+            <label>
+              ตำบล / แขวง
+              <select value={filters.subdistrict} onChange={(event) => selectArea("subdistrict", event.target.value)} disabled={!filters.district}>
+                <option value="">ทั้งหมด</option>
+                {optionsFor("subdistrict", filters.district).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+              </select>
+            </label>
+            <label>
+              แปลง
+              <select value={filters.field} onChange={(event) => selectArea("field", event.target.value)} disabled={!filters.subdistrict}>
+                <option value="">ทั้งหมด</option>
+                {optionsFor("field", filters.subdistrict).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+              </select>
+            </label>
           </div>
         </section>
 

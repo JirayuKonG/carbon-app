@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { ActivityGroupedBar } from "../components/charts/ActivityGroupedBar";
+import { ProcessInputComparisonBar } from "../components/charts/ProcessInputComparisonBar";
 import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
-import { getCfProcessActivities, getProcessEmissions } from "../services/dashboardApi";
-import type { ProcessActivityBreakdown, ProcessEmission } from "../types/dashboard";
+import { getCfProcessActivities, getProcessEmissions, getProcessInputComparisons } from "../services/dashboardApi";
+import type { ProcessActivityBreakdown, ProcessEmission, ProcessInputComparison } from "../types/dashboard";
 import "../cf-dashboard.css";
 
 function yearName(year: string) {
@@ -38,13 +39,15 @@ export function CfProcessPage() {
   const [year, setYear] = useState("baseline_avg");
   const [activities, setActivities] = useState<ProcessActivityBreakdown[]>([]);
   const [emissions, setEmissions] = useState<ProcessEmission[]>([]);
+  const [inputs, setInputs] = useState<ProcessInputComparison[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    Promise.all([getCfProcessActivities("process"), getProcessEmissions()])
-      .then(([activityResult, emissionResult]) => {
+    Promise.all([getCfProcessActivities("process"), getProcessEmissions(), getProcessInputComparisons()])
+      .then(([activityResult, emissionResult, inputResult]) => {
         setActivities(activityResult.data);
         setEmissions(emissionResult.data);
+        setInputs(inputResult.data);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "โหลดข้อมูลไม่สำเร็จ"));
   }, []);
@@ -89,6 +92,11 @@ export function CfProcessPage() {
             <ActivityGroupedBar baseline={baseline} current={current} />
             <ProcessSummary baseline={baseline} current={current} />
           </article>
+        </section>
+
+        <section className="card full-span">
+          <div className="card-title">ปุ๋ยและน้ำมันรายขั้นตอน · ค่าเฉลี่ยปีฐาน vs ปีดำเนินโครงการ</div>
+          <ProcessInputComparisonBar data={inputs} />
         </section>
 
         <section className="sub-pie-grid">

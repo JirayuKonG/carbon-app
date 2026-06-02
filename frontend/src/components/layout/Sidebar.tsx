@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Map, Factory, Users, Tractor,
   Layers, CloudRain, FlaskConical, ActivitySquare, Settings2,
-  Leaf, ChevronDown, ChevronRight, X, BarChart3, Sprout, MapPin, GitBranch, Truck, FileText,
+  Leaf, ChevronDown, ChevronRight, X, BarChart3, Sprout, MapPin, FileText,
 } from 'lucide-react'
 
 interface NavItem {
@@ -24,12 +24,18 @@ const NAV_GROUPS: NavGroup[] = [
   {
     section: 'Carbon Analytics',
     items: [
-      { path: '/overview', label: 'ภาพรวม Carbon', labelEn: 'Overview', icon: <BarChart3 size={16} /> },
-      { path: '/process', label: 'กระบวนการเพาะปลูก', labelEn: 'Process', icon: <Sprout size={16} /> },
-      { path: '/transport', label: 'การขนส่งเข้าโรงงาน', labelEn: 'Transport', icon: <Truck size={16} /> },
+      {
+        path: '/overview',
+        label: 'ภาพรวม Carbon',
+        labelEn: 'Overview',
+        icon: <BarChart3 size={16} />,
+        children: [
+          { path: '/overview', label: 'ข้อมูลสรุป', labelEn: 'Summary', icon: <BarChart3 size={14} /> },
+          { path: '/process', label: 'กระบวนการเพาะปลูก', labelEn: 'Process', icon: <Sprout size={14} /> },
+          { path: '/report', label: 'รายงาน Premium T-VER', labelEn: 'Report', icon: <FileText size={14} /> },
+        ],
+      },
       { path: '/spatial', label: 'แผนที่พื้นที่', labelEn: 'Spatial', icon: <MapPin size={16} /> },
-      { path: '/report', label: 'รายงาน Premium T-VER', labelEn: 'Report', icon: <FileText size={16} /> },
-      { path: '/pipeline', label: 'Pipeline Proof', labelEn: 'Pipeline', icon: <GitBranch size={16} /> },
     ],
   },
   {
@@ -81,7 +87,7 @@ export function Sidebar({ mobile, onClose }: SidebarProps) {
   const location = useLocation()
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
 
-  const navItems = NAV_GROUPS.flatMap((group) => group.items.flatMap((item) => item.children ?? [item]))
+  const navItems = NAV_GROUPS.flatMap((group) => group.items.flatMap((item) => [item, ...(item.children ?? [])]))
   const activePath = navItems
     .filter((item): item is NavItem & { path: string } => Boolean(item.path))
     .filter((item) =>
@@ -93,7 +99,7 @@ export function Sidebar({ mobile, onClose }: SidebarProps) {
     const nextOpenGroups = Object.fromEntries(
       NAV_GROUPS.flatMap((group) =>
         group.items
-          .filter((item) => item.children?.some((child) => child.path === activePath))
+          .filter((item) => item.path === activePath || item.children?.some((child) => child.path === activePath))
           .map((item) => [item.label, true]),
       ),
     )
@@ -133,7 +139,7 @@ export function Sidebar({ mobile, onClose }: SidebarProps) {
             <ul className="px-2 space-y-0.5">
               {group.items.map((item) => {
                 const childActive = item.children?.some((child) => child.path === activePath) ?? false
-                const isActive = item.path ? activePath === item.path : childActive
+                const isActive = item.path ? activePath === item.path || childActive : childActive
                 const isOpen = openGroups[item.label] ?? childActive
 
                 if (item.children?.length) {
