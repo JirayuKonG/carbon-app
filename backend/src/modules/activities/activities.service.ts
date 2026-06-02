@@ -4,9 +4,16 @@ import { Co2eEngineService } from './co2e-engine.service'
 
 export interface ColumnMapping { targetKey: string; sourceKey: string | null }
 
-const CAL_STATUS_PENDING  = 1
-const CAL_STATUS_DONE     = 2
-const CAL_STATUS_ERROR    = 3
+const CAL_STATUS_NAMES = {
+  imported: 'นำเข้าข้อมูลแล้ว',
+  preparing: 'กำลังเตรียมข้อมูล',
+  ready: 'พร้อมคำนวณมาตรฐาน',
+  standardDone: 'คำนวณแล้ว(มาตรฐาน)',
+  cfpDone: 'คำนวณแล้ว(มาตรฐาน,CFP)',
+  error: 'คำนวณผิดพลาด',
+} as const
+
+type CalStatusName = (typeof CAL_STATUS_NAMES)[keyof typeof CAL_STATUS_NAMES]
 
 type ActivityHeaderPayload = {
   land_id?: number | string | null
@@ -40,6 +47,23 @@ type ActivityDetailPayload = {
   log_act_detail_create_at?: Date | string | null
   // log_act_detail_create_at is used to date, such as 2024-07-01, but it is not used to time
   calcMode?: 'standard' | 'tver'
+}
+
+type FertilizerPayload = {
+  act_fertilizer_name?: string | null
+  act_fertilizer_info?: string | null
+  resource_used_type_id?: number | string | null
+}
+
+type EquipmentPayload = {
+  act_equipment_name?: string | null
+  act_equipment_info?: string | null
+  resource_used_type_id?: number | string | null
+}
+
+type ResourceTypePayload = {
+  resc_used_type_name?: string | null
+  resc_used_type_info?: string | null
 }
 
 @Injectable()
@@ -86,6 +110,12 @@ export class ActivitiesService {
     return text === '' ? undefined : text
   }
 
+  private toRequiredText(value: unknown, fieldName: string) {
+    const text = this.toOptionalText(value)
+    if (!text) throw new BadRequestException(`${fieldName} is required`)
+    return text
+  }
+
   private normalizeHeaderPayload(data: ActivityHeaderPayload, withCreateAt = false) {
     return {
       land_id:                       this.toOptionalNumber(data.land_id),
@@ -130,6 +160,113 @@ export class ActivitiesService {
     return Object.fromEntries(
       Object.entries(data).filter(([, value]) => value !== undefined && value !== ''),
     )
+  }
+
+  private normalizeCalStatusName(value: string | null | undefined) {
+    return (value ?? '').trim()
+  }
+
+  private async ensureCalStatusMap() {
+    const existing = await this.prisma.log_act_detail_calStatus.findMany({
+      select: {
+        log_act_detail_calStatus_id: true,
+        log_act_detail_calStatus_name: true,
+      },
+      orderBy: { log_act_detail_calStatus_id: 'asc' },
+    })
+
+    const legacyAliases: Partial<Record<CalStatusName, string[]>> = {
+      [CAL_STATUS_NAMES.ready]: ['ยังไม่คำนวณ/รอการคำนวณมาตรฐาน', 'รอคำนวณค่ามาตรฐาน'],
+      [CAL_STATUS_NAMES.cfpDone]: ['คำนวณแล้ว(มาตรฐาน+CFP)'],
+      [CAL_STATUS_NAMES.error]: ['ผิดพลาด'],
+    }
+
+    const map: Record<CalStatusName, number> = {} as Record<CalStatusName, number>
+    let nextId = existing.reduce((max, item) => Math.max(max, item.log_act_detail_calStatus_id), 0)
+
+    for (const statusName of Object.values(CAL_STATUS_NAMES)) {
+      const exact = existing.find((item) => this.normalizeCalStatusName(item.log_act_detail_calStatus_name) === statusName)
+      if (exact) {
+        map[statusName] = exact.log_act_detail_calStatus_id
+        continue
+      }
+
+      const legacyName = legacyAliases[statusName]?.find((alias) =>
+        existing.some((item) => this.normalizeCalStatusName(item.log_act_detail_calStatus_name) === alias),
+      )
+
+      if (legacyName) {
+        const legacy = existing.find((item) => this.normalizeCalStatusName(item.log_act_detail_calStatus_name) === legacyName)
+        if (legacy) {
+          await this.prisma.log_act_detail_calStatus.update({
+            where: { log_act_detail_calStatus_id: legacy.log_act_detail_calStatus_id },
+            data: { log_act_detail_calStatus_name: statusName },
+          })
+          legacy.log_act_detail_calStatus_name = statusName
+          map[statusName] = legacy.log_act_detail_calStatus_id
+          continue
+        }
+      }
+
+      nextId += 1
+      const created = await this.prisma.log_act_detail_calStatus.create({
+        data: {
+          log_act_detail_calStatus_id: nextId,
+          log_act_detail_calStatus_name: statusName,
+          create_at: new Date(),
+        },
+      })
+      existing.push(created)
+      map[statusName] = created.log_act_detail_calStatus_id
+    }
+
+    return map
+  }
+
+  private async getCalStatusId(statusName: CalStatusName) {
+    const map = await this.ensureCalStatusMap()
+    const statusId = map[statusName]
+    if (!statusId) {
+      throw new BadRequestException(`Missing calculation status: ${statusName}`)
+    }
+    return statusId
+  }
+
+  private getDetailStatusName(detail: { log_act_detail_calStatus?: { log_act_detail_calStatus_name?: string | null } | null }) {
+    return this.normalizeCalStatusName(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name)
+  }
+
+  private async getDetailForWorkflow(id: number) {
+    const detail = await this.prisma.log_activities_detail.findUnique({
+      where: { log_act_detail_id: id },
+      include: {
+        log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
+      },
+    })
+
+    if (!detail) {
+      throw new BadRequestException(`Detail ${id} not found`)
+    }
+
+    return detail
+  }
+
+  private canTransitionWorkflowStatus(currentStatusName: string, nextStatusName: string) {
+    if (nextStatusName === CAL_STATUS_NAMES.preparing) {
+      return (
+        currentStatusName === CAL_STATUS_NAMES.imported
+        || currentStatusName === CAL_STATUS_NAMES.ready
+        || currentStatusName === CAL_STATUS_NAMES.standardDone
+        || currentStatusName === CAL_STATUS_NAMES.cfpDone
+        || currentStatusName === CAL_STATUS_NAMES.error
+      )
+    }
+
+    if (nextStatusName === CAL_STATUS_NAMES.ready) {
+      return currentStatusName === CAL_STATUS_NAMES.preparing
+    }
+
+    return false
   }
 
   async createHeader(data: ActivityHeaderPayload) {
@@ -212,12 +349,11 @@ export class ActivitiesService {
   }
 
   async createDetail(data: ActivityDetailPayload) {
-    const calcMode = data.calcMode
     const normalized = this.normalizeDetailPayload(data)
-    let calStatusId = CAL_STATUS_DONE
+    const calStatusId = await this.getCalStatusId(CAL_STATUS_NAMES.imported)
     const createdAt = normalized.log_act_detail_create_at ?? new Date()
 
-    const detail = await this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       const last = await tx.log_activities_detail.aggregate({ _max: { log_act_detail_id: true } })
       const logActDetailId = (last._max.log_act_detail_id ?? 0) + 1
 
@@ -230,44 +366,108 @@ export class ActivitiesService {
         },
       })
     })
-
-    this.triggerCalc(
-      detail.log_act_detail_id,
-      normalized.resource_used_type_id,
-      normalized.log_act_detail_volumeAll,
-      normalized.log_act_detail_volumePerUnit,
-      normalized.log_act_detail_quatity,
-      calcMode,
-    )
-      .catch(e => this.logger.error('CO2e calc failed', e))
-
-    return detail
   }
 
   async updateDetail(id: number, data: ActivityDetailPayload) {
-    const calcMode = data.calcMode
     const normalized = this.normalizeDetailPayload(data)
-
-    const detail = await this.prisma.log_activities_detail.update({
-      where: { log_act_detail_id: id },
-      data: this.cleanData(normalized),
-    })
-
-    this.triggerCalc(
-      detail.log_act_detail_id,
-      normalized.resource_used_type_id ?? detail.resource_used_type_id ?? undefined,
-      normalized.log_act_detail_volumeAll ?? detail.log_act_detail_volumeAll ?? undefined,
-      normalized.log_act_detail_volumePerUnit ?? detail.log_act_detail_volumePerUnit ?? undefined,
-      normalized.log_act_detail_quatity ?? detail.log_act_detail_quatity ?? undefined,
-      calcMode,
+    const currentDetail = await this.getDetailForWorkflow(id)
+    const currentStatusName = this.getDetailStatusName(currentDetail)
+    const nextStatusName: CalStatusName = (
+      currentStatusName === CAL_STATUS_NAMES.standardDone
+      || currentStatusName === CAL_STATUS_NAMES.cfpDone
+      || currentStatusName === CAL_STATUS_NAMES.error
     )
-      .catch(e => this.logger.error('CO2e calc failed', e))
+      ? CAL_STATUS_NAMES.preparing
+      : (
+        currentStatusName === CAL_STATUS_NAMES.imported
+        || currentStatusName === CAL_STATUS_NAMES.preparing
+        || currentStatusName === CAL_STATUS_NAMES.ready
+      )
+        ? currentStatusName
+        : CAL_STATUS_NAMES.imported
+    const nextStatusId = await this.getCalStatusId(nextStatusName)
 
-    return detail
+    return this.prisma.log_activities_detail.update({
+      where: { log_act_detail_id: id },
+      data: {
+        ...this.cleanData(normalized),
+        log_act_detail_calStatus_id: nextStatusId,
+      },
+    })
   }
 
   deleteDetail(id: number) {
     return this.prisma.log_activities_detail.delete({ where: { log_act_detail_id: id } })
+  }
+
+  async moveDetailToWorkflowStatus(
+    id: number,
+    statusName: typeof CAL_STATUS_NAMES.preparing | typeof CAL_STATUS_NAMES.ready,
+  ) {
+    const detail = await this.getDetailForWorkflow(id)
+    const currentStatusName = this.getDetailStatusName(detail)
+
+    if (!this.canTransitionWorkflowStatus(currentStatusName, statusName)) {
+      throw new BadRequestException(`Cannot move detail ${id} from "${currentStatusName || '—'}" to "${statusName}"`)
+    }
+
+    const statusId = await this.getCalStatusId(statusName)
+    return this.prisma.log_activities_detail.update({
+      where: { log_act_detail_id: id },
+      data: { log_act_detail_calStatus_id: statusId },
+      include: {
+        log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
+      },
+    })
+  }
+
+  async moveDetailsToWorkflowStatus(
+    ids: number[],
+    statusName: typeof CAL_STATUS_NAMES.preparing | typeof CAL_STATUS_NAMES.ready,
+  ) {
+    if (!ids.length) throw new BadRequestException('No detail IDs provided')
+
+    const updated = await Promise.all(ids.map((id) => this.moveDetailToWorkflowStatus(id, statusName)))
+    return {
+      updated: updated.length,
+      ids: updated.map((item) => item.log_act_detail_id),
+    }
+  }
+
+  async calculateDetail(id: number, calcMode: 'standard' | 'tver' = 'standard') {
+    const detail = await this.getDetailForWorkflow(id)
+    const currentStatusName = this.getDetailStatusName(detail)
+
+    if (calcMode === 'standard' && currentStatusName !== CAL_STATUS_NAMES.ready) {
+      throw new BadRequestException(`Detail ${id} must be "${CAL_STATUS_NAMES.ready}" before standard calculation`)
+    }
+
+    if (
+      calcMode === 'tver'
+      && currentStatusName !== CAL_STATUS_NAMES.standardDone
+      && currentStatusName !== CAL_STATUS_NAMES.cfpDone
+    ) {
+      throw new BadRequestException(`Detail ${id} must be "${CAL_STATUS_NAMES.standardDone}" before CFP calculation`)
+    }
+
+    return this.triggerCalc(
+      detail.log_act_detail_id,
+      detail.resource_used_type_id ?? undefined,
+      detail.log_act_detail_volumeAll ?? undefined,
+      detail.log_act_detail_volumePerUnit ?? undefined,
+      detail.log_act_detail_quatity ?? undefined,
+      calcMode,
+    )
+  }
+
+  async calculateDetails(ids: number[], calcMode: 'standard' | 'tver' = 'standard') {
+    if (!ids.length) throw new BadRequestException('No detail IDs provided')
+
+    const updated = await Promise.all(ids.map((id) => this.calculateDetail(id, calcMode)))
+    return {
+      updated: updated.length,
+      ids: updated.map((item) => item.log_act_detail_id),
+    }
   }
 
   private async triggerCalc(
@@ -283,15 +483,26 @@ export class ActivitiesService {
         resourceTypeId,
         calcMode,
       })
-      await this.prisma.log_activities_detail.update({
+      const nextStatusId = await this.getCalStatusId(
+        calcMode === 'tver' ? CAL_STATUS_NAMES.cfpDone : CAL_STATUS_NAMES.standardDone,
+      )
+      const updated = await this.prisma.log_activities_detail.update({
         where: { log_act_detail_id: detailId },
-        data:  { log_act_detail_calStatus_id: CAL_STATUS_DONE },
+        data:  { log_act_detail_calStatus_id: nextStatusId },
+        include: {
+          log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
+        },
       })
       this.logger.log(`Detail #${detailId} CO2e=${result.co2e_total} kgCO2e`)
+      return updated
     } catch {
-      await this.prisma.log_activities_detail.update({
+      const errorStatusId = await this.getCalStatusId(CAL_STATUS_NAMES.error)
+      return this.prisma.log_activities_detail.update({
         where: { log_act_detail_id: detailId },
-        data:  { log_act_detail_calStatus_id: CAL_STATUS_ERROR },
+        data:  { log_act_detail_calStatus_id: errorStatusId },
+        include: {
+          log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
+        },
       })
     }
   }
@@ -307,13 +518,212 @@ export class ActivitiesService {
     })
   }
 
-  getResourceTypes() { return this.prisma.resource_used_type.findMany({ orderBy: { resource_used_type_id: 'asc' } }) }
-  getFertilizers()   { return this.prisma.activities_fertilizers.findMany({ orderBy: { act_fertilizer_id: 'asc' } }) }
-  getEquipments()    { return this.prisma.activities_equipments.findMany({ orderBy: { act_equipment_id: 'asc' } }) }
+  getResourceTypes() {
+    return this.prisma.resource_used_type.findMany({
+      select: {
+        resource_used_type_id: true,
+        resc_used_type_name: true,
+        resc_used_type_info: true,
+      },
+      orderBy: { resource_used_type_id: 'asc' },
+    })
+  }
+  getFertilizers()   {
+    return this.prisma.activities_fertilizers.findMany({
+      include: {
+        resource_used_type: { select: { resc_used_type_name: true } },
+      },
+      orderBy: { act_fertilizer_id: 'asc' },
+    })
+  }
+  getEquipments()    {
+    return this.prisma.activities_equipments.findMany({
+      include: {
+        resource_used_type: { select: { resc_used_type_name: true } },
+      },
+      orderBy: { act_equipment_id: 'asc' },
+    })
+  }
   getChemicals()     { return this.prisma.activities_chemiscals.findMany({ orderBy: { act_chemiscal_id: 'asc' } }) }
   getSugarCaneTypes(){ return this.prisma.activities_header_typeSugarCane.findMany() }
   getLandTypes()     { return this.prisma.activities_header_typeLand.findMany() }
-  getCalStatuses()   { return this.prisma.log_act_detail_calStatus.findMany() }
+  async getCalStatuses() {
+    await this.ensureCalStatusMap()
+    return this.prisma.log_act_detail_calStatus.findMany({
+      orderBy: { log_act_detail_calStatus_id: 'asc' },
+    })
+  }
+
+  createResourceType(data: ResourceTypePayload) {
+    const resc_used_type_name = this.toRequiredText(data.resc_used_type_name, 'resc_used_type_name')
+    const resc_used_type_info = this.toOptionalText(data.resc_used_type_info)
+
+    return this.prisma.$transaction(async (tx) => {
+      const last = await tx.resource_used_type.aggregate({ _max: { resource_used_type_id: true } })
+      const resourceUsedTypeId = (last._max.resource_used_type_id ?? 0) + 1
+
+      return tx.resource_used_type.create({
+        data: {
+          resource_used_type_id: resourceUsedTypeId,
+          resc_used_type_name,
+          resc_used_type_info,
+          resc_used_type_create_at: new Date(),
+        },
+        select: {
+          resource_used_type_id: true,
+          resc_used_type_name: true,
+          resc_used_type_info: true,
+        },
+      })
+    })
+  }
+
+  updateResourceType(id: number, data: ResourceTypePayload) {
+    return this.prisma.resource_used_type.update({
+      where: { resource_used_type_id: id },
+      data: {
+        resc_used_type_name: this.toRequiredText(data.resc_used_type_name, 'resc_used_type_name'),
+        resc_used_type_info: this.toOptionalText(data.resc_used_type_info),
+        resc_used_type_update_at: new Date(),
+      },
+      select: {
+        resource_used_type_id: true,
+        resc_used_type_name: true,
+        resc_used_type_info: true,
+      },
+    })
+  }
+
+  deleteResourceType(id: number) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.log_activities_detail.updateMany({
+        where: { resource_used_type_id: id },
+        data: { resource_used_type_id: null },
+      })
+
+      await tx.activities_fertilizers.updateMany({
+        where: { resource_used_type_id: id },
+        data: { resource_used_type_id: null },
+      })
+
+      await tx.activities_equipments.updateMany({
+        where: { resource_used_type_id: id },
+        data: { resource_used_type_id: null },
+      })
+
+      await tx.activities_chemiscals.updateMany({
+        where: { resource_used_type_id: id },
+        data: { resource_used_type_id: null },
+      })
+
+      return tx.resource_used_type.delete({
+        where: { resource_used_type_id: id },
+      })
+    })
+  }
+
+  createFertilizer(data: FertilizerPayload) {
+    const act_fertilizer_name = this.toRequiredText(data.act_fertilizer_name, 'act_fertilizer_name')
+    const act_fertilizer_info = this.toOptionalText(data.act_fertilizer_info)
+    const resource_used_type_id = this.toOptionalNumber(data.resource_used_type_id)
+
+    return this.prisma.$transaction(async (tx) => {
+      const last = await tx.activities_fertilizers.aggregate({ _max: { act_fertilizer_id: true } })
+      const actFertilizerId = (last._max.act_fertilizer_id ?? 0) + 1
+
+      return tx.activities_fertilizers.create({
+        data: {
+          act_fertilizer_id: actFertilizerId,
+          act_fertilizer_name,
+          act_fertilizer_info,
+          resource_used_type_id,
+          act_fertilizer_date_add: new Date(),
+        },
+        include: {
+          resource_used_type: { select: { resc_used_type_name: true } },
+        },
+      })
+    })
+  }
+
+  updateFertilizer(id: number, data: FertilizerPayload) {
+    return this.prisma.activities_fertilizers.update({
+      where: { act_fertilizer_id: id },
+      data: {
+        act_fertilizer_name: this.toRequiredText(data.act_fertilizer_name, 'act_fertilizer_name'),
+        act_fertilizer_info: this.toOptionalText(data.act_fertilizer_info),
+        resource_used_type_id: this.toOptionalNumber(data.resource_used_type_id),
+        act_fertilizer_update_at: new Date(),
+      },
+      include: {
+        resource_used_type: { select: { resc_used_type_name: true } },
+      },
+    })
+  }
+
+  deleteFertilizer(id: number) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.log_activities_detail.updateMany({
+        where: { act_fertilizer_id: id },
+        data: { act_fertilizer_id: null },
+      })
+
+      return tx.activities_fertilizers.delete({
+        where: { act_fertilizer_id: id },
+      })
+    })
+  }
+
+  createEquipment(data: EquipmentPayload) {
+    const act_equipment_name = this.toRequiredText(data.act_equipment_name, 'act_equipment_name')
+    const act_equipment_info = this.toOptionalText(data.act_equipment_info)
+    const resource_used_type_id = this.toOptionalNumber(data.resource_used_type_id)
+
+    return this.prisma.$transaction(async (tx) => {
+      const last = await tx.activities_equipments.aggregate({ _max: { act_equipment_id: true } })
+      const actEquipmentId = (last._max.act_equipment_id ?? 0) + 1
+
+      return tx.activities_equipments.create({
+        data: {
+          act_equipment_id: actEquipmentId,
+          act_equipment_name,
+          act_equipment_info,
+          resource_used_type_id,
+          act_equipment_date_add: new Date(),
+        },
+        include: {
+          resource_used_type: { select: { resc_used_type_name: true } },
+        },
+      })
+    })
+  }
+
+  updateEquipment(id: number, data: EquipmentPayload) {
+    return this.prisma.activities_equipments.update({
+      where: { act_equipment_id: id },
+      data: {
+        act_equipment_name: this.toRequiredText(data.act_equipment_name, 'act_equipment_name'),
+        act_equipment_info: this.toOptionalText(data.act_equipment_info),
+        resource_used_type_id: this.toOptionalNumber(data.resource_used_type_id),
+      },
+      include: {
+        resource_used_type: { select: { resc_used_type_name: true } },
+      },
+    })
+  }
+
+  deleteEquipment(id: number) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.log_activities_detail.updateMany({
+        where: { act_equipment_id: id },
+        data: { act_equipment_id: null },
+      })
+
+      return tx.activities_equipments.delete({
+        where: { act_equipment_id: id },
+      })
+    })
+  }
 
   private normalizeImportedYear(year: number) {
     return year >= 2400 ? year - 543 : year
@@ -374,7 +784,7 @@ export class ActivitiesService {
   async importFromCsv(
     mappings: ColumnMapping[],
     rows: Record<string, string>[],
-    calcMode: 'standard' | 'tver' = 'standard',
+    _calcMode: 'standard' | 'tver' = 'standard',
   ) {
     if (!rows.length) throw new BadRequestException('No rows')
 
@@ -425,6 +835,7 @@ export class ActivitiesService {
       camp:         Object.fromEntries(camps.map(c => [c.land_camp_name?.toLowerCase() ?? '', c.land_camp_id])),
       land:         Object.fromEntries(lands.map(l => [l.land_code?.toLowerCase() ?? '', l.land_id])),
       resType:      Object.fromEntries(resourceTypes.map(r => [r.resc_used_type_name?.toLowerCase() ?? '', r.resource_used_type_id])),
+      resTypeById:  Object.fromEntries(resourceTypes.map(r => [r.resource_used_type_id, r.resc_used_type_name?.trim() ?? ''])),
       detailType:   detailTypes.reduce<Record<string, number>>((acc, d) => {
         const rawKey = normalizeKey(d.act_header_detail_type_name_th ?? undefined)
         const normalizedKey = normalizeDetailTypeKey(d.act_header_detail_type_name_th ?? undefined)
@@ -825,8 +1236,11 @@ export class ActivitiesService {
         }
 
         // Resolve resource
-        const resTypeName  = get('resource_used_type')
-        const resTypeId    = await ensureResourceTypeId(resTypeName)
+        const resolvedResourceTypeIdRaw = row['resolved_resource_used_type_id']?.trim() ?? ''
+        const resolvedResourceTypeId = resolvedResourceTypeIdRaw ? Number.parseInt(resolvedResourceTypeIdRaw, 10) : undefined
+        const resolvedResourceTypeName = row['resolved_resource_used_type_name']?.trim() ?? ''
+        const resTypeName  = resolvedResourceTypeName || get('resource_used_type') || byName.resTypeById[resolvedResourceTypeId ?? 0] || ''
+        const resTypeId    = resolvedResourceTypeId ?? await ensureResourceTypeId(resTypeName)
         const resourceName = get('resource_item_name')
         const itemCategory = row['resource_item_category']?.trim() ?? ''
         const { fertilizerId, equipmentId, chemicalId } = await ensureResourceItemIds(
@@ -859,7 +1273,7 @@ export class ActivitiesService {
             ? (quantityNumber as number) * (volumePerUnitNumber as number)
             : 0)
 
-        const volumePerUnit = volumePerUnitRaw ? Number.parseFloat(volumePerUnitRaw) || 1 : 1
+        const volumePerUnit = volumePerUnitRaw ? Number.parseFloat(volumePerUnitRaw) || undefined : undefined
         const quantity      = quantityRaw ? Number.parseInt(quantityRaw, 10) || 1 : 1
         const areawork      = parseFloat(get('log_act_detail_areawork'))   || undefined
 
@@ -877,8 +1291,6 @@ export class ActivitiesService {
           log_act_detail_volumeAll:  volumeAll,
           log_act_detail_areawork:   areawork,
           log_act_detail_create_at:  activityDate,
-          
-          calcMode,
         })
 
         results.inserted++

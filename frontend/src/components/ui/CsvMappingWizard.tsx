@@ -29,6 +29,7 @@ interface CsvMappingWizardProps {
 }
 
 type Step = 'upload' | 'preview' | 'map' | 'validate' | 'done'
+type ResourceItemCategory = 'fertilizer' | 'equipment' | 'chemical' | ''
 type DetailTypeResolution = {
   mode: 'existing' | 'new'
   selectedId: string
@@ -39,6 +40,27 @@ interface ExistingDetailType {
   act_header_detail_type_id: number
   act_header_type_id?: number | null
   act_header_detail_type_name_th?: string | null
+}
+
+interface ExistingResourceType {
+  resource_used_type_id: number
+  resc_used_type_name?: string | null
+  resc_used_type_info?: string | null
+}
+
+interface ExistingFertilizer {
+  act_fertilizer_name?: string | null
+  resource_used_type_id?: number | null
+}
+
+interface ExistingEquipment {
+  act_equipment_name?: string | null
+  resource_used_type_id?: number | null
+}
+
+interface ExistingChemical {
+  act_chemiscal_name?: string | null
+  resource_used_type_id?: number | null
 }
 
 function normalizeCsvCell(value: unknown) {
@@ -52,6 +74,12 @@ const TYPE_LABELS: Record<TargetColumn['type'], string> = {
   number: 'ตัวเลข',
   date: 'วันที่',
   fk: 'ข้อมูลอ้างอิง',
+}
+
+const RESOURCE_CATEGORY_LABELS: Record<Exclude<ResourceItemCategory, ''>, string> = {
+  fertilizer: 'ปุ๋ย',
+  equipment: 'อุปกรณ์',
+  chemical: 'สารเคมี',
 }
 
 const AUTO_MAP_ALIASES: Record<string, string[]> = {
@@ -110,6 +138,10 @@ function getImportEstimate(rowCount: number): ImportEstimate {
   }
 }
 
+function normalizeLookupKey(value: string | undefined | null) {
+  return (value ?? '').trim().toLowerCase()
+}
+
 export function CsvMappingWizard({
   title,
   subtitle,
@@ -130,9 +162,14 @@ export function CsvMappingWizard({
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [importResult, setImportResult] = useState<{ inserted: number; skipped: number; errors: string[] } | null>(null)
   const [fileName, setFileName]         = useState('')
-  const [resourceItemCategories, setResourceItemCategories] = useState<Record<string, 'fertilizer' | 'equipment' | 'chemical' | ''>>({})
+  const [resourceItemCategories, setResourceItemCategories] = useState<Record<string, ResourceItemCategory>>({})
+  const [resourceItemResourceTypes, setResourceItemResourceTypes] = useState<Record<string, string>>({})
   const [detailTypeSelections, setDetailTypeSelections] = useState<Record<string, DetailTypeResolution>>({})
   const [existingDetailTypes, setExistingDetailTypes] = useState<ExistingDetailType[]>([])
+  const [existingResourceTypes, setExistingResourceTypes] = useState<ExistingResourceType[]>([])
+  const [existingFertilizers, setExistingFertilizers] = useState<ExistingFertilizer[]>([])
+  const [existingEquipments, setExistingEquipments] = useState<ExistingEquipment[]>([])
+  const [existingChemicals, setExistingChemicals] = useState<ExistingChemical[]>([])
   const [showImportConfirm, setShowImportConfirm] = useState(false)
 
   const STEPS: Step[] = ['upload', 'preview', 'map', 'validate', 'done']
@@ -144,13 +181,31 @@ export function CsvMappingWizard({
     done:     'เสร็จสิ้น',
   }
 
-  function inferResourceCategory(value: string | undefined) {
+  function inferResourceCategory(value: string | null | undefined) {
     const normalized = (value ?? '').trim().toLowerCase()
     if (!normalized) return ''
     if (/อุปกรณ์|equipment/.test(normalized)) return 'equipment'
     if (/เคมี|chemical/.test(normalized)) return 'chemical'
     if (/ปุ๋ย|fertilizer/.test(normalized)) return 'fertilizer'
     return ''
+  }
+
+  function inferResourceCategoryFromTypeId(typeId: string | undefined) {
+    const parsedId = Number.parseInt(typeId ?? '', 10)
+    if (!Number.isFinite(parsedId)) return ''
+
+    const matchedByMaster = existingFertilizers.some((item) => item.resource_used_type_id === parsedId)
+      ? 'fertilizer'
+      : existingEquipments.some((item) => item.resource_used_type_id === parsedId)
+        ? 'equipment'
+        : existingChemicals.some((item) => item.resource_used_type_id === parsedId)
+          ? 'chemical'
+          : ''
+
+    if (matchedByMaster) return matchedByMaster
+
+    const matchedTypeName = existingResourceTypes.find((item) => item.resource_used_type_id === parsedId)?.resc_used_type_name
+    return inferResourceCategory(matchedTypeName)
   }
 
   function normalizeHeaderName(value: string | undefined) {
@@ -278,6 +333,29 @@ export function CsvMappingWizard({
   const uniqueDetailTypes = detailTypeKey
     ? Array.from(new Set(allRows.map((row) => row[detailTypeKey]?.trim() ?? '').filter(Boolean)))
     : []
+  const resourceTypeNameToId = Object.fromEntries(
+    existingResourceTypes
+      .map((item) => [normalizeLookupKey(item.resc_used_type_name), item.resource_used_type_id] as const)
+      .filter(([key]) => Boolean(key)),
+  )
+  const resourceTypeIdToName = Object.fromEntries(
+    existingResourceTypes.map((item) => [item.resource_used_type_id, item.resc_used_type_name?.trim() ?? `#${item.resource_used_type_id}`]),
+  )
+  const resourceTypeValuesByItem = Object.fromEntries(
+    uniqueResourceItems.map((item) => {
+      const values = resourceUsageTypeKey
+        ? Array.from(
+            new Set(
+              allRows
+                .filter((row) => (row[resourceItemNameKey]?.trim() ?? '') === item)
+                .map((row) => row[resourceUsageTypeKey]?.trim() ?? '')
+                .filter(Boolean),
+            ),
+          )
+        : []
+      return [item, values]
+    }),
+  ) as Record<string, string[]>
 
   const rowAssessments: ImportRowAssessment[] = allRows.map((row, index) => {
     const landCode = landCodeKey ? row[landCodeKey]?.trim() ?? '' : ''
@@ -335,13 +413,21 @@ export function CsvMappingWizard({
   useEffect(() => {
     let active = true
 
-    get<ExistingDetailType[]>('/activities/detail-types')
-      .then((data) => {
-        if (active) setExistingDetailTypes(data)
-      })
-      .catch(() => {
-        if (active) setExistingDetailTypes([])
-      })
+    Promise.allSettled([
+      get<ExistingDetailType[]>('/activities/detail-types'),
+      get<ExistingResourceType[]>('/activities/resource-types'),
+      get<ExistingFertilizer[]>('/activities/fertilizers'),
+      get<ExistingEquipment[]>('/activities/equipments'),
+      get<ExistingChemical[]>('/activities/chemicals'),
+    ]).then((results) => {
+      if (!active) return
+
+      setExistingDetailTypes(results[0].status === 'fulfilled' ? results[0].value : [])
+      setExistingResourceTypes(results[1].status === 'fulfilled' ? results[1].value : [])
+      setExistingFertilizers(results[2].status === 'fulfilled' ? results[2].value : [])
+      setExistingEquipments(results[3].status === 'fulfilled' ? results[3].value : [])
+      setExistingChemicals(results[4].status === 'fulfilled' ? results[4].value : [])
+    })
 
     return () => {
       active = false
@@ -349,19 +435,39 @@ export function CsvMappingWizard({
   }, [])
 
   useEffect(() => {
-    if (!resourceItemNameKey || !resourceUsageTypeKey) return
+    if (!resourceItemNameKey) return
 
     setResourceItemCategories((prev) => {
       const next = { ...prev }
       let changed = false
 
+      for (const item of Object.keys(next)) {
+        if (!uniqueResourceItems.includes(item)) {
+          delete next[item]
+          changed = true
+        }
+      }
+
       for (const item of uniqueResourceItems) {
         if (next[item]) continue
 
-        const itemRows = allRows.filter((row) => (row[resourceItemNameKey]?.trim() ?? '') === item)
-        const inferred = itemRows
-          .map((row) => inferResourceCategory(row[resourceUsageTypeKey]))
+        const normalizedItem = normalizeLookupKey(item)
+        const matchedExistingItem =
+          existingFertilizers.find((row) => normalizeLookupKey(row.act_fertilizer_name) === normalizedItem)
+            ? 'fertilizer'
+            : existingEquipments.find((row) => normalizeLookupKey(row.act_equipment_name) === normalizedItem)
+              ? 'equipment'
+              : existingChemicals.find((row) => normalizeLookupKey(row.act_chemiscal_name) === normalizedItem)
+                ? 'chemical'
+                : ''
+
+        const inferredFromCsv = resourceTypeValuesByItem[item]
+          ?.map((value) => inferResourceCategory(value))
           .find((category) => Boolean(category))
+
+        const inferred = matchedExistingItem
+          || inferredFromCsv
+          || inferResourceCategoryFromTypeId(resourceItemResourceTypes[item])
 
         if (inferred) {
           next[item] = inferred
@@ -371,7 +477,52 @@ export function CsvMappingWizard({
 
       return changed ? next : prev
     })
-  }, [allRows, resourceItemNameKey, resourceUsageTypeKey, uniqueResourceItems])
+
+    setResourceItemResourceTypes((prev) => {
+      const next = { ...prev }
+      let changed = false
+
+      for (const item of Object.keys(next)) {
+        if (!uniqueResourceItems.includes(item)) {
+          delete next[item]
+          changed = true
+        }
+      }
+
+      for (const item of uniqueResourceItems) {
+        if (next[item]) continue
+
+        const normalizedItem = normalizeLookupKey(item)
+        const matchedResourceTypeId =
+          existingFertilizers.find((row) => normalizeLookupKey(row.act_fertilizer_name) === normalizedItem)?.resource_used_type_id
+          ?? existingEquipments.find((row) => normalizeLookupKey(row.act_equipment_name) === normalizedItem)?.resource_used_type_id
+          ?? existingChemicals.find((row) => normalizeLookupKey(row.act_chemiscal_name) === normalizedItem)?.resource_used_type_id
+
+        const inferredFromCsv = resourceTypeValuesByItem[item]
+          ?.map((value) => resourceTypeNameToId[normalizeLookupKey(value)])
+          .find((value) => Number.isFinite(value))
+
+        const resolvedId = matchedResourceTypeId ?? inferredFromCsv
+
+        if (resolvedId) {
+          next[item] = String(resolvedId)
+          changed = true
+        }
+      }
+
+      return changed ? next : prev
+    })
+  }, [
+    allRows,
+    existingChemicals,
+    existingEquipments,
+    existingFertilizers,
+    resourceItemNameKey,
+    resourceItemResourceTypes,
+    resourceTypeNameToId,
+    resourceTypeValuesByItem,
+    uniqueResourceItems,
+  ])
 
   useEffect(() => {
     if (!detailTypeKey) return
@@ -421,8 +572,23 @@ export function CsvMappingWizard({
     })
   }, [detailTypeKey, existingDetailTypes, uniqueDetailTypes])
 
-  function setResourceItemCategory(item: string, category: 'fertilizer' | 'equipment' | 'chemical' | '') {
+  function setResourceItemCategory(item: string, category: ResourceItemCategory) {
     setResourceItemCategories((prev) => ({ ...prev, [item]: category }))
+  }
+
+  function setResourceItemResourceType(item: string, resourceTypeId: string) {
+    setResourceItemResourceTypes((prev) => ({ ...prev, [item]: resourceTypeId }))
+
+    if (!resourceTypeId) return
+
+    const inferredCategory = inferResourceCategoryFromTypeId(resourceTypeId)
+    if (!inferredCategory) return
+
+    setResourceItemCategories((prev) => (
+      prev[item]
+        ? prev
+        : { ...prev, [item]: inferredCategory }
+    ))
   }
 
   function setDetailTypeSelection(detailType: string, value: string) {
@@ -512,8 +678,16 @@ export function CsvMappingWizard({
         if (resourceItemNameKey) {
           const item = nextRow[resourceItemNameKey]?.trim() ?? ''
           const category = item ? resourceItemCategories[item] : ''
+          const resourceTypeId = item ? resourceItemResourceTypes[item] : ''
           if (category) {
             nextRow = { ...nextRow, resource_item_category: category }
+          }
+          if (resourceTypeId) {
+            nextRow = {
+              ...nextRow,
+              resolved_resource_used_type_id: resourceTypeId,
+              resolved_resource_used_type_name: resourceTypeIdToName[Number(resourceTypeId)] ?? '',
+            }
           }
         }
 
@@ -733,29 +907,88 @@ export function CsvMappingWizard({
               {resourceItemNameKey && uniqueResourceItems.length > 0 && (
                 <div className="rounded-xl border border-surface-200 bg-surface-50 p-4 mb-4">
                   <div className="mb-3">
-                    <p className="text-sm font-medium">กำหนดประเภทของรายการปัจจัย</p>
-                    <p className="text-xs text-surface-500">กรุณาเลือกว่ารายการนี้เป็น ปุ๋ย, อุปกรณ์ หรือ เคมี</p>
+                    <p className="text-sm font-medium">กำหนดรายการปัจจัยและประเภทการใช้งาน</p>
+                    <p className="text-xs text-surface-500">
+                      แยกความหมายให้ชัดเจน: `รายการปัจจัย` คือจะบันทึกเป็น ปุ๋ย / อุปกรณ์ / สารเคมี และ `ประเภทการใช้งาน`
+                      คือ `resource_used_type` ที่อ้างอิงจากข้อมูลในหน้าจัดการประเภทปัจจัย
+                    </p>
                   </div>
                   <div className="space-y-3 max-h-48 overflow-y-auto pr-1 scrollbar-thin">
-                    {uniqueResourceItems.map((item) => (
-                      <div key={item} className="flex flex-wrap items-center gap-3">
-                        <div className="min-w-0 flex-1 text-xs text-surface-700 truncate">{item}</div>
-                        <span className={resourceItemCategories[item] ? 'badge-green shrink-0' : 'badge-gray shrink-0'}>
-                          {resourceItemCategories[item] ? 'เลือกแล้ว' : 'ยังไม่เลือก'}
-                        </span>
-                        <select
-                          value={resourceItemCategories[item] ?? ''}
-                          onChange={(e) => setResourceItemCategory(item, e.target.value as 'fertilizer' | 'equipment' | 'chemical' | '')}
-                          disabled={isLocked}
-                          className={`select text-xs w-full sm:w-44 transition-colors ${getSelectStateClass(Boolean(resourceItemCategories[item]))}`}
-                        >
-                          <option value="">เลือกประเภท (อัตโนมัติ)</option>
-                          <option value="fertilizer">ปุ๋ย</option>
-                          <option value="equipment">อุปกรณ์</option>
-                          <option value="chemical">เคมี</option>
-                        </select>
-                      </div>
-                    ))}
+                    {uniqueResourceItems.map((item) => {
+                      const csvResourceTypes = resourceTypeValuesByItem[item] ?? []
+                      const selectedTypeId = resourceItemResourceTypes[item] ?? ''
+                      const selectedCategory = resourceItemCategories[item] ?? ''
+                      const hasResolvedSelection = Boolean(selectedCategory || selectedTypeId)
+
+                      return (
+                        <div key={item} className="rounded-lg border border-surface-200 bg-white p-3">
+                          <div className="flex flex-wrap items-start gap-3">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-medium text-surface-800 truncate">{item}</p>
+                              <p className="mt-1 text-[11px] text-surface-500">
+                                {csvResourceTypes.length > 0
+                                  ? `ค่าประเภทการใช้งานจากไฟล์: ${csvResourceTypes.join(', ')}`
+                                  : 'ไฟล์นี้ไม่มีค่าประเภทการใช้งานที่อ่านได้สำหรับรายการนี้'}
+                              </p>
+                            </div>
+                            <span className={hasResolvedSelection ? 'badge-green shrink-0' : 'badge-gray shrink-0'}>
+                              {hasResolvedSelection ? 'กำหนดแล้ว' : 'ใช้ค่าอัตโนมัติ'}
+                            </span>
+                          </div>
+
+                          <div className="mt-3 grid gap-3 md:grid-cols-2">
+                            <div>
+                              <label className="mb-1 block text-[11px] font-medium text-surface-600">
+                                รายการปัจจัยจะถูกบันทึกเป็น
+                              </label>
+                              <select
+                                value={selectedCategory}
+                                onChange={(e) => setResourceItemCategory(item, e.target.value as ResourceItemCategory)}
+                                disabled={isLocked}
+                                className={`select text-xs w-full transition-colors ${getSelectStateClass(Boolean(selectedCategory))}`}
+                              >
+                                <option value="">เลือกกลุ่มอัตโนมัติ</option>
+                                <option value="fertilizer">ปุ๋ย</option>
+                                <option value="equipment">อุปกรณ์</option>
+                                <option value="chemical">สารเคมี</option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="mb-1 block text-[11px] font-medium text-surface-600">
+                                ประเภทการใช้งาน (`resource_used_type`)
+                              </label>
+                              <select
+                                value={selectedTypeId}
+                                onChange={(e) => setResourceItemResourceType(item, e.target.value)}
+                                disabled={isLocked}
+                                className={`select text-xs w-full transition-colors ${getSelectStateClass(Boolean(selectedTypeId))}`}
+                              >
+                                <option value="">ใช้ค่าจากไฟล์ CSV</option>
+                                {existingResourceTypes.map((type) => (
+                                  <option key={type.resource_used_type_id} value={type.resource_used_type_id}>
+                                    {type.resc_used_type_name?.trim() || `#${type.resource_used_type_id}`}
+                                  </option>
+                                ))}
+                              </select>
+                              {selectedTypeId && (
+                                <p className="mt-1 text-[11px] text-surface-500">
+                                  เลือกไว้: {resourceTypeIdToName[Number(selectedTypeId)] ?? `#${selectedTypeId}`}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          {(selectedCategory || selectedTypeId) && (
+                            <p className="mt-2 text-[11px] text-surface-500">
+                              สรุป: {selectedCategory ? RESOURCE_CATEGORY_LABELS[selectedCategory as Exclude<ResourceItemCategory, ''>] : 'ใช้กลุ่มอัตโนมัติ'}
+                              {' -> '}
+                              {selectedTypeId ? (resourceTypeIdToName[Number(selectedTypeId)] ?? `#${selectedTypeId}`) : 'ใช้ประเภทจากไฟล์ CSV'}
+                            </p>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )}
