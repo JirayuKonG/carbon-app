@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { ActivityGroupedBar } from "../components/charts/ActivityGroupedBar";
 import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
+import { ProcessInputComparisonBar } from "../components/charts/ProcessInputComparisonBar";
+import { sortProcessLabels } from "../components/charts/ChartRegistry";
 import { ThailandMap } from "../components/map/ThailandMap";
 import { getCfSpatialNodes } from "../services/dashboardApi";
-import type { FieldCarbonDetail, ProcessActivityBreakdown, SpatialSummaryNode } from "../types/dashboard";
+import type { FieldCarbonDetail, ProcessActivityBreakdown, ProcessInputComparison, SpatialLevel, SpatialSummaryNode } from "../types/dashboard";
 import "../cf-dashboard.css";
 
 function isField(node: SpatialSummaryNode): node is FieldCarbonDetail {
@@ -27,10 +29,33 @@ function nodeCompare(selected: SpatialSummaryNode): { baseline: ProcessActivityB
   };
 }
 
+function sumInputs(inputs: ProcessInputComparison[]) {
+  return inputs.reduce(
+    (sum, item) => ({
+      baselineFertilizerKg: sum.baselineFertilizerKg + item.baselineFertilizerKg,
+      currentFertilizerKg: sum.currentFertilizerKg + item.currentFertilizerKg,
+      baselineFuelLiter: sum.baselineFuelLiter + item.baselineFuelLiter,
+      currentFuelLiter: sum.currentFuelLiter + item.currentFuelLiter,
+    }),
+    { baselineFertilizerKg: 0, currentFertilizerKg: 0, baselineFuelLiter: 0, currentFuelLiter: 0 },
+  );
+}
+
+function inputPct(base: number, current: number) {
+  return base ? ((base - current) / base) * 100 : 0;
+}
+
 export function CfSpatialPage() {
   const [nodes, setNodes] = useState<SpatialSummaryNode[]>([]);
   const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState("thailand");
+  const [filters, setFilters] = useState<Record<Exclude<SpatialLevel, "country">, string>>({
+    region: "",
+    province: "",
+    district: "",
+    subdistrict: "",
+    field: "",
+  });
 
   useEffect(() => {
     getCfSpatialNodes()
@@ -43,11 +68,15 @@ export function CfSpatialPage() {
   }, []);
 
   const selected = nodes.find((node) => node.id === selectedId) ?? nodes[0];
-  const children = selected ? nodes.filter((node) => node.parentId === selected.id) : [];
-  const siblings = selected?.parentId ? nodes.filter((node) => node.parentId === selected.parentId) : [];
-  const pickerNodes = children.length ? children : siblings;
   const diff = selected ? selected.baselineEmission - selected.currentEmission : 0;
   const compare = selected ? nodeCompare(selected) : { baseline: [], current: [] };
+  const spatialInputs = sortProcessLabels(selected?.processInputComparisons?.map((item) => item.process) ?? [])
+    .map((process) => selected?.processInputComparisons?.find((item) => item.process === process))
+    .filter((item): item is ProcessInputComparison => Boolean(item));
+  const inputTotals = sumInputs(spatialInputs);
+  const fertilizerDiff = inputTotals.baselineFertilizerKg - inputTotals.currentFertilizerKg;
+  const fuelDiff = inputTotals.baselineFuelLiter - inputTotals.currentFuelLiter;
+  const rootId = nodes.find((node) => !node.parentId)?.id ?? "thailand";
 
   const breadcrumbs = useMemo(() => {
     const list: SpatialSummaryNode[] = [];
@@ -58,6 +87,20 @@ export function CfSpatialPage() {
     }
     return list;
   }, [nodes, selected]);
+
+  const optionsFor = (level: Exclude<SpatialLevel, "country">, parentId?: string) =>
+    nodes.filter((node) => node.level === level && (!parentId || node.parentId === parentId));
+
+  const selectArea = (level: keyof typeof filters, id: string) => {
+    const order: (keyof typeof filters)[] = ["region", "province", "district", "subdistrict", "field"];
+    const levelIndex = order.indexOf(level);
+    const next = { ...filters, [level]: id };
+    order.slice(levelIndex + 1).forEach((key) => {
+      next[key] = "";
+    });
+    setFilters(next);
+    setSelectedId(id || next.subdistrict || next.district || next.province || next.region || rootId);
+  };
 
   if (!selected) {
     return <div className="cf-dash"><div className="page active"><div className="empty-state">กำลังโหลดข้อมูลแผนที่...</div></div></div>;
@@ -87,15 +130,42 @@ export function CfSpatialPage() {
               ))}
             </div>
           </div>
-          <div className="region-pills">
-            <button className="ytab" onClick={() => setSelectedId(nodes.find((node) => !node.parentId)?.id ?? "thailand")}>
-              ทั้งประเทศ
-            </button>
-            {pickerNodes.map((node) => (
-              <button key={node.id} className={`ytab ${node.id === selected.id ? "active" : ""}`} onClick={() => setSelectedId(node.id)}>
-                {node.name}
-              </button>
-            ))}
+          <div className="spatial-select-grid">
+            <label>
+              ภาค
+              <select value={filters.region} onChange={(event) => selectArea("region", event.target.value)}>
+                <option value="">ทั้งหมด</option>
+                {optionsFor("region", rootId).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+              </select>
+            </label>
+            <label>
+              จังหวัด
+              <select value={filters.province} onChange={(event) => selectArea("province", event.target.value)} disabled={!filters.region}>
+                <option value="">ทั้งหมด</option>
+                {optionsFor("province", filters.region).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+              </select>
+            </label>
+            <label>
+              อำเภอ / เขต
+              <select value={filters.district} onChange={(event) => selectArea("district", event.target.value)} disabled={!filters.province}>
+                <option value="">ทั้งหมด</option>
+                {optionsFor("district", filters.province).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+              </select>
+            </label>
+            <label>
+              ตำบล / แขวง
+              <select value={filters.subdistrict} onChange={(event) => selectArea("subdistrict", event.target.value)} disabled={!filters.district}>
+                <option value="">ทั้งหมด</option>
+                {optionsFor("subdistrict", filters.district).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+              </select>
+            </label>
+            <label>
+              แปลง
+              <select value={filters.field} onChange={(event) => selectArea("field", event.target.value)} disabled={!filters.subdistrict}>
+                <option value="">ทั้งหมด</option>
+                {optionsFor("field", filters.subdistrict).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+              </select>
+            </label>
           </div>
         </section>
 
@@ -139,6 +209,97 @@ export function CfSpatialPage() {
             <div className="card-title">แผนภูมิวงกลม · สัดส่วนกระบวนการในพื้นที่</div>
             <ProcessDoughnut data={selected.processBreakdown} />
           </article>
+        </section>
+
+        <section className="grid2">
+          <article className="card">
+            <div className="card-title">สรุปการใช้ปุ๋ยและน้ำมันในพื้นที่ · {selected.name}</div>
+            <div className="mini-stat-grid wide">
+              <div>
+                <strong>{inputTotals.baselineFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong>
+                <span>kg ปุ๋ยปีฐาน</span>
+              </div>
+              <div>
+                <strong>{inputTotals.currentFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong>
+                <span>kg ปุ๋ยปีดำเนินการ</span>
+              </div>
+              <div>
+                <strong>{inputTotals.baselineFuelLiter.toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong>
+                <span>L น้ำมันปีฐาน</span>
+              </div>
+              <div>
+                <strong>{inputTotals.currentFuelLiter.toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong>
+                <span>L น้ำมันปีดำเนินการ</span>
+              </div>
+            </div>
+            <div className="input-insight-grid">
+              <div>
+                <span>ปุ๋ยเทียบปีฐาน</span>
+                <strong className={fertilizerDiff >= 0 ? "green-text" : "red-text"}>
+                  {fertilizerDiff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(fertilizerDiff).toLocaleString(undefined, { maximumFractionDigits: 1 })} kg
+                </strong>
+                <small>{Math.abs(inputPct(inputTotals.baselineFertilizerKg, inputTotals.currentFertilizerKg)).toFixed(1)}%</small>
+              </div>
+              <div>
+                <span>น้ำมันเทียบปีฐาน</span>
+                <strong className={fuelDiff >= 0 ? "green-text" : "red-text"}>
+                  {fuelDiff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(fuelDiff).toLocaleString(undefined, { maximumFractionDigits: 1 })} L
+                </strong>
+                <small>{Math.abs(inputPct(inputTotals.baselineFuelLiter, inputTotals.currentFuelLiter)).toFixed(1)}%</small>
+              </div>
+            </div>
+          </article>
+
+          <article className="card">
+            <div className="card-title">กราฟเทียบปุ๋ยและน้ำมันรวม · ปีฐาน vs ปีดำเนินการ</div>
+            <ProcessInputComparisonBar data={spatialInputs} mode="total" />
+          </article>
+        </section>
+
+        <section className="card">
+          <div className="card-title">เจาะรายกระบวนการ · ปุ๋ยและน้ำมันในพื้นที่</div>
+          <div className="input-table-wrap">
+            <table className="input-table">
+              <thead>
+                <tr>
+                  <th>กระบวนการ</th>
+                  <th>ปุ๋ยปีฐาน (kg)</th>
+                  <th>ปุ๋ยปีดำเนินการ (kg)</th>
+                  <th>ผลต่างปุ๋ย</th>
+                  <th>น้ำมันปีฐาน (L)</th>
+                  <th>น้ำมันปีดำเนินการ (L)</th>
+                  <th>ผลต่างน้ำมัน</th>
+                </tr>
+              </thead>
+              <tbody>
+                {spatialInputs.map((item) => {
+                  const processFertilizerDiff = item.baselineFertilizerKg - item.currentFertilizerKg;
+                  const processFuelDiff = item.baselineFuelLiter - item.currentFuelLiter;
+                  return (
+                    <tr key={item.process}>
+                      <td>{item.process}</td>
+                      <td>{item.baselineFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
+                      <td>{item.currentFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
+                      <td className={processFertilizerDiff >= 0 ? "green-text" : "red-text"}>
+                        {processFertilizerDiff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(processFertilizerDiff).toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                      </td>
+                      <td>{item.baselineFuelLiter.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
+                      <td>{item.currentFuelLiter.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
+                      <td className={processFuelDiff >= 0 ? "green-text" : "red-text"}>
+                        {processFuelDiff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(processFuelDiff).toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {!spatialInputs.length && <div className="empty-state">ยังไม่มีข้อมูลปุ๋ยและน้ำมันสำหรับพื้นที่นี้</div>}
+          </div>
+        </section>
+
+        <section className="card">
+          <div className="card-title">กราฟรายกระบวนการ · ปุ๋ยและน้ำมัน ปีฐาน vs ปีดำเนินการ</div>
+          <ProcessInputComparisonBar data={spatialInputs} />
         </section>
 
         <section className="card">

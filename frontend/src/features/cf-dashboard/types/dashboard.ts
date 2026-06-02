@@ -22,6 +22,8 @@ export interface OverviewKpi {
   currentYear: string;
   machineEmission: number;
   inputEmission: number;
+  fertilizerAmountKg: number;
+  fertilizerEmission: number;
   yieldTon: number;
   co2ePerTon: number;
   farmers: number;
@@ -56,6 +58,14 @@ export interface ProcessActivityBreakdown {
   activities: ActivityValue[];
 }
 
+export interface ProcessInputComparison {
+  process: string;
+  baselineFertilizerKg: number;
+  currentFertilizerKg: number;
+  baselineFuelLiter: number;
+  currentFuelLiter: number;
+}
+
 export interface SpatialSummaryNode {
   id: string;
   parentId?: string;
@@ -70,6 +80,7 @@ export interface SpatialSummaryNode {
   baselineEmission: number;
   currentEmission: number;
   processBreakdown: ActivityValue[];
+  processInputComparisons?: ProcessInputComparison[];
   childrenIds: string[];
 }
 
@@ -97,6 +108,7 @@ export interface DashboardDataset {
   trend: TrendPoint[];
   processEmissions: ProcessEmission[];
   processActivities: ProcessActivityBreakdown[];
+  processInputComparisons: ProcessInputComparison[];
   transportActivities: ProcessActivityBreakdown[];
   spatialNodes: SpatialSummaryNode[];
   fields: FieldCarbonDetail[];
@@ -116,6 +128,7 @@ export interface ReportSummary {
   trend: TrendPoint[];
   process: ProcessEmission[];
   transport: ProcessEmission[];
+  processInputs?: ProcessInputComparison[];
   spatialNodes: SpatialSummaryNode[];
   analysis: {
     headline: string;
