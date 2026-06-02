@@ -15,6 +15,7 @@ import { CfOverviewPage }       from '@/features/cf-dashboard/pages/OverviewPage
 import { CfProcessPage }        from '@/features/cf-dashboard/pages/ProcessPage'
 import { CfSpatialPage }        from '@/features/cf-dashboard/pages/SpatialPage'
 import { CfReportPage }         from '@/features/cf-dashboard/pages/ReportPage'
+import { CfCalculatePage }      from '@/features/cf-dashboard/pages/CalculatePage'
 
 function RedirectWithSearch({ to }: { to: string }) {
   const location = useLocation()
@@ -30,6 +31,8 @@ export default function App() {
         <Route path="process"           element={<CfProcessPage />} />
         <Route path="spatial"           element={<CfSpatialPage />} />
         <Route path="report"            element={<CfReportPage />} />
+        <Route path="pipeline"          element={<CfPipelinePage />} />
+        <Route path="calculate"         element={<CfCalculatePage />} />
         <Route path="dashboard"         element={<DashboardPage />} />
         <Route path="geo"               element={<GeoPage />} />
         <Route path="infra"             element={<InfraPage />} />

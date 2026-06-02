@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Map, Factory, Users, Tractor,
   Layers, CloudRain, FlaskConical, ActivitySquare, Settings2,
-  Leaf, ChevronDown, ChevronRight, X, BarChart3, Sprout, MapPin, FileText,
+  Leaf, ChevronDown, ChevronRight, X, BarChart3, Sprout, MapPin, GitBranch, Truck, FileText, Calculator,
 } from 'lucide-react'
 
 interface NavItem {
@@ -64,7 +64,8 @@ const NAV_GROUPS: NavGroup[] = [
     section: 'Carbon Footprint',
     items: [
       { path: '/emission-factors', label: 'EF / GWP / หน่วย', labelEn: 'Emission Factors', icon: <FlaskConical size={16} /> },
-      { path: '/activities/resources', label: 'ปุ๋ย / เคมี / อุปกรณ์', labelEn: 'Activity Resources', icon: <FlaskConical size={16} /> },
+      { path: '/activities/resources', label: 'ปุ๋ย / น้ำมัน', labelEn: 'Activity Resources', icon: <FlaskConical size={16} /> },
+      { path: '/calculate', label: 'คำนวณ Carbon Footprint', labelEn: 'Calculate', icon: <Calculator size={16} /> },
       {
         label: 'บันทึกกิจกรรม',
         labelEn: 'Activities',
