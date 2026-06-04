@@ -1,4 +1,5 @@
 import type {
+  CaneTypeSummary,
   CampCarbonSummary,
   CampFieldCarbonDetail,
   DashboardDataset,
@@ -11,10 +12,10 @@ import type {
 } from "../types/dashboard";
 
 export const PROCESS_STEPS = [
-  "1. เตรียมดิน",
-  "2. เพาะปลูก",
-  "3. ดูแลรักษา",
-  "4. เก็บเกี่ยว",
+  "1. การเตรียมดินและปลูก",
+  "2. การใช้ปุ๋ย",
+  "3. การให้น้ำและกำจัดวัชพืช",
+  "4. การเก็บเกี่ยว",
 ];
 
 export const CULTIVATION_STEPS = PROCESS_STEPS;
@@ -66,21 +67,27 @@ function activities(year: string, process: string, values: [string, number][]): 
 }
 
 export const processActivities: ProcessActivityBreakdown[] = [
-  activities("baseline_avg", "1. เตรียมดิน", [["น้ำมัน", 68], ["ปุ๋ย/ปูนปรับปรุงดิน", 42], ["เครื่องจักร", 38]]),
-  activities("baseline_avg", "2. เพาะปลูก", [["น้ำมัน", 70], ["ท่อนพันธุ์", 45], ["ปุ๋ยรองพื้น", 95]]),
-  activities("baseline_avg", "3. ดูแลรักษา", [["ปุ๋ยเคมี", 145], ["สารเคมี", 44], ["น้ำ/ไฟฟ้า", 54]]),
-  activities("baseline_avg", "4. เก็บเกี่ยว", [["น้ำมันรถตัด", 95], ["แรงงาน/เครื่องมือ", 36], ["รวบรวมผลผลิต", 39]]),
-  activities("2566/67", "1. เตรียมดิน", [["น้ำมัน", 51], ["ปุ๋ย/ปูนปรับปรุงดิน", 34], ["เครื่องจักร", 35]]),
-  activities("2566/67", "2. เพาะปลูก", [["น้ำมัน", 58], ["ท่อนพันธุ์", 40], ["ปุ๋ยรองพื้น", 86]]),
-  activities("2566/67", "3. ดูแลรักษา", [["ปุ๋ยเคมี", 116], ["สารเคมี", 34], ["น้ำ/ไฟฟ้า", 55]]),
-  activities("2566/67", "4. เก็บเกี่ยว", [["น้ำมันรถตัด", 79], ["แรงงาน/เครื่องมือ", 28], ["รวบรวมผลผลิต", 35]]),
+  activities("baseline_avg", "1. การเตรียมดินและปลูก", [["น้ำมัน", 68], ["ปุ๋ย/ปูนปรับปรุงดิน", 42], ["เครื่องจักร", 38]]),
+  activities("baseline_avg", "2. การใช้ปุ๋ย", [["ปุ๋ยรองพื้น", 95], ["ท่อนพันธุ์", 45], ["น้ำมัน", 70]]),
+  activities("baseline_avg", "3. การให้น้ำและกำจัดวัชพืช", [["ปุ๋ยเคมี", 145], ["สารเคมี", 44], ["น้ำ/ไฟฟ้า", 54]]),
+  activities("baseline_avg", "4. การเก็บเกี่ยว", [["น้ำมันรถตัด", 95], ["แรงงาน/เครื่องมือ", 36], ["รวบรวมผลผลิต", 39]]),
+  activities("2566/67", "1. การเตรียมดินและปลูก", [["น้ำมัน", 51], ["ปุ๋ย/ปูนปรับปรุงดิน", 34], ["เครื่องจักร", 35]]),
+  activities("2566/67", "2. การใช้ปุ๋ย", [["ปุ๋ยรองพื้น", 86], ["ท่อนพันธุ์", 40], ["น้ำมัน", 58]]),
+  activities("2566/67", "3. การให้น้ำและกำจัดวัชพืช", [["ปุ๋ยเคมี", 116], ["สารเคมี", 34], ["น้ำ/ไฟฟ้า", 55]]),
+  activities("2566/67", "4. การเก็บเกี่ยว", [["น้ำมันรถตัด", 79], ["แรงงาน/เครื่องมือ", 28], ["รวบรวมผลผลิต", 35]]),
 ];
 
 export const processInputComparisons: ProcessInputComparison[] = [
-  { process: "1. เตรียมดิน", baselineFertilizerKg: 18400, currentFertilizerKg: 15600, baselineFuelLiter: 8200, currentFuelLiter: 6900 },
-  { process: "2. เพาะปลูก", baselineFertilizerKg: 31200, currentFertilizerKg: 28600, baselineFuelLiter: 7600, currentFuelLiter: 6500 },
-  { process: "3. ดูแลรักษา", baselineFertilizerKg: 58400, currentFertilizerKg: 47200, baselineFuelLiter: 4200, currentFuelLiter: 3900 },
-  { process: "4. เก็บเกี่ยว", baselineFertilizerKg: 0, currentFertilizerKg: 0, baselineFuelLiter: 11200, currentFuelLiter: 9400 },
+  { process: "1. การเตรียมดินและปลูก", baselineFertilizerKg: 18400, currentFertilizerKg: 15600, baselineFuelLiter: 8200, currentFuelLiter: 6900 },
+  { process: "2. การใช้ปุ๋ย", baselineFertilizerKg: 31200, currentFertilizerKg: 28600, baselineFuelLiter: 7600, currentFuelLiter: 6500 },
+  { process: "3. การให้น้ำและกำจัดวัชพืช", baselineFertilizerKg: 58400, currentFertilizerKg: 47200, baselineFuelLiter: 4200, currentFuelLiter: 3900 },
+  { process: "4. การเก็บเกี่ยว", baselineFertilizerKg: 0, currentFertilizerKg: 0, baselineFuelLiter: 11200, currentFuelLiter: 9400 },
+];
+
+export const caneTypeSummaries: CaneTypeSummary[] = [
+  { name: "อ้อยปลูก", areaRai: 7380, percent: 40, co2eTotal: 312 },
+  { name: "อ้อยตอ", areaRai: 8302.5, percent: 45, co2eTotal: 368 },
+  { name: "พื้นที่พักดิน", areaRai: 2767.5, percent: 15, co2eTotal: 43 },
 ];
 
 export const transportActivities: ProcessActivityBreakdown[] = [];
@@ -421,7 +428,7 @@ export const campSummaries: CampCarbonSummary[] = [
     currentCo2eTotal: 14,
     co2eTotal: 14,
     co2ePerRai: 0.044,
-    topActivity: "3. ดูแลรักษา",
+    topActivity: "3. การให้น้ำและกำจัดวัชพืช",
     baselineActivityBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [3.2, 5.1, 6.4, 3.3][index] })),
     currentActivityBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [2.4, 3.8, 4.6, 2.2][index] })),
     baselineProcessActivities: scaledProcessActivities("baseline_avg", [3.2, 5.1, 6.4, 3.3]),
@@ -437,7 +444,7 @@ export const campSummaries: CampCarbonSummary[] = [
     currentCo2eTotal: 31,
     co2eTotal: 31,
     co2ePerRai: 0.051,
-    topActivity: "3. ดูแลรักษา",
+    topActivity: "3. การให้น้ำและกำจัดวัชพืช",
     baselineActivityBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [4.8, 6.6, 8.2, 5.4][index] })),
     currentActivityBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [5, 7, 9, 6][index] })),
     baselineProcessActivities: scaledProcessActivities("baseline_avg", [4.8, 6.6, 8.2, 5.4]),
@@ -453,7 +460,7 @@ export const campSummaries: CampCarbonSummary[] = [
     currentCo2eTotal: 76,
     co2eTotal: 76,
     co2ePerRai: 0.031,
-    topActivity: "2. เพาะปลูก",
+    topActivity: "2. การใช้ปุ๋ย",
     baselineActivityBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [18, 31, 28, 27][index] })),
     currentActivityBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [12, 20, 19, 17][index] })),
     baselineProcessActivities: scaledProcessActivities("baseline_avg", [18, 31, 28, 27]),
@@ -499,6 +506,7 @@ export const mockDashboard: DashboardDataset = {
   processActivities,
   processInputComparisons,
   transportActivities,
+  caneTypeSummaries,
   spatialNodes: [...nodes, ...fields].map(withSpatialInputs),
   fields,
   campSummaries,

@@ -3,13 +3,15 @@ import { ActivityGroupedBar } from "../components/charts/ActivityGroupedBar";
 import { sortProcessLabels } from "../components/charts/ChartRegistry";
 import { ProcessInputComparisonBar } from "../components/charts/ProcessInputComparisonBar";
 import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
-import { SourceBadge } from "../components/common/SourceBadge";
-import { getCampCarbonSummaries, getCfProcessActivities, getProcessEmissions, getProcessInputComparisons } from "../services/dashboardApi";
-import type { ActivityValue, CampCarbonSummary, DataResult, ProcessActivityBreakdown, ProcessEmission, ProcessInputComparison } from "../types/dashboard";
+import { CaneTypeSummaryPanel } from "../components/common/CaneTypeSummaryPanel";
+import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCaneTypeSummaries, getCfProcessActivities, getProcessEmissions, getProcessInputComparisons } from "../services/dashboardApi";
+import type { ActivityValue, CampCarbonSummary, CampFieldCarbonDetail, CaneTypeSummary, DataResult, ProcessActivityBreakdown, ProcessEmission, ProcessInputComparison } from "../types/dashboard";
 import "../cf-dashboard.css";
 
 type PeriodMode = "baseline_avg" | "project";
 type ScopeValue = "all" | `camp-${number}`;
+type DonutMode = "camp" | "activity" | "field";
+type CaneScope = "all" | "new" | "ratoon";
 
 function yearName(year: string) {
   return year === "baseline_avg" ? "ค่าเฉลี่ยปีฐาน" : year;
@@ -50,6 +52,80 @@ function sumEmission(rows: ProcessActivityBreakdown[]) {
   return rows.reduce((sum, row) => sum + row.totalEmission, 0);
 }
 
+function aggregateActivityValues(rows: ProcessActivityBreakdown[]): ActivityValue[] {
+  const values = new Map<string, number>();
+  rows.forEach((row) => {
+    const activities = row.activities.length ? row.activities : [{ name: row.process, emission: row.totalEmission }];
+    activities.forEach((activity) => {
+      values.set(activity.name, (values.get(activity.name) ?? 0) + activity.emission);
+    });
+  });
+  return Array.from(values.entries())
+    .map(([name, emission]) => ({ name, emission: Number(emission.toFixed(2)) }))
+    .sort((a, b) => b.emission - a.emission);
+}
+
+function fieldProcessRows(field: CampFieldCarbonDetail, year: string, totalEmission: number): ProcessActivityBreakdown[] {
+  const sourceTotal = field.processBreakdown.reduce((sum, item) => sum + item.emission, 0) || 1;
+  return field.processBreakdown.map((item) => {
+    const emission = Number(((item.emission / sourceTotal) * totalEmission).toFixed(2));
+    return {
+      year,
+      process: item.name,
+      totalEmission: emission,
+      activities: [{ name: item.name, emission }],
+    };
+  });
+}
+
+function scaleInputsForField(data: ProcessInputComparison[], field?: CampFieldCarbonDetail): ProcessInputComparison[] {
+  if (!field) return data;
+  const baselineFactor = field.baselineEmission / 896;
+  const currentFactor = field.currentEmission / 723;
+  return data.map((item) => ({
+    process: item.process,
+    baselineFertilizerKg: Number((item.baselineFertilizerKg * baselineFactor).toFixed(1)),
+    currentFertilizerKg: Number((item.currentFertilizerKg * currentFactor).toFixed(1)),
+    baselineFuelLiter: Number((item.baselineFuelLiter * baselineFactor).toFixed(1)),
+    currentFuelLiter: Number((item.currentFuelLiter * currentFactor).toFixed(1)),
+  }));
+}
+
+function caneScopeInfo(data: CaneTypeSummary[], scope: CaneScope) {
+  if (scope === "all") return { label: "รวมทั้งหมด", factor: 1, detail: "รวมข้อมูลทุกประเภทอ้อยตามมุมมองปัจจุบัน" };
+  const keyword = scope === "new" ? "ปลูก" : "ตอ";
+  const fallbackLabel = scope === "new" ? "อ้อยปลูกใหม่" : "อ้อยตอ";
+  const cane = data.find((item) => item.name.includes(keyword));
+  return {
+    label: scope === "new" ? "อ้อยปลูกใหม่" : cane?.name ?? fallbackLabel,
+    factor: cane ? cane.percent / 100 : 1,
+    detail: cane ? `${cane.percent.toFixed(1)}% ของพื้นที่ · ${cane.areaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })} ไร่` : "รอข้อมูลประเภทอ้อย",
+  };
+}
+
+function scaleProcessRows(rows: ProcessActivityBreakdown[], factor: number): ProcessActivityBreakdown[] {
+  if (factor === 1) return rows;
+  return rows.map((row) => ({
+    ...row,
+    totalEmission: Number((row.totalEmission * factor).toFixed(2)),
+    activities: row.activities.map((activity) => ({
+      ...activity,
+      emission: Number((activity.emission * factor).toFixed(2)),
+    })),
+  }));
+}
+
+function scaleInputRows(rows: ProcessInputComparison[], factor: number): ProcessInputComparison[] {
+  if (factor === 1) return rows;
+  return rows.map((row) => ({
+    process: row.process,
+    baselineFertilizerKg: Number((row.baselineFertilizerKg * factor).toFixed(1)),
+    currentFertilizerKg: Number((row.currentFertilizerKg * factor).toFixed(1)),
+    baselineFuelLiter: Number((row.baselineFuelLiter * factor).toFixed(1)),
+    currentFuelLiter: Number((row.currentFuelLiter * factor).toFixed(1)),
+  }));
+}
+
 function PeriodSwitch({ value, currentYear, onChange }: { value: PeriodMode; currentYear: string; onChange: (next: PeriodMode) => void }) {
   return (
     <div className="period-switch" role="group" aria-label="เลือกช่วงข้อมูล">
@@ -65,20 +141,27 @@ function PeriodSwitch({ value, currentYear, onChange }: { value: PeriodMode; cur
 
 export function CfProcessPage() {
   const [period, setPeriod] = useState<PeriodMode>("project");
+  const [donutMode, setDonutMode] = useState<DonutMode>("camp");
+  const [caneScope, setCaneScope] = useState<CaneScope>("all");
   const [scope, setScope] = useState<ScopeValue>("all");
   const [activities, setActivities] = useState<ProcessActivityBreakdown[]>([]);
   const [emissions, setEmissions] = useState<ProcessEmission[]>([]);
   const [inputs, setInputs] = useState<ProcessInputComparison[]>([]);
   const [campResult, setCampResult] = useState<DataResult<CampCarbonSummary[]>>({ data: [], source: "mock" });
+  const [fieldResult, setFieldResult] = useState<DataResult<CampFieldCarbonDetail[]>>({ data: [], source: "mock" });
+  const [caneTypeResult, setCaneTypeResult] = useState<DataResult<CaneTypeSummary[]>>({ data: [], source: "mock" });
+  const [selectedFieldId, setSelectedFieldId] = useState("all");
   const [error, setError] = useState("");
 
   useEffect(() => {
-    Promise.all([getCfProcessActivities("process"), getProcessEmissions(), getProcessInputComparisons(), getCampCarbonSummaries()])
-      .then(([activityResult, emissionResult, inputResult, campSummaryResult]) => {
+    Promise.all([getCfProcessActivities("process"), getProcessEmissions(), getProcessInputComparisons(), getCampCarbonSummaries(), getCampFieldCarbonDetails(), getCaneTypeSummaries()])
+      .then(([activityResult, emissionResult, inputResult, campSummaryResult, fieldDetailResult, caneSummaryResult]) => {
         setActivities(activityResult.data);
         setEmissions(emissionResult.data);
         setInputs(inputResult.data);
         setCampResult(campSummaryResult);
+        setFieldResult(fieldDetailResult);
+        setCaneTypeResult(caneSummaryResult);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "โหลดข้อมูลไม่สำเร็จ"));
   }, []);
@@ -86,33 +169,52 @@ export function CfProcessPage() {
   const currentYear = currentYearFrom(emissions);
   const selectedCampId = scope === "all" ? undefined : Number(scope.replace("camp-", ""));
   const selectedCamp = selectedCampId ? campResult.data.find((camp) => camp.campId === selectedCampId) : undefined;
+  const fieldsInCamp = selectedCampId ? fieldResult.data.filter((field) => field.campId === selectedCampId) : [];
+  const selectedField = selectedFieldId === "all" ? undefined : fieldResult.data.find((field) => field.id === selectedFieldId);
   const baseline = activities.filter((item) => item.year === "baseline_avg");
   const current = activities.filter((item) => item.year === currentYear);
   const selectedYear = period === "baseline_avg" ? "baseline_avg" : currentYear;
-  const selected = selectedCamp
+  const fieldBaseline = selectedField ? fieldProcessRows(selectedField, "baseline_avg", selectedField.baselineEmission) : [];
+  const fieldCurrent = selectedField ? fieldProcessRows(selectedField, currentYear, selectedField.currentEmission) : [];
+  const selected = selectedField
+    ? (period === "baseline_avg" ? fieldBaseline : fieldCurrent)
+    : selectedCamp
     ? (period === "baseline_avg" ? selectedCamp.baselineProcessActivities : selectedCamp.currentProcessActivities)
     : activities.filter((item) => item.year === selectedYear);
-  const selectedPie: ActivityValue[] = selectedCamp
-    ? (period === "baseline_avg" ? selectedCamp.baselineActivityBreakdown : selectedCamp.currentActivityBreakdown)
-    : selected.map((item) => ({ name: item.process, emission: item.totalEmission }));
+  const chartBaselineRaw = selectedField ? fieldBaseline : selectedCamp ? selectedCamp.baselineProcessActivities : baseline;
+  const chartCurrentRaw = selectedField ? fieldCurrent : selectedCamp ? selectedCamp.currentProcessActivities : current;
+  const caneMeta = caneScopeInfo(caneTypeResult.data, caneScope);
+  const selectedByCane = scaleProcessRows(selected, caneMeta.factor);
+  const chartBaseline = scaleProcessRows(chartBaselineRaw, caneMeta.factor);
+  const chartCurrent = scaleProcessRows(chartCurrentRaw, caneMeta.factor);
   const campRows = selectedCamp ? [selectedCamp] : campResult.data;
-  const baselineTotal = selectedCamp ? selectedCamp.baselineCo2eTotal : sumEmission(baseline);
-  const currentTotal = selectedCamp ? selectedCamp.currentCo2eTotal : sumEmission(current);
+  const baselineTotal = (selectedField ? selectedField.baselineEmission : selectedCamp ? selectedCamp.baselineCo2eTotal : sumEmission(baseline)) * caneMeta.factor;
+  const currentTotal = (selectedField ? selectedField.currentEmission : selectedCamp ? selectedCamp.currentCo2eTotal : sumEmission(current)) * caneMeta.factor;
   const totalDiff = baselineTotal - currentTotal;
   const totalDiffPct = baselineTotal ? (totalDiff / baselineTotal) * 100 : 0;
-  const topCurrentProcess = [...(selectedCamp ? selectedCamp.currentProcessActivities : current)]
+  const topCurrentProcess = [...chartCurrent]
     .sort((a, b) => b.totalEmission - a.totalEmission)[0];
-  const processInputData = selectedCamp ? selectedCamp.processInputComparisons : inputs;
+  const processInputData = scaleInputRows(selectedField ? scaleInputsForField(inputs, selectedField) : selectedCamp ? selectedCamp.processInputComparisons : inputs, caneMeta.factor);
+  const currentScopeRows = chartCurrent;
+  const groupDonutData: ActivityValue[] = donutMode === "camp"
+    ? selectedField
+      ? [{ name: selectedField.campName, emission: Number((selectedField.currentEmission * caneMeta.factor).toFixed(2)) }]
+      : selectedCamp
+      ? [{ name: selectedCamp.campName, emission: Number((selectedCamp.currentCo2eTotal * caneMeta.factor).toFixed(2)) }]
+      : campResult.data.map((camp) => ({ name: camp.campName, emission: Number((camp.currentCo2eTotal * caneMeta.factor).toFixed(2)) }))
+    : donutMode === "field"
+    ? selectedField
+      ? [{ name: selectedField.fieldName, emission: Number((selectedField.currentEmission * caneMeta.factor).toFixed(2)) }]
+      : (selectedCampId ? fieldsInCamp : fieldResult.data).map((field) => ({ name: field.fieldName, emission: Number((field.co2eTotal * caneMeta.factor).toFixed(2)) }))
+    : aggregateActivityValues(currentScopeRows);
 
   return (
     <div className="cf-dash">
       <div className="page active">
         <div className="page-title">
           <div>
-            <p className="eyebrow">02 · Process</p>
-            <h1>สรุปกระบวนการเพาะปลูก</h1>
+            <h1>Carbon Footprint ไร่บริษัทกลุ่มมิตรผล</h1>
           </div>
-          <SourceBadge source={campResult.source} meta={campResult.meta} />
         </div>
 
         {error && <div className="error-panel">{error}</div>}
@@ -120,18 +222,58 @@ export function CfProcessPage() {
         <section className="card process-scope-panel">
           <div>
             <div className="card-title">มุมมองกระบวนการเพาะปลูก</div>
-            <p className="muted">เลือกภาพรวมทั้งหมด หรือเจาะรายแคมป์จากรายการเดียวกัน</p>
+            <p className="muted">เลือกภาพรวมทั้งหมด เจาะรายแคมป์ หรือเลือกแปลงภายในแคมป์</p>
           </div>
           <label>
             ขอบเขตข้อมูล
-            <select value={scope} onChange={(event) => setScope(event.target.value as ScopeValue)}>
+            <select
+              value={scope}
+              onChange={(event) => {
+                setScope(event.target.value as ScopeValue);
+                setSelectedFieldId("all");
+              }}
+            >
               <option value="all">รวมทั้งหมด</option>
               {campResult.data.map((camp) => (
                 <option key={camp.campId} value={`camp-${camp.campId}`}>{camp.campName}</option>
               ))}
             </select>
           </label>
+          <label>
+            แปลงในแคมป์
+            <select value={selectedFieldId} disabled={!selectedCampId} onChange={(event) => setSelectedFieldId(event.target.value)}>
+              <option value="all">{selectedCampId ? "ทุกแปลงในแคมป์" : "เลือกแคมป์ก่อน"}</option>
+              {fieldsInCamp.map((field) => (
+                <option key={field.id} value={field.id}>{field.fieldCode} · {field.fieldName}</option>
+              ))}
+            </select>
+          </label>
         </section>
+
+        <section className="card cane-scope-card">
+          <div>
+            <div className="card-title">ประเภทอ้อยที่ใช้วิเคราะห์</div>
+            <p className="muted">{caneMeta.detail}</p>
+          </div>
+          <div className="cane-scope-switch" role="group" aria-label="เลือกประเภทอ้อย">
+            {[
+              ["all", "รวมทั้งหมด"],
+              ["new", "อ้อยปลูกใหม่"],
+              ["ratoon", "อ้อยตอ"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={caneScope === value ? "active" : ""}
+                onClick={() => setCaneScope(value as CaneScope)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <CaneTypeSummaryPanel result={caneTypeResult} showSource={false} />
 
         <section className="process-summary-grid">
           <article>
@@ -161,19 +303,47 @@ export function CfProcessPage() {
         <section className="grid2">
           <article className="card">
             <div className="card-title-row">
-              <div className="card-title">วงกลมกระบวนการทั้งหมด · {selectedCamp?.campName ?? periodLabel(period, currentYear)}</div>
-              <PeriodSwitch value={period} currentYear={currentYear} onChange={setPeriod} />
+              <div className="card-title">CO2e ตามกลุ่ม · {selectedField?.fieldName ?? selectedCamp?.campName ?? `ปีดำเนินการ ${currentYear || "-"}`}</div>
+              <div className="group-mode-switch" role="group" aria-label="เลือกกลุ่มข้อมูลโดนัท">
+                {[
+                  ["camp", "ตามแคมป์"],
+                  ["activity", "ตามกิจกรรม"],
+                  ["field", "ตามแปลง"],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={donutMode === value ? "active" : ""}
+                    onClick={() => setDonutMode(value as DonutMode)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <ProcessDoughnut data={selectedPie} />
+            <ProcessDoughnut data={groupDonutData} />
           </article>
           <article className="card">
             <div className="card-title">Grouped Bar · ปีฐาน vs ปีดำเนินโครงการ</div>
-            {selectedCamp ? (
-              <ActivityGroupedBar baseline={selectedCamp.baselineProcessActivities} current={selectedCamp.currentProcessActivities} />
+            {selectedField ? (
+              <ActivityGroupedBar baseline={chartBaseline} current={chartCurrent} />
+            ) : selectedCamp ? (
+              <ActivityGroupedBar baseline={chartBaseline} current={chartCurrent} />
             ) : (
-              <ActivityGroupedBar baseline={baseline} current={current} />
+              <ActivityGroupedBar baseline={chartBaseline} current={chartCurrent} />
             )}
-            {selectedCamp ? (
+            {selectedField ? (
+              <div className="summary-list">
+                <div><span>ปีฐาน</span><strong>{selectedField.baselineEmission.toLocaleString()} tCO2e</strong></div>
+                <div><span>ปีดำเนินการ</span><strong>{selectedField.currentEmission.toLocaleString()} tCO2e</strong></div>
+                <div>
+                  <span>ผลต่าง</span>
+                  <strong className={selectedField.currentEmission <= selectedField.baselineEmission ? "green-text" : "red-text"}>
+                    {Math.abs(selectedField.currentEmission - selectedField.baselineEmission).toFixed(2)} tCO2e
+                  </strong>
+                </div>
+              </div>
+            ) : selectedCamp ? (
               <div className="summary-list">
                 <div><span>ปีฐาน</span><strong>{selectedCamp.baselineCo2eTotal.toLocaleString()} tCO2e</strong></div>
                 <div><span>ปีดำเนินการ</span><strong>{selectedCamp.currentCo2eTotal.toLocaleString()} tCO2e</strong></div>
@@ -240,12 +410,12 @@ export function CfProcessPage() {
             <PeriodSwitch value={period} currentYear={currentYear} onChange={setPeriod} />
           </div>
           <div className="sub-pie-grid">
-            {selected.map((item) => (
+            {selectedByCane.map((item) => (
               <article className="card sub-card" key={`${item.year}-${item.process}`}>
-                <ProcessDoughnut title={selectedCamp ? `${item.process} · ${periodLabel(period, currentYear)}` : `${item.process} · ${yearName(item.year)}`} data={item.activities} />
+                <ProcessDoughnut title={selectedField ? `${item.process} · ${selectedField.fieldCode}` : selectedCamp ? `${item.process} · ${periodLabel(period, currentYear)}` : `${item.process} · ${yearName(item.year)}`} data={item.activities} />
               </article>
             ))}
-            {!selected.length && <div className="empty-state">ไม่มีข้อมูลกระบวนการเพาะปลูกสำหรับช่วงที่เลือก</div>}
+            {!selectedByCane.length && <div className="empty-state">ไม่มีข้อมูลกระบวนการเพาะปลูกสำหรับช่วงที่เลือก</div>}
           </div>
         </section>
       </div>

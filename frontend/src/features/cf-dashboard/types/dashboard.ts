@@ -67,6 +67,13 @@ export interface ProcessInputComparison {
   currentFuelLiter: number;
 }
 
+export interface CaneTypeSummary {
+  name: string;
+  areaRai: number;
+  percent: number;
+  co2eTotal?: number;
+}
+
 export interface SpatialSummaryNode {
   id: string;
   parentId?: string;
@@ -135,6 +142,7 @@ export interface DashboardDataset {
   processActivities: ProcessActivityBreakdown[];
   processInputComparisons: ProcessInputComparison[];
   transportActivities: ProcessActivityBreakdown[];
+  caneTypeSummaries: CaneTypeSummary[];
   spatialNodes: SpatialSummaryNode[];
   fields: FieldCarbonDetail[];
   campSummaries: CampCarbonSummary[];

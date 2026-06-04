@@ -1,5 +1,6 @@
 import { get } from "@/lib/api";
 import type {
+  CaneTypeSummary,
   CampCarbonSummary,
   CampFieldCarbonDetail,
   DataResult,
@@ -96,6 +97,12 @@ export async function getProcessInputComparisons(filter?: Partial<ReportFilter>)
   const route = "/analytics/cf-process-inputs";
   if (ENABLE_API_DASHBOARD) return apiResult(route, await get<ProcessInputComparison[]>(route, cleanParams(filter)));
   return mockResult(route, mockDashboard.processInputComparisons);
+}
+
+export async function getCaneTypeSummaries(filter?: Partial<ReportFilter>): Promise<DataResult<CaneTypeSummary[]>> {
+  const route = "/analytics/cf-cane-types";
+  if (ENABLE_API_DASHBOARD) return apiResult(route, await get<CaneTypeSummary[]>(route, cleanParams(filter)));
+  return mockResult(route, mockDashboard.caneTypeSummaries);
 }
 
 export async function getCampCarbonSummaries(): Promise<DataResult<CampCarbonSummary[]>> {

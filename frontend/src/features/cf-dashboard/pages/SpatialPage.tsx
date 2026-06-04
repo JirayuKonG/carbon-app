@@ -4,9 +4,9 @@ import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
 import { ProcessInputComparisonBar } from "../components/charts/ProcessInputComparisonBar";
 import { sortProcessLabels } from "../components/charts/ChartRegistry";
 import { ThailandMap } from "../components/map/ThailandMap";
-import { SourceBadge } from "../components/common/SourceBadge";
 import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCfSpatialNodes } from "../services/dashboardApi";
 import type { CampCarbonSummary, CampFieldCarbonDetail, DataResult, FieldCarbonDetail, ProcessActivityBreakdown, ProcessInputComparison, SpatialLevel, SpatialSummaryNode } from "../types/dashboard";
+import { MapPinned } from "lucide-react";
 import "../cf-dashboard.css";
 
 function isField(node: SpatialSummaryNode): node is FieldCarbonDetail {
@@ -53,6 +53,7 @@ export function CfSpatialPage() {
   const [campResult, setCampResult] = useState<DataResult<CampCarbonSummary[]>>({ data: [], source: "mock" });
   const [campFieldResult, setCampFieldResult] = useState<DataResult<CampFieldCarbonDetail[]>>({ data: [], source: "mock" });
   const [selectedCampId, setSelectedCampId] = useState<number | "all">("all");
+  const [selectedBoundaryFieldId, setSelectedBoundaryFieldId] = useState("");
   const [filters, setFilters] = useState<Record<Exclude<SpatialLevel, "country">, string>>({
     region: "",
     province: "",
@@ -75,11 +76,15 @@ export function CfSpatialPage() {
   useEffect(() => {
     if (selectedCampId === "all") {
       setCampFieldResult({ data: [], source: "mock" });
+      setSelectedBoundaryFieldId("");
       return;
     }
 
     getCampFieldCarbonDetails(selectedCampId)
-      .then(setCampFieldResult)
+      .then((result) => {
+        setCampFieldResult(result);
+        setSelectedBoundaryFieldId(result.data[0]?.id ?? "");
+      })
       .catch((err) => setError(err instanceof Error ? err.message : "โหลดข้อมูลรายแปลงในแคมป์ไม่สำเร็จ"));
   }, [selectedCampId]);
 
@@ -106,6 +111,8 @@ export function CfSpatialPage() {
       co2ePerRai: totalAreaRai ? totalCo2e / totalAreaRai : 0,
     };
   }, [campResult.data]);
+  const mapBoundaryFields = selectedCamp ? campFieldResult.data : isField(selected) ? [selected] : [];
+  const activeBoundaryFieldId = selectedBoundaryFieldId || (isField(selected) ? selected.id : undefined);
 
   const breadcrumbs = useMemo(() => {
     const list: SpatialSummaryNode[] = [];
@@ -140,7 +147,6 @@ export function CfSpatialPage() {
       <div className="page active">
         <div className="page-title">
           <div>
-            <p className="eyebrow">04 · Spatial Drill-down</p>
             <h1>แผนที่ประเทศไทยและรายละเอียดรายพื้นที่</h1>
           </div>
         </div>
@@ -201,10 +207,6 @@ export function CfSpatialPage() {
         <section className="card full-span">
           <div className="card-title-row">
             <div className="card-title">รายแปลงในแคมป์</div>
-            <SourceBadge
-              source={selectedCamp ? campFieldResult.source : campResult.source}
-              meta={selectedCamp ? campFieldResult.meta : campResult.meta}
-            />
           </div>
           <div className="camp-selector-row">
             <label>
@@ -214,6 +216,7 @@ export function CfSpatialPage() {
                 onChange={(event) => {
                   const value = event.target.value;
                   setSelectedCampId(value === "all" ? "all" : Number(value));
+                  setSelectedBoundaryFieldId("");
                 }}
               >
                 <option value="all">ภาพรวมทุกแคมป์</option>
@@ -222,6 +225,21 @@ export function CfSpatialPage() {
                 ))}
               </select>
             </label>
+            {selectedCamp && (
+              <label>
+                เลือกแปลงบนแผนที่
+                <select
+                  value={selectedBoundaryFieldId}
+                  onChange={(event) => setSelectedBoundaryFieldId(event.target.value)}
+                  disabled={!campFieldResult.data.length}
+                >
+                  <option value="">{campFieldResult.data.length ? "แสดงทุกแปลงในแคมป์" : "ยังไม่มี mock รายแปลง"}</option>
+                  {campFieldResult.data.map((field) => (
+                    <option key={field.id} value={field.id}>{field.fieldCode} · {field.fieldName}</option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
           {selectedCamp ? (
             <>
@@ -242,6 +260,7 @@ export function CfSpatialPage() {
                       <th>โฉนดที่ผูกอยู่</th>
                       <th>กิจกรรมที่บันทึก</th>
                       <th>CO2e ของแปลง</th>
+                      <th>ขอบเขต</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -254,10 +273,20 @@ export function CfSpatialPage() {
                         <td>{field.chanots.map((chanot) => `${chanot.chanotNo} (${chanot.areaRai} ไร่)`).join(", ") || "-"}</td>
                         <td>{field.activitiesLogged.join(", ") || "-"}</td>
                         <td>{field.co2eTotal.toLocaleString()} tCO2e</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="map-zoom-btn"
+                            onClick={() => setSelectedBoundaryFieldId(field.id)}
+                            title="ซูมไปที่ขอบเขตแปลง"
+                          >
+                            <MapPinned size={14} />
+                          </button>
+                        </td>
                       </tr>
                     ))}
                     {!campFieldResult.data.length && (
-                      <tr><td colSpan={7}>ยังไม่มี mock รายแปลงสำหรับแคมป์นี้</td></tr>
+                      <tr><td colSpan={8}>ยังไม่มี mock รายแปลงสำหรับแคมป์นี้</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -277,7 +306,14 @@ export function CfSpatialPage() {
         </section>
 
         <section className="card map-card wide-map">
-          <ThailandMap nodes={nodes} selectedId={selected.id} onSelect={setSelectedId} />
+          <ThailandMap
+            nodes={nodes}
+            selectedId={selected.id}
+            onSelect={setSelectedId}
+            boundaryFields={mapBoundaryFields}
+            selectedBoundaryFieldId={activeBoundaryFieldId}
+            onSelectBoundaryField={setSelectedBoundaryFieldId}
+          />
         </section>
 
         <section className="grid2">

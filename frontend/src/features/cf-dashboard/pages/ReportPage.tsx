@@ -164,7 +164,7 @@ function pddDraftHtml(report: ReportSummary) {
         <h2>1. รายละเอียดโครงการ</h2>
         <table>
           <tr><th>หัวข้อ</th><th>ข้อมูลจาก Dashboard</th></tr>
-          <tr><td>ขอบเขตโครงการ</td><td>กระบวนการเพาะปลูกอ้อย 4 ขั้นตอน: เตรียมดิน, เพาะปลูก, ดูแลรักษา, เก็บเกี่ยว</td></tr>
+          <tr><td>ขอบเขตโครงการ</td><td>กระบวนการเพาะปลูกอ้อย 4 ขั้นตอน: การเตรียมดินและปลูก, การใช้ปุ๋ย, การให้น้ำและกำจัดวัชพืช, การเก็บเกี่ยว</td></tr>
           <tr><td>จำนวนแปลง</td><td>${escapeHtml(report.kpi.fields.toLocaleString())} แปลง</td></tr>
           <tr><td>ปีดำเนินการ</td><td>${escapeHtml(report.kpi.currentYear)}</td></tr>
           <tr><td>พื้นที่/ขอบเขตเชิงภูมิศาสตร์</td><td>${escapeHtml(report.analysis.areaSummary)}</td></tr>
@@ -394,7 +394,7 @@ function WebReportSummary({ report }: { report: ReportSummary }) {
       <h3>ข้อมูลที่เตรียมใช้กรอกแบบฟอร์ม</h3>
       <div className="report-form-grid">
         <div><span>ขอบเขตโครงการ</span><strong>กระบวนการเพาะปลูกอ้อย 4 ขั้นตอน</strong></div>
-        <div><span>ขั้นตอนที่ครอบคลุม</span><strong>เตรียมดิน, เพาะปลูก, ดูแลรักษา, เก็บเกี่ยว</strong></div>
+        <div><span>ขั้นตอนที่ครอบคลุม</span><strong>การเตรียมดินและปลูก, การใช้ปุ๋ย, การให้น้ำและกำจัดวัชพืช, การเก็บเกี่ยว</strong></div>
         <div><span>ปีฐาน</span><strong>ค่าเฉลี่ยจากปีฐานก่อนหน้า</strong></div>
         <div><span>ปีดำเนินการ</span><strong>{report.kpi.currentYear}</strong></div>
         <div><span>จำนวนแปลง</span><strong>{report.kpi.fields.toLocaleString()} แปลง</strong></div>
@@ -557,7 +557,6 @@ export function CfReportPage() {
       <div className="page active">
         <div className="page-title">
           <div>
-            <p className="eyebrow">03 · Premium T-VER Report</p>
             <h1>สรุปผลทั้งหมดสำหรับเตรียมยื่น Premium T-VER</h1>
           </div>
         </div>
