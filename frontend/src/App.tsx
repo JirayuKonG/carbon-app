@@ -16,6 +16,7 @@ import { CfProcessPage }        from '@/features/cf-dashboard/pages/ProcessPage'
 import { CfSpatialPage }        from '@/features/cf-dashboard/pages/SpatialPage'
 import { CfReportPage }         from '@/features/cf-dashboard/pages/ReportPage'
 import { CfCalculatePage }      from '@/features/cf-dashboard/pages/CalculatePage'
+import { CfPipelinePage }       from '@/features/cf-dashboard/pages/PipelinePage'
 
 function RedirectWithSearch({ to }: { to: string }) {
   const location = useLocation()

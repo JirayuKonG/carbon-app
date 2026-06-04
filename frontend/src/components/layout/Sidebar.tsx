@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Map, Factory, Users, Tractor,
   Layers, CloudRain, FlaskConical, ActivitySquare, Settings2,
-  Leaf, ChevronDown, ChevronRight, X, BarChart3, Sprout, MapPin, GitBranch, Truck, FileText, Calculator,
+  Leaf, ChevronDown, ChevronRight, X, BarChart3, Sprout, MapPin, FileText, Calculator,
 } from 'lucide-react'
 
 interface NavItem {
