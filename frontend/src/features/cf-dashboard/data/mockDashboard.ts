@@ -1,4 +1,6 @@
 import type {
+  CampCarbonSummary,
+  CampFieldCarbonDetail,
   DashboardDataset,
   FieldCarbonDetail,
   ProcessInputComparison,
@@ -82,6 +84,23 @@ export const processInputComparisons: ProcessInputComparison[] = [
 ];
 
 export const transportActivities: ProcessActivityBreakdown[] = [];
+
+function scaledProcessActivities(year: string, totals: number[]): ProcessActivityBreakdown[] {
+  return PROCESS_STEPS.map((process, index) => {
+    const source = processActivities.find((item) => item.year === year && item.process === process);
+    const sourceTotal = source?.totalEmission || 1;
+    const totalEmission = totals[index] ?? 0;
+    return {
+      year,
+      process,
+      totalEmission,
+      activities: source?.activities.map((activity) => ({
+        name: activity.name,
+        emission: Number(((activity.emission / sourceTotal) * totalEmission).toFixed(2)),
+      })) ?? [],
+    };
+  });
+}
 
 function scaleSpatialInputs(baselineEmission: number, currentEmission: number): ProcessInputComparison[] {
   const baselineFactor = baselineEmission / 896;
@@ -392,6 +411,74 @@ const fields: FieldCarbonDetail[] = [
   },
 ];
 
+export const campSummaries: CampCarbonSummary[] = [
+  {
+    campId: 101,
+    campName: "แคมป์ป่าสาง",
+    fieldCount: 12,
+    areaRai: 315,
+    baselineCo2eTotal: 20,
+    currentCo2eTotal: 14,
+    co2eTotal: 14,
+    co2ePerRai: 0.044,
+    topActivity: "3. ดูแลรักษา",
+    baselineActivityBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [3.2, 5.1, 6.4, 3.3][index] })),
+    currentActivityBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [2.4, 3.8, 4.6, 2.2][index] })),
+    baselineProcessActivities: scaledProcessActivities("baseline_avg", [3.2, 5.1, 6.4, 3.3]),
+    currentProcessActivities: scaledProcessActivities("2566/67", [2.4, 3.8, 4.6, 2.2]),
+    processInputComparisons: scaleSpatialInputs(20, 14),
+  },
+  {
+    campId: 102,
+    campName: "แคมป์หนองสาหร่าย",
+    fieldCount: 18,
+    areaRai: 604,
+    baselineCo2eTotal: 29,
+    currentCo2eTotal: 31,
+    co2eTotal: 31,
+    co2ePerRai: 0.051,
+    topActivity: "3. ดูแลรักษา",
+    baselineActivityBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [4.8, 6.6, 8.2, 5.4][index] })),
+    currentActivityBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [5, 7, 9, 6][index] })),
+    baselineProcessActivities: scaledProcessActivities("baseline_avg", [4.8, 6.6, 8.2, 5.4]),
+    currentProcessActivities: scaledProcessActivities("2566/67", [5, 7, 9, 6]),
+    processInputComparisons: scaleSpatialInputs(29, 31),
+  },
+  {
+    campId: 103,
+    campName: "แคมป์กาญจนบุรี",
+    fieldCount: 74,
+    areaRai: 2480,
+    baselineCo2eTotal: 104,
+    currentCo2eTotal: 76,
+    co2eTotal: 76,
+    co2ePerRai: 0.031,
+    topActivity: "2. เพาะปลูก",
+    baselineActivityBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [18, 31, 28, 27][index] })),
+    currentActivityBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [12, 20, 19, 17][index] })),
+    baselineProcessActivities: scaledProcessActivities("baseline_avg", [18, 31, 28, 27]),
+    currentProcessActivities: scaledProcessActivities("2566/67", [12, 20, 19, 17]),
+    processInputComparisons: scaleSpatialInputs(104, 76),
+  },
+];
+
+export const campFields: CampFieldCarbonDetail[] = [
+  {
+    ...fields[0],
+    campId: 101,
+    campName: "แคมป์ป่าสาง",
+    activitiesLogged: ["เตรียมดิน", "ปลูกอ้อย", "ใส่ปุ๋ย", "เก็บเกี่ยว"],
+    co2eTotal: fields[0].currentEmission,
+  },
+  {
+    ...fields[1],
+    campId: 102,
+    campName: "แคมป์หนองสาหร่าย",
+    activitiesLogged: ["เตรียมดิน", "ปลูกอ้อย", "กำจัดวัชพืช", "ให้น้ำ", "เก็บเกี่ยว"],
+    co2eTotal: fields[1].currentEmission,
+  },
+];
+
 export const mockDashboard: DashboardDataset = {
   kpi: {
     baselineAvgEmission: 896,
@@ -401,6 +488,7 @@ export const mockDashboard: DashboardDataset = {
     inputEmission: 649.5,
     fertilizerAmountKg: 91400,
     fertilizerEmission: 236.0,
+    areaRai: 18450,
     yieldTon: 1088.8,
     co2ePerTon: 3.22,
     farmers: 418,
@@ -413,4 +501,6 @@ export const mockDashboard: DashboardDataset = {
   transportActivities,
   spatialNodes: [...nodes, ...fields].map(withSpatialInputs),
   fields,
+  campSummaries,
+  campFields,
 };

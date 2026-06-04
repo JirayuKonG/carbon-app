@@ -17,6 +17,7 @@ const emptyKpi: OverviewKpi = {
   inputEmission: 0,
   fertilizerAmountKg: 0,
   fertilizerEmission: 0,
+  areaRai: 0,
   yieldTon: 0,
   co2ePerTon: 0,
   farmers: 0,
@@ -82,21 +83,35 @@ export function CfOverviewPage() {
           </div>
         )}
 
-        <section className="kpi-grid">
-          {[
-            ["Carbon รวม", kpi.data.currentEmission.toFixed(0), "tCO2e", `${diff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} ${Math.abs(diffPct).toFixed(1)}% vs baseline`],
-            ["Machine / Fuel", kpi.data.machineEmission.toFixed(1), "tCO2e", "จากข้อมูลกิจกรรมจริง"],
-            ["จำนวนแปลงทั้งหมด", kpi.data.fields.toLocaleString(), "แปลง", "แปลงที่ร่วมโครงการ"],
-            ["ปุ๋ยรวม", kpi.data.fertilizerAmountKg.toLocaleString(), "kg", `${kpi.data.fertilizerEmission.toFixed(1)} tCO2e จากปุ๋ย`],
-            ["เทียบปีฐาน", Math.abs(diff).toFixed(0), "tCO2e", `${diff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} ${Math.abs(diffPct).toFixed(1)}%`],
-          ].map(([label, value, unit, delta]) => (
-            <article className="kpi" key={label}>
-              <div className="kpi-label">{label}</div>
-              <div className="kpi-val">{value}</div>
-              <div className="kpi-unit">{unit}</div>
-              <div className={`delta ${diff >= 0 ? "good" : "bad"}`}>{delta}</div>
-            </article>
-          ))}
+        <section className="overview-kpi-stack">
+          <div className="overview-kpi-row top">
+            {[
+              ["Carbon รวม", kpi.data.currentEmission.toFixed(0), "tCO2e", `${diff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} ${Math.abs(diffPct).toFixed(1)}% vs baseline`],
+              ["พื้นที่ไร่ทั้งหมด", kpi.data.areaRai.toLocaleString(), "ไร่", "รวมพื้นที่แปลงที่เข้าร่วม"],
+              ["จำนวนแปลงทั้งหมด", kpi.data.fields.toLocaleString(), "แปลง", "แปลงที่ร่วมโครงการ"],
+              ["เกษตรกรทั้งหมด", kpi.data.farmers.toLocaleString(), "ราย", "เกษตรกรที่ผูกกับแปลง"],
+            ].map(([label, value, unit, delta]) => (
+              <article className="kpi" key={label}>
+                <div className="kpi-label">{label}</div>
+                <div className="kpi-val">{value}</div>
+                <div className="kpi-unit">{unit}</div>
+                <div className={`delta ${diff >= 0 ? "good" : "bad"}`}>{delta}</div>
+              </article>
+            ))}
+          </div>
+          <div className="overview-kpi-row secondary">
+            {[
+              ["เครื่องจักร / เชื้อเพลิง", kpi.data.machineEmission.toFixed(1), "tCO2e", "จากข้อมูลกิจกรรมจริง"],
+              ["ปุ๋ยรวม", kpi.data.fertilizerAmountKg.toLocaleString(), "kg", `${kpi.data.fertilizerEmission.toFixed(1)} tCO2e จากปุ๋ย`],
+            ].map(([label, value, unit, delta]) => (
+              <article className="kpi" key={label}>
+                <div className="kpi-label">{label}</div>
+                <div className="kpi-val">{value}</div>
+                <div className="kpi-unit">{unit}</div>
+                <div className="delta good">{delta}</div>
+              </article>
+            ))}
+          </div>
         </section>
 
         <section className="compare-row">

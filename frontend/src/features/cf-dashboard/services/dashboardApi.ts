@@ -1,5 +1,7 @@
 import { get } from "@/lib/api";
 import type {
+  CampCarbonSummary,
+  CampFieldCarbonDetail,
   DataResult,
   OverviewKpi,
   ProcessInputComparison,
@@ -94,6 +96,22 @@ export async function getProcessInputComparisons(filter?: Partial<ReportFilter>)
   const route = "/analytics/cf-process-inputs";
   if (ENABLE_API_DASHBOARD) return apiResult(route, await get<ProcessInputComparison[]>(route, cleanParams(filter)));
   return mockResult(route, mockDashboard.processInputComparisons);
+}
+
+export async function getCampCarbonSummaries(): Promise<DataResult<CampCarbonSummary[]>> {
+  const route = "/analytics/cf-camps";
+  if (ENABLE_API_DASHBOARD) return apiResult(route, await get<CampCarbonSummary[]>(route));
+  return mockResult(route, mockDashboard.campSummaries);
+}
+
+export async function getCampFieldCarbonDetails(campId?: number): Promise<DataResult<CampFieldCarbonDetail[]>> {
+  const route = "/analytics/cf-camp-fields";
+  const routeWithQuery = campId ? `${route}?camp_id=${campId}` : route;
+  if (ENABLE_API_DASHBOARD) {
+    return apiResult(routeWithQuery, await get<CampFieldCarbonDetail[]>(route, campId ? { camp_id: String(campId) } : undefined));
+  }
+  const data = campId ? mockDashboard.campFields.filter((field) => field.campId === campId) : mockDashboard.campFields;
+  return mockResult(routeWithQuery, data);
 }
 
 export async function getReportSummary(filter: ReportFilter): Promise<ReportSummary> {

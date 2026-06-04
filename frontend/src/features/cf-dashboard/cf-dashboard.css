@@ -75,7 +75,14 @@
 .cf-dash .full-span { width: 100%; }
 
 /* KPI */
-.cf-dash .kpi-grid { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 14px; }
+.cf-dash .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: 14px; }
+.cf-dash .overview-kpi-stack { display: grid; gap: 14px; }
+.cf-dash .overview-kpi-row { display: grid; gap: 14px; }
+.cf-dash .overview-kpi-row.top { grid-template-columns: repeat(4, minmax(0,1fr)); }
+.cf-dash .overview-kpi-row.secondary {
+  grid-template-columns: repeat(2, minmax(220px,360px));
+  justify-content: center;
+}
 .cf-dash .kpi { position: relative; min-height: 140px; overflow: hidden; padding: 16px; transition: all .25s ease; }
 .cf-dash .kpi::before {
   content: "";
@@ -242,6 +249,96 @@
 }
 .cf-dash .source-badge.api span:first-child { color: var(--eco-green); }
 .cf-dash .source-badge.mock span:first-child { color: var(--amber); }
+
+.cf-dash .card-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.cf-dash .process-scope-panel {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) minmax(220px,340px);
+  align-items: end;
+  gap: 18px;
+}
+
+.cf-dash .process-scope-panel label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cf-dash .process-scope-panel select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text);
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.cf-dash .period-switch {
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  min-width: 250px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface2);
+  padding: 3px;
+}
+
+.cf-dash .period-switch button {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 12px;
+}
+
+.cf-dash .period-switch button.active {
+  background: #fff;
+  color: var(--accent-dark);
+  box-shadow: 0 4px 14px rgba(91,164,255,.16);
+}
+
+.cf-dash .process-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0,1fr));
+  gap: 12px;
+}
+
+.cf-dash .process-summary-grid article {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fff, #f8fbfe);
+  padding: 14px 16px;
+}
+
+.cf-dash .process-summary-grid span,
+.cf-dash .process-summary-grid small {
+  display: block;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.cf-dash .process-summary-grid strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--accent-dark);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 20px;
+  font-weight: 800;
+}
 
 /* Map */
 .cf-dash .map-card, .cf-dash .map-panel { min-height: 520px; }
@@ -813,6 +910,8 @@
   .cf-dash .spatial-layout { grid-template-columns: 1fr; overflow: visible; }
   .cf-dash .region-sidebar, .cf-dash .detail-panel { border: 0; }
   .cf-dash .kpi-grid, .cf-dash .sub-pie-grid, .cf-dash .spatial-select-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .cf-dash .overview-kpi-row.top { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .cf-dash .process-summary-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
 }
 @media (max-width: 720px) {
   .cf-dash .page-title { display: grid; }
@@ -820,6 +919,10 @@
   .cf-dash .speedup-card, .cf-dash .benchmark-grid, .cf-dash .mini-stat-grid,
   .cf-dash .carbon-compare, .cf-dash .field-meta, .cf-dash .spatial-select-grid,
   .cf-dash .report-form-grid { grid-template-columns: 1fr; }
+  .cf-dash .overview-kpi-row.top, .cf-dash .overview-kpi-row.secondary,
+  .cf-dash .process-scope-panel, .cf-dash .process-summary-grid { grid-template-columns: 1fr; }
+  .cf-dash .card-title-row { display: grid; }
+  .cf-dash .period-switch { width: 100%; min-width: 0; }
   .cf-dash .compare-divider { height: 1px; }
   .cf-dash .map-canvas { height: 360px; }
 }
