@@ -26,9 +26,9 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       {
         path: '/overview',
-        label: 'ภาพรวม Carbon',
+        label: 'แดชบอร์ด Carbon',
         labelEn: 'Overview',
-        icon: <BarChart3 size={16} />,
+        icon: <LayoutDashboard size={16} />,
         children: [
           { path: '/overview', label: 'ข้อมูลสรุป', labelEn: 'Summary', icon: <BarChart3 size={14} /> },
           { path: '/process', label: 'กระบวนการเพาะปลูก', labelEn: 'Process', icon: <Sprout size={14} /> },
