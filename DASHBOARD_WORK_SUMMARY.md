@@ -6,6 +6,58 @@ Branch ที่ทำงาน: `idea`
 
 Commit ล่าสุดที่อัปขึ้น Git: `Update carbon analytics dashboard reports and map`
 
+## อัปเดตล่าสุด วันที่ 4 มิถุนายน 2569 - ปรับหน้ารายงานคาร์บอนฟุตพริ้นท์แบบ Block Summary
+
+รอบนี้ปรับเฉพาะหน้า `/footprint-report` หรือ `รายงานคาร์บอนฟุตพริ้นท์ ไร่บริษัทกลุ่มมิตรผล` ให้หน้าตาและลำดับข้อมูลเหมาะกับงานรายงานมากขึ้น โดยยังอยู่บน branch `idea`
+
+### หน้ารายงานคาร์บอนฟุตพริ้นท์
+
+- เอากราฟแท่ง กราฟโดนัท และกราฟเปรียบเทียบ input ออกจากหน้ารายงานคาร์บอนฟุตพริ้นท์ เพื่อให้หน้า report ไม่ดูเหมือน dashboard วิเคราะห์ แต่เป็นเอกสารสรุปข้อมูล
+- จัดหน้าใหม่เป็น block summary สำหรับผู้บริหารและผู้ตรวจทาน:
+  - ขอบเขตรายงาน
+  - ปีฐานรวม
+  - ปีรายงาน
+  - ผลต่างจากปีฐาน
+  - Intensity
+  - พื้นที่/ผลผลิต
+  - Hotspot สูงสุด
+  - กระบวนการต่ำสุด
+- เพิ่มลำดับเนื้อหารายงานในเอกสาร PDF/Word เพื่อให้ report มีโครงครบถ้วน ได้แก่ ขอบเขต, executive summary, วิธีคำนวณ, ผลรวม, hotspot, ประเภทอ้อย, ปัจจัยกิจกรรม และหลักฐานแนบ
+- เพิ่มปุ่มและ preview สำหรับเอกสาร:
+  - `Download PDF`
+  - `Download Word`
+  - `Export Excel`
+  - `PDF Preview`
+  - `Word Preview`
+  - `Excel Preview`
+- Excel export แยก sheet สำหรับ:
+  - `Summary`
+  - `Process Hotspot`
+  - `Cane x Process`
+  - `Activity Inputs`
+  - `Report Order`
+
+### ปรับสัดส่วนประเภทอ้อยและพื้นที่พักดิน
+
+- ย้าย block `สัดส่วนประเภทอ้อยและพื้นที่พักดิน` ขึ้นไปอยู่ก่อน `Hotspot รายกระบวนการ`
+- เปลี่ยนรูปแบบการนำเสนอจาก component dashboard เดิมให้เป็น panel เฉพาะหน้ารายงาน:
+  - แสดงแถบ composition ของสัดส่วนพื้นที่
+  - แสดง card รายประเภทอ้อย/พื้นที่พักดิน พร้อมเปอร์เซ็นต์ พื้นที่ไร่ และ tCO2e
+  - แสดงพื้นที่รวมและประเภทพื้นที่หลัก
+- เอา block ที่ผู้ใช้แคปภาพมาออกจากหน้าเว็บ:
+  - `ลำดับเนื้อหารายงานที่ควรใช้`
+  - `ข้อสังเกตสำหรับรายงาน`
+
+### ไฟล์ที่แก้ในรอบนี้
+
+- `frontend/src/features/cf-dashboard/pages/FootprintReportPage.tsx`
+- `frontend/src/features/cf-dashboard/cf-dashboard.css`
+
+### การตรวจสอบ
+
+- รัน `npm run build --workspace=frontend` แล้วผ่าน
+- ยังมี Vite warning เรื่อง chunk ใหญ่จาก dependency เดิมของ PDF/Excel/Chart แต่ไม่ใช่ error
+
 ## อัปเดตล่าสุด วันที่ 4 มิถุนายน 2569 - รอบปรับ Carbon Analytics เพิ่มเติม
 
 รอบนี้ปรับเฉพาะงานฝั่ง Carbon Analytics และ Dashboard output เป็นหลัก โดยยังใช้ mock data สำหรับจุดที่ backend/input ยังไม่พร้อม และไม่แก้ workflow การกรอกข้อมูลของฝั่ง input
