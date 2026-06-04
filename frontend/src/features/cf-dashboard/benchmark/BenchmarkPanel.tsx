@@ -102,7 +102,7 @@ export function BenchmarkPanel() {
       )}
 
       {/* Error */}
-      {error && <div className="error-panel">⚠ {error} — ถ้าจะใช้ Benchmark ใน production ต้องตั้งค่า `VITE_CF_API_URL` ให้ชี้ไปยัง Benchmark API</div>}
+      {error && <div className="error-panel">⚠ {error} — FastAPI server ต้องรันที่ localhost:8000</div>}
 
       {/* ── Single scenario result ── */}
       {result && mode === "single" && !loading && (

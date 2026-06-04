@@ -31,7 +31,7 @@ export default function App() {
         <Route path="process"           element={<CfProcessPage />} />
         <Route path="spatial"           element={<CfSpatialPage />} />
         <Route path="report"            element={<CfReportPage />} />
-        {/* <Route path="pipeline"          element={<CfPipelinePage />} /> */}
+        <Route path="pipeline"          element={<CfPipelinePage />} />
         <Route path="calculate"         element={<CfCalculatePage />} />
         <Route path="dashboard"         element={<DashboardPage />} />
         <Route path="geo"               element={<GeoPage />} />
