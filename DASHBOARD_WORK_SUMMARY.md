@@ -4,7 +4,7 @@
 
 Branch ที่ทำงาน: `idea`
 
-Commit ล่าสุดที่อัปขึ้น Git: `Polish carbon dashboard spatial inputs`
+Commit ล่าสุดที่อัปขึ้น Git: `Add spatial camp dropdown summary`
 
 ## อัปเดตล่าสุด วันที่ 4 มิถุนายน 2569
 
@@ -15,7 +15,20 @@ Commit ล่าสุดที่อัปขึ้น Git: `Polish carbon dash
 - ทำงานบน branch `idea`
 - ยังใช้ `ENABLE_API_DASHBOARD = false` เพื่อให้ Dashboard ดึง mock data ตามเดิม
 - ตรวจ build แล้วผ่านด้วยคำสั่ง `npm run build`
-- เตรียม commit/push งานรอบนี้ขึ้น branch `idea`
+- Push งานรอบนี้ขึ้น branch `idea` แล้ว
+
+### อัปเดตย่อยหน้าแผนที่ประเทศไทย
+
+- เปลี่ยนตัวเลือกใน section `รายแปลงในแคมป์` จากปุ่มหลายปุ่มเป็น dropdown เพื่อรองรับกรณีมีแคมป์จำนวนมาก
+- ตั้งค่าเริ่มต้นเป็น `ภาพรวมทุกแคมป์`
+- ก่อนเลือกแคมป์ แสดง summary รวม:
+  - จำนวนแคมป์ทั้งหมด
+  - ไร่รวม
+  - Carbon รวม
+  - ค่าเฉลี่ย Carbon ต่อไร่
+- เมื่อเลือกแคมป์รายตัว ยังคงแสดง KPI ของแคมป์และตารางรายแปลงเหมือนเดิม
+- ปรับการโหลดข้อมูลให้เรียกข้อมูลรายแปลงเฉพาะตอนเลือกแคมป์รายตัว เพื่อให้ API trace และ row count อ่านง่ายขึ้น
+- ตรวจ build หลังแก้แล้วผ่านด้วย `npm run build`
 
 ### ภาพรวม Carbon Footprint ทั้งหมด
 

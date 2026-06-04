@@ -62,11 +62,10 @@ export function CfSpatialPage() {
   });
 
   useEffect(() => {
-    Promise.all([getCfSpatialNodes(), getCampCarbonSummaries(), getCampFieldCarbonDetails()])
-      .then(([result, campSummaryResult, campFieldsResult]) => {
+    Promise.all([getCfSpatialNodes(), getCampCarbonSummaries()])
+      .then(([result, campSummaryResult]) => {
         setNodes(result.data);
         setCampResult(campSummaryResult);
-        setCampFieldResult(campFieldsResult);
         const root = result.data.find((node) => !node.parentId);
         if (root) setSelectedId(root.id);
       })
@@ -74,7 +73,12 @@ export function CfSpatialPage() {
   }, []);
 
   useEffect(() => {
-    getCampFieldCarbonDetails(selectedCampId === "all" ? undefined : selectedCampId)
+    if (selectedCampId === "all") {
+      setCampFieldResult({ data: [], source: "mock" });
+      return;
+    }
+
+    getCampFieldCarbonDetails(selectedCampId)
       .then(setCampFieldResult)
       .catch((err) => setError(err instanceof Error ? err.message : "โหลดข้อมูลรายแปลงในแคมป์ไม่สำเร็จ"));
   }, [selectedCampId]);
@@ -92,6 +96,16 @@ export function CfSpatialPage() {
   const selectedCamp = selectedCampId === "all"
     ? undefined
     : campResult.data.find((camp) => camp.campId === selectedCampId);
+  const campOverview = useMemo(() => {
+    const totalAreaRai = campResult.data.reduce((sum, camp) => sum + camp.areaRai, 0);
+    const totalCo2e = campResult.data.reduce((sum, camp) => sum + camp.co2eTotal, 0);
+    return {
+      totalCamps: campResult.data.length,
+      totalAreaRai,
+      totalCo2e,
+      co2ePerRai: totalAreaRai ? totalCo2e / totalAreaRai : 0,
+    };
+  }, [campResult.data]);
 
   const breadcrumbs = useMemo(() => {
     const list: SpatialSummaryNode[] = [];
@@ -185,15 +199,29 @@ export function CfSpatialPage() {
         </section>
 
         <section className="card full-span">
-          <div className="card-title">รายแปลงในแคมป์</div>
-          <SourceBadge source={campFieldResult.source} meta={campFieldResult.meta} />
-          <div className="year-tabs">
-            <button className={`ytab ${selectedCampId === "all" ? "active" : ""}`} onClick={() => setSelectedCampId("all")}>เลือกแคมป์</button>
-            {campResult.data.map((camp) => (
-              <button key={camp.campId} className={`ytab ${selectedCampId === camp.campId ? "active" : ""}`} onClick={() => setSelectedCampId(camp.campId)}>
-                {camp.campName}
-              </button>
-            ))}
+          <div className="card-title-row">
+            <div className="card-title">รายแปลงในแคมป์</div>
+            <SourceBadge
+              source={selectedCamp ? campFieldResult.source : campResult.source}
+              meta={selectedCamp ? campFieldResult.meta : campResult.meta}
+            />
+          </div>
+          <div className="camp-selector-row">
+            <label>
+              เลือกแคมป์
+              <select
+                value={selectedCampId}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setSelectedCampId(value === "all" ? "all" : Number(value));
+                }}
+              >
+                <option value="all">ภาพรวมทุกแคมป์</option>
+                {campResult.data.map((camp) => (
+                  <option key={camp.campId} value={camp.campId}>{camp.campName}</option>
+                ))}
+              </select>
+            </label>
           </div>
           {selectedCamp ? (
             <>
@@ -236,7 +264,15 @@ export function CfSpatialPage() {
               </div>
             </>
           ) : (
-            <div className="empty-state">เลือกแคมป์เพื่อดูรายแปลง โฉนด กิจกรรม และ CO2e รายแปลง</div>
+            <>
+              <div className="mini-stat-grid wide">
+                <div><strong>{campOverview.totalCamps.toLocaleString()}</strong><span>แคมป์ทั้งหมด</span></div>
+                <div><strong>{campOverview.totalAreaRai.toLocaleString()}</strong><span>ไร่รวม</span></div>
+                <div><strong>{campOverview.totalCo2e.toLocaleString()}</strong><span>tCO2e รวม</span></div>
+                <div><strong>{campOverview.co2ePerRai.toFixed(3)}</strong><span>tCO2e/ไร่</span></div>
+              </div>
+              <div className="empty-state">เลือกแคมป์จาก dropdown เพื่อดูรายแปลง โฉนด กิจกรรม และ CO2e รายแปลง</div>
+            </>
           )}
         </section>
 
