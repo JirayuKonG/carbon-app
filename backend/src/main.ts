@@ -1,10 +1,16 @@
 import { NestFactory } from '@nestjs/core'
 import { ValidationPipe } from '@nestjs/common'
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger'
+import { json, urlencoded } from 'express'
 import { AppModule } from './app.module'
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule)
+  const app = await NestFactory.create(AppModule, { bodyParser: false })
+  const importBodyLimit = '50mb'
+
+  // Large CSV imports submit the mapped rows as one JSON payload.
+  app.use(json({ limit: importBodyLimit }))
+  app.use(urlencoded({ extended: true, limit: importBodyLimit }))
 
   // Global prefix
   app.setGlobalPrefix('api')

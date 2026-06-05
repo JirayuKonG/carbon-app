@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
-  LayoutDashboard, Map, Factory, Users, Tractor,
+  Map, Factory, Users, Tractor,
   Layers, CloudRain, FlaskConical, ActivitySquare, Settings2,
-  Leaf, ChevronDown, ChevronRight, X, BarChart3, Sprout, MapPin, GitBranch, Truck, FileText, Calculator,
+  Leaf, ChevronDown, ChevronRight, X, BarChart3, Sprout, MapPin, FileText, Calculator,
 } from 'lucide-react'
 
 interface NavItem {
@@ -22,60 +22,62 @@ interface NavGroup {
 
 const NAV_GROUPS: NavGroup[] = [
   {
-    section: 'Carbon Analytics',
+    section: 'CARBON ANALYTICS',
     items: [
       {
         path: '/overview',
         label: 'ภาพรวม Carbon',
         labelEn: 'Overview',
-        icon: <BarChart3 size={16} />,
+        icon: <BarChart3 size={17} />,
         children: [
-          { path: '/overview', label: 'ข้อมูลสรุป', labelEn: 'Summary', icon: <BarChart3 size={14} /> },
-          { path: '/process', label: 'กระบวนการเพาะปลูก', labelEn: 'Process', icon: <Sprout size={14} /> },
-          { path: '/report', label: 'รายงาน Premium T-VER', labelEn: 'Report', icon: <FileText size={14} /> },
+          { path: '/overview', label: 'ข้อมูลสรุป', labelEn: 'Summary', icon: <BarChart3 size={15} /> },
+          { path: '/process', label: 'กระบวนการเพาะปลูก', labelEn: 'Process', icon: <Sprout size={15} /> },
+          { path: '/report', label: 'รายงาน Premium T-VER', labelEn: 'Report', icon: <FileText size={15} /> },
         ],
       },
-      { path: '/spatial', label: 'แผนที่พื้นที่', labelEn: 'Spatial', icon: <MapPin size={16} /> },
+      { path: '/spatial', label: 'แผนที่พื้นที่', labelEn: 'Spatial', icon: <MapPin size={17} /> },
     ],
   },
   {
-    section: 'ภาพรวม',
+    section: 'CARBON',
     items: [
-      { path: '/dashboard', label: 'แดชบอร์ด GHG', labelEn: 'GHG Dashboard', icon: <LayoutDashboard size={16} /> },
+      {
+        label: 'บันทึกกิจกรรม',
+        labelEn: 'Activities',
+        icon: <ActivitySquare size={17} />,
+        badge: 'Import',
+        children: [
+          { path: '/activities/manage', label: 'จัดการกิจกรรม', labelEn: 'Manage Activities', icon: <Settings2 size={15} /> },
+          { path: '/activities/logs', label: 'รายการบันทึกกิจกรรม', labelEn: 'Activity Logs', icon: <ActivitySquare size={15} /> },
+        ],
+      },
+      {
+        label: 'คำนวณ Carbon',
+        labelEn: 'Calculate',
+        icon: <Calculator size={17} />,
+        children: [
+          { path: '/calculate/footprint', label: 'Carbon Footprint', labelEn: 'Carbon Footprint', icon: <Calculator size={15} /> },
+          { path: '/calculate/credit', label: 'Carbon Credit', labelEn: 'Carbon Credit', icon: <Leaf size={15} /> },
+        ],
+      },
+    ],
+  },
+  {
+    section: 'ข้อมูลเกษตรกร',
+    items: [
+      { path: '/farmers', label: 'จัดการเกษตรกร', labelEn: 'Farmers', icon: <Tractor size={17} /> },
+      { path: '/lands', label: 'พื้นที่เพาะปลูก', labelEn: 'Lands', icon: <Layers size={17} /> },
+      { path: '/lands/weather', label: 'ข้อมูลสภาพอากาศ', labelEn: 'Weather', icon: <CloudRain size={17} />, badge: 'Import' },
     ],
   },
   {
     section: 'ตั้งค่าระบบ',
     items: [
-      { path: '/geo',   label: 'พื้นที่ในประเทศไทย', labelEn: 'Geography',     icon: <Map size={16} /> },
-      { path: '/infra', label: 'โรงงาน / บริการ',    labelEn: 'Infrastructure', icon: <Factory size={16} /> },
-      { path: '/users', label: 'จัดการผู้ใช้',        labelEn: 'Users',          icon: <Users size={16} /> },
-    ],
-  },
-  {
-    section: 'ข้อมูลเกษตร',
-    items: [
-      { path: '/farmers',          label: 'จัดการเกษตรกร',    labelEn: 'Farmers',  icon: <Tractor size={16} /> },
-      { path: '/lands',            label: 'พื้นที่เพาะปลูก',   labelEn: 'Lands',    icon: <Layers size={16} /> },
-      { path: '/lands/weather',    label: 'ข้อมูลสภาพอากาศ',  labelEn: 'Weather',  icon: <CloudRain size={16} />, badge: 'Import' },
-    ],
-  },
-  {
-    section: 'Carbon Footprint',
-    items: [
-      { path: '/emission-factors', label: 'EF / GWP / หน่วย', labelEn: 'Emission Factors', icon: <FlaskConical size={16} /> },
-      { path: '/activities/resources', label: 'ปุ๋ย / น้ำมัน', labelEn: 'Activity Resources', icon: <FlaskConical size={16} /> },
-      { path: '/calculate', label: 'คำนวณ Carbon Footprint', labelEn: 'Calculate', icon: <Calculator size={16} /> },
-      {
-        label: 'บันทึกกิจกรรม',
-        labelEn: 'Activities',
-        icon: <ActivitySquare size={16} />,
-        badge: 'Import',
-        children: [
-          { path: '/activities/logs', label: 'รายการบันทึกกิจกรรม', labelEn: 'Activity Logs', icon: <ActivitySquare size={14} /> },
-          { path: '/activities/manage', label: 'จัดการกิจกรรม', labelEn: 'Manage Activities', icon: <Settings2 size={14} /> },
-        ],
-      },
+      { path: '/geo', label: 'พื้นที่ในประเทศไทย', labelEn: 'Geography', icon: <Map size={17} /> },
+      { path: '/infra', label: 'โรงงาน / บริการ', labelEn: 'Infrastructure', icon: <Factory size={17} /> },
+      { path: '/users', label: 'จัดการผู้ใช้', labelEn: 'Users', icon: <Users size={17} /> },
+      { path: '/emission-factors', label: 'EF / GWP / หน่วย', labelEn: 'Emission Factors', icon: <FlaskConical size={17} /> },
+      { path: '/activities/resources', label: 'ปุ๋ย / น้ำมัน', labelEn: 'Activity Resources', icon: <FlaskConical size={17} /> },
     ],
   },
 ]
@@ -119,7 +121,7 @@ export function Sidebar({ mobile, onClose }: SidebarProps) {
       <div className="flex items-center justify-between px-5 py-4 border-b border-surface-800">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-primary-600 flex items-center justify-center shrink-0">
-            <Leaf size={16} className="text-white" />
+            <Leaf size={17} className="text-white" />
           </div>
           <div>
             <p className="text-xs font-semibold text-surface-100 leading-tight">Carbon Footprint</p>
@@ -128,7 +130,7 @@ export function Sidebar({ mobile, onClose }: SidebarProps) {
         </div>
         {mobile && onClose && (
           <button onClick={onClose} className="btn-icon btn-ghost text-surface-400 hover:text-surface-200">
-            <X size={16} />
+            <X size={17} />
           </button>
         )}
       </div>
@@ -159,7 +161,7 @@ export function Sidebar({ mobile, onClose }: SidebarProps) {
                             {item.badge}
                           </span>
                         )}
-                        <ChevronDown size={12} className={`shrink-0 transition-transform ${isOpen ? 'rotate-180 text-primary-300' : 'text-surface-500'}`} />
+                        <ChevronDown size={13} className={`shrink-0 transition-transform ${isOpen ? 'rotate-180 text-primary-300' : 'text-surface-500'}`} />
                       </button>
 
                       {isOpen && (
@@ -175,7 +177,7 @@ export function Sidebar({ mobile, onClose }: SidebarProps) {
                                 >
                                   <span className="shrink-0">{child.icon}</span>
                                   <span className="flex-1 truncate">{child.label}</span>
-                                  {childIsActive && <ChevronRight size={12} className="shrink-0 text-primary-300" />}
+                                  {childIsActive && <ChevronRight size={13} className="shrink-0 text-primary-300" />}
                                 </NavLink>
                               </li>
                             )
@@ -200,7 +202,7 @@ export function Sidebar({ mobile, onClose }: SidebarProps) {
                           {item.badge}
                         </span>
                       )}
-                      {isActive && <ChevronRight size={12} className="shrink-0 text-primary-400" />}
+                      {isActive && <ChevronRight size={13} className="shrink-0 text-primary-400" />}
                     </NavLink>
                   </li>
                 )

@@ -16,6 +16,7 @@ import { CfProcessPage }        from '@/features/cf-dashboard/pages/ProcessPage'
 import { CfSpatialPage }        from '@/features/cf-dashboard/pages/SpatialPage'
 import { CfReportPage }         from '@/features/cf-dashboard/pages/ReportPage'
 import { CfCalculatePage }      from '@/features/cf-dashboard/pages/CalculatePage'
+import { CarbonCreditPage }     from '@/features/cf-dashboard/pages/CarbonCreditPage'
 
 function RedirectWithSearch({ to }: { to: string }) {
   const location = useLocation()
@@ -32,7 +33,9 @@ export default function App() {
         <Route path="spatial"           element={<CfSpatialPage />} />
         <Route path="report"            element={<CfReportPage />} />
         {/* <Route path="pipeline"          element={<CfPipelinePage />} /> */}
-        <Route path="calculate"         element={<CfCalculatePage />} />
+        <Route path="calculate"         element={<RedirectWithSearch to="/calculate/footprint" />} />
+        <Route path="calculate/footprint" element={<CfCalculatePage />} />
+        <Route path="calculate/credit"  element={<CarbonCreditPage />} />
         <Route path="dashboard"         element={<DashboardPage />} />
         <Route path="geo"               element={<GeoPage />} />
         <Route path="infra"             element={<InfraPage />} />
