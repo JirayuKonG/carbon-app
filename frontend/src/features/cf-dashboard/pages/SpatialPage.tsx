@@ -4,8 +4,9 @@ import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
 import { ProcessInputComparisonBar } from "../components/charts/ProcessInputComparisonBar";
 import { sortProcessLabels } from "../components/charts/ChartRegistry";
 import { ThailandMap } from "../components/map/ThailandMap";
-import { getCfSpatialNodes } from "../services/dashboardApi";
-import type { FieldCarbonDetail, ProcessActivityBreakdown, ProcessInputComparison, SpatialLevel, SpatialSummaryNode } from "../types/dashboard";
+import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCfSpatialNodes } from "../services/dashboardApi";
+import type { CampCarbonSummary, CampFieldCarbonDetail, DataResult, FieldCarbonDetail, ProcessActivityBreakdown, ProcessInputComparison, SpatialLevel, SpatialSummaryNode } from "../types/dashboard";
+import { MapPinned } from "lucide-react";
 import "../cf-dashboard.css";
 
 function isField(node: SpatialSummaryNode): node is FieldCarbonDetail {
@@ -49,6 +50,10 @@ export function CfSpatialPage() {
   const [nodes, setNodes] = useState<SpatialSummaryNode[]>([]);
   const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState("thailand");
+  const [campResult, setCampResult] = useState<DataResult<CampCarbonSummary[]>>({ data: [], source: "mock" });
+  const [campFieldResult, setCampFieldResult] = useState<DataResult<CampFieldCarbonDetail[]>>({ data: [], source: "mock" });
+  const [selectedCampId, setSelectedCampId] = useState<number | "all">("all");
+  const [selectedBoundaryFieldId, setSelectedBoundaryFieldId] = useState("");
   const [filters, setFilters] = useState<Record<Exclude<SpatialLevel, "country">, string>>({
     region: "",
     province: "",
@@ -58,14 +63,30 @@ export function CfSpatialPage() {
   });
 
   useEffect(() => {
-    getCfSpatialNodes()
-      .then((result) => {
+    Promise.all([getCfSpatialNodes(), getCampCarbonSummaries()])
+      .then(([result, campSummaryResult]) => {
         setNodes(result.data);
+        setCampResult(campSummaryResult);
         const root = result.data.find((node) => !node.parentId);
         if (root) setSelectedId(root.id);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "โหลดข้อมูลแผนที่ไม่สำเร็จ"));
   }, []);
+
+  useEffect(() => {
+    if (selectedCampId === "all") {
+      setCampFieldResult({ data: [], source: "mock" });
+      setSelectedBoundaryFieldId("");
+      return;
+    }
+
+    getCampFieldCarbonDetails(selectedCampId)
+      .then((result) => {
+        setCampFieldResult(result);
+        setSelectedBoundaryFieldId(result.data[0]?.id ?? "");
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "โหลดข้อมูลรายแปลงในแคมป์ไม่สำเร็จ"));
+  }, [selectedCampId]);
 
   const selected = nodes.find((node) => node.id === selectedId) ?? nodes[0];
   const diff = selected ? selected.baselineEmission - selected.currentEmission : 0;
@@ -77,6 +98,21 @@ export function CfSpatialPage() {
   const fertilizerDiff = inputTotals.baselineFertilizerKg - inputTotals.currentFertilizerKg;
   const fuelDiff = inputTotals.baselineFuelLiter - inputTotals.currentFuelLiter;
   const rootId = nodes.find((node) => !node.parentId)?.id ?? "thailand";
+  const selectedCamp = selectedCampId === "all"
+    ? undefined
+    : campResult.data.find((camp) => camp.campId === selectedCampId);
+  const campOverview = useMemo(() => {
+    const totalAreaRai = campResult.data.reduce((sum, camp) => sum + camp.areaRai, 0);
+    const totalCo2e = campResult.data.reduce((sum, camp) => sum + camp.co2eTotal, 0);
+    return {
+      totalCamps: campResult.data.length,
+      totalAreaRai,
+      totalCo2e,
+      co2ePerRai: totalAreaRai ? totalCo2e / totalAreaRai : 0,
+    };
+  }, [campResult.data]);
+  const mapBoundaryFields = selectedCamp ? campFieldResult.data : isField(selected) ? [selected] : [];
+  const activeBoundaryFieldId = selectedBoundaryFieldId || (isField(selected) ? selected.id : undefined);
 
   const breadcrumbs = useMemo(() => {
     const list: SpatialSummaryNode[] = [];
@@ -111,7 +147,6 @@ export function CfSpatialPage() {
       <div className="page active">
         <div className="page-title">
           <div>
-            <p className="eyebrow">04 · Spatial Drill-down</p>
             <h1>แผนที่ประเทศไทยและรายละเอียดรายพื้นที่</h1>
           </div>
         </div>
@@ -169,8 +204,116 @@ export function CfSpatialPage() {
           </div>
         </section>
 
+        <section className="card full-span">
+          <div className="card-title-row">
+            <div className="card-title">รายแปลงในแคมป์</div>
+          </div>
+          <div className="camp-selector-row">
+            <label>
+              เลือกแคมป์
+              <select
+                value={selectedCampId}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setSelectedCampId(value === "all" ? "all" : Number(value));
+                  setSelectedBoundaryFieldId("");
+                }}
+              >
+                <option value="all">ภาพรวมทุกแคมป์</option>
+                {campResult.data.map((camp) => (
+                  <option key={camp.campId} value={camp.campId}>{camp.campName}</option>
+                ))}
+              </select>
+            </label>
+            {selectedCamp && (
+              <label>
+                เลือกแปลงบนแผนที่
+                <select
+                  value={selectedBoundaryFieldId}
+                  onChange={(event) => setSelectedBoundaryFieldId(event.target.value)}
+                  disabled={!campFieldResult.data.length}
+                >
+                  <option value="">{campFieldResult.data.length ? "แสดงทุกแปลงในแคมป์" : "ยังไม่มี mock รายแปลง"}</option>
+                  {campFieldResult.data.map((field) => (
+                    <option key={field.id} value={field.id}>{field.fieldCode} · {field.fieldName}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+          {selectedCamp ? (
+            <>
+              <div className="mini-stat-grid wide">
+                <div><strong>{selectedCamp.fieldCount.toLocaleString()}</strong><span>แปลงในแคมป์</span></div>
+                <div><strong>{selectedCamp.areaRai.toLocaleString()}</strong><span>ไร่รวม</span></div>
+                <div><strong>{selectedCamp.co2eTotal.toLocaleString()}</strong><span>tCO2e รวม</span></div>
+                <div><strong>{selectedCamp.co2ePerRai.toFixed(3)}</strong><span>tCO2e/ไร่</span></div>
+              </div>
+              <div className="input-table-wrap">
+                <table className="input-table">
+                  <thead>
+                    <tr>
+                      <th>รหัสแปลง</th>
+                      <th>ชื่อแปลง</th>
+                      <th>เกษตรกร</th>
+                      <th>พื้นที่</th>
+                      <th>โฉนดที่ผูกอยู่</th>
+                      <th>กิจกรรมที่บันทึก</th>
+                      <th>CO2e ของแปลง</th>
+                      <th>ขอบเขต</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {campFieldResult.data.map((field) => (
+                      <tr key={field.id}>
+                        <td>{field.fieldCode}</td>
+                        <td>{field.fieldName}</td>
+                        <td>{field.farmerName}</td>
+                        <td>{field.areaRai.toLocaleString()} ไร่</td>
+                        <td>{field.chanots.map((chanot) => `${chanot.chanotNo} (${chanot.areaRai} ไร่)`).join(", ") || "-"}</td>
+                        <td>{field.activitiesLogged.join(", ") || "-"}</td>
+                        <td>{field.co2eTotal.toLocaleString()} tCO2e</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="map-zoom-btn"
+                            onClick={() => setSelectedBoundaryFieldId(field.id)}
+                            title="ซูมไปที่ขอบเขตแปลง"
+                          >
+                            <MapPinned size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {!campFieldResult.data.length && (
+                      <tr><td colSpan={8}>ยังไม่มี mock รายแปลงสำหรับแคมป์นี้</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="mini-stat-grid wide">
+                <div><strong>{campOverview.totalCamps.toLocaleString()}</strong><span>แคมป์ทั้งหมด</span></div>
+                <div><strong>{campOverview.totalAreaRai.toLocaleString()}</strong><span>ไร่รวม</span></div>
+                <div><strong>{campOverview.totalCo2e.toLocaleString()}</strong><span>tCO2e รวม</span></div>
+                <div><strong>{campOverview.co2ePerRai.toFixed(3)}</strong><span>tCO2e/ไร่</span></div>
+              </div>
+              <div className="empty-state">เลือกแคมป์จาก dropdown เพื่อดูรายแปลง โฉนด กิจกรรม และ CO2e รายแปลง</div>
+            </>
+          )}
+        </section>
+
         <section className="card map-card wide-map">
-          <ThailandMap nodes={nodes} selectedId={selected.id} onSelect={setSelectedId} />
+          <ThailandMap
+            nodes={nodes}
+            selectedId={selected.id}
+            onSelect={setSelectedId}
+            boundaryFields={mapBoundaryFields}
+            selectedBoundaryFieldId={activeBoundaryFieldId}
+            onSelectBoundaryField={setSelectedBoundaryFieldId}
+          />
         </section>
 
         <section className="grid2">

@@ -3,7 +3,12 @@ import { NavLink, useLocation } from 'react-router-dom'
 import {
   Map, Factory, Users, Tractor,
   Layers, CloudRain, FlaskConical, ActivitySquare, Settings2,
-  Leaf, ChevronDown, ChevronRight, X, BarChart3, Sprout, MapPin, FileText, Calculator,
+  // KONGJIRAYU05JUNE2026
+  //   Leaf, ChevronDown, ChevronRight, X, Sprout, MapPin, Calculator, // idea foarm               
+  Leaf, ChevronDown, ChevronRight, X, BarChart3, Sprout, MapPin, FileText, Calculator, // kong form    
+  // KONGJIRAYU05JUNE2026
+  Coins, BadgeCheck, FileCheck2, Footprints, ClipboardList,
+  
 } from 'lucide-react'
 
 interface NavItem {
@@ -26,13 +31,22 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       {
         path: '/overview',
-        label: 'ภาพรวม Carbon',
-        labelEn: 'Overview',
-        icon: <BarChart3 size={17} />,
+        label: 'ข้อมูลสรุปคาร์บอนเครดิต',
+        labelEn: 'Carbon Credit',
+        icon: <Coins size={16} />,
         children: [
-          { path: '/overview', label: 'ข้อมูลสรุป', labelEn: 'Summary', icon: <BarChart3 size={15} /> },
-          { path: '/process', label: 'กระบวนการเพาะปลูก', labelEn: 'Process', icon: <Sprout size={15} /> },
-          { path: '/report', label: 'รายงาน Premium T-VER', labelEn: 'Report', icon: <FileText size={15} /> },
+          { path: '/overview', label: 'คาร์บอนเครดิต', labelEn: 'Credit Summary', icon: <BadgeCheck size={14} /> },
+          { path: '/report', label: 'รายงาน Premium T-VER', labelEn: 'Report', icon: <FileCheck2 size={14} /> },
+        ],
+      },
+      {
+        path: '/process',
+        label: 'ข้อมูลสรุปคาร์บอนฟุตพริ้นท์',
+        labelEn: 'Carbon Footprint',
+        icon: <Footprints size={16} />,
+        children: [
+          { path: '/process', label: 'คาร์บอนฟุตพริ้นท์', labelEn: 'Footprint Summary', icon: <Sprout size={14} /> },
+          { path: '/footprint-report', label: 'รายงานคาร์บอนฟุตพริ้นท์', labelEn: 'Footprint Report', icon: <ClipboardList size={14} /> },
         ],
       },
       { path: '/spatial', label: 'แผนที่พื้นที่', labelEn: 'Spatial', icon: <MapPin size={17} /> },

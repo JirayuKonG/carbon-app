@@ -4,14 +4,30 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger'
 import { json, urlencoded } from 'express'
 import { AppModule } from './app.module'
 
-async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bodyParser: false })
-  const importBodyLimit = '50mb'
+function parseAllowedOrigins(value?: string) {
+  if (!value?.trim()) {
+    return ['http://localhost:5173', 'http://localhost:4173']
+  }
 
+  return value
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+}
+
+async function bootstrap() {
+//   const app = await NestFactory.create(AppModule) // idea
+  const app = await NestFactory.create(AppModule, { bodyParser: false }) // kong
+  
+  const port = Number.parseInt(process.env.PORT ?? '3000', 10)
+  const allowedOrigins = parseAllowedOrigins(process.env.ALLOWED_ORIGINS)
+  
+  const importBodyLimit = '50mb'
   // Large CSV imports submit the mapped rows as one JSON payload.
   app.use(json({ limit: importBodyLimit }))
   app.use(urlencoded({ extended: true, limit: importBodyLimit }))
 
+  
   // Global prefix
   app.setGlobalPrefix('api')
 
@@ -26,7 +42,7 @@ async function bootstrap() {
 
   // CORS
   app.enableCors({
-    origin: ['http://localhost:5173', 'http://localhost:4173'],
+    origin: allowedOrigins,
     credentials: true,
   })
 
@@ -40,8 +56,8 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config)
   SwaggerModule.setup('api/docs', app, document)
 
-  await app.listen(3000)
-  console.log('🌿 Carbon Footprint API running on http://localhost:3000/api')
-  console.log('📚 Swagger docs at     http://localhost:3000/api/docs')
+  await app.listen(port)
+  console.log(`🌿 Carbon Footprint API running on http://localhost:${port}/api`)
+  console.log(`📚 Swagger docs at     http://localhost:${port}/api/docs`)
 }
 bootstrap()

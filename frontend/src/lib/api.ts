@@ -2,8 +2,13 @@ import axios from 'axios'
 import type { AxiosRequestConfig } from 'axios'
 import { formatFriendlyErrorMessage } from '@/lib/friendly-text'
 
+const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
+const normalizedApiBaseUrl = rawApiBaseUrl
+  ? rawApiBaseUrl.replace(/\/+$/, '')
+  : '/api'
+
 export const api = axios.create({
-  baseURL: '/api',
+  baseURL: normalizedApiBaseUrl,
   headers: { 'Content-Type': 'application/json' },
   timeout: 30_000,
 })
