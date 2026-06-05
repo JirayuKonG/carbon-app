@@ -1,8 +1,11 @@
-import React, { Fragment, useMemo } from "react";
+import React, { Fragment, useMemo, useState } from "react";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { MapContainer, Marker, Polygon, Popup, TileLayer, useMap } from "react-leaflet";
 import type { LatLngBoundsExpression, LatLngTuple } from "leaflet";
+import defaultMarkerIcon2x from "leaflet/dist/images/marker-icon-2x.png?url";
+import defaultMarkerIconUrl from "leaflet/dist/images/marker-icon.png?url";
+import markerShadow from "leaflet/dist/images/marker-shadow.png?url";
 import type { CampFieldCarbonDetail, FieldCarbonDetail, SpatialSummaryNode } from "../../types/dashboard";
 
 type BoundaryField = CampFieldCarbonDetail | FieldCarbonDetail;
@@ -14,6 +17,24 @@ interface Props {
   boundaryFields?: BoundaryField[];
   selectedBoundaryFieldId?: string;
   onSelectBoundaryField?: (id: string) => void;
+}
+
+const defaultMarkerIcon = L.icon({
+  iconRetinaUrl: defaultMarkerIcon2x,
+  iconUrl: defaultMarkerIconUrl,
+  shadowUrl: markerShadow,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+});
+
+L.Marker.prototype.options.icon = defaultMarkerIcon;
+
+interface TileLoadState {
+  loading: number;
+  loaded: number;
+  failed: number;
 }
 
 function fieldBoundary(field: BoundaryField): LatLngTuple[] {
@@ -67,6 +88,7 @@ function markerIcon(node: SpatialSummaryNode) {
 }
 
 export function ThailandMap({ nodes, selectedId, onSelect, boundaryFields = [], selectedBoundaryFieldId, onSelectBoundaryField }: Props) {
+  const [tileState, setTileState] = useState<TileLoadState>({ loading: 0, loaded: 0, failed: 0 });
   const selected = nodes.find((node) => node.id === selectedId);
   const visibleNodes = useMemo(() => {
     if (!selected || selected.level === "country") return nodes.filter((node) => node.parentId === "thailand");
@@ -78,10 +100,24 @@ export function ThailandMap({ nodes, selectedId, onSelect, boundaryFields = [], 
     [boundaryFields],
   );
   const selectedBoundary = fieldBoundaries.find((item) => item.field.id === selectedBoundaryFieldId)?.boundary;
+  const totalTiles = tileState.loading + tileState.loaded + tileState.failed;
+  const completedTiles = tileState.loaded + tileState.failed;
+  const loadPercent = totalTiles ? Math.round((completedTiles / totalTiles) * 100) : 0;
+  const isLoadingTiles = tileState.loading > 0 && loadPercent < 100;
 
   return (
+    <div className="map-shell">
     <MapContainer center={[15.5, 101.2]} zoom={6} scrollWheelZoom className="map-canvas">
-      <TileLayer attribution="" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+      <TileLayer
+        attribution=""
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        eventHandlers={{
+          tileloadstart: () => setTileState((state) => ({ ...state, loading: state.loading + 1 })),
+          tileload: () => setTileState((state) => ({ ...state, loading: Math.max(state.loading - 1, 0), loaded: state.loaded + 1 })),
+          tileerror: () => setTileState((state) => ({ ...state, loading: Math.max(state.loading - 1, 0), failed: state.failed + 1 })),
+          loading: () => setTileState({ loading: 0, loaded: 0, failed: 0 }),
+        }}
+      />
       <Recenter node={selected} boundaries={fieldBoundaries.map((item) => item.boundary)} selectedBoundary={selectedBoundary} />
       {fieldBoundaries.map(({ field, boundary }) => {
         const isSelected = field.id === selectedBoundaryFieldId;
@@ -135,5 +171,13 @@ export function ThailandMap({ nodes, selectedId, onSelect, boundaryFields = [], 
         );
       })}
     </MapContainer>
+      {(isLoadingTiles || tileState.failed > 0) && (
+        <div className={`map-loading-overlay ${tileState.failed > 0 && !isLoadingTiles ? "warning" : ""}`}>
+          <strong>{tileState.failed > 0 && !isLoadingTiles ? "โหลดแผนที่ไม่ครบ" : "กำลังโหลดแผนที่"}</strong>
+          <span>{loadPercent}% · โหลดแล้ว {tileState.loaded.toLocaleString()} / {totalTiles.toLocaleString()} tile{tileState.failed ? ` · ไม่สำเร็จ ${tileState.failed.toLocaleString()}` : ""}</span>
+          <div className="map-loading-track"><i style={{ width: `${loadPercent}%` }} /></div>
+        </div>
+      )}
+    </div>
   );
 }

@@ -9,8 +9,8 @@ import type { CampCarbonSummary, CampFieldCarbonDetail, DataResult, FieldCarbonD
 import { MapPinned } from "lucide-react";
 import "../cf-dashboard.css";
 
-function isField(node: SpatialSummaryNode): node is FieldCarbonDetail {
-  return node.level === "field";
+function isField(node?: SpatialSummaryNode): node is FieldCarbonDetail {
+  return node?.level === "field";
 }
 
 function nodeCompare(selected: SpatialSummaryNode): { baseline: ProcessActivityBreakdown[]; current: ProcessActivityBreakdown[] } {

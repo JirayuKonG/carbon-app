@@ -22,30 +22,30 @@ ChartJS.register(
 );
 
 export const chartColors = [
-  "#f69988",
-  "#f8bbd0",
-  "#ce93d8",
-  "#b39ddb",
-  "#9fa8da",
-  "#b3e5fc",
-  "#b2ebf2",
-  "#c5e1a5",
-  "#fff59d",
-  "#ffcc80",
-  "#d7ccc8",
-  "#b0bec5",
+  "#FCA5A5",
+  "#86EFAC",
+  "#FDE68A",
+  "#93C5FD",
+  "#FDBA74",
+  "#67E8F9",
+  "#C4B5FD",
+  "#BEF264",
+  "#F9A8D4",
+  "#A7F3D0",
+  "#FCD34D",
+  "#BFDBFE",
 ];
 
 export const chartPalette = {
-  baseline: { bg: "rgba(175,191,255,.78)", border: "#7986cb" },
-  project: { bg: "rgba(246,153,136,.78)", border: "#f36c60" },
-  fertilizerBaseline: { bg: "rgba(209,196,233,.72)", border: "#b39ddb" },
-  fertilizerProject: { bg: "rgba(248,187,208,.76)", border: "#f48fb1" },
-  fuelBaseline: { bg: "rgba(179,229,252,.72)", border: "#81d4fa" },
-  fuelProject: { bg: "rgba(178,235,242,.76)", border: "#80deea" },
-  trendBaseline: "#afbfff",
-  trendAverage: "#ce93d8",
-  trendProject: "#f69988",
+  baseline: { bg: "rgba(147,197,253,.82)", border: "#2563EB" },
+  project: { bg: "rgba(252,165,165,.82)", border: "#DC2626" },
+  fertilizerBaseline: { bg: "rgba(134,239,172,.78)", border: "#16A34A" },
+  fertilizerProject: { bg: "rgba(253,230,138,.86)", border: "#D97706" },
+  fuelBaseline: { bg: "rgba(103,232,249,.78)", border: "#0891B2" },
+  fuelProject: { bg: "rgba(253,186,116,.82)", border: "#EA580C" },
+  trendBaseline: "#60A5FA",
+  trendAverage: "#FCD34D",
+  trendProject: "#F87171",
 };
 
 export function sortProcessLabels(labels: string[]) {
@@ -64,8 +64,9 @@ export const chartOptions = {
     legend: {
       labels: {
         color: "#5B728A",
-        boxWidth: 10,
-        font: { size: 11 },
+        boxWidth: 12,
+        boxHeight: 12,
+        font: { size: 12 },
       },
     },
     tooltip: {
@@ -78,7 +79,7 @@ export const chartOptions = {
   },
   scales: {
     x: {
-      ticks: { color: "#5B728A" },
+      ticks: { color: "#5B728A", autoSkip: false, maxRotation: 0 },
       grid: { color: "rgba(180,200,220,0.25)" },
     },
     y: {

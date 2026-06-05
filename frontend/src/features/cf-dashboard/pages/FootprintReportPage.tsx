@@ -10,6 +10,7 @@ import {
   getOverviewKpi,
   getProcessInputComparisons,
 } from "../services/dashboardApi";
+import { sortProcessLabels } from "../components/charts/ChartRegistry";
 import type {
   CampCarbonSummary,
   CampFieldCarbonDetail,
@@ -235,15 +236,18 @@ function footprintWordHtml({
     </tr>
   `).join("");
 
-  const caneHtml = caneRows.map((row) => `
+  const caneHtml = caneRows.map((row, index, rows) => {
+    const isFirstCaneRow = index === 0 || rows[index - 1].cane.name !== row.cane.name;
+    const rowSpan = rows.filter((item) => item.cane.name === row.cane.name).length;
+    return `
     <tr>
-      <td>${escapeHtml(row.cane.name)}</td>
-      <td>${row.cane.percent.toFixed(1)}%</td>
+      ${isFirstCaneRow ? `<td rowspan="${rowSpan}">${escapeHtml(row.cane.name)}</td><td rowspan="${rowSpan}">${row.cane.percent.toFixed(1)}%</td>` : ""}
       <td>${escapeHtml(row.process)}</td>
       <td>${formatNumber(row.currentEmission)}</td>
       <td>${row.shareInScope.toFixed(1)}%</td>
     </tr>
-  `).join("");
+  `;
+  }).join("");
 
   const inputHtml = inputs.map((row) => `
     <tr>
@@ -479,6 +483,8 @@ export function CfFootprintReportPage() {
   const baselineTotal = sumEmission(baselineRows);
   const currentTotal = sumEmission(currentRows);
   const reduction = diffLabel(baselineTotal, currentTotal);
+  const processOrder = new Map(sortProcessLabels(currentRows.map((item) => item.process)).map((process, index) => [process, index]));
+  const orderedCurrentRows = [...currentRows].sort((a, b) => (processOrder.get(a.process) ?? 0) - (processOrder.get(b.process) ?? 0));
   const topProcess = [...currentRows].sort((a, b) => b.totalEmission - a.totalEmission)[0];
   const lowProcess = [...currentRows].sort((a, b) => a.totalEmission - b.totalEmission)[0];
   const selectedScopeLabel = selectedField?.fieldName ?? selectedCamp?.campName ?? "ภาพรวมทั้งระบบ";
@@ -491,7 +497,7 @@ export function CfFootprintReportPage() {
       .filter((cane) => selectedNames.has(cane.name))
       .flatMap((cane) => {
         const caneCurrentTotal = currentTotal * (cane.percent / 100);
-        return currentRows.map((currentRow) => {
+        return orderedCurrentRows.map((currentRow) => {
           const baselineRow = baselineRows.find((item) => item.process === currentRow.process);
           const inputRow = processInputRows.find((item) => item.process === currentRow.process);
           const baselineEmission = (baselineRow?.totalEmission ?? 0) * (cane.percent / 100);
@@ -512,10 +518,9 @@ export function CfFootprintReportPage() {
           };
         });
       });
-  }, [baselineRows, caneTypeResult.data, currentRows, currentTotal, processInputRows, selectedCaneTypes]);
+  }, [baselineRows, caneTypeResult.data, currentTotal, orderedCurrentRows, processInputRows, selectedCaneTypes]);
 
-  const processRows = [...currentRows]
-    .sort((a, b) => b.totalEmission - a.totalEmission)
+  const processRows = orderedCurrentRows
     .map((currentRow) => {
       const baselineRow = baselineRows.find((item) => item.process === currentRow.process);
       const baselineEmission = baselineRow?.totalEmission ?? 0;
@@ -813,10 +818,17 @@ export function CfFootprintReportPage() {
                 </tr>
               </thead>
               <tbody>
-                {caneProcessRows.map((row) => (
+                {caneProcessRows.map((row, index, rows) => {
+                  const isFirstCaneRow = index === 0 || rows[index - 1].cane.name !== row.cane.name;
+                  const rowSpan = rows.filter((item) => item.cane.name === row.cane.name).length;
+                  return (
                   <tr key={`${row.cane.name}-${row.process}`}>
-                    <td>{row.cane.name}</td>
-                    <td>{row.cane.percent.toFixed(1)}% · {formatNumber(row.cane.areaRai, 1)} ไร่</td>
+                    {isFirstCaneRow && (
+                      <>
+                        <td rowSpan={rowSpan} className="rowspan-cell cane-rowspan-name">{row.cane.name}</td>
+                        <td rowSpan={rowSpan} className="rowspan-cell">{row.cane.percent.toFixed(1)}% · {formatNumber(row.cane.areaRai, 1)} ไร่</td>
+                      </>
+                    )}
                     <td>{row.process}</td>
                     <td>{row.activity}</td>
                     <td>{formatNumber(row.baselineEmission)} tCO2e</td>
@@ -825,7 +837,8 @@ export function CfFootprintReportPage() {
                     <td>{row.shareInCane.toFixed(1)}%</td>
                     <td>{row.shareInScope.toFixed(1)}%</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

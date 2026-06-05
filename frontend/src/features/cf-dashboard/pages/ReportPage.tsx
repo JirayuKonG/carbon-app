@@ -3,6 +3,7 @@ import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import * as XLSX from "xlsx";
 import { getCfSpatialNodes, getReportSummary } from "../services/dashboardApi";
+import { sortProcessLabels } from "../components/charts/ChartRegistry";
 import type { ReportFilter, ReportFilterLevel, ReportSummary, SpatialSummaryNode } from "../types/dashboard";
 import "../cf-dashboard.css";
 
@@ -110,9 +111,18 @@ function escapeHtml(value: unknown) {
     .replace(/"/g, "&quot;");
 }
 
+function sortReportProcessRows<T extends { process: string }>(rows: T[]) {
+  const order = new Map(sortProcessLabels(rows.map((row) => row.process)).map((process, index) => [process, index]));
+  return [...rows].sort((a, b) => (order.get(a.process) ?? 0) - (order.get(b.process) ?? 0));
+}
+
 function pddDraftHtml(report: ReportSummary) {
   const processRows = report.process
     .filter((row) => row.year === "baseline_avg" || row.year === report.kpi.currentYear)
+    .sort((a, b) => {
+      if (a.year !== b.year) return a.year === "baseline_avg" ? -1 : 1;
+      return sortReportProcessRows([a, b])[0] === a ? -1 : 1;
+    })
     .map((row) => `
       <tr>
         <td>${escapeHtml(row.year)}</td>
@@ -378,10 +388,39 @@ function PddCreditingSummary({ report }: { report: ReportSummary }) {
 }
 
 function WebReportSummary({ report }: { report: ReportSummary }) {
+  const summary = pddEmissionSummary(report);
+  const totalInputs = summary.n2oProject + summary.co2FuelProject + summary.socRemoval;
   return (
     <>
       <h2>Carbon Footprint Summary for Premium T-VER</h2>
       <p className="muted">Generated: {new Date(report.generatedAt).toLocaleString()}</p>
+      <div className="executive-summary-grid tver-executive-summary">
+        <article>
+          <span>พื้นที่โครงการ</span>
+          <strong>{reportAreaRai(report).toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong>
+          <small>ไร่ · {report.kpi.fields.toLocaleString()} แปลง</small>
+        </article>
+        <article>
+          <span>Credit รวม</span>
+          <strong>{summary.totalReduction.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+          <small>tCO2e</small>
+        </article>
+        <article>
+          <span>รวม N2O + น้ำมัน + SOC</span>
+          <strong>{totalInputs.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+          <small>tCO2e</small>
+        </article>
+        <article>
+          <span>ปีดำเนินโครงการ</span>
+          <strong>{report.kpi.currentEmission.toLocaleString()}</strong>
+          <small>Project year {report.kpi.currentYear} · tCO2e</small>
+        </article>
+        <article>
+          <span>ปีฐาน Baseline</span>
+          <strong>{report.kpi.baselineAvgEmission.toLocaleString()}</strong>
+          <small>Baseline year เฉลี่ย · tCO2e</small>
+        </article>
+      </div>
       <h3>ภาพรวม</h3>
       <div className="report-kpi-grid">
         <div><span>Baseline avg</span><strong>{report.kpi.baselineAvgEmission.toLocaleString()} tCO2e</strong></div>
@@ -418,7 +457,7 @@ function WebReportSummary({ report }: { report: ReportSummary }) {
       <table className="report-table">
         <thead><tr><th>Year</th><th>Process</th><th>Emission</th><th>Type</th></tr></thead>
         <tbody>
-          {report.process.slice(0, 20).map((row) => (
+          {sortReportProcessRows(report.process).slice(0, 20).map((row) => (
             <tr key={`${row.year}-${row.process}`}><td>{row.year}</td><td>{row.process}</td><td>{row.emission}</td><td>{row.isBaseline ? "Baseline" : "Project"}</td></tr>
           ))}
         </tbody>
@@ -641,7 +680,7 @@ export function CfReportPage() {
                     <table className="report-table">
                       <thead><tr><th>Year</th><th>Process</th><th>Emission</th></tr></thead>
                       <tbody>
-                        {report.process.filter((row) => row.year === "baseline_avg" || row.year === report.kpi.currentYear).slice(0, 8).map((row) => (
+                        {sortReportProcessRows(report.process.filter((row) => row.year === "baseline_avg" || row.year === report.kpi.currentYear)).slice(0, 8).map((row) => (
                           <tr key={`excel-process-${row.year}-${row.process}`}><td>{row.year}</td><td>{row.process}</td><td>{row.emission}</td></tr>
                         ))}
                       </tbody>
