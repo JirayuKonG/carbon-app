@@ -1,6 +1,6 @@
 # Bug Tracking Log
 
-Last updated: 2026-05-30
+Last updated: 2026-06-04
 
 Use the checkboxes to track what is fixed. Keep new findings here so future work can restart quickly.
 
@@ -47,6 +47,12 @@ Use the checkboxes to track what is fixed. Keep new findings here so future work
   - Evidence: current `frontend/src/features/infra/InfraPage.tsx` now uses `endpointByType` with `/infra/service-areas` and `idKeyByType.department = 'departments_id'`.
   - Fix: infrastructure actions were normalized to explicit endpoint and ID maps before calling `del()`.
   - Verify: static review on 2026-05-30 confirmed the current UI delete path and ID mapping are correct.
+
+- [x] BUG-015: Activity CSV import failed for larger Step 4 payloads.
+  - Impact: the CSV wizard Step 4 `Validate` import could fail with `request entity too large` or a generic internal server error before all rows were imported.
+  - Evidence: `POST /api/activities/import` sends mapped CSV rows as one JSON payload, while the backend bootstrap still allowed Nest's default body parser to run with its smaller limit.
+  - Fix: `backend/src/main.ts` disables the default body parser and installs `50mb` JSON/urlencoded parsers before routes are registered; `backend/src/modules/activities/activities.controller.ts` now returns a clear `400` if mappings/rows are missing; `frontend/src/features/activities/ActivitiesPage.tsx` now splits activity CSV import into approximately `20 KB` chunks and merges the chunk results.
+  - Verify: `npm run build --workspace=backend`; `npm run build --workspace=frontend`.
 
 ## Open
 
