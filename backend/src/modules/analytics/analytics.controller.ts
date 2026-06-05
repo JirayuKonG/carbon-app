@@ -52,6 +52,27 @@ export class AnalyticsController {
     return this.svc.getCfProcessActivities(selectedKind, { level: this.filterLevel(level), id })
   }
 
+  @Get('cf-process-inputs')
+  getCfProcessInputs(@Query('level') level?: string, @Query('id') id?: string) {
+    return this.svc.getCfProcessInputs({ level: this.filterLevel(level), id })
+  }
+
+  @Get('cf-cane-types')
+  getCfCaneTypes(@Query('level') level?: string, @Query('id') id?: string) {
+    return this.svc.getCfCaneTypes({ level: this.filterLevel(level), id })
+  }
+
+  @Get('cf-camps')
+  getCfCamps() {
+    return this.svc.getCfCamps()
+  }
+
+  @Get('cf-camp-fields')
+  @ApiQuery({ name: 'camp_id', required: false, type: Number })
+  getCfCampFields(@Query('camp_id') campId?: string) {
+    return this.svc.getCfCampFields(campId ? +campId : undefined)
+  }
+
   @Get('cf-spatial-nodes')
   getCfSpatialNodes(@Query('level') level?: string, @Query('id') id?: string) {
     return this.svc.getCfSpatialNodes({ level: this.filterLevel(level), id })

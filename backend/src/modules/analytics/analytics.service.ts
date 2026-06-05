@@ -48,6 +48,14 @@ type ProcessActivityBreakdown = {
   activities: { name: string; emission: number }[]
 }
 
+type ProcessInputComparison = {
+  process: string
+  baselineFertilizerKg: number
+  currentFertilizerKg: number
+  baselineFuelLiter: number
+  currentFuelLiter: number
+}
+
 type SpatialNode = {
   id: string
   parentId?: string
@@ -81,6 +89,9 @@ type ReportFilter = {
 }
 
 const TRANSPORT_RE = /(ขนส่ง|transport|truck|รถ|โรงงาน)/i
+
+const FERTILIZER_RE = /(fertilizer|chemical|input|n2o|ไนโตรเจน|ปุ๋ย|สารเคมี)/i
+const FUEL_RE = /(fuel|diesel|machine|เครื่อง|รถ|น้ำมัน)/i
 
 function n(value: unknown): number {
   if (typeof value === 'bigint') return Number(value)
@@ -330,6 +341,110 @@ export class AnalyticsService {
     return this.buildProcessActivities(rows)
   }
 
+  async getCfProcessInputs(filter: ReportFilter = {}) {
+    const rows = this.applyFilter(await this.getEmissionRows(), filter).filter((row) => !isTransport(row))
+    return this.buildProcessInputs(rows)
+  }
+
+  async getCfCaneTypes(_filter: ReportFilter = {}) {
+    // API contract is ready; cane type needs a reliable source column before the frontend flag is enabled.
+    return []
+  }
+
+  async getCfCamps() {
+    const rows = await this.getEmissionRows()
+    const camps = new Map<number, EmissionRow[]>()
+    rows.forEach((row) => {
+      const campId = row.camp_id ?? -1
+      if (!camps.has(campId)) camps.set(campId, [])
+      camps.get(campId)!.push(row)
+    })
+
+    return Array.from(camps.entries())
+      .map(([campId, campRows]) => {
+        const meta = this.getYearMeta(campRows)
+        const currentYear = meta.currentYear ? yearLabel(meta.currentYear) : ''
+        const currentRows = currentYear ? campRows.filter((row) => yearLabel(row.year ?? 0) === currentYear) : []
+        const activities = this.buildProcessActivities(campRows)
+        const baselineProcessActivities = activities.filter((row) => row.year === 'baseline_avg')
+        const currentProcessActivities = activities.filter((row) => row.year === currentYear)
+        const baselineActivityBreakdown = baselineProcessActivities.map((row) => ({ name: row.process, emission: row.totalEmission }))
+        const currentActivityBreakdown = currentProcessActivities.map((row) => ({ name: row.process, emission: row.totalEmission }))
+        const currentCo2eTotal = currentActivityBreakdown.reduce((sum, item) => sum + item.emission, 0)
+        const areaRai = this.uniqueArea(currentRows.length ? currentRows : campRows)
+        const topActivity = [...currentActivityBreakdown].sort((a, b) => b.emission - a.emission)[0]?.name ?? '-'
+
+        return {
+          campId,
+          campName: labelOr(campRows[0]?.camp_name, campId === -1 ? 'Unassigned camp' : `Camp ${campId}`),
+          fieldCount: new Set(currentRows.map((row) => row.land_id).filter(Boolean)).size,
+          areaRai: round(areaRai),
+          baselineCo2eTotal: round(this.baselineAverage(campRows, meta)),
+          currentCo2eTotal: round(currentCo2eTotal),
+          co2eTotal: round(currentCo2eTotal),
+          co2ePerRai: areaRai ? round(currentCo2eTotal / areaRai, 3) : 0,
+          topActivity,
+          baselineActivityBreakdown,
+          currentActivityBreakdown,
+          baselineProcessActivities,
+          currentProcessActivities,
+          processInputComparisons: this.buildProcessInputs(campRows),
+        }
+      })
+      .sort((a, b) => b.co2eTotal - a.co2eTotal)
+  }
+
+  async getCfCampFields(campId?: number) {
+    const rows = await this.getEmissionRows()
+    const selectedRows = campId ? rows.filter((row) => row.camp_id === campId) : rows
+    const byLand = new Map<number, EmissionRow[]>()
+    selectedRows.forEach((row) => {
+      if (!row.land_id) return
+      if (!byLand.has(row.land_id)) byLand.set(row.land_id, [])
+      byLand.get(row.land_id)!.push(row)
+    })
+
+    return Array.from(byLand.entries()).map(([landId, landRows]) => {
+      const node = this.buildSpatialNodes(landRows).find((item) => item.level === 'field')
+      const first = landRows[0]
+      const currentYear = this.getYearMeta(landRows).currentYear
+      const activitiesLogged = Array.from(new Set(landRows.filter((row) => row.year === currentYear).map((row) => labelOr(row.activity, '-'))))
+
+      return {
+        ...(node ?? {
+          id: `field-${landId}`,
+          level: 'field' as const,
+          name: labelOr(first.land_name, first.land_code ?? `Field ${landId}`),
+          lat: n(first.land_lat) || n(first.subdistrict_lat) || n(first.camp_lat) || 13,
+          lng: n(first.land_lng) || n(first.subdistrict_lng) || n(first.camp_lng) || 101,
+          zoom: 15,
+          fields: 1,
+          farmers: first.farmer_id ? 1 : 0,
+          areaRai: n(first.land_area),
+          baselineEmission: 0,
+          currentEmission: 0,
+          processBreakdown: [],
+          childrenIds: [],
+        }),
+        fieldCode: first.land_code ?? '',
+        fieldName: labelOr(first.land_name, first.land_code ?? ''),
+        farmerName: first.farmer_name ?? '',
+        phone: first.phone ?? '',
+        province: first.province_name ?? '',
+        district: first.district_name ?? '',
+        subdistrict: first.subdistrict_name ?? '',
+        soilType: '',
+        irrigationType: '',
+        chanots: [],
+        campId: first.camp_id ?? -1,
+        campName: labelOr(first.camp_name, 'Unassigned camp'),
+        activitiesLogged,
+        co2eTotal: round(node?.currentEmission ?? 0),
+        processInputComparisons: this.buildProcessInputs(landRows),
+      }
+    })
+  }
+
   async getCfSpatialNodes(filter: ReportFilter = {}) {
     const nodes = this.buildSpatialNodes(await this.getEmissionRows())
     if (!filter.level || filter.level === 'all' || !filter.id) return nodes
@@ -555,6 +670,29 @@ export class AnalyticsService {
     })
 
     return result
+  }
+
+  private buildProcessInputs(rows: EmissionRow[]): ProcessInputComparison[] {
+    const meta = this.getYearMeta(rows)
+    const processNames = Array.from(new Set(rows.map((row) => labelOr(row.process, 'เนเธกเนเธฃเธฐเธเธธเธเธฃเธฐเธเธงเธเธเธฒเธฃ')))).sort()
+
+    const sumInput = (process: string, years: number[], re: RegExp) => {
+      if (!years.length) return 0
+      const sum = rows
+        .filter((row) => row.year != null && years.includes(row.year))
+        .filter((row) => labelOr(row.process, '') === process)
+        .filter((row) => re.test(`${row.process ?? ''} ${row.activity ?? ''}`))
+        .reduce((total, row) => total + n(row.co2e), 0)
+      return years.length > 1 ? sum / years.length : sum
+    }
+
+    return processNames.map((process) => ({
+      process,
+      baselineFertilizerKg: round(sumInput(process, meta.baselineYears, FERTILIZER_RE), 1),
+      currentFertilizerKg: round(sumInput(process, meta.currentYear ? [meta.currentYear] : [], FERTILIZER_RE), 1),
+      baselineFuelLiter: round(sumInput(process, meta.baselineYears, FUEL_RE), 1),
+      currentFuelLiter: round(sumInput(process, meta.currentYear ? [meta.currentYear] : [], FUEL_RE), 1),
+    }))
   }
 
   private buildSpatialNodes(rows: EmissionRow[]): SpatialNode[] {

@@ -44,7 +44,8 @@
 .cf-dash h1,
 .cf-dash h2,
 .cf-dash h3 {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 /* Page */
@@ -900,6 +901,104 @@
   background: #EEF6FF;
 }
 
+.cf-dash .spatial-export-toolbar {
+  align-items: center;
+}
+
+.cf-dash .spatial-doc-preview-card {
+  overflow: hidden;
+}
+
+.cf-dash .spatial-doc-preview {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  background: #eef3f8;
+}
+
+.cf-dash .spatial-doc-paper {
+  width: 760px;
+  min-height: 980px;
+  margin: 0 auto;
+  padding: 22px 28px;
+  background: #fff;
+  color: #222;
+  font-size: 11px;
+  box-shadow: 0 10px 28px rgba(0,0,0,.08);
+}
+
+.cf-dash .spatial-doc-header {
+  display: grid;
+  grid-template-columns: 74px 1fr 116px;
+  margin-bottom: 10px;
+  border: 1px solid #222;
+}
+
+.cf-dash .spatial-doc-header > div {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  border-right: 1px solid #222;
+  padding: 6px 8px;
+}
+
+.cf-dash .spatial-doc-header > div:last-child {
+  border-right: 0;
+  text-align: center;
+}
+
+.cf-dash .spatial-doc-logo {
+  color: #b89119;
+  font-weight: 800;
+  line-height: 1.1;
+  text-align: center;
+}
+
+.cf-dash .spatial-doc-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.cf-dash .spatial-doc-table th,
+.cf-dash .spatial-doc-table td {
+  border: 1px solid #222;
+  padding: 5px 4px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.cf-dash .spatial-doc-table th {
+  background: #fafafa;
+  font-weight: 700;
+}
+
+.cf-dash .spatial-doc-map-thumb {
+  position: relative;
+  width: 86px;
+  height: 58px;
+  margin: 0 auto;
+  overflow: hidden;
+  background: linear-gradient(135deg,#64745c,#b79b75 42%,#41543b 43%,#a98966 68%,#5d6f52);
+}
+
+.cf-dash .spatial-doc-map-thumb span {
+  position: absolute;
+  inset: 9px 12px;
+  display: block;
+  border: 1px solid rgba(0,0,0,.35);
+  background: #39ff14;
+}
+
+.cf-dash .spatial-doc-footer {
+  display: grid;
+  gap: 8px;
+  margin-top: 30px;
+  color: #555;
+  font-size: 10px;
+}
+
 /* Architecture / Pipeline */
 .cf-dash .architecture-board { display: grid; grid-template-columns: 1.1fr 1.1fr .8fr; gap: 16px; }
 .cf-dash .flow-column, .cf-dash .technique-panel {
@@ -1094,6 +1193,10 @@
   align-items: end;
   gap: 12px;
 }
+.cf-dash .report-toolbar > div {
+  flex: 1 1 320px;
+  min-width: min(100%, 280px);
+}
 .cf-dash .report-toolbar label {
   display: grid;
   gap: 6px;
@@ -1111,7 +1214,7 @@
 }
 .cf-dash .report-layout {
   display: grid;
-  grid-template-columns: minmax(360px, 620px) minmax(420px, 1fr);
+  grid-template-columns: minmax(0, 620px) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }
@@ -1279,6 +1382,10 @@
   text-align: left;
 }
 .cf-dash .report-table th { background: #EEF6FF; color: var(--text-dim); }
+.cf-dash .input-table tr.active-row td {
+  background: rgba(91,164,255,.1);
+  box-shadow: inset 3px 0 0 var(--accent-dark);
+}
 .cf-dash .pdf-preview iframe {
   width: 100%;
   min-height: 720px;
@@ -1615,6 +1722,7 @@
   .cf-dash .report-toolbar > *,
   .cf-dash .footprint-report-toolbar > * {
     flex: 1 1 180px;
+    min-width: 0;
   }
   .cf-dash .process-scope-panel,
   .cf-dash .footprint-report-filter {

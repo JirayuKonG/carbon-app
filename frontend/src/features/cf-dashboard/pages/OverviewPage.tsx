@@ -78,14 +78,28 @@ export function CfOverviewPage() {
               ["Credit รวม", creditTotal.toFixed(0), "tCO2e", "รวม N2O + น้ำมัน + SOC"],
               ["ปีที่ดำเนินโครงการ", kpi.data.currentYear, "Project year", `${kpi.data.currentEmission.toLocaleString()} tCO2e`],
               ["ปีฐาน Baseline", baselineLabel, "Baseline years", `เฉลี่ย ${kpi.data.baselineAvgEmission.toLocaleString()} tCO2e`],
-            ].map(([label, value, unit, delta]) => (
-              <article className="kpi" key={label}>
-                <div className="kpi-label">{label}</div>
+            ].map(([label, value, unit, delta]) => {
+              const displayLabel = label.includes("Credit")
+                ? "เครดิตที่คาดว่าจะได้"
+                : unit === "Project year"
+                ? "Emission ปีดำเนินโครงการ"
+                : unit === "Baseline years"
+                ? "Emission ปีฐาน Baseline"
+                : label;
+              const displayDelta = label.includes("Credit")
+                ? "คำนวณจากส่วนต่าง emission"
+                : unit === "Baseline years"
+                ? `เฉลี่ย ${kpi.data.baselineAvgEmission.toLocaleString()} tCO2e`
+                : delta;
+              return (
+              <article className="kpi" key={displayLabel}>
+                <div className="kpi-label">{displayLabel}</div>
                 <div className="kpi-val">{value}</div>
                 <div className="kpi-unit">{unit}</div>
-                <div className="delta good">{delta}</div>
+                <div className="delta good">{displayDelta}</div>
               </article>
-            ))}
+              );
+            })}
           </div>
         </section>
 
@@ -113,7 +127,7 @@ export function CfOverviewPage() {
         </section>
 
         <section className="card full-span">
-          <div className="card-title">แนวโน้ม Carbon Credit · กราฟแท่งรายปีและเส้น Time line</div>
+          <div className="card-title">แนวโน้ม Carbon Credit</div>
           <TrendLineChart data={trend.data} />
         </section>
 

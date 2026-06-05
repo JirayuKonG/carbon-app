@@ -36,7 +36,7 @@ export function TrendLineChart({ data }: { data: TrendPoint[] }) {
               label: "ค่าเฉลี่ยปีฐาน",
               data: data.map(() => baselineAverage),
               borderColor: chartPalette.trendAverage,
-              backgroundColor: "rgba(206,147,216,.10)",
+              backgroundColor: "rgba(22,163,74,.12)",
               pointRadius: 0,
               borderDash: [6, 5],
               tension: 0,

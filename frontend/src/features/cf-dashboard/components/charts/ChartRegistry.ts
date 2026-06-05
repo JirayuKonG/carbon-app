@@ -44,7 +44,7 @@ export const chartPalette = {
   fuelBaseline: { bg: "rgba(103,232,249,.78)", border: "#0891B2" },
   fuelProject: { bg: "rgba(253,186,116,.82)", border: "#EA580C" },
   trendBaseline: "#60A5FA",
-  trendAverage: "#FCD34D",
+  trendAverage: "#16A34A",
   trendProject: "#F87171",
 };
 

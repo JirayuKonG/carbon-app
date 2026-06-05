@@ -15,7 +15,10 @@ import type {
 } from "../types/dashboard";
 import { mockDashboard } from "../data/mockDashboard";
 
-// Temporary preview mode: keep API wiring in place, but show mock data until input/calculation data is ready.
+// Temporary preview mode: API routes below are wired and backend contracts are prepared
+// (/cf-kpi, /cf-trend, /cf-process, /cf-process-activities, /cf-spatial-nodes,
+// /cf-report-summary, /cf-process-inputs, /cf-cane-types, /cf-camps, /cf-camp-fields).
+// Keep mock data visible until the real activity/input data is validated end-to-end.
 const ENABLE_API_DASHBOARD = false;
 
 function cleanParams(filter?: Partial<ReportFilter>, extra?: Record<string, string>) {

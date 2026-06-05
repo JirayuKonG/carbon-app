@@ -160,8 +160,8 @@ function FootprintCaneMixPanel({ data }: { data: CaneTypeSummary[] }) {
     <section className="card full-span footprint-cane-mix-panel">
       <div className="card-title-row">
         <div>
-          <div className="card-title">สัดส่วนประเภทอ้อยและพื้นที่พักดิน</div>
-          <p className="muted">องค์ประกอบพื้นที่ที่ใช้ประกอบรายงานคาร์บอนฟุตพริ้นท์ ก่อนสรุป Hotspot รายกระบวนการ</p>
+          <div className="card-title">องค์ประกอบพื้นที่ตามประเภทอ้อย</div>
+          <p className="muted">ใช้เป็นหลักฐานประกอบการแตกข้อมูลประเภทอ้อย x กระบวนการ ไม่ใช่ชุด KPI รวมซ้ำกับ block สรุปด้านบน</p>
         </div>
         <div className="footprint-cane-mix-total">
           <span>พื้นที่รวม</span>
@@ -535,6 +535,7 @@ export function CfFootprintReportPage() {
         inputRow,
       };
     });
+  const hotspotRows = [...processRows].sort((a, b) => b.currentEmission - a.currentEmission);
 
   const selectedCaneLabel = caneFilter === "all" ? "รวมทุกประเภทอ้อย" : selectedCaneTypes.map((item) => item.name).join(", ") || "-";
 
@@ -546,12 +547,12 @@ export function CfFootprintReportPage() {
       baselineTotal,
       currentTotal,
       reductionText: reduction.text,
-      processRows,
+      processRows: hotspotRows,
       caneRows: caneProcessRows,
       inputs: processInputRows,
       kpi: kpi.data,
     }),
-    [baselineTotal, caneProcessRows, currentTotal, currentYear, kpi.data, processInputRows, processRows, reduction.text, selectedCaneLabel, selectedScopeLabel],
+    [baselineTotal, caneProcessRows, currentTotal, currentYear, hotspotRows, kpi.data, processInputRows, reduction.text, selectedCaneLabel, selectedScopeLabel],
   );
 
   useEffect(() => {
@@ -625,7 +626,7 @@ export function CfFootprintReportPage() {
       yieldTon: kpi.data.yieldTon,
       co2ePerTon: kpi.data.co2ePerTon,
     }])), "Summary");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(processRows.map((row) => ({
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(hotspotRows.map((row) => ({
       process: row.process,
       mainActivity: row.activity,
       baselineEmission: row.baselineEmission,
@@ -676,7 +677,7 @@ export function CfFootprintReportPage() {
               baselineTotal={baselineTotal}
               currentTotal={currentTotal}
               reduction={reduction}
-              processRows={processRows}
+              processRows={hotspotRows}
               caneRows={caneProcessRows}
               inputs={processInputRows}
               kpi={kpi.data}
@@ -782,7 +783,7 @@ export function CfFootprintReportPage() {
         <section className="card full-span">
           <div className="card-title">Hotspot รายกระบวนการ · แสดงแบบ block summary</div>
           <div className="footprint-block-grid">
-            {processRows.map((row, index) => (
+            {hotspotRows.map((row, index) => (
               <article key={row.process} className={index === 0 ? "priority" : ""}>
                 <div>
                   <span>#{index + 1}</span>
@@ -888,7 +889,7 @@ export function CfFootprintReportPage() {
                   <table className="report-table">
                     <thead><tr><th>Process</th><th>Current</th><th>Share</th></tr></thead>
                     <tbody>
-                      {processRows.slice(0, 6).map((row) => (
+                      {hotspotRows.slice(0, 6).map((row) => (
                         <tr key={`excel-preview-${row.process}`}><td>{row.process}</td><td>{formatNumber(row.currentEmission)}</td><td>{row.share.toFixed(1)}%</td></tr>
                       ))}
                     </tbody>
