@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ActivitySquare, CheckCircle2, CircleAlert, Clock3, Edit, Plus, Settings2, Trash2 } from 'lucide-react'
 import { Column, DataTable } from '@/components/ui/DataTable'
+import { DashboardVisibilityMenu, useDashboardVisibility } from '@/components/ui/DashboardVisibilityMenu'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { getActivityCalStatusBadgeClass, getActivityCalStatusKind, getActivityCalStatusLabel } from '@/features/activities/cal-status'
 import { del, get, post, put } from '@/lib/api'
@@ -420,6 +421,79 @@ export function ActivityLogListPage() {
   const standardCfpDoneCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'cfpDone').length
   const errorCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'error').length
 
+  const dashboardOptions = [
+    { key: 'total', label: 'รายการทั้งหมด' },
+    { key: 'imported', label: 'นำเข้าข้อมูลแล้ว' },
+    { key: 'preparing', label: 'กำลังเตรียมข้อมูล' },
+    { key: 'ready', label: 'พร้อมคำนวณมาตรฐาน' },
+    { key: 'standardDone', label: 'คำนวณแล้ว(มาตรฐาน)' },
+    { key: 'cfpDone', label: 'คำนวณแล้ว(มาตรฐาน,CFP)' },
+    { key: 'error', label: 'คำนวณผิดพลาด' },
+  ]
+
+  const {
+    visibleKeys: visibleDashboardKeys,
+    visibleKeySet: visibleDashboardKeySet,
+    toggleKey: toggleDashboardKey,
+    reset: resetDashboardKeys,
+  } = useDashboardVisibility(
+    'activity-log-dashboard-cards',
+    dashboardOptions.map((option) => option.key),
+    dashboardOptions,
+  )
+
+  const dashboardCards = [
+    {
+      key: 'total',
+      label: 'รายการทั้งหมด',
+      icon: <ActivitySquare size={14} className="text-primary-500" />,
+      value: details.length,
+      valueClassName: 'stat-value',
+    },
+    {
+      key: 'imported',
+      label: 'นำเข้าข้อมูลแล้ว',
+      icon: <Plus size={14} className="text-surface-500" />,
+      value: importedCount,
+      valueClassName: 'stat-value text-surface-700',
+    },
+    {
+      key: 'preparing',
+      label: 'กำลังเตรียมข้อมูล',
+      icon: <Edit size={14} className="text-blue-500" />,
+      value: preparingCount,
+      valueClassName: 'stat-value text-blue-700',
+    },
+    {
+      key: 'ready',
+      label: 'พร้อมคำนวณมาตรฐาน',
+      icon: <Clock3 size={14} className="text-accent-500" />,
+      value: readyCount,
+      valueClassName: 'stat-value text-accent-600',
+    },
+    {
+      key: 'standardDone',
+      label: 'คำนวณแล้ว(มาตรฐาน)',
+      icon: <CheckCircle2 size={14} className="text-primary-500" />,
+      value: standardDoneCount,
+      valueClassName: 'stat-value text-primary-700',
+    },
+    {
+      key: 'cfpDone',
+      label: 'คำนวณแล้ว(มาตรฐาน,CFP)',
+      icon: <CheckCircle2 size={14} className="text-cyan-600" />,
+      value: standardCfpDoneCount,
+      valueClassName: 'stat-value text-cyan-700',
+    },
+    {
+      key: 'error',
+      label: 'คำนวณผิดพลาด',
+      icon: <CircleAlert size={14} className="text-red-500" />,
+      value: errorCount,
+      valueClassName: 'stat-value text-red-700',
+    },
+  ]
+
   return (
     <div>
       <div className="page-header">
@@ -427,7 +501,7 @@ export function ActivityLogListPage() {
           <h1 className="page-title flex items-center gap-2"><ActivitySquare size={20} className="text-primary-600" /> รายการบันทึกกิจกรรม</h1>
           <p className="page-subtitle">มุมมองใช้งานง่ายสำหรับรายการบันทึกกิจกรรม พร้อมค้นหา กรอง และจัดการรายการ</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button className="btn-secondary" onClick={() => navigate('/activities/manage')}>
             <Settings2 size={14} /> จัดการขั้นสูง
           </button>
@@ -437,34 +511,32 @@ export function ActivityLogListPage() {
         </div>
       </div>
 
-      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-6">
-        <div className="stat-card">
-          <div className="flex items-center gap-2"><ActivitySquare size={14} className="text-primary-500" /><span className="stat-label">รายการทั้งหมด</span></div>
-          <p className="stat-value">{details.length}</p>
+      <div className="mb-6">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold">Dashboard</h2>
+            <p className="mt-1 text-xs text-surface-500">เลือกการ์ดสรุปที่ต้องการแสดงในส่วนนี้ได้</p>
+          </div>
+          <DashboardVisibilityMenu
+            options={dashboardOptions}
+            visibleKeys={visibleDashboardKeys}
+            onToggle={toggleDashboardKey}
+            onReset={resetDashboardKeys}
+          />
         </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-2"><Plus size={14} className="text-surface-500" /><span className="stat-label">นำเข้าข้อมูลแล้ว</span></div>
-          <p className="stat-value text-surface-700">{importedCount}</p>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-2"><Edit size={14} className="text-blue-500" /><span className="stat-label">กำลังเตรียมข้อมูล</span></div>
-          <p className="stat-value text-blue-700">{preparingCount}</p>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-2"><Clock3 size={14} className="text-accent-500" /><span className="stat-label">พร้อมคำนวณมาตรฐาน</span></div>
-          <p className="stat-value text-accent-600">{readyCount}</p>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-2"><CheckCircle2 size={14} className="text-primary-500" /><span className="stat-label">คำนวณแล้ว(มาตรฐาน)</span></div>
-          <p className="stat-value text-primary-700">{standardDoneCount}</p>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-2"><CheckCircle2 size={14} className="text-cyan-600" /><span className="stat-label">คำนวณแล้ว(มาตรฐาน,CFP)</span></div>
-          <p className="stat-value text-cyan-700">{standardCfpDoneCount}</p>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-2"><CircleAlert size={14} className="text-red-500" /><span className="stat-label">คำนวณผิดพลาด</span></div>
-          <p className="stat-value text-red-700">{errorCount}</p>
+
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
+          {dashboardCards
+            .filter((card) => visibleDashboardKeySet.has(card.key))
+            .map((card) => (
+              <div key={card.key} className="stat-card">
+                <div className="flex items-center gap-2">
+                  {card.icon}
+                  <span className="stat-label">{card.label}</span>
+                </div>
+                <p className={card.valueClassName}>{card.value}</p>
+              </div>
+            ))}
         </div>
       </div>
 
@@ -562,12 +634,12 @@ export function ActivityLogListPage() {
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
                 <h3 className="mb-2 font-semibold">{editingDetail ? 'แก้ไขบันทึกกิจกรรม' : 'เพิ่มบันทึกกิจกรรม'}</h3>
-                <p className="text-xs text-surface-500">กรอกข้อมูลรายการบันทึกกิจกรรมในหน้านี้ก่อน แล้วค่อยย้ายสถานะและคำนวณจากเมนูคำนวณ Carbon Footprint</p>
+                <p className="text-xs text-surface-500">กรอกข้อมูลรายการบันทึกกิจกรรมในหน้านี้ก่อน แล้วค่อยย้ายสถานะและคำนวณจากเมนูคำนวณ Carbon</p>
               </div>
               <div className="min-w-40">
                 <label className="label">การคำนวณ</label>
                 <div className="rounded-lg border border-surface-200 bg-surface-50 px-3 py-2 text-xs text-surface-600">
-                  ใช้เมนู <span className="font-medium text-primary-700">คำนวณ Carbon Footprint</span> สำหรับคำนวณมาตรฐานและ CFP
+                  ใช้เมนู <span className="font-medium text-primary-700">คำนวณ Carbon</span> สำหรับคำนวณมาตรฐานและ CFP
                 </div>
               </div>
             </div>

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { CsvMappingWizard, TargetColumn, ColumnMapping } from '@/components/ui/CsvMappingWizard'
+import { DashboardVisibilityMenu, useDashboardVisibility } from '@/components/ui/DashboardVisibilityMenu'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { getActivityCalStatusBadgeClass, getActivityCalStatusKind, getActivityCalStatusLabel } from '@/features/activities/cal-status'
 import { del, get, post, put } from '@/lib/api'
@@ -85,6 +86,9 @@ interface Equipment  { act_equipment_id: number; act_equipment_name: string }
 interface Chemical   { act_chemiscal_id: number; act_chemiscal_name: string }
 interface Unit       { unit_id: number; unit_name?: string; unit_initial?: string }
 interface UnitPrefix { unit_prefix_id: number; unit_prefix_name?: string; unit_prefix_initial?: string }
+type ActivityImportPayload = { mappings: ColumnMapping[]; rows: Record<string, string>[] }
+type ActivityImportResult = { inserted: number; skipped: number; errors: string[] }
+type ActivityImportChunk = { rows: Record<string, string>[]; startIndex: number; sizeBytes: number }
 
 // interface CsvMappingWizardProps {
 //   title: string;
@@ -262,6 +266,62 @@ const ACTIVITY_TARGET_COLUMNS: TargetColumn[] = [  // new 05272026  ------------
   { key: 'unit_name',                     label: 'หน่วยนับ',            required: true, type: 'fk', fkTable: 'units' },
 ]
 
+const ACTIVITY_IMPORT_CHUNK_LIMIT_BYTES = 20 * 1024      
+// KB -> Bytes, set to 20KB to be safe since JSON string can be ~2x larger than original CSV string, 
+// and we want to avoid hitting server limits (25KB for nginx default) or causing OOM on client side 
+// when processing large files. Adjust as needed based on testing with typical payload sizes.
+
+// for reference, here are some rough size estimates based on testing with sample data:
+function getJsonPayloadSizeBytes(payload: ActivityImportPayload) {
+  return new Blob([JSON.stringify(payload)]).size 
+  // return  size in bytes of the JSON stringified payload, 
+  // which is what we actually send to the server. This accounts for any overhead from JSON formatting.
+}
+
+// for each row, we need to adjust the error row numbers returned from the server by adding the startIndex of the chunk,
+//  since the server only sees the chunk and not the full file. This way we can show accurate error messages to the user that correspond to 
+// the original CSV file.
+function createActivityImportChunks(mappings: ColumnMapping[], rows: Record<string, string>[]) {
+  const chunks: ActivityImportChunk[] = []
+  let currentRows: Record<string, string>[] = []
+  let currentStartIndex = 0
+
+  rows.forEach((row, rowIndex) => {
+    const candidateRows = [...currentRows, row]
+    const candidateSize = getJsonPayloadSizeBytes({ mappings, rows: candidateRows })
+
+    if (currentRows.length > 0 && candidateSize > ACTIVITY_IMPORT_CHUNK_LIMIT_BYTES) {
+      chunks.push({
+        rows: currentRows,
+        startIndex: currentStartIndex,
+        sizeBytes: getJsonPayloadSizeBytes({ mappings, rows: currentRows }),
+      })
+      currentRows = [row]
+      currentStartIndex = rowIndex
+      return
+    }
+
+    currentRows = candidateRows
+  })
+
+  if (currentRows.length > 0) {
+    chunks.push({
+      rows: currentRows,
+      startIndex: currentStartIndex,
+      sizeBytes: getJsonPayloadSizeBytes({ mappings, rows: currentRows }),
+    })
+  }
+
+  return chunks
+}
+
+function adjustImportErrorRowNumbers(error: string, startIndex: number) {
+  return error.replace(/^Row (\d+):/i, (_match, rowNumber: string) => {
+    const parsed = Number.parseInt(rowNumber, 10)
+    return Number.isFinite(parsed) ? `Row ${startIndex + parsed}:` : `Row ${rowNumber}:`
+  })
+}
+
 
 
 export function ActivitiesPage() {
@@ -305,14 +365,39 @@ export function ActivitiesPage() {
   const { data: units = [] }                        = useQuery({ queryKey: ['units'],              queryFn: () => get<Unit[]>('/emission-factors/units') })
   const { data: unitPrefixes = [] }                 = useQuery({ queryKey: ['unit-prefixs'],       queryFn: () => get<UnitPrefix[]>('/emission-factors/unit-prefixs') })
 
-  const importMut = useMutation({
-    mutationFn: (payload: { mappings: ColumnMapping[]; rows: Record<string, string>[] }) =>
-      post('/activities/import', payload, { timeout: 20 * 60_000 }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['activity-headers'] })
-      qc.invalidateQueries({ queryKey: ['activity-details'] })
-    },
-  })
+  async function importActivityCsvInChunks(mappings: ColumnMapping[], rows: Record<string, string>[]) {
+    const chunks = createActivityImportChunks(mappings, rows)
+    const result: ActivityImportResult = { inserted: 0, skipped: 0, errors: [] }
+
+    for (let index = 0; index < chunks.length; index++) {
+      const chunk = chunks[index]
+
+      try {
+        const chunkResult = await post<ActivityImportResult>(
+          '/activities/import',
+          { mappings, rows: chunk.rows },
+          { timeout: 20 * 60_000 },
+        )
+
+        result.inserted += chunkResult.inserted ?? 0
+        result.skipped += chunkResult.skipped ?? 0
+        result.errors.push(
+          ...(chunkResult.errors ?? []).map((error) => adjustImportErrorRowNumbers(error, chunk.startIndex)),
+        )
+      } catch (error: any) {
+        throw new Error(
+          `นำเข้าชุดที่ ${index + 1}/${chunks.length} ไม่สำเร็จ (${Math.ceil(chunk.sizeBytes / 1024)} KB): ${error?.message ?? 'Internal server error'}`,
+        )
+      }
+    }
+
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ['activity-headers'] }),
+      qc.invalidateQueries({ queryKey: ['activity-details'] }),
+    ])
+
+    return result
+  }
 
   const createDetailMut = useMutation({
     mutationFn: (payload: Record<string, number | string | undefined>) =>
@@ -394,6 +479,11 @@ export function ActivitiesPage() {
     const landName = detail.activities_header?.lands?.name
     if (landCode && landName) return `${landCode} - ${landName}`
     return landCode ?? landName ?? '—'
+  }
+  const getDetailLandSize = (detail: LogDetail) => {
+    const landId = getDetailLandId(detail)
+    if (landId == null) return undefined
+    return lands.find((land) => land.land_id === landId)?.land_size
   }
 
   const getResourceItemName = (detail: LogDetail) =>
@@ -651,7 +741,6 @@ export function ActivitiesPage() {
 
 
   const detailCols: Column<LogDetail>[] = [
-    { key: 'log_act_detail_id', header: 'ID', width: '60px', sortable: true },
     { key: 'activities_header_id', header: 'หัวข้อกิจกรรม', width: '80px', sortable: true, sortValue: (row) => row.activities_header_id != null ? hdrMap[row.activities_header_id] ?? row.activities_header_id : '—', render: (r) => r.activities_header_id != null ? hdrMap[r.activities_header_id] ?? r.activities_header_id : '—' },
     { key: 'log_act_detail_create_at', header: 'วันที่ปฏิบัติ', sortable: true, sortValue: (row) => row.log_act_detail_create_at ?? row.activities_header?.activities_header_startDate ?? '', render: (r) => formatBangkokDateTime(r.log_act_detail_create_at ?? r.activities_header?.activities_header_startDate) },
     { key: 'detail_camp', header: 'แคมป์', sortable: true, sortValue: (row) => getDetailCampName(row) ?? '—', render: (r) => getDetailCampName(r) ? <span className="badge-blue">{getDetailCampName(r)}</span> : '—' },
@@ -671,7 +760,14 @@ export function ActivitiesPage() {
     { key: 'log_act_detail_quatity', header: 'จำนวน', sortable: true, render: (r) => r.log_act_detail_quatity ?? '—' },
     { key: 'log_act_detail_volumePerUnit', header: 'ปริมาณ/หน่วย', sortable: true, render: (r) => r.log_act_detail_volumePerUnit?.toFixed(3) ?? '—' },
     { key: 'log_act_detail_volumeAll', header: 'ปริมาณรวม', sortable: true, render: (r) => <span className="font-mono">{r.log_act_detail_volumeAll?.toFixed(3)}</span> },
-    { key: 'log_act_detail_areawork', header: 'พื้นที่ (ไร่)', sortable: true, render: (r) => r.log_act_detail_areawork?.toFixed(2) ?? '—' },
+    {
+      key: 'detail_land_size',
+      header: 'ขนาดพื้นที่แปลง',
+      sortable: true,
+      sortValue: (row) => getDetailLandSize(row) ?? -1,
+      render: (r) => getDetailLandSize(r)?.toFixed(2) ?? '—',
+    },
+    { key: 'log_act_detail_areawork', header: 'พื้นดำเนินการ', sortable: true, render: (r) => r.log_act_detail_areawork?.toFixed(2) ?? '—' },
     {
       key: 'log_act_detail_calStatus_id',
       header: 'สถานะ CO₂e',
@@ -697,8 +793,8 @@ export function ActivitiesPage() {
       </div>
       <div className="space-y-3 text-xs">
         <div className="rounded-lg bg-surface-50 p-3">
-          <p className="mb-1 font-medium text-surface-700">การคำนวณแยกไปอยู่ที่หน้าคำนวณ Carbon Footprint</p>
-          <p>นำเข้าข้อมูลหรือแก้ไขรายการในหน้านี้ก่อน แล้วค่อยย้ายสถานะและสั่งคำนวณจากเมนู <span className="font-medium text-primary-700">คำนวณ Carbon Footprint</span></p>
+          <p className="mb-1 font-medium text-surface-700">การคำนวณแยกไปอยู่ที่หน้าคำนวณ Carbon</p>
+          <p>นำเข้าข้อมูลหรือแก้ไขรายการในหน้านี้ก่อน แล้วค่อยย้ายสถานะและสั่งคำนวณจากเมนู <span className="font-medium text-primary-700">คำนวณ Carbon</span></p>
         </div>
         <DataTable
           data={selectedHeaderDetails}
@@ -720,6 +816,79 @@ export function ActivitiesPage() {
   const standardDoneCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'standardDone').length
   const standardCfpDoneCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'cfpDone').length
   const errorCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'error').length
+
+  const dashboardOptions = [
+    { key: 'total', label: 'กิจกรรมทั้งหมด' },
+    { key: 'imported', label: 'นำเข้าข้อมูลแล้ว' },
+    { key: 'preparing', label: 'กำลังเตรียมข้อมูล' },
+    { key: 'ready', label: 'พร้อมคำนวณมาตรฐาน' },
+    { key: 'standardDone', label: 'คำนวณแล้ว(มาตรฐาน)' },
+    { key: 'cfpDone', label: 'คำนวณแล้ว(มาตรฐาน,CFP)' },
+    { key: 'error', label: 'คำนวณผิดพลาด' },
+  ]
+
+  const {
+    visibleKeys: visibleDashboardKeys,
+    visibleKeySet: visibleDashboardKeySet,
+    toggleKey: toggleDashboardKey,
+    reset: resetDashboardKeys,
+  } = useDashboardVisibility(
+    'activities-manage-dashboard-cards',
+    dashboardOptions.map((option) => option.key),
+    dashboardOptions,
+  )
+
+  const dashboardCards = [
+    {
+      key: 'total',
+      label: 'กิจกรรมทั้งหมด',
+      icon: <ActivitySquare size={14} className="text-primary-500" />,
+      value: headers.length,
+      valueClassName: 'stat-value',
+    },
+    {
+      key: 'imported',
+      label: 'นำเข้าข้อมูลแล้ว',
+      icon: <Upload size={14} className="text-surface-500" />,
+      value: importedCount,
+      valueClassName: 'stat-value text-surface-700',
+    },
+    {
+      key: 'preparing',
+      label: 'กำลังเตรียมข้อมูล',
+      icon: <Edit size={14} className="text-blue-500" />,
+      value: preparingCount,
+      valueClassName: 'stat-value text-blue-700',
+    },
+    {
+      key: 'ready',
+      label: 'พร้อมคำนวณมาตรฐาน',
+      icon: <Clock3 size={14} className="text-accent-500" />,
+      value: readyCount,
+      valueClassName: 'stat-value text-accent-600',
+    },
+    {
+      key: 'standardDone',
+      label: 'คำนวณแล้ว(มาตรฐาน)',
+      icon: <CheckCircle2 size={14} className="text-primary-500" />,
+      value: standardDoneCount,
+      valueClassName: 'stat-value text-primary-700',
+    },
+    {
+      key: 'cfpDone',
+      label: 'คำนวณแล้ว(มาตรฐาน,CFP)',
+      icon: <Leaf size={14} className="text-cyan-600" />,
+      value: standardCfpDoneCount,
+      valueClassName: 'stat-value text-cyan-700',
+    },
+    {
+      key: 'error',
+      label: 'คำนวณผิดพลาด',
+      icon: <CircleAlert size={14} className="text-red-500" />,
+      value: errorCount,
+      valueClassName: 'stat-value text-red-700',
+    },
+  ]
 
 
   // // ----------------------------------------------------for dropzone
@@ -759,34 +928,32 @@ export function ActivitiesPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
-        <div className="stat-card">
-          <div className="flex items-center gap-2"><ActivitySquare size={14} className="text-primary-500" /><span className="stat-label">กิจกรรมทั้งหมด</span></div>
-          <p className="stat-value">{headers.length}</p>
+      <div className="mb-6">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold">Dashboard</h2>
+            <p className="mt-1 text-xs text-surface-500">เลือกการ์ดสรุปที่ต้องการแสดงในส่วนนี้ได้</p>
+          </div>
+          <DashboardVisibilityMenu
+            options={dashboardOptions}
+            visibleKeys={visibleDashboardKeys}
+            onToggle={toggleDashboardKey}
+            onReset={resetDashboardKeys}
+          />
         </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-2"><Upload size={14} className="text-surface-500" /><span className="stat-label">นำเข้าข้อมูลแล้ว</span></div>
-          <p className="stat-value text-surface-700">{importedCount}</p>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-2"><Edit size={14} className="text-blue-500" /><span className="stat-label">กำลังเตรียมข้อมูล</span></div>
-          <p className="stat-value text-blue-700">{preparingCount}</p>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-2"><Clock3 size={14} className="text-accent-500" /><span className="stat-label">พร้อมคำนวณมาตรฐาน</span></div>
-          <p className="stat-value text-accent-600">{readyCount}</p>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-2"><CheckCircle2 size={14} className="text-primary-500" /><span className="stat-label">คำนวณแล้ว(มาตรฐาน)</span></div>
-          <p className="stat-value text-primary-700">{standardDoneCount}</p>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-2"><Leaf size={14} className="text-cyan-600" /><span className="stat-label">คำนวณแล้ว(มาตรฐาน,CFP)</span></div>
-          <p className="stat-value text-cyan-700">{standardCfpDoneCount}</p>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-2"><CircleAlert size={14} className="text-red-500" /><span className="stat-label">คำนวณผิดพลาด</span></div>
-          <p className="stat-value text-red-700">{errorCount}</p>
+
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+          {dashboardCards
+            .filter((card) => visibleDashboardKeySet.has(card.key))
+            .map((card) => (
+              <div key={card.key} className="stat-card">
+                <div className="flex items-center gap-2">
+                  {card.icon}
+                  <span className="stat-label">{card.label}</span>
+                </div>
+                <p className={card.valueClassName}>{card.value}</p>
+              </div>
+            ))}
         </div>
       </div>
 
@@ -1330,7 +1497,7 @@ export function ActivitiesPage() {
           title="นำเข้ากิจกรรมจาก CSV"
           subtitle="รองรับคอลัมน์ เช่น วันที่ปฏิบัติ · หมวดหมู่กิจกรรมหลัก · รายละเอียดกิจกรรมย่อย · ไร่/แคมป์ · แปลง · พื้นที่ตามแปลง · ประเภทแปลง · ประเภทอ้อย · รายการปัจจัยการผลิต · ประเภทปัจจัย · ปริมาณรวม · จำนวน · ปริมาณต่อ 1 จำนวน · หน่วยนับ · พื้นที่ปฏิบัติรวม โดยระบบจะใช้ข้อมูลไร่และแปลงเพื่อเชื่อมโยงข้อมูลกิจกรรมให้โดยอัตโนมัติ"
           targetColumns={ACTIVITY_TARGET_COLUMNS}
-          onComplete={async (mappings, rows) => { return importMut.mutateAsync({ mappings, rows }) }}
+          onComplete={importActivityCsvInChunks}
           onCancel={() => setShowWizard(false)}
           showImportTimeConfirmation
           onFinish={() => {

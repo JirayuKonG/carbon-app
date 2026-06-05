@@ -269,6 +269,21 @@ export class ActivitiesService {
     return false
   }
 
+  private canTransitionManualStatus(currentStatusName: string, nextStatusName: string) {
+    if (nextStatusName === CAL_STATUS_NAMES.preparing || nextStatusName === CAL_STATUS_NAMES.ready) {
+      return this.canTransitionWorkflowStatus(currentStatusName, nextStatusName)
+    }
+
+    if (nextStatusName === CAL_STATUS_NAMES.standardDone) {
+      return (
+        currentStatusName === CAL_STATUS_NAMES.ready
+        || currentStatusName === CAL_STATUS_NAMES.cfpDone
+      )
+    }
+
+    return false
+  }
+
   async createHeader(data: ActivityHeaderPayload) {
     const now = new Date()
     const normalized = this.normalizeHeaderPayload(data)
@@ -428,6 +443,46 @@ export class ActivitiesService {
     if (!ids.length) throw new BadRequestException('No detail IDs provided')
 
     const updated = await Promise.all(ids.map((id) => this.moveDetailToWorkflowStatus(id, statusName)))
+    return {
+      updated: updated.length,
+      ids: updated.map((item) => item.log_act_detail_id),
+    }
+  }
+
+  async moveDetailToManualStatus(
+    id: number,
+    statusName:
+      | typeof CAL_STATUS_NAMES.preparing
+      | typeof CAL_STATUS_NAMES.ready
+      | typeof CAL_STATUS_NAMES.standardDone,
+  ) {
+    const detail = await this.getDetailForWorkflow(id)
+    const currentStatusName = this.getDetailStatusName(detail)
+
+    if (!this.canTransitionManualStatus(currentStatusName, statusName)) {
+      throw new BadRequestException(`Cannot move detail ${id} from "${currentStatusName || '—'}" to "${statusName}"`)
+    }
+
+    const statusId = await this.getCalStatusId(statusName)
+    return this.prisma.log_activities_detail.update({
+      where: { log_act_detail_id: id },
+      data: { log_act_detail_calStatus_id: statusId },
+      include: {
+        log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
+      },
+    })
+  }
+
+  async moveDetailsToManualStatus(
+    ids: number[],
+    statusName:
+      | typeof CAL_STATUS_NAMES.preparing
+      | typeof CAL_STATUS_NAMES.ready
+      | typeof CAL_STATUS_NAMES.standardDone,
+  ) {
+    if (!ids.length) throw new BadRequestException('No detail IDs provided')
+
+    const updated = await Promise.all(ids.map((id) => this.moveDetailToManualStatus(id, statusName)))
     return {
       updated: updated.length,
       ids: updated.map((item) => item.log_act_detail_id),

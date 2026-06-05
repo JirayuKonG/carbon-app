@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, ParseIntPipe } from '@nestjs/common'
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, ParseIntPipe, BadRequestException } from '@nestjs/common'
 import { ApiTags, ApiQuery } from '@nestjs/swagger'
 import { ActivitiesService } from './activities.service'
 import { Co2eEngineService } from './co2e-engine.service'
@@ -31,6 +31,10 @@ export class ActivitiesController {
   moveDetailsToWorkflowStatusBulk(@Body() b: { ids: number[]; statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' }) {
     return this.svc.moveDetailsToWorkflowStatus(b.ids, b.statusName)
   }
+  @Post('details/manual-status/bulk')
+  moveDetailsToManualStatusBulk(@Body() b: { ids: number[]; statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' | 'คำนวณแล้ว(มาตรฐาน)' }) {
+    return this.svc.moveDetailsToManualStatus(b.ids, b.statusName)
+  }
   @Post('details/calculate/bulk')
   calculateDetailsBulk(@Body() b: { ids: number[]; calcMode?: 'standard' | 'tver' }) {
     return this.svc.calculateDetails(b.ids, b.calcMode)
@@ -41,6 +45,13 @@ export class ActivitiesController {
     @Body() b: { statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' },
   ) {
     return this.svc.moveDetailToWorkflowStatus(id, b.statusName)
+  }
+  @Post('details/:id/manual-status')
+  moveDetailToManualStatus(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() b: { statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' | 'คำนวณแล้ว(มาตรฐาน)' },
+  ) {
+    return this.svc.moveDetailToManualStatus(id, b.statusName)
   }
   @Post('details/:id/calculate')
   calculateDetail(
@@ -85,6 +96,10 @@ export class ActivitiesController {
   // CSV import — body: { mappings, rows, calcMode? }
   @Post('import')
   importCsv(@Body() b: { mappings: any[]; rows: Record<string, string>[]; calcMode?: 'standard' | 'tver' }) {
+    if (!Array.isArray(b?.mappings) || !Array.isArray(b?.rows)) {
+      throw new BadRequestException('CSV import requires mappings and rows arrays')
+    }
+
     return this.svc.importFromCsv(b.mappings, b.rows, b.calcMode)
   }
 }
