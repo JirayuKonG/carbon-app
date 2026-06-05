@@ -4,7 +4,88 @@
 
 Branch ที่ทำงาน: `idea`
 
-Commit ล่าสุดที่อัปขึ้น Git: `Update carbon analytics dashboard reports and map`
+Commit ล่าสุดที่อัปขึ้น Git: `Refine spatial map markers and footprint report layout`
+
+## อัปเดตเพิ่มเติม วันที่ 5 มิถุนายน 2569 - ปรับ marker แผนที่, ลดข้อมูลซ้ำใน Footprint Report และแก้ spacing หน้า Spatial
+
+รอบนี้เป็นงานปรับ UX ต่อจากชุด Carbon Analytics โดยเน้นให้หน้าแผนที่สื่อความหมายตรงขึ้น ลด block ที่ซ้ำซ้อนในหน้ารายงานคาร์บอนฟุตพริ้นท์ และแก้ระยะห่างของข้อมูลในหน้า Spatial ให้ใช้งานจริงอ่านง่ายขึ้น
+
+### หน้าแผนที่ประเทศไทยและรายละเอียดรายพื้นที่
+
+- แก้ marker บนแผนที่จากเดิมที่มี `หมุดตำแหน่ง` และ `ลูกศรคาร์บอน` แยกกันคนละจุด ให้รวมเป็น marker เดียว
+- marker ใหม่สื่อข้อมูลในจุดเดียว:
+  - ตำแหน่งพื้นที่หรือรายแปลง
+  - ลูกศรขึ้น/ลงของ Carbon Footprint
+  - ตัวเลขผลต่าง tCO2e แบบย่อ
+  - จำนวนแปลงในพื้นที่นั้น
+- ซ่อน marker ระดับพื้นที่เมื่อกำลังแสดงรายแปลง/polygon เพื่อลดความสับสนว่าเป็นคนละตำแหน่ง
+- เพิ่ม legend อธิบายสัญลักษณ์บนแผนที่
+- ปรับกล่อง `สรุปรายละเอียดพื้นที่` ให้มีช่องไฟมากขึ้น โดยเฉพาะส่วน Carbon Footprint / Carbon Credit และรายละเอียดพื้นที่ ไม่ให้กรอบข้อมูลเบียดหรือทับกัน
+
+### หน้ารายงานคาร์บอนฟุตพริ้นท์ ไร่บริษัทกลุ่มมิตรผล
+
+- เอา block `องค์ประกอบพื้นที่ตามประเภทอ้อย` ออกจากหน้าเว็บ เพราะข้อมูลซ้ำกับ block สรุปด้านบนและตาราง relationship ด้านล่าง
+- เอา block `รายงานสรุปสำหรับตรวจทาน` ออกจากหน้าเว็บ เพื่อลดความซ้ำกับ PDF/Word/Excel preview
+- คงส่วน Preview และ Export ของ PDF, Word และ Excel ไว้สำหรับตรวจเอกสารและดาวน์โหลด
+- ปรับคอลัมน์ `กระบวนการ` ในตาราง `สรุปประเภทอ้อย x กระบวนการ` ให้ตัวหนังสือเข้มและอ่านชัดเท่ากันทุกกระบวนการ
+
+### การตรวจสอบ
+
+- รัน `npm run build` ผ่านทั้ง frontend/backend
+- ตรวจ route `/footprint-report` และ `/spatial` แล้วตอบกลับ `200`
+
+## อัปเดตล่าสุด วันที่ 5 มิถุนายน 2569 - ปรับความสอดคล้อง Carbon Analytics, Spatial Filter และเอกสารรายแปลง
+
+รอบนี้ปรับให้ข้อมูล mock, dashboard, report, spatial map และ API contract สอดคล้องกันมากขึ้น โดย frontend ยังใช้ mock data เป็นหลัก และงานถูก push ขึ้น branch `idea` แล้ว
+
+### Data Consistency และ API Readiness
+
+- ปรับ mock ให้ใช้ single source of truth เดียวกัน: baseline average `896 tCO2e` และ project/current `723 tCO2e`
+- ปรับข้อมูล process, cane type, camp และ spatial ให้ยอดรวมตรงกัน
+- ขยาย mock แคมป์ให้รวมเป็น `18,450 ไร่ / 603 แปลง / 723 tCO2e`
+- เตรียม backend endpoints เพิ่มสำหรับเปิดใช้ API จริงภายหลัง:
+  - `/analytics/cf-process-inputs`
+  - `/analytics/cf-cane-types`
+  - `/analytics/cf-camps`
+  - `/analytics/cf-camp-fields`
+- คง `ENABLE_API_DASHBOARD = false` เพื่อให้รอบนี้ยังใช้ mock data อยู่
+
+### หน้า Carbon Credit Premium T-VER และ Premium Report
+
+- ปรับ wording ให้แยกชัดเจนระหว่าง `เครดิตที่คาดว่าจะได้` กับ `Emission ปีดำเนินโครงการ`
+- เปลี่ยนชื่อกราฟเป็น `แนวโน้ม Carbon Credit`
+- เปลี่ยนสีเส้น `ค่าเฉลี่ยปีฐาน` ในกราฟแนวโน้มเป็นสีเขียว
+- ปรับตัวกรองหน้า Premium report เป็น cascading filter: `ภาค -> จังหวัด -> อำเภอ -> ตำบล -> รายแปลง`
+- จัดลำดับเนื้อหา report เป็น `Final Submission Summary`, `Evidence / Breakdown` และ `Export Preview`
+
+### หน้า Carbon Footprint และ Footprint Report
+
+- ปรับตัวเลขภาพรวมให้ใช้ `896/723` ทุกจุด
+- แก้ Hotspot ให้ card, block และ export เรียงจาก emission สูงสุดจริง
+- คงตาราง `ประเภทอ้อย x กระบวนการ` ให้เรียงตามลำดับกระบวนการจริง `1 -> 2 -> 3 -> 4`
+- เปลี่ยนส่วน `สัดส่วนประเภทอ้อยและพื้นที่พักดิน` เป็น `องค์ประกอบพื้นที่ตามประเภทอ้อย` เพื่อสื่อว่าเป็น evidence/breakdown ไม่ใช่ KPI ซ้ำกับ block สรุปด้านบน
+
+### หน้าแผนที่ประเทศไทยและรายละเอียดรายพื้นที่
+
+- Sync การเลือกพื้นที่, แผนที่, dropdown แคมป์, ตารางรายแปลง และ polygon ให้เปลี่ยนตามกัน
+- ปรับ `รายแปลงในแคมป์` ให้เปลี่ยนตาม filter พื้นที่ ไม่ต้องเลือกแคมป์ซ้ำอีกรอบ
+- เพิ่มข้อมูล Carbon Footprint: ปีฐาน, ปีดำเนินโครงการ และผลต่าง
+- เพิ่มข้อมูล Carbon Credit: baseline, project และ credit ที่ได้เพิ่มขึ้น/ลดลง
+- เพิ่ม preview เอกสารรายแปลง และปุ่ม `Download PDF` / `Download Word`
+- เอกสารรายแปลงมีคอลัมน์: ลำดับ, ชื่อแคมป์, รหัสแปลง, ชนิดดิน, พื้นที่โครงการ, พิกัด x/y และภาพลักษณะแปลง
+
+### Responsive / Layout
+
+- แก้ปัญหาข้อความถูกบีบจนเรียงตัวแนวตั้งตอน sidebar แสดง
+- เพิ่ม `min-width: 0` ให้ layout หลักเพื่อให้ content ย่อขยายตามพื้นที่จริง
+- ปรับ text wrapping จาก `anywhere` เป็น `break-word` เพื่อไม่ให้คำถูกตัดเป็นตัวอักษรเดี่ยว ๆ
+
+### การตรวจสอบและ Git
+
+- รัน `npm run build` ผ่านทั้ง frontend/backend
+- ตรวจ route `/overview`, `/report`, `/process`, `/footprint-report`, `/spatial` แล้วตอบกลับ `200`
+- Push ขึ้น branch `idea` แล้ว
+- Commit ล่าสุด: `d50407f Improve carbon analytics spatial reports`
 
 ## อัปเดตล่าสุด วันที่ 4 มิถุนายน 2569 - ปรับหน้ารายงานคาร์บอนฟุตพริ้นท์แบบ Block Summary
 

@@ -3,9 +3,6 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { MapContainer, Marker, Polygon, Popup, TileLayer, useMap } from "react-leaflet";
 import type { LatLngBoundsExpression, LatLngTuple } from "leaflet";
-import defaultMarkerIcon2x from "leaflet/dist/images/marker-icon-2x.png?url";
-import defaultMarkerIconUrl from "leaflet/dist/images/marker-icon.png?url";
-import markerShadow from "leaflet/dist/images/marker-shadow.png?url";
 import type { CampFieldCarbonDetail, FieldCarbonDetail, SpatialSummaryNode } from "../../types/dashboard";
 
 type BoundaryField = CampFieldCarbonDetail | FieldCarbonDetail;
@@ -18,18 +15,6 @@ interface Props {
   selectedBoundaryFieldId?: string;
   onSelectBoundaryField?: (id: string) => void;
 }
-
-const defaultMarkerIcon = L.icon({
-  iconRetinaUrl: defaultMarkerIcon2x,
-  iconUrl: defaultMarkerIconUrl,
-  shadowUrl: markerShadow,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
-});
-
-L.Marker.prototype.options.icon = defaultMarkerIcon;
 
 interface TileLoadState {
   loading: number;
@@ -74,16 +59,43 @@ function Recenter({
   return null;
 }
 
-function markerIcon(node: SpatialSummaryNode) {
-  const diff = node.baselineEmission - node.currentEmission;
+function formatMarkerValue(value: number) {
+  if (value >= 1000) return `${(value / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })}k`;
+  return value.toLocaleString(undefined, { maximumFractionDigits: value >= 10 ? 0 : 1 });
+}
+
+function carbonDiff(item: Pick<SpatialSummaryNode, "baselineEmission" | "currentEmission">) {
+  return item.baselineEmission - item.currentEmission;
+}
+
+function carbonMarkerIcon(
+  item: Pick<SpatialSummaryNode, "baselineEmission" | "currentEmission" | "fields">,
+  options: { selected?: boolean; variant?: "area" | "field" } = {},
+) {
+  const diff = carbonDiff(item);
   const good = diff >= 0;
-  const color = good ? "#277B27" : "#BA0900";
+  const color = good ? "#16803F" : "#C2410C";
+  const soft = good ? "#DCFCE7" : "#FFEDD5";
   const arrow = good ? "↓" : "↑";
+  const markerClass = [
+    "carbon-location-marker",
+    good ? "is-good" : "is-bad",
+    options.selected ? "is-selected" : "",
+    options.variant === "field" ? "is-field" : "is-area",
+  ].filter(Boolean).join(" ");
   return L.divIcon({
     className: "",
-    iconSize: [38, 38],
-    iconAnchor: [19, 19],
-    html: `<div style="width:38px;height:38px;border-radius:50%;border:2px solid ${color};background:#fff;color:${color};display:flex;align-items:center;justify-content:center;font-weight:900;font-size:20px;box-shadow:0 6px 16px ${color}55">${arrow}</div>`,
+    iconSize: [78, 58],
+    iconAnchor: [39, 52],
+    popupAnchor: [0, -48],
+    html: `
+      <div class="${markerClass}" style="--carbon-marker-color:${color};--carbon-marker-soft:${soft}">
+        <span class="carbon-marker-pin"><i></i></span>
+        <span class="carbon-marker-trend">${arrow}</span>
+        <span class="carbon-marker-value">${formatMarkerValue(Math.abs(diff))}</span>
+        <span class="carbon-marker-count">${item.fields.toLocaleString()} แปลง</span>
+      </div>
+    `,
   });
 }
 
@@ -100,6 +112,7 @@ export function ThailandMap({ nodes, selectedId, onSelect, boundaryFields = [], 
     [boundaryFields],
   );
   const selectedBoundary = fieldBoundaries.find((item) => item.field.id === selectedBoundaryFieldId)?.boundary;
+  const showSpatialNodeMarkers = fieldBoundaries.length === 0;
   const totalTiles = tileState.loading + tileState.loaded + tileState.failed;
   const completedTiles = tileState.loaded + tileState.failed;
   const loadPercent = totalTiles ? Math.round((completedTiles / totalTiles) * 100) : 0;
@@ -133,7 +146,11 @@ export function ThailandMap({ nodes, selectedId, onSelect, boundaryFields = [], 
               }}
               eventHandlers={{ click: () => onSelectBoundaryField?.(field.id) }}
             />
-            <Marker position={[field.lat, field.lng]} eventHandlers={{ click: () => onSelectBoundaryField?.(field.id) }}>
+            <Marker
+              position={[field.lat, field.lng]}
+              icon={carbonMarkerIcon(field, { selected: isSelected, variant: "field" })}
+              eventHandlers={{ click: () => onSelectBoundaryField?.(field.id) }}
+            >
               <Popup>
                 <strong>{field.fieldCode}</strong>
                 <br />
@@ -141,13 +158,15 @@ export function ThailandMap({ nodes, selectedId, onSelect, boundaryFields = [], 
                 <br />
                 {field.areaRai.toLocaleString()} ไร่ · {("co2eTotal" in field ? field.co2eTotal : field.currentEmission).toLocaleString()} tCO2e
                 <br />
+                Baseline {field.baselineEmission.toLocaleString()} → Current {field.currentEmission.toLocaleString()} tCO2e
+                <br />
                 เกษตรกร: {field.farmerName}
               </Popup>
             </Marker>
           </Fragment>
         );
       })}
-      {visibleNodes.map((node) => {
+      {showSpatialNodeMarkers && visibleNodes.map((node) => {
         const diff = node.baselineEmission - node.currentEmission;
         const pct = node.baselineEmission ? (diff / node.baselineEmission) * 100 : 0;
         const label = diff >= 0 ? "ลดลง" : "เพิ่มขึ้น";
@@ -155,7 +174,7 @@ export function ThailandMap({ nodes, selectedId, onSelect, boundaryFields = [], 
           <Marker
             key={node.id}
             position={[node.lat, node.lng]}
-            icon={markerIcon(node)}
+            icon={carbonMarkerIcon(node, { selected: node.id === selectedId, variant: "area" })}
             eventHandlers={{ click: () => onSelect(node.id) }}
           >
             <Popup>
@@ -171,6 +190,12 @@ export function ThailandMap({ nodes, selectedId, onSelect, boundaryFields = [], 
         );
       })}
     </MapContainer>
+      <div className="map-symbol-legend" aria-label="คำอธิบายสัญลักษณ์บนแผนที่">
+        <strong>สัญลักษณ์พื้นที่</strong>
+        <span><i className="legend-pin" /> ตำแหน่งแปลง/พื้นที่ + จำนวนแปลง</span>
+        <span><i className="legend-arrow good">↓</i> Carbon Footprint ลดลง</span>
+        <span><i className="legend-arrow bad">↑</i> Carbon Footprint เพิ่มขึ้น</span>
+      </div>
       {(isLoadingTiles || tileState.failed > 0) && (
         <div className={`map-loading-overlay ${tileState.failed > 0 && !isLoadingTiles ? "warning" : ""}`}>
           <strong>{tileState.failed > 0 && !isLoadingTiles ? "โหลดแผนที่ไม่ครบ" : "กำลังโหลดแผนที่"}</strong>

@@ -631,9 +631,9 @@ export function CfSpatialPage() {
         </section>
 
         <section className="grid2">
-          <article className="card">
+          <article className="card spatial-summary-card">
             <div className="card-title">สรุปรายละเอียดพื้นที่ · {focusNode.name}</div>
-            <div className="mini-stat-grid wide">
+            <div className="mini-stat-grid wide spatial-summary-stats">
               <div><strong>{focusNode.fields}</strong><span>แปลง</span></div>
               <div><strong>{focusNode.farmers}</strong><span>เกษตรกร</span></div>
               <div><strong>{focusNode.areaRai.toLocaleString()}</strong><span>ไร่</span></div>
@@ -642,7 +642,7 @@ export function CfSpatialPage() {
                 <span>{diff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} tCO2e</span>
               </div>
             </div>
-            <div className="carbon-compare">
+            <div className="carbon-compare spatial-carbon-compare">
               <div><span>Carbon Footprint ปีฐาน</span><strong>{focusNode.baselineEmission.toLocaleString()} tCO2e</strong></div>
               <div><span>Carbon Footprint ปีดำเนินการ</span><strong>{focusNode.currentEmission.toLocaleString()} tCO2e</strong></div>
               <div><span>ผลต่าง Footprint</span><strong className={diff >= 0 ? "green-text" : "red-text"}>{carbonCredit.direction} {formatNumber(Math.abs(diff), 2)} tCO2e</strong></div>

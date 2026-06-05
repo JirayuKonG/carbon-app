@@ -149,59 +149,6 @@ function reportSections() {
   ];
 }
 
-const caneMixColors = ["#2F80ED", "#18A999", "#F59E0B", "#7C3AED"];
-
-function FootprintCaneMixPanel({ data }: { data: CaneTypeSummary[] }) {
-  const totalArea = data.reduce((sum, item) => sum + item.areaRai, 0);
-  const totalCo2e = data.reduce((sum, item) => sum + (item.co2eTotal ?? 0), 0);
-  const primary = [...data].sort((a, b) => b.percent - a.percent)[0];
-
-  return (
-    <section className="card full-span footprint-cane-mix-panel">
-      <div className="card-title-row">
-        <div>
-          <div className="card-title">องค์ประกอบพื้นที่ตามประเภทอ้อย</div>
-          <p className="muted">ใช้เป็นหลักฐานประกอบการแตกข้อมูลประเภทอ้อย x กระบวนการ ไม่ใช่ชุด KPI รวมซ้ำกับ block สรุปด้านบน</p>
-        </div>
-        <div className="footprint-cane-mix-total">
-          <span>พื้นที่รวม</span>
-          <strong>{formatNumber(totalArea, 1)} ไร่</strong>
-        </div>
-      </div>
-
-      <div className="footprint-cane-composition" aria-label="สัดส่วนประเภทอ้อยและพื้นที่พักดิน">
-        {data.map((item, index) => (
-          <span
-            key={item.name}
-            style={{ width: `${Math.max(item.percent, 2)}%`, background: caneMixColors[index % caneMixColors.length] }}
-            title={`${item.name} ${item.percent.toFixed(1)}%`}
-          />
-        ))}
-      </div>
-
-      <div className="footprint-cane-mix-grid">
-        {data.map((item, index) => (
-          <article key={item.name}>
-            <i style={{ background: caneMixColors[index % caneMixColors.length] }} />
-            <div>
-              <span>{item.name}</span>
-              <strong>{item.percent.toFixed(1)}%</strong>
-              <small>{formatNumber(item.areaRai, 1)} ไร่{item.co2eTotal != null ? ` · ${formatNumber(item.co2eTotal, 1)} tCO2e` : ""}</small>
-            </div>
-          </article>
-        ))}
-      </div>
-
-      <div className="footprint-cane-mix-note">
-        <div><span>ประเภทพื้นที่หลัก</span><strong>{primary?.name ?? "-"}</strong></div>
-        <div><span>Carbon รวมตามประเภทพื้นที่</span><strong>{formatNumber(totalCo2e, 1)} tCO2e</strong></div>
-      </div>
-
-      {!data.length && <div className="empty-state">ยังไม่มีข้อมูลประเภทอ้อยสำหรับสรุป</div>}
-    </section>
-  );
-}
-
 function footprintWordHtml({
   scopeLabel,
   currentYear,
@@ -778,8 +725,6 @@ export function CfFootprintReportPage() {
           </article>
         </section>
 
-        <FootprintCaneMixPanel data={caneTypeResult.data} />
-
         <section className="card full-span">
           <div className="card-title">Hotspot รายกระบวนการ · แสดงแบบ block summary</div>
           <div className="footprint-block-grid">
@@ -830,7 +775,7 @@ export function CfFootprintReportPage() {
                         <td rowSpan={rowSpan} className="rowspan-cell">{row.cane.percent.toFixed(1)}% · {formatNumber(row.cane.areaRai, 1)} ไร่</td>
                       </>
                     )}
-                    <td>{row.process}</td>
+                    <td className="process-name-cell">{row.process}</td>
                     <td>{row.activity}</td>
                     <td>{formatNumber(row.baselineEmission)} tCO2e</td>
                     <td>{formatNumber(row.currentEmission)} tCO2e</td>
@@ -845,21 +790,7 @@ export function CfFootprintReportPage() {
           </div>
         </section>
 
-        <section className="report-layout footprint-preview-layout">
-          <div className="card report-paper footprint-web-report">
-            <h2>รายงานสรุปสำหรับตรวจทาน</h2>
-            <p className="muted">หน้าพรีวิวนี้ใช้โครงเดียวกับเอกสาร Word และตัวเลขเดียวกับไฟล์ Excel</p>
-            <div className="report-form-grid">
-              <div><span>ขอบเขตข้อมูล</span><strong>{selectedScopeLabel}</strong></div>
-              <div><span>ประเภทอ้อย</span><strong>{selectedCaneLabel}</strong></div>
-              <div><span>ปีฐาน</span><strong>{formatNumber(baselineTotal)} tCO2e</strong></div>
-              <div><span>ปีรายงาน {currentYear}</span><strong>{formatNumber(currentTotal)} tCO2e</strong></div>
-              <div><span>ผลต่าง</span><strong>{reduction.text}</strong></div>
-              <div><span>Hotspot สูงสุด</span><strong>{topProcess?.process ?? "-"}</strong></div>
-            </div>
-          </div>
-
-          <div className="report-preview-stack">
+        <section className="report-preview-stack full-span footprint-preview-layout">
             <div className="card pdf-preview">
               <div className="card-title">PDF Preview · รายงานคาร์บอนฟุตพริ้นท์</div>
               {pdfUrl ? <iframe title="Carbon Footprint PDF Preview" src={pdfUrl} /> : <div className="empty-state">กำลังเตรียม preview...</div>}
@@ -908,7 +839,6 @@ export function CfFootprintReportPage() {
                 </div>
               </div>
             </div>
-          </div>
         </section>
       </div>
     </div>
