@@ -1,6 +1,6 @@
 # Bug Tracking Log
 
-Last updated: 2026-06-04
+Last updated: 2026-06-05
 
 Use the checkboxes to track what is fixed. Keep new findings here so future work can restart quickly.
 
@@ -54,6 +54,12 @@ Use the checkboxes to track what is fixed. Keep new findings here so future work
   - Fix: `backend/src/main.ts` disables the default body parser and installs `50mb` JSON/urlencoded parsers before routes are registered; `backend/src/modules/activities/activities.controller.ts` now returns a clear `400` if mappings/rows are missing; `frontend/src/features/activities/ActivitiesPage.tsx` now splits activity CSV import into approximately `20 KB` chunks and merges the chunk results.
   - Verify: `npm run build --workspace=backend`; `npm run build --workspace=frontend`.
 
+- [x] BUG-016: Activity CSV import made imported row counts hard to understand.
+  - Impact: users could prepare more rows than appeared after import, and repeated real-world activities could look like missing data because import grouping and skip reasons were not explicit enough.
+  - Evidence: activity CSV import reused headers by `land_id + date + activity type + land type + sugarcane type`, accepted missing/invalid dates by falling back to current dates, and reported skipped rows as raw errors without a clear reason summary.
+  - Fix: import now treats repeated activity rows as valid separate `log_activities_detail` records; requires a valid `log_act_detail_create_at`; skips only rows with missing land/camp identity or bad date before creating related data; reuses the latest `activities_header` per `land_id`; keeps camp-only rows through internal `AUTO-CAMP-*` placeholder land while the UI displays `เบิกเข้าไร่`; and groups skip reasons in the import result.
+  - Verify: `npm run build --workspace=backend`; `npm run build --workspace=frontend`.
+
 ## Open
 
 - [ ] BUG-002: PostgreSQL insert can fail for geo tables because primary keys have no Prisma default.
@@ -99,8 +105,10 @@ Use the checkboxes to track what is fixed. Keep new findings here so future work
 ## Verification Notes
 
 - `npm run build --workspace=backend`: passed after BUG-001 fix and again on 2026-05-30.
+- `npm run build --workspace=backend`: passed again on 2026-06-05 after activity CSV import rule changes.
 - `npm run prisma:generate --workspace=backend`: passed.
 - `npm run build --workspace=frontend`: passed on 2026-05-25 and again on 2026-05-30.
+- `npm run build --workspace=frontend`: passed again on 2026-06-05 after activity CSV import UI updates.
 - PostgreSQL metadata confirmed BUG-002 for the live database configured by `backend/.env`.
 - PostgreSQL metadata confirmed `land_id`, `land_camp_id`, and `landmap_id` also have no default/identity; BUG-012 backend workaround is in place.
 - Static review on 2026-05-30 confirmed BUG-005 is fixed, BUG-006 is now weather-only, and added BUG-013 and BUG-014.

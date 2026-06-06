@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ActivitySquare, Calculator, CheckCircle2, CircleAlert, Clock3, Edit3, Leaf } from 'lucide-react'
+import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { DashboardVisibilityMenu, useDashboardVisibility } from '@/components/ui/DashboardVisibilityMenu'
 import {
@@ -75,6 +76,15 @@ function formatNumber(value?: number, digits = 0) {
   })
 }
 
+function formatQuantityValue(value?: number | null) {
+  if (value == null || Number.isNaN(value)) return '—'
+  const digits = Number.isInteger(value) ? 0 : 3
+  return value.toLocaleString('th-TH', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  })
+}
+
 export function CfCalculatePage() {
   const qc = useQueryClient()
   const [selectedIds, setSelectedIds] = useState<number[]>([])
@@ -82,26 +92,34 @@ export function CfCalculatePage() {
   const [activityTypeFilter, setActivityTypeFilter] = useState('')
   const [resourceTypeFilter, setResourceTypeFilter] = useState('')
 
-  const { data: details = [], isLoading } = useQuery({
+  const { data: details = [], isLoading, error: detailsError } = useQuery({
     queryKey: ['activity-details-calculate'],
     queryFn: () => get<LogDetail[]>('/activities/details'),
   })
-  const { data: calStatuses = [] } = useQuery({
+  const { data: calStatuses = [], error: calStatusesError } = useQuery({
     queryKey: ['cal-statuses-calculate'],
     queryFn: () => get<CalStatus[]>('/activities/cal-statuses'),
   })
-  const { data: headerTypes = [] } = useQuery({
+  const { data: headerTypes = [], error: headerTypesError } = useQuery({
     queryKey: ['header-types-calculate'],
     queryFn: () => get<HeaderType[]>('/activities/header-types'),
   })
-  const { data: detailTypes = [] } = useQuery({
+  const { data: detailTypes = [], error: detailTypesError } = useQuery({
     queryKey: ['detail-types-calculate'],
     queryFn: () => get<DetailType[]>('/activities/detail-types'),
   })
-  const { data: resourceTypes = [] } = useQuery({
+  const { data: resourceTypes = [], error: resourceTypesError } = useQuery({
     queryKey: ['resource-types-calculate'],
     queryFn: () => get<ResourceType[]>('/activities/resource-types'),
   })
+
+  const pageQueryItems = [
+    { label: 'รายการสำหรับคำนวณ', error: detailsError },
+    { label: 'สถานะการคำนวณ', error: calStatusesError },
+    { label: 'ประเภทกิจกรรม', error: headerTypesError },
+    { label: 'รายละเอียดกิจกรรม', error: detailTypesError },
+    { label: 'ประเภทปัจจัย', error: resourceTypesError },
+  ]
 
   const headerTypeMap = Object.fromEntries(headerTypes.map((item) => [item.act_header_type_id, item.act_header_type_name_th]))
   const detailTypeMap = Object.fromEntries(detailTypes.map((item) => [item.act_header_detail_type_id, item.act_header_detail_type_name_th]))
@@ -129,7 +147,7 @@ export function CfCalculatePage() {
       detailTypeName: detailTypeMap[detail.act_header_detail_type_id ?? 0] ?? (detail.act_header_detail_type_id != null ? String(detail.act_header_detail_type_id) : '—'),
       resourceTypeName: detail.resource_used_type?.resc_used_type_name ?? resourceTypeMap[detail.resource_used_type_id] ?? '—',
       resourceItemName: getResourceItemName(detail),
-      quantityLabel: formatNumber(detail.log_act_detail_quatity),
+      quantityLabel: formatQuantityValue(detail.log_act_detail_quatity),
       totalVolumeLabel: formatNumber(detail.log_act_detail_volumeAll, 3),
       statusLabel: getActivityCalStatusLabel(statusRawName, detail.log_act_detail_calStatus_id),
       statusRawName,
@@ -343,6 +361,12 @@ export function CfCalculatePage() {
             </div>
           </div>
         </div>
+
+        <DatabaseConnectionNotice
+          items={pageQueryItems}
+          className="mt-4"
+          onRetry={() => { void qc.refetchQueries({ type: 'active' }) }}
+        />
 
         <div className="mb-1">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">

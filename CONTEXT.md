@@ -1,6 +1,6 @@
 # Project Context Memory
 
-Last updated: 2026-06-04
+Last updated: 2026-06-05
 
 This file is a working memory for the project. It summarizes the current repo state, important decisions, active risks, and where future work should start. Update it when major behavior, routes, architecture, or project status changes.
 
@@ -132,6 +132,14 @@ Recent CSV import note:
 - This is required because the Step 4 `Validate` import flow sends the full mapped CSV row set to `POST /activities/import`, which previously could fail with `request entity too large` on big files.
 - The Nest default body parser is disabled so the custom `50mb` JSON/urlencoded parser is installed first; otherwise the default parser can still reject large CSV payloads before the route is reached.
 - The activity CSV wizard now imports through `frontend/src/features/activities/ActivitiesPage.tsx` in approximately `20 KB` chunks and merges the chunk results back into one wizard result. This avoids gateway/database-host sensitivity to one large request while continuing to reuse `POST /activities/import`.
+- On 2026-06-05, the activity CSV import rules were changed so repeated activity rows are valid data, not duplicates to merge or discard.
+- `log_act_detail_create_at` is now treated as the required activity date for import. Rows with a missing or invalid date are skipped with a clear `วันที่ผิด/หาย` error instead of silently using the current date.
+- Rows with neither `land_code` nor `land_camp_name` are skipped with a clear `ไม่พบไร่/แปลง` error. Rows with only `land_camp_name` still import through an internal `AUTO-CAMP-*` placeholder land, but the activity UI displays them as `เบิกเข้าไร่`.
+- Activity import now reuses the latest existing `activities_header` per `land_id`. It no longer groups/reuses headers by `land + date + activity type`; if a land has no header yet, the import creates one header using the first valid imported activity date for that land.
+- The import wizard summary now groups skipped rows by reason, including missing land/camp, bad date, unit issues, resource issues, and other errors.
+- The activity management and activity log pages now display `log_act_detail_create_at` as date-only, without time.
+- The activity CSV wizard Validate step now shows an import progress bar after confirmation. Progress is reported from the chunk importer by bytes uploaded versus total chunk bytes, using the current approximately `20 KB` chunk size.
+- On 2026-06-05, `log_act_detail_quatity` was changed from integer to float across Prisma schema, activity import parsing, and activity UI forms/displays. A manual SQL migration was added at `backend/src/prisma/manual-migrations/2026-06-05-log-act-detail-quatity-to-float.sql`, and the live PostgreSQL column was widened to `double precision`.
 
 ## Carbon Analytics Data Source Reality
 
@@ -219,6 +227,7 @@ Recent fixed areas worth remembering:
 - Sidebar active-state logic was fixed so `/lands/weather` does not highlight two items
 - Geo page now shows the full reference chain and visible load errors
 - Infra delete URL/ID mapping was corrected
+- Activity CSV import now preserves repeated valid records as separate `log_activities_detail` rows and reports skipped rows by reason
 
 ## Build And Verification Snapshot
 

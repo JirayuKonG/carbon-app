@@ -1,5 +1,6 @@
 import { type FormEvent, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { get, post, put, del } from '@/lib/api'
@@ -31,9 +32,15 @@ export function UsersPage() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null)
 
   // query data
-  const { data: users       = [], isLoading: uLoad } = useQuery({ queryKey: ['users'],       queryFn: () => get<User[]>('/users') })
-  const { data: roles       = [], isLoading: rLoad } = useQuery({ queryKey: ['roles'],       queryFn: () => get<Role[]>('/users/roles') })
-  const { data: departments = [], isLoading: dLoad } = useQuery({ queryKey: ['departments'], queryFn: () => get<Department[]>('/infra/departments') })
+  const { data: users       = [], isLoading: uLoad, error: usersError } = useQuery({ queryKey: ['users'],       queryFn: () => get<User[]>('/users') })
+  const { data: roles       = [], isLoading: rLoad, error: rolesError } = useQuery({ queryKey: ['roles'],       queryFn: () => get<Role[]>('/users/roles') })
+  const { data: departments = [], isLoading: dLoad, error: departmentsError } = useQuery({ queryKey: ['departments'], queryFn: () => get<Department[]>('/infra/departments') })
+
+  const pageQueryItems = [
+    { label: 'ข้อมูลผู้ใช้', error: usersError },
+    { label: 'บทบาท', error: rolesError },
+    { label: 'แผนก', error: departmentsError },
+  ]
 
   // mutations
   const deleteMut = useMutation({
@@ -136,6 +143,12 @@ export function UsersPage() {
           <Plus size={14} /> เพิ่มผู้ใช้ใหม่
         </button>
       </div>
+
+      <DatabaseConnectionNotice
+        items={pageQueryItems}
+        className="mb-4"
+        onRetry={() => { void qc.refetchQueries({ type: 'active' }) }}
+      />
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 bg-surface-100 p-1 rounded-xl w-fit">
