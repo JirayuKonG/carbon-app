@@ -61,17 +61,11 @@ function sumEmission(rows: ProcessActivityBreakdown[]) {
   return rows.reduce((sum, row) => sum + row.totalEmission, 0);
 }
 
-function aggregateActivityValues(rows: ProcessActivityBreakdown[]): ActivityValue[] {
-  const values = new Map<string, number>();
-  rows.forEach((row) => {
-    const activities = row.activities.length ? row.activities : [{ name: row.process, emission: row.totalEmission }];
-    activities.forEach((activity) => {
-      values.set(activity.name, (values.get(activity.name) ?? 0) + activity.emission);
-    });
+function processEmissionValues(rows: ProcessActivityBreakdown[]): ActivityValue[] {
+  return sortProcessLabels(rows.map((row) => row.process)).map((process) => {
+    const emission = rows.find((row) => row.process === process)?.totalEmission ?? 0;
+    return { name: process, emission: Number(emission.toFixed(2)) };
   });
-  return Array.from(values.entries())
-    .map(([name, emission]) => ({ name, emission: Number(emission.toFixed(2)) }))
-    .sort((a, b) => b.emission - a.emission);
 }
 
 function fieldProcessRows(field: CampFieldCarbonDetail, year: string, totalEmission: number): ProcessActivityBreakdown[] {
@@ -132,6 +126,22 @@ function scaleInputRows(rows: ProcessInputComparison[], factor: number): Process
     currentFertilizerKg: Number((row.currentFertilizerKg * factor).toFixed(1)),
     baselineFuelLiter: Number((row.baselineFuelLiter * factor).toFixed(1)),
     currentFuelLiter: Number((row.currentFuelLiter * factor).toFixed(1)),
+  }));
+}
+
+function scaleCampRows(rows: CampCarbonSummary[], factor: number): CampCarbonSummary[] {
+  if (factor === 1) return rows;
+  return rows.map((camp) => ({
+    ...camp,
+    baselineCo2eTotal: Number((camp.baselineCo2eTotal * factor).toFixed(2)),
+    currentCo2eTotal: Number((camp.currentCo2eTotal * factor).toFixed(2)),
+    co2eTotal: Number((camp.co2eTotal * factor).toFixed(2)),
+    co2ePerRai: Number((camp.co2ePerRai * factor).toFixed(4)),
+    baselineActivityBreakdown: camp.baselineActivityBreakdown.map((item) => ({ ...item, emission: Number((item.emission * factor).toFixed(2)) })),
+    currentActivityBreakdown: camp.currentActivityBreakdown.map((item) => ({ ...item, emission: Number((item.emission * factor).toFixed(2)) })),
+    baselineProcessActivities: scaleProcessRows(camp.baselineProcessActivities, factor),
+    currentProcessActivities: scaleProcessRows(camp.currentProcessActivities, factor),
+    processInputComparisons: scaleInputRows(camp.processInputComparisons, factor),
   }));
 }
 
@@ -198,7 +208,7 @@ export function CfProcessPage() {
   const selectedByCane = scaleProcessRows(selected, caneMeta.factor);
   const chartBaseline = scaleProcessRows(chartBaselineRaw, caneMeta.factor);
   const chartCurrent = scaleProcessRows(chartCurrentRaw, caneMeta.factor);
-  const campRows = selectedCamp ? [selectedCamp] : campResult.data;
+  const campRows = scaleCampRows(selectedCamp ? [selectedCamp] : campResult.data, caneMeta.factor);
   const baselineTotal = (selectedField ? selectedField.baselineEmission : selectedCamp ? selectedCamp.baselineCo2eTotal : sumEmission(baseline)) * caneMeta.factor;
   const currentTotal = (selectedField ? selectedField.currentEmission : selectedCamp ? selectedCamp.currentCo2eTotal : sumEmission(current)) * caneMeta.factor;
   const summaryAreaRai = selectedField ? selectedField.areaRai : selectedCamp ? selectedCamp.areaRai : overviewKpi?.areaRai ?? campResult.data.reduce((sum, camp) => sum + camp.areaRai, 0);
@@ -220,7 +230,10 @@ export function CfProcessPage() {
     ? selectedField
       ? [{ name: selectedField.fieldName, emission: Number((selectedField.currentEmission * caneMeta.factor).toFixed(2)) }]
       : (selectedCampId ? fieldsInCamp : fieldResult.data).map((field) => ({ name: field.fieldName, emission: Number((field.co2eTotal * caneMeta.factor).toFixed(2)) }))
-    : aggregateActivityValues(currentScopeRows);
+    : processEmissionValues(currentScopeRows);
+  const chartBaselineTotal = sumEmission(chartBaseline);
+  const chartCurrentTotal = sumEmission(chartCurrent);
+  const chartDiff = chartBaselineTotal - chartCurrentTotal;
 
   return (
     <div className="cf-dash">
@@ -314,7 +327,7 @@ export function CfProcessPage() {
           </div>
         </section>
 
-        <CaneTypeSummaryPanel result={caneTypeResult} showSource={false} />
+        <CaneTypeSummaryPanel result={caneTypeResult} showSource={false} mode="footprint" />
 
         <section className="process-summary-grid">
           <article>
@@ -375,28 +388,28 @@ export function CfProcessPage() {
             )}
             {selectedField ? (
               <div className="summary-list">
-                <div><span>ปีฐาน</span><strong>{selectedField.baselineEmission.toLocaleString()} tCO2e</strong></div>
-                <div><span>ปีดำเนินการ</span><strong>{selectedField.currentEmission.toLocaleString()} tCO2e</strong></div>
+                <div><span>ปีฐาน</span><strong>{chartBaselineTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
+                <div><span>ปีดำเนินการ</span><strong>{chartCurrentTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
                 <div>
                   <span>ผลต่าง</span>
-                  <strong className={selectedField.currentEmission <= selectedField.baselineEmission ? "green-text" : "red-text"}>
-                    {Math.abs(selectedField.currentEmission - selectedField.baselineEmission).toFixed(2)} tCO2e
+                  <strong className={chartDiff >= 0 ? "green-text" : "red-text"}>
+                    {Math.abs(chartDiff).toFixed(2)} tCO2e
                   </strong>
                 </div>
               </div>
             ) : selectedCamp ? (
               <div className="summary-list">
-                <div><span>ปีฐาน</span><strong>{selectedCamp.baselineCo2eTotal.toLocaleString()} tCO2e</strong></div>
-                <div><span>ปีดำเนินการ</span><strong>{selectedCamp.currentCo2eTotal.toLocaleString()} tCO2e</strong></div>
+                <div><span>ปีฐาน</span><strong>{chartBaselineTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
+                <div><span>ปีดำเนินการ</span><strong>{chartCurrentTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
                 <div>
                   <span>ผลต่าง</span>
-                  <strong className={selectedCamp.currentCo2eTotal <= selectedCamp.baselineCo2eTotal ? "green-text" : "red-text"}>
-                    {Math.abs(selectedCamp.currentCo2eTotal - selectedCamp.baselineCo2eTotal).toFixed(2)} tCO2e
+                  <strong className={chartDiff >= 0 ? "green-text" : "red-text"}>
+                    {Math.abs(chartDiff).toFixed(2)} tCO2e
                   </strong>
                 </div>
               </div>
             ) : (
-              <ProcessSummary baseline={baseline} current={current} />
+              <ProcessSummary baseline={chartBaseline} current={chartCurrent} />
             )}
           </article>
         </section>

@@ -170,7 +170,37 @@
 .cf-dash .chart-box { height: 340px; border-radius: 18px; padding: 12px; background: linear-gradient(to bottom, #FFFFFF, #F9FCFF); }
 .cf-dash .chart-box.md { height: 320px; }
 .cf-dash .doughnut-wrap h3 { color: var(--text-dim); margin-bottom: 10px; }
-.cf-dash .doughnut-canvas { height: 280px; }
+.cf-dash .doughnut-canvas { position: relative; height: 280px; }
+.cf-dash .doughnut-center-label {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  min-width: 86px;
+  transform: translate(-50%, -50%);
+  color: var(--text);
+  pointer-events: none;
+  text-align: center;
+}
+.cf-dash .doughnut-center-label small {
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+.cf-dash .doughnut-center-label strong {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 22px;
+  font-weight: 850;
+  line-height: 1;
+}
+.cf-dash .doughnut-center-label span {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
 .cf-dash .sub-pie-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 16px; }
 .cf-dash .sub-card .doughnut-canvas { height: 210px; }
 .cf-dash .value-legend {
@@ -555,7 +585,7 @@
   margin: 14px 0 18px;
 }
 
-.cf-dash .cane-summary-panel { display: grid; gap: 12px; }
+.cf-dash .cane-summary-panel { display: grid; gap: 10px; }
 .cf-dash .cane-kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0,1fr));
@@ -583,11 +613,13 @@
 }
 .cf-dash .cane-share-bar {
   display: flex;
-  min-height: 16px;
+  width: 100%;
+  min-height: 8px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface2);
+  opacity: 0.78;
 }
 .cf-dash .cane-share-bar span { display: block; min-width: 4px; }
 .cf-dash .cane-legend-grid {
@@ -600,6 +632,7 @@
   grid-template-columns: 10px minmax(0,1fr);
   align-items: center;
   gap: 8px;
+  border-left: 3px solid transparent;
 }
 .cf-dash .cane-legend-grid strong {
   color: var(--text);
@@ -1377,15 +1410,32 @@
   background: var(--surface);
   color: var(--text);
 }
+.cf-dash .report-generate-btn {
+  border: 1px solid #344456;
+  background: #344456;
+  color: #fff;
+  box-shadow: 0 6px 14px rgba(52, 68, 86, .16);
+}
+.cf-dash .report-generate-btn:hover:not(:disabled) {
+  border-color: #233142;
+  background: #233142;
+  box-shadow: 0 8px 18px rgba(35, 49, 66, .18);
+}
+.cf-dash .report-generate-notice {
+  margin: 10px 0 14px;
+  border: 1px solid rgba(37, 99, 235, .2);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #eef6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 650;
+}
 .cf-dash .report-layout {
   display: grid;
   grid-template-columns: minmax(0, 620px) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
-}
-.cf-dash .report-preview-stack {
-  display: grid;
-  gap: 18px;
 }
 .cf-dash .pdf-render-source {
   position: fixed;
@@ -1402,6 +1452,39 @@
 }
 .cf-dash .report-paper h2 { margin-bottom: 4px; }
 .cf-dash .report-paper h3 { margin-top: 18px; margin-bottom: 8px; color: var(--accent-dark); }
+.cf-dash .report-preview-panel {
+  display: grid;
+  gap: 12px;
+}
+.cf-dash .report-preview-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cf-dash .report-preview-tabs {
+  display: inline-flex;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  background: var(--surface2);
+}
+.cf-dash .report-preview-tabs button {
+  border: 0;
+  border-radius: 6px;
+  padding: 7px 12px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.cf-dash .report-preview-tabs button.active {
+  background: #fff;
+  color: var(--accent-dark);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .12);
+}
 .cf-dash .pdd-paper {
   color: #1f2937;
   width: 1120px;
@@ -1547,6 +1630,12 @@
   text-align: left;
 }
 .cf-dash .report-table th { background: #EEF6FF; color: var(--text-dim); }
+.cf-dash .report-table .process-group-cell {
+  background: #f8fbfe;
+  color: var(--accent-dark);
+  font-weight: 750;
+  vertical-align: top;
+}
 .cf-dash .input-table tr.active-row td {
   background: rgba(91,164,255,.1);
   box-shadow: inset 3px 0 0 var(--accent-dark);
@@ -1941,5 +2030,14 @@
   }
   .cf-dash .report-toolbar button {
     width: 100%;
+  }
+  .cf-dash .report-preview-header {
+    display: grid;
+  }
+  .cf-dash .report-preview-tabs {
+    width: 100%;
+  }
+  .cf-dash .report-preview-tabs button {
+    flex: 1;
   }
 }
