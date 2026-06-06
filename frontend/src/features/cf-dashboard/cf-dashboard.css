@@ -170,7 +170,37 @@
 .cf-dash .chart-box { height: 340px; border-radius: 18px; padding: 12px; background: linear-gradient(to bottom, #FFFFFF, #F9FCFF); }
 .cf-dash .chart-box.md { height: 320px; }
 .cf-dash .doughnut-wrap h3 { color: var(--text-dim); margin-bottom: 10px; }
-.cf-dash .doughnut-canvas { height: 280px; }
+.cf-dash .doughnut-canvas { position: relative; height: 280px; }
+.cf-dash .doughnut-center-label {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  min-width: 86px;
+  transform: translate(-50%, -50%);
+  color: var(--text);
+  pointer-events: none;
+  text-align: center;
+}
+.cf-dash .doughnut-center-label small {
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+.cf-dash .doughnut-center-label strong {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 22px;
+  font-weight: 850;
+  line-height: 1;
+}
+.cf-dash .doughnut-center-label span {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
 .cf-dash .sub-pie-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 16px; }
 .cf-dash .sub-card .doughnut-canvas { height: 210px; }
 .cf-dash .value-legend {
@@ -1381,9 +1411,15 @@
   color: var(--text);
 }
 .cf-dash .report-generate-btn {
-  background: linear-gradient(135deg, #2563eb, #0f87ff);
+  border: 1px solid #344456;
+  background: #344456;
   color: #fff;
-  box-shadow: 0 10px 22px rgba(37, 99, 235, .22);
+  box-shadow: 0 6px 14px rgba(52, 68, 86, .16);
+}
+.cf-dash .report-generate-btn:hover:not(:disabled) {
+  border-color: #233142;
+  background: #233142;
+  box-shadow: 0 8px 18px rgba(35, 49, 66, .18);
 }
 .cf-dash .report-generate-notice {
   margin: 10px 0 14px;

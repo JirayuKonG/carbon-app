@@ -5,6 +5,7 @@ import "./ChartRegistry";
 
 export function ProcessDoughnut({ title, data }: { title?: string; data: ActivityValue[] }) {
   const total = data.reduce((sum, item) => sum + item.emission, 0);
+  const totalLabel = total.toLocaleString(undefined, { maximumFractionDigits: 2 });
   return (
     <div className="doughnut-wrap">
       {title && <h3>{title}</h3>}
@@ -30,9 +31,22 @@ export function ProcessDoughnut({ title, data }: { title?: string; data: Activit
                 display: false,
                 labels: { color: "#5B728A", boxWidth: 10, font: { size: 11 } },
               },
+              tooltip: {
+                callbacks: {
+                  label: (context) => {
+                    const value = Number(context.parsed || 0);
+                    return `${context.label}: ${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e`;
+                  },
+                },
+              },
             },
           }}
         />
+        <div className="doughnut-center-label" aria-label={`ปริมาณการปล่อยรวม ${totalLabel} tCO2e`}>
+          <small>ปริมาณการปล่อย</small>
+          <strong>{totalLabel}</strong>
+          <span>tCO2e</span>
+        </div>
       </div>
       <div className="value-legend">
         {data.map((item, index) => {

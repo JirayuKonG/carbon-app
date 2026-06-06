@@ -4,7 +4,62 @@
 
 Branch ที่ทำงาน: `idea`
 
-Commit ล่าสุดที่อัปขึ้น Git: `Fix overview build after block_dev merge`
+Commit ล่าสุดที่อัปขึ้น Git: `Refine footprint report generation and charts`
+
+## อัปเดตล่าสุด วันที่ 6 มิถุนายน 2569 - ปรับ Carbon Footprint Charts และ Footprint Report Generate Flow
+
+รอบนี้ทำงานต่อบน branch `idea` โดยเน้นหน้า `Carbon Footprint ไร่บริษัทกลุ่มมิตรผล` และหน้า `รายงานคาร์บอนฟุตพริ้นท์ ไร่บริษัทกลุ่มมิตรผล` เพื่อให้หน่วยข้อมูลบน chart สอดคล้องกันมากขึ้น และให้ flow การสร้างเอกสารรายงานเหมือนกับ Premium T-VER Report
+
+### หน้า Carbon Footprint ไร่บริษัทกลุ่มมิตรผล
+
+- ปรับ block `สัดส่วนประเภทอ้อยและพื้นที่พักดิน` ในหน้า Carbon Footprint ให้แสดงปริมาณ `Carbon Footprint` รายประเภทอ้อยแทนจำนวนไร่
+  - อ้อยปลูก แสดงค่า tCO2e
+  - อ้อยตอ แสดงค่า tCO2e
+  - พื้นที่พักดิน แสดงค่า tCO2e
+  - รวม แสดงค่า tCO2e รวม
+- คงเปอร์เซ็นต์ของแต่ละประเภทไว้เป็นข้อมูลประกอบ เพื่อให้เห็นทั้งสัดส่วนพื้นที่และปริมาณ footprint
+- ปรับ Doughnut chart ให้ตัวเลขกลางวงเป็น `ปริมาณการปล่อย ... tCO2e`
+- ปรับ tooltip และ legend ของ Doughnut chart ให้ใช้หน่วยเดียวกันคือ `tCO2e`
+- ปรับ `CO2e ตามกลุ่ม` ให้ตัวเลขบนกราฟและตัวเลขสรุปด้านล่างสอดคล้องกันในฐานะปริมาณการปล่อย
+- ปรับโหมด `ตามกิจกรรม` ใน `CO2e ตามกลุ่ม` ให้แสดง 4 กระบวนการหลัก:
+  - `1. การเตรียมดินและปลูก`
+  - `2. การใช้ปุ๋ย`
+  - `3. การให้น้ำและกำจัดวัชพืช`
+  - `4. การเก็บเกี่ยว`
+- ปรับ `Grouped Bar · ปีฐาน vs ปีดำเนินโครงการ` ให้ตัวเลข summary ใต้กราฟใช้ข้อมูลชุดเดียวกับกราฟหลัง filter/cane scope
+- ปรับ `ปุ๋ยและน้ำมันรายขั้นตอน · ค่าเฉลี่ยปีฐาน vs ปีดำเนินโครงการ` ให้ยังคำนวณตาม filter แคมป์/แปลง/ประเภทอ้อย
+
+### หน้า รายงานคาร์บอนฟุตพริ้นท์ ไร่บริษัทกลุ่มมิตรผล
+
+- แยก flow ระหว่างข้อมูลสรุปหน้าเว็บกับเอกสาร preview/download:
+  - ข้อมูลสรุปฝั่งซ้ายยัง reactive ทันทีตาม filter
+  - เอกสาร preview/download ใช้ snapshot `generatedReport` ที่สร้างจากปุ่ม Generate เท่านั้น
+- เพิ่มปุ่ม `สร้างเอกสารใหม่ (Generate Report)` สำหรับสั่ง render เอกสารตามตัวกรองปัจจุบัน
+- เมื่อผู้ใช้เปลี่ยน filter ระบบจะแจ้งว่า summary อัปเดตแล้ว แต่ preview ยังต้องกด Generate ใหม่
+- ปิดปุ่ม `Download PDF`, `Download Word` และ `Export Excel` เมื่อ preview ไม่ตรงกับ filter ปัจจุบัน เพื่อป้องกันการดาวน์โหลดเอกสารผิดชุดข้อมูล
+- เปลี่ยน Preview & Download เป็นระบบ `Tab`:
+  - `PDF`
+  - `Word`
+  - `Excel`
+- เมื่อกดแท็บใด จะแสดงเฉพาะ preview ของไฟล์นั้น ลดความยาวหน้าและช่วยให้ตรวจเอกสารง่ายขึ้น
+
+### ปรับสีปุ่ม Generate Report
+
+- ปรับปุ่ม `สร้างเอกสารใหม่ (Generate Report)` ที่ใช้ร่วมกันทั้งหน้า Footprint Report และ Premium T-VER Report จากสีฟ้าสดเป็นสีเทาเข้ม
+- สีปุ่มปกติ: `#344456`
+- สี hover: `#233142`
+- เป้าหมายคือให้ปุ่มยังดูเป็น action สำคัญ แต่ไม่เด่นจนแย่งสายตาจากเนื้อหารายงาน
+
+### การตรวจสอบ
+
+- รัน `npm run build --workspace=frontend` ผ่าน
+- Build มีเฉพาะ Vite warning เรื่อง chunk size ใหญ่จาก bundle เดิมของ PDF/Excel ไม่ใช่ error จากงานรอบนี้
+- ไฟล์ที่แก้ในรอบนี้อยู่ในกลุ่ม Carbon Dashboard/Report:
+  - `frontend/src/features/cf-dashboard/pages/ProcessPage.tsx`
+  - `frontend/src/features/cf-dashboard/pages/FootprintReportPage.tsx`
+  - `frontend/src/features/cf-dashboard/components/common/CaneTypeSummaryPanel.tsx`
+  - `frontend/src/features/cf-dashboard/components/charts/ProcessDoughnut.tsx`
+  - `frontend/src/features/cf-dashboard/cf-dashboard.css`
 
 ## อัปเดตล่าสุด วันที่ 6 มิถุนายน 2569 - ปรับ Carbon Credit Breakdown และ Premium T-VER Report Preview
 
