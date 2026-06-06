@@ -4,7 +4,7 @@
 
 Branch ที่ทำงาน: `idea`
 
-Commit ล่าสุดที่อัปขึ้น Git: `Update Premium T-VER report previews and carbon credit summary`
+Commit ล่าสุดที่อัปขึ้น Git: `Fix overview build after block_dev merge`
 
 ## อัปเดตล่าสุด วันที่ 6 มิถุนายน 2569 - ปรับ Carbon Credit Breakdown และ Premium T-VER Report Preview
 
