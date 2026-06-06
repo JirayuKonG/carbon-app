@@ -507,7 +507,7 @@ model log_activities_detail {
   resource_used_type_id          Int?
   unit_prefix_id                 Int?
   unit_id                        Int?
-  log_act_detail_quatity         Int?
+  log_act_detail_quatity         Float?
   log_act_detail_volumePerUnit   Float?
   log_act_detail_volumeAll       Float?
   log_act_detail_areawork        Float?

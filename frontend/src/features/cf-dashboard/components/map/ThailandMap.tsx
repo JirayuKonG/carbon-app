@@ -1,49 +1,172 @@
-import React, { useMemo } from "react";
+import React, { Fragment, useMemo, useState } from "react";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
-import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
-import type { SpatialSummaryNode } from "../../types/dashboard";
+import { MapContainer, Marker, Polygon, Popup, TileLayer, useMap } from "react-leaflet";
+import type { LatLngBoundsExpression, LatLngTuple } from "leaflet";
+import type { CampFieldCarbonDetail, FieldCarbonDetail, SpatialSummaryNode } from "../../types/dashboard";
+
+type BoundaryField = CampFieldCarbonDetail | FieldCarbonDetail;
 
 interface Props {
   nodes: SpatialSummaryNode[];
   selectedId: string;
   onSelect: (id: string) => void;
+  boundaryFields?: BoundaryField[];
+  selectedBoundaryFieldId?: string;
+  onSelectBoundaryField?: (id: string) => void;
 }
 
-function Recenter({ node }: { node?: SpatialSummaryNode }) {
+interface TileLoadState {
+  loading: number;
+  loaded: number;
+  failed: number;
+}
+
+function fieldBoundary(field: BoundaryField): LatLngTuple[] {
+  const areaRai = Math.max(field.areaRai || 10, 2);
+  const sideMeters = Math.sqrt(areaRai * 1600);
+  const halfLat = (sideMeters / 2) / 111_320;
+  const halfLng = halfLat / Math.max(Math.cos((field.lat * Math.PI) / 180), 0.2);
+  return [
+    [field.lat - halfLat, field.lng - halfLng],
+    [field.lat - halfLat * 0.82, field.lng + halfLng],
+    [field.lat + halfLat, field.lng + halfLng * 0.86],
+    [field.lat + halfLat * 0.9, field.lng - halfLng * 0.94],
+  ];
+}
+
+function Recenter({
+  node,
+  boundaries,
+  selectedBoundary,
+}: {
+  node?: SpatialSummaryNode;
+  boundaries: LatLngTuple[][];
+  selectedBoundary?: LatLngTuple[];
+}) {
   const map = useMap();
   React.useEffect(() => {
+    if (selectedBoundary?.length) {
+      map.fitBounds(selectedBoundary as LatLngBoundsExpression, { padding: [38, 38], animate: true });
+      return;
+    }
+    if (boundaries.length) {
+      map.fitBounds(boundaries.flat() as LatLngBoundsExpression, { padding: [38, 38], animate: true });
+      return;
+    }
     if (node) map.flyTo([node.lat, node.lng], node.zoom, { duration: 0.8 });
-  }, [map, node]);
+  }, [boundaries, map, node, selectedBoundary]);
   return null;
 }
 
-function markerIcon(node: SpatialSummaryNode) {
-  const diff = node.baselineEmission - node.currentEmission;
+function formatMarkerValue(value: number) {
+  if (value >= 1000) return `${(value / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })}k`;
+  return value.toLocaleString(undefined, { maximumFractionDigits: value >= 10 ? 0 : 1 });
+}
+
+function carbonDiff(item: Pick<SpatialSummaryNode, "baselineEmission" | "currentEmission">) {
+  return item.baselineEmission - item.currentEmission;
+}
+
+function carbonMarkerIcon(
+  item: Pick<SpatialSummaryNode, "baselineEmission" | "currentEmission" | "fields">,
+  options: { selected?: boolean; variant?: "area" | "field" } = {},
+) {
+  const diff = carbonDiff(item);
   const good = diff >= 0;
-  const color = good ? "#277B27" : "#BA0900";
+  const color = good ? "#16803F" : "#C2410C";
+  const soft = good ? "#DCFCE7" : "#FFEDD5";
   const arrow = good ? "↓" : "↑";
+  const markerClass = [
+    "carbon-location-marker",
+    good ? "is-good" : "is-bad",
+    options.selected ? "is-selected" : "",
+    options.variant === "field" ? "is-field" : "is-area",
+  ].filter(Boolean).join(" ");
   return L.divIcon({
     className: "",
-    iconSize: [38, 38],
-    iconAnchor: [19, 19],
-    html: `<div style="width:38px;height:38px;border-radius:50%;border:2px solid ${color};background:#fff;color:${color};display:flex;align-items:center;justify-content:center;font-weight:900;font-size:20px;box-shadow:0 6px 16px ${color}55">${arrow}</div>`,
+    iconSize: [78, 58],
+    iconAnchor: [39, 52],
+    popupAnchor: [0, -48],
+    html: `
+      <div class="${markerClass}" style="--carbon-marker-color:${color};--carbon-marker-soft:${soft}">
+        <span class="carbon-marker-pin"><i></i></span>
+        <span class="carbon-marker-trend">${arrow}</span>
+        <span class="carbon-marker-value">${formatMarkerValue(Math.abs(diff))}</span>
+        <span class="carbon-marker-count">${item.fields.toLocaleString()} แปลง</span>
+      </div>
+    `,
   });
 }
 
-export function ThailandMap({ nodes, selectedId, onSelect }: Props) {
+export function ThailandMap({ nodes, selectedId, onSelect, boundaryFields = [], selectedBoundaryFieldId, onSelectBoundaryField }: Props) {
+  const [tileState, setTileState] = useState<TileLoadState>({ loading: 0, loaded: 0, failed: 0 });
   const selected = nodes.find((node) => node.id === selectedId);
   const visibleNodes = useMemo(() => {
     if (!selected || selected.level === "country") return nodes.filter((node) => node.parentId === "thailand");
     const children = nodes.filter((node) => node.parentId === selected.id);
     return children.length ? children : [selected];
   }, [nodes, selected]);
+  const fieldBoundaries = useMemo(
+    () => boundaryFields.map((field) => ({ field, boundary: fieldBoundary(field) })),
+    [boundaryFields],
+  );
+  const selectedBoundary = fieldBoundaries.find((item) => item.field.id === selectedBoundaryFieldId)?.boundary;
+  const showSpatialNodeMarkers = fieldBoundaries.length === 0;
+  const totalTiles = tileState.loading + tileState.loaded + tileState.failed;
+  const completedTiles = tileState.loaded + tileState.failed;
+  const loadPercent = totalTiles ? Math.round((completedTiles / totalTiles) * 100) : 0;
+  const isLoadingTiles = tileState.loading > 0 && loadPercent < 100;
 
   return (
+    <div className="map-shell">
     <MapContainer center={[15.5, 101.2]} zoom={6} scrollWheelZoom className="map-canvas">
-      <TileLayer attribution="" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-      <Recenter node={selected} />
-      {visibleNodes.map((node) => {
+      <TileLayer
+        attribution=""
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        eventHandlers={{
+          tileloadstart: () => setTileState((state) => ({ ...state, loading: state.loading + 1 })),
+          tileload: () => setTileState((state) => ({ ...state, loading: Math.max(state.loading - 1, 0), loaded: state.loaded + 1 })),
+          tileerror: () => setTileState((state) => ({ ...state, loading: Math.max(state.loading - 1, 0), failed: state.failed + 1 })),
+          loading: () => setTileState({ loading: 0, loaded: 0, failed: 0 }),
+        }}
+      />
+      <Recenter node={selected} boundaries={fieldBoundaries.map((item) => item.boundary)} selectedBoundary={selectedBoundary} />
+      {fieldBoundaries.map(({ field, boundary }) => {
+        const isSelected = field.id === selectedBoundaryFieldId;
+        return (
+          <Fragment key={`boundary-${field.id}`}>
+            <Polygon
+              positions={boundary}
+              pathOptions={{
+                color: isSelected ? "#16A34A" : "#2563EB",
+                fillColor: isSelected ? "#22C55E" : "#60A5FA",
+                fillOpacity: isSelected ? 0.28 : 0.16,
+                weight: isSelected ? 3 : 2,
+              }}
+              eventHandlers={{ click: () => onSelectBoundaryField?.(field.id) }}
+            />
+            <Marker
+              position={[field.lat, field.lng]}
+              icon={carbonMarkerIcon(field, { selected: isSelected, variant: "field" })}
+              eventHandlers={{ click: () => onSelectBoundaryField?.(field.id) }}
+            >
+              <Popup>
+                <strong>{field.fieldCode}</strong>
+                <br />
+                {field.fieldName}
+                <br />
+                {field.areaRai.toLocaleString()} ไร่ · {("co2eTotal" in field ? field.co2eTotal : field.currentEmission).toLocaleString()} tCO2e
+                <br />
+                Baseline {field.baselineEmission.toLocaleString()} → Current {field.currentEmission.toLocaleString()} tCO2e
+                <br />
+                เกษตรกร: {field.farmerName}
+              </Popup>
+            </Marker>
+          </Fragment>
+        );
+      })}
+      {showSpatialNodeMarkers && visibleNodes.map((node) => {
         const diff = node.baselineEmission - node.currentEmission;
         const pct = node.baselineEmission ? (diff / node.baselineEmission) * 100 : 0;
         const label = diff >= 0 ? "ลดลง" : "เพิ่มขึ้น";
@@ -51,7 +174,7 @@ export function ThailandMap({ nodes, selectedId, onSelect }: Props) {
           <Marker
             key={node.id}
             position={[node.lat, node.lng]}
-            icon={markerIcon(node)}
+            icon={carbonMarkerIcon(node, { selected: node.id === selectedId, variant: "area" })}
             eventHandlers={{ click: () => onSelect(node.id) }}
           >
             <Popup>
@@ -67,5 +190,19 @@ export function ThailandMap({ nodes, selectedId, onSelect }: Props) {
         );
       })}
     </MapContainer>
+      <div className="map-symbol-legend" aria-label="คำอธิบายสัญลักษณ์บนแผนที่">
+        <strong>สัญลักษณ์พื้นที่</strong>
+        <span><i className="legend-pin" /> ตำแหน่งแปลง/พื้นที่ + จำนวนแปลง</span>
+        <span><i className="legend-arrow good">↓</i> Carbon Footprint ลดลง</span>
+        <span><i className="legend-arrow bad">↑</i> Carbon Footprint เพิ่มขึ้น</span>
+      </div>
+      {(isLoadingTiles || tileState.failed > 0) && (
+        <div className={`map-loading-overlay ${tileState.failed > 0 && !isLoadingTiles ? "warning" : ""}`}>
+          <strong>{tileState.failed > 0 && !isLoadingTiles ? "โหลดแผนที่ไม่ครบ" : "กำลังโหลดแผนที่"}</strong>
+          <span>{loadPercent}% · โหลดแล้ว {tileState.loaded.toLocaleString()} / {totalTiles.toLocaleString()} tile{tileState.failed ? ` · ไม่สำเร็จ ${tileState.failed.toLocaleString()}` : ""}</span>
+          <div className="map-loading-track"><i style={{ width: `${loadPercent}%` }} /></div>
+        </div>
+      )}
+    </div>
   );
 }

@@ -329,7 +329,7 @@ CREATE TABLE "log_activities_detail" (
   "resource_used_type_id" integer,
   "unit_prefix_id" integer,
   "unit_id" integer,
-  "log_act_detail_quatity" int,
+  "log_act_detail_quatity" float,
   "log_act_detail_volumePerUnit" float,
   "log_act_detail_volumeAll" float,
   "log_act_detail_areawork" float,

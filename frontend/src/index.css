@@ -72,6 +72,7 @@
   .main-content {
     @apply transition-all duration-200;
     min-height: 100vh;
+    min-width: 0;
   }
   @media (min-width: 1280px) {
     .main-content { margin-left: var(--sidebar-width); }

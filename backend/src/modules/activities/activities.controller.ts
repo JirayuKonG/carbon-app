@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, ParseIntPipe } from '@nestjs/common'
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, ParseIntPipe, BadRequestException, Logger } from '@nestjs/common'
 import { ApiTags, ApiQuery } from '@nestjs/swagger'
 import { ActivitiesService } from './activities.service'
 import { Co2eEngineService } from './co2e-engine.service'
@@ -6,10 +6,22 @@ import { Co2eEngineService } from './co2e-engine.service'
 @ApiTags('Activities')
 @Controller('activities')
 export class ActivitiesController {
+  private readonly logger = new Logger(ActivitiesController.name)
+
   constructor(
     private svc:    ActivitiesService,
     private engine: Co2eEngineService,
   ) {}
+
+  private getErrorMessage(error: unknown) {
+    if (error instanceof Error) return error.message
+    if (typeof error === 'string') return error
+    try {
+      return JSON.stringify(error)
+    } catch {
+      return 'Unknown import error'
+    }
+  }
 
   // Headers
   @Get('headers')
@@ -31,6 +43,10 @@ export class ActivitiesController {
   moveDetailsToWorkflowStatusBulk(@Body() b: { ids: number[]; statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' }) {
     return this.svc.moveDetailsToWorkflowStatus(b.ids, b.statusName)
   }
+  @Post('details/manual-status/bulk')
+  moveDetailsToManualStatusBulk(@Body() b: { ids: number[]; statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' | 'คำนวณแล้ว(มาตรฐาน)' }) {
+    return this.svc.moveDetailsToManualStatus(b.ids, b.statusName)
+  }
   @Post('details/calculate/bulk')
   calculateDetailsBulk(@Body() b: { ids: number[]; calcMode?: 'standard' | 'tver' }) {
     return this.svc.calculateDetails(b.ids, b.calcMode)
@@ -41,6 +57,13 @@ export class ActivitiesController {
     @Body() b: { statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' },
   ) {
     return this.svc.moveDetailToWorkflowStatus(id, b.statusName)
+  }
+  @Post('details/:id/manual-status')
+  moveDetailToManualStatus(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() b: { statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' | 'คำนวณแล้ว(มาตรฐาน)' },
+  ) {
+    return this.svc.moveDetailToManualStatus(id, b.statusName)
   }
   @Post('details/:id/calculate')
   calculateDetail(
@@ -84,7 +107,17 @@ export class ActivitiesController {
 
   // CSV import — body: { mappings, rows, calcMode? }
   @Post('import')
-  importCsv(@Body() b: { mappings: any[]; rows: Record<string, string>[]; calcMode?: 'standard' | 'tver' }) {
-    return this.svc.importFromCsv(b.mappings, b.rows, b.calcMode)
+  async importCsv(@Body() b: { mappings: any[]; rows: Record<string, string>[]; calcMode?: 'standard' | 'tver' }) {
+    if (!Array.isArray(b?.mappings) || !Array.isArray(b?.rows)) {
+      throw new BadRequestException('CSV import requires mappings and rows arrays')
+    }
+
+    try {
+      return await this.svc.importFromCsv(b.mappings, b.rows, b.calcMode)
+    } catch (error) {
+      const message = this.getErrorMessage(error)
+      this.logger.error(`CSV import failed: ${message}`, error instanceof Error ? error.stack : undefined)
+      throw new BadRequestException(`CSV import failed: ${message}`)
+    }
   }
 }

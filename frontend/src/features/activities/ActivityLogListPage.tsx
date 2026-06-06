@@ -3,10 +3,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ActivitySquare, CheckCircle2, CircleAlert, Clock3, Edit, Plus, Settings2, Trash2 } from 'lucide-react'
 import { Column, DataTable } from '@/components/ui/DataTable'
+import { DashboardVisibilityMenu, useDashboardVisibility } from '@/components/ui/DashboardVisibilityMenu'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { getActivityCalStatusBadgeClass, getActivityCalStatusKind, getActivityCalStatusLabel } from '@/features/activities/cal-status'
 import { del, get, post, put } from '@/lib/api'
-import { formatBangkokDateTime } from '@/lib/datetime'
+import { formatBangkokDate } from '@/lib/datetime'
 
 interface ActivityHeader {
   activities_header_id: number
@@ -152,6 +154,28 @@ function FormSection({ title, children }: { title: string; children: React.React
   )
 }
 
+const CAMP_ONLY_LAND_LABEL = 'เบิกเข้าไร่'
+
+function isPlaceholderLand(landCode?: string, landName?: string) {
+  return landCode?.trim().toUpperCase().startsWith('AUTO-CAMP-')
+    || landName?.trim().toUpperCase().startsWith('[AUTO-CAMP]')
+}
+
+function getLandDisplayLabel(landCode?: string, landName?: string) {
+  if (isPlaceholderLand(landCode, landName)) return CAMP_ONLY_LAND_LABEL
+  if (landCode && landName) return `${landCode} - ${landName}`
+  return landCode ?? landName ?? '—'
+}
+
+function formatQuantityValue(value?: number | null) {
+  if (value == null || Number.isNaN(value)) return '—'
+  const digits = Number.isInteger(value) ? 0 : 3
+  return value.toLocaleString('th-TH', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  })
+}
+
 export function ActivityLogListPage() {
   const qc = useQueryClient()
   const navigate = useNavigate()
@@ -165,23 +189,39 @@ export function ActivityLogListPage() {
   const [detailForm, setDetailForm] = useState<DetailForm>(emptyDetailForm)
   const [detailFilters, setDetailFilters] = useState<DetailFilters>(emptyDetailFilters)
 
-  const { data: headers = [] } = useQuery({ queryKey: ['activity-headers'], queryFn: () => get<ActivityHeader[]>('/activities/headers') })
-  const { data: details = [], isLoading: dLoad } = useQuery({ queryKey: ['activity-details'], queryFn: () => get<LogDetail[]>('/activities/details') })
-  const { data: lands = [] } = useQuery({ queryKey: ['lands'], queryFn: () => get<Land[]>('/lands') })
-  const { data: camps = [] } = useQuery({ queryKey: ['camps'], queryFn: () => get<LandCamp[]>('/lands/camps') })
-  const { data: hdrTypes = [] } = useQuery({ queryKey: ['header-types'], queryFn: () => get<HeaderType[]>('/activities/header-types') })
-  const { data: allDetailTypes = [] } = useQuery({ queryKey: ['detail-types-all'], queryFn: () => get<DetailType[]>('/activities/detail-types') })
+  const { data: headers = [], error: headersError } = useQuery({ queryKey: ['activity-headers'], queryFn: () => get<ActivityHeader[]>('/activities/headers') })
+  const { data: details = [], isLoading: dLoad, error: detailsError } = useQuery({ queryKey: ['activity-details'], queryFn: () => get<LogDetail[]>('/activities/details') })
+  const { data: lands = [], error: landsError } = useQuery({ queryKey: ['lands'], queryFn: () => get<Land[]>('/lands') })
+  const { data: camps = [], error: campsError } = useQuery({ queryKey: ['camps'], queryFn: () => get<LandCamp[]>('/lands/camps') })
+  const { data: hdrTypes = [], error: hdrTypesError } = useQuery({ queryKey: ['header-types'], queryFn: () => get<HeaderType[]>('/activities/header-types') })
+  const { data: allDetailTypes = [], error: allDetailTypesError } = useQuery({ queryKey: ['detail-types-all'], queryFn: () => get<DetailType[]>('/activities/detail-types') })
   const { data: detailTypes = [] } = useQuery({
     queryKey: ['detail-types', detailForm.act_header_type_id],
     queryFn: () => get<DetailType[]>('/activities/detail-types', detailForm.act_header_type_id ? { header_type_id: Number(detailForm.act_header_type_id) } : undefined),
   })
-  const { data: resTypes = [] } = useQuery({ queryKey: ['resource-types'], queryFn: () => get<ResourceType[]>('/activities/resource-types') })
-  const { data: calStatuses = [] } = useQuery({ queryKey: ['cal-statuses'], queryFn: () => get<CalStatus[]>('/activities/cal-statuses') })
-  const { data: fertilizers = [] } = useQuery({ queryKey: ['fertilizers'], queryFn: () => get<Fertilizer[]>('/activities/fertilizers') })
-  const { data: equipments = [] } = useQuery({ queryKey: ['equipments'], queryFn: () => get<Equipment[]>('/activities/equipments') })
-  const { data: chemicals = [] } = useQuery({ queryKey: ['chemicals'], queryFn: () => get<Chemical[]>('/activities/chemicals') })
-  const { data: units = [] } = useQuery({ queryKey: ['units'], queryFn: () => get<Unit[]>('/emission-factors/units') })
-  const { data: unitPrefixes = [] } = useQuery({ queryKey: ['unit-prefixs'], queryFn: () => get<UnitPrefix[]>('/emission-factors/unit-prefixs') })
+  const { data: resTypes = [], error: resTypesError } = useQuery({ queryKey: ['resource-types'], queryFn: () => get<ResourceType[]>('/activities/resource-types') })
+  const { data: calStatuses = [], error: calStatusesError } = useQuery({ queryKey: ['cal-statuses'], queryFn: () => get<CalStatus[]>('/activities/cal-statuses') })
+  const { data: fertilizers = [], error: fertilizersError } = useQuery({ queryKey: ['fertilizers'], queryFn: () => get<Fertilizer[]>('/activities/fertilizers') })
+  const { data: equipments = [], error: equipmentsError } = useQuery({ queryKey: ['equipments'], queryFn: () => get<Equipment[]>('/activities/equipments') })
+  const { data: chemicals = [], error: chemicalsError } = useQuery({ queryKey: ['chemicals'], queryFn: () => get<Chemical[]>('/activities/chemicals') })
+  const { data: units = [], error: unitsError } = useQuery({ queryKey: ['units'], queryFn: () => get<Unit[]>('/emission-factors/units') })
+  const { data: unitPrefixes = [], error: unitPrefixesError } = useQuery({ queryKey: ['unit-prefixs'], queryFn: () => get<UnitPrefix[]>('/emission-factors/unit-prefixs') })
+
+  const activityQueryItems = [
+    { label: 'หัวข้อกิจกรรม', error: headersError },
+    { label: 'รายการบันทึกกิจกรรม', error: detailsError },
+    { label: 'ข้อมูลแปลง', error: landsError },
+    { label: 'ข้อมูลแคมป์', error: campsError },
+    { label: 'ประเภทกิจกรรม', error: hdrTypesError },
+    { label: 'รายละเอียดกิจกรรม', error: allDetailTypesError },
+    { label: 'ประเภทปัจจัย', error: resTypesError },
+    { label: 'สถานะการคำนวณ', error: calStatusesError },
+    { label: 'ปุ๋ย', error: fertilizersError },
+    { label: 'อุปกรณ์', error: equipmentsError },
+    { label: 'สารเคมี', error: chemicalsError },
+    { label: 'หน่วยนับ', error: unitsError },
+    { label: 'คำนำหน้าหน่วย', error: unitPrefixesError },
+  ]
 
   const createDetailMut = useMutation({
     mutationFn: (payload: Record<string, number | string | undefined>) =>
@@ -226,13 +266,18 @@ export function ActivityLogListPage() {
     ?? (getDetailCampId(detail) != null ? campMap[getDetailCampId(detail) ?? 0] : undefined)
 
   const getDetailLandId = (detail: LogDetail) => detail.activities_header?.land_id
+  const getLandLabelById = (landId?: number) => {
+    if (landId == null) return '—'
+    const land = lands.find((item) => item.land_id === landId)
+    if (land) return getLandDisplayLabel(land.land_code, land.name)
+    return landMap[landId] ?? `#${landId}`
+  }
   const getDetailLandLabel = (detail: LogDetail) => {
     const landCode = detail.activities_header?.lands?.land_code
       ?? (getDetailLandId(detail) != null ? landMap[getDetailLandId(detail) ?? 0] : undefined)
     const landName = detail.activities_header?.lands?.name
 
-    if (landCode && landName) return `${landCode} - ${landName}`
-    return landCode ?? landName ?? '—'
+    return getLandDisplayLabel(landCode, landName)
   }
 
   const formatNumber = (value?: number, digits = 0) => {
@@ -271,7 +316,7 @@ export function ActivityLogListPage() {
 
   const rows: ActivityLogRow[] = filteredDetails.map((detail) => ({
     log_act_detail_id: detail.log_act_detail_id,
-    activityDateLabel: formatBangkokDateTime(detail.log_act_detail_create_at ?? detail.activities_header?.activities_header_startDate),
+    activityDateLabel: formatBangkokDate(detail.log_act_detail_create_at ?? detail.activities_header?.activities_header_startDate),
     headerLabel: detail.activities_header?.activities_header_idCode ?? headerMap[detail.activities_header_id ?? 0] ?? (detail.activities_header_id != null ? `#${detail.activities_header_id}` : '—'),
     campName: getDetailCampName(detail) ?? '—',
     landLabel: getDetailLandLabel(detail),
@@ -280,7 +325,7 @@ export function ActivityLogListPage() {
     resourceTypeName: detail.resource_used_type?.resc_used_type_name ?? resourceTypeMap[detail.resource_used_type_id] ?? String(detail.resource_used_type_id ?? '—'),
     resourceItemName: getResourceItemName(detail),
     unitLabel: getUnitLabel(detail),
-    quantityLabel: formatNumber(detail.log_act_detail_quatity),
+    quantityLabel: formatQuantityValue(detail.log_act_detail_quatity),
     volumePerUnitLabel: formatNumber(detail.log_act_detail_volumePerUnit, 3),
     totalVolumeLabel: formatNumber(detail.log_act_detail_volumeAll, 3),
     workAreaLabel: formatNumber(detail.log_act_detail_areawork, 2),
@@ -420,6 +465,79 @@ export function ActivityLogListPage() {
   const standardCfpDoneCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'cfpDone').length
   const errorCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'error').length
 
+  const dashboardOptions = [
+    { key: 'total', label: 'รายการทั้งหมด' },
+    { key: 'imported', label: 'นำเข้าข้อมูลแล้ว' },
+    { key: 'preparing', label: 'กำลังเตรียมข้อมูล' },
+    { key: 'ready', label: 'พร้อมคำนวณมาตรฐาน' },
+    { key: 'standardDone', label: 'คำนวณแล้ว(มาตรฐาน)' },
+    { key: 'cfpDone', label: 'คำนวณแล้ว(มาตรฐาน,CFP)' },
+    { key: 'error', label: 'คำนวณผิดพลาด' },
+  ]
+
+  const {
+    visibleKeys: visibleDashboardKeys,
+    visibleKeySet: visibleDashboardKeySet,
+    toggleKey: toggleDashboardKey,
+    reset: resetDashboardKeys,
+  } = useDashboardVisibility(
+    'activity-log-dashboard-cards',
+    dashboardOptions.map((option) => option.key),
+    dashboardOptions,
+  )
+
+  const dashboardCards = [
+    {
+      key: 'total',
+      label: 'รายการทั้งหมด',
+      icon: <ActivitySquare size={14} className="text-primary-500" />,
+      value: details.length,
+      valueClassName: 'stat-value',
+    },
+    {
+      key: 'imported',
+      label: 'นำเข้าข้อมูลแล้ว',
+      icon: <Plus size={14} className="text-surface-500" />,
+      value: importedCount,
+      valueClassName: 'stat-value text-surface-700',
+    },
+    {
+      key: 'preparing',
+      label: 'กำลังเตรียมข้อมูล',
+      icon: <Edit size={14} className="text-blue-500" />,
+      value: preparingCount,
+      valueClassName: 'stat-value text-blue-700',
+    },
+    {
+      key: 'ready',
+      label: 'พร้อมคำนวณมาตรฐาน',
+      icon: <Clock3 size={14} className="text-accent-500" />,
+      value: readyCount,
+      valueClassName: 'stat-value text-accent-600',
+    },
+    {
+      key: 'standardDone',
+      label: 'คำนวณแล้ว(มาตรฐาน)',
+      icon: <CheckCircle2 size={14} className="text-primary-500" />,
+      value: standardDoneCount,
+      valueClassName: 'stat-value text-primary-700',
+    },
+    {
+      key: 'cfpDone',
+      label: 'คำนวณแล้ว(มาตรฐาน,CFP)',
+      icon: <CheckCircle2 size={14} className="text-cyan-600" />,
+      value: standardCfpDoneCount,
+      valueClassName: 'stat-value text-cyan-700',
+    },
+    {
+      key: 'error',
+      label: 'คำนวณผิดพลาด',
+      icon: <CircleAlert size={14} className="text-red-500" />,
+      value: errorCount,
+      valueClassName: 'stat-value text-red-700',
+    },
+  ]
+
   return (
     <div>
       <div className="page-header">
@@ -427,7 +545,7 @@ export function ActivityLogListPage() {
           <h1 className="page-title flex items-center gap-2"><ActivitySquare size={20} className="text-primary-600" /> รายการบันทึกกิจกรรม</h1>
           <p className="page-subtitle">มุมมองใช้งานง่ายสำหรับรายการบันทึกกิจกรรม พร้อมค้นหา กรอง และจัดการรายการ</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button className="btn-secondary" onClick={() => navigate('/activities/manage')}>
             <Settings2 size={14} /> จัดการขั้นสูง
           </button>
@@ -437,36 +555,40 @@ export function ActivityLogListPage() {
         </div>
       </div>
 
-      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-6">
-        <div className="stat-card">
-          <div className="flex items-center gap-2"><ActivitySquare size={14} className="text-primary-500" /><span className="stat-label">รายการทั้งหมด</span></div>
-          <p className="stat-value">{details.length}</p>
+      <div className="mb-6">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold">Dashboard</h2>
+            <p className="mt-1 text-xs text-surface-500">เลือกการ์ดสรุปที่ต้องการแสดงในส่วนนี้ได้</p>
+          </div>
+          <DashboardVisibilityMenu
+            options={dashboardOptions}
+            visibleKeys={visibleDashboardKeys}
+            onToggle={toggleDashboardKey}
+            onReset={resetDashboardKeys}
+          />
         </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-2"><Plus size={14} className="text-surface-500" /><span className="stat-label">นำเข้าข้อมูลแล้ว</span></div>
-          <p className="stat-value text-surface-700">{importedCount}</p>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-2"><Edit size={14} className="text-blue-500" /><span className="stat-label">กำลังเตรียมข้อมูล</span></div>
-          <p className="stat-value text-blue-700">{preparingCount}</p>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-2"><Clock3 size={14} className="text-accent-500" /><span className="stat-label">พร้อมคำนวณมาตรฐาน</span></div>
-          <p className="stat-value text-accent-600">{readyCount}</p>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-2"><CheckCircle2 size={14} className="text-primary-500" /><span className="stat-label">คำนวณแล้ว(มาตรฐาน)</span></div>
-          <p className="stat-value text-primary-700">{standardDoneCount}</p>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-2"><CheckCircle2 size={14} className="text-cyan-600" /><span className="stat-label">คำนวณแล้ว(มาตรฐาน,CFP)</span></div>
-          <p className="stat-value text-cyan-700">{standardCfpDoneCount}</p>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-2"><CircleAlert size={14} className="text-red-500" /><span className="stat-label">คำนวณผิดพลาด</span></div>
-          <p className="stat-value text-red-700">{errorCount}</p>
+
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
+          {dashboardCards
+            .filter((card) => visibleDashboardKeySet.has(card.key))
+            .map((card) => (
+              <div key={card.key} className="stat-card">
+                <div className="flex items-center gap-2">
+                  {card.icon}
+                  <span className="stat-label">{card.label}</span>
+                </div>
+                <p className={card.valueClassName}>{card.value}</p>
+              </div>
+            ))}
         </div>
       </div>
+
+      <DatabaseConnectionNotice
+        items={activityQueryItems}
+        className="mb-4"
+        onRetry={() => { void qc.refetchQueries({ type: 'active' }) }}
+      />
 
       <div className="card">
         <div className="mb-3 flex items-center justify-between">
@@ -500,7 +622,7 @@ export function ActivityLogListPage() {
               <label className="label">แปลง</label>
               <select className="select" value={detailFilters.landId} onChange={(e) => setDetailFilterValue('landId', e.target.value)}>
                 <option value="">ทั้งหมด</option>
-                {lands.map((land) => <option key={land.land_id} value={land.land_id}>{land.land_code} - {land.name}</option>)}
+                {lands.map((land) => <option key={land.land_id} value={land.land_id}>{getLandDisplayLabel(land.land_code, land.name)}</option>)}
               </select>
             </div>
             <div>
@@ -562,12 +684,12 @@ export function ActivityLogListPage() {
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
                 <h3 className="mb-2 font-semibold">{editingDetail ? 'แก้ไขบันทึกกิจกรรม' : 'เพิ่มบันทึกกิจกรรม'}</h3>
-                <p className="text-xs text-surface-500">กรอกข้อมูลรายการบันทึกกิจกรรมในหน้านี้ก่อน แล้วค่อยย้ายสถานะและคำนวณจากเมนูคำนวณ Carbon Footprint</p>
+                <p className="text-xs text-surface-500">กรอกข้อมูลรายการบันทึกกิจกรรมในหน้านี้ก่อน แล้วค่อยย้ายสถานะและคำนวณจากเมนูคำนวณ Carbon</p>
               </div>
               <div className="min-w-40">
                 <label className="label">การคำนวณ</label>
                 <div className="rounded-lg border border-surface-200 bg-surface-50 px-3 py-2 text-xs text-surface-600">
-                  ใช้เมนู <span className="font-medium text-primary-700">คำนวณ Carbon Footprint</span> สำหรับคำนวณมาตรฐานและ CFP
+                  ใช้เมนู <span className="font-medium text-primary-700">คำนวณ Carbon</span> สำหรับคำนวณมาตรฐานและ CFP
                 </div>
               </div>
             </div>
@@ -596,7 +718,7 @@ export function ActivityLogListPage() {
                   {trackMethod === 'direct' ? (
                     <select className="select" value={selectedLandId ?? ''} onChange={(e) => setLandFilter(e.target.value ? Number(e.target.value) : null)}>
                       <option value="">— เลือกแปลง —</option>
-                      {lands.map((land) => <option key={land.land_id} value={land.land_id}>{land.land_code} — {land.name}</option>)}
+                      {lands.map((land) => <option key={land.land_id} value={land.land_id}>{getLandDisplayLabel(land.land_code, land.name)}</option>)}
                     </select>
                   ) : (
                     <div className="grid grid-cols-2 gap-2">
@@ -614,7 +736,7 @@ export function ActivityLogListPage() {
                       </select>
                       <select className="select" value={selectedLandId ?? ''} onChange={(e) => setLandFilter(e.target.value ? Number(e.target.value) : null)}>
                         <option value="">— แปลง —</option>
-                        {visibleLands.map((land) => <option key={land.land_id} value={land.land_id}>{land.land_code} - {land.name}</option>)}
+                        {visibleLands.map((land) => <option key={land.land_id} value={land.land_id}>{getLandDisplayLabel(land.land_code, land.name)}</option>)}
                       </select>
                     </div>
                   )}
@@ -634,7 +756,7 @@ export function ActivityLogListPage() {
                     <option value="">— เลือกหัวข้อกิจกรรม —</option>
                     {visibleHeaders.map((header) => (
                       <option key={header.activities_header_id} value={header.activities_header_id}>
-                        #{header.activities_header_id} {header.activities_header_idCode ?? ''} - {landMap[header.land_id] ?? header.land_id}
+                        #{header.activities_header_id} {header.activities_header_idCode ?? ''} - {getLandLabelById(header.land_id)}
                       </option>
                     ))}
                   </select>
@@ -739,7 +861,7 @@ export function ActivityLogListPage() {
                     {units.map((unit) => <option key={unit.unit_id} value={unit.unit_id}>{unit.unit_name ?? unit.unit_initial ?? `#${unit.unit_id}`}</option>)}
                   </select>
                 </div>
-                <div><label className="label">ปริมาณ (จำนวน)</label><input type="number" className="input" value={detailForm.log_act_detail_quatity} onChange={(e) => setFormValue('log_act_detail_quatity', e.target.value)} /></div>
+                <div><label className="label">ปริมาณ (จำนวน)</label><input type="number" step="0.001" className="input" value={detailForm.log_act_detail_quatity} onChange={(e) => setFormValue('log_act_detail_quatity', e.target.value)} /></div>
                 <div><label className="label">ปริมาณ/หน่วย</label><input type="number" step="0.001" className="input" value={detailForm.log_act_detail_volumePerUnit} onChange={(e) => setFormValue('log_act_detail_volumePerUnit', e.target.value)} /></div>
                 <div><label className="label">ปริมาณรวม *</label><input type="number" step="0.001" className="input" required value={detailForm.log_act_detail_volumeAll} onChange={(e) => setFormValue('log_act_detail_volumeAll', e.target.value)} /></div>
                 <div><label className="label">พื้นที่ทำงาน (ไร่)</label><input type="number" step="0.01" className="input" value={detailForm.log_act_detail_areawork} onChange={(e) => setFormValue('log_act_detail_areawork', e.target.value)} /></div>
