@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DataTable, Column } from '@/components/ui/DataTable'
-import { CsvMappingWizard, TargetColumn, ColumnMapping } from '@/components/ui/CsvMappingWizard'
+import { CsvMappingWizard, TargetColumn, ColumnMapping, type CsvImportProgressReporter } from '@/components/ui/CsvMappingWizard'
 import { DashboardVisibilityMenu, useDashboardVisibility } from '@/components/ui/DashboardVisibilityMenu'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { getActivityCalStatusBadgeClass, getActivityCalStatusKind, getActivityCalStatusLabel } from '@/features/activities/cal-status'
 import { del, get, post, put } from '@/lib/api'
-import { formatBangkokDateKey, formatBangkokDateTime, formatBangkokDateTimeLocal } from '@/lib/datetime'
+import { formatBangkokDate, formatBangkokDateKey, formatBangkokDateTime, formatBangkokDateTimeLocal } from '@/lib/datetime'
 import { ActivitySquare, Upload, Plus, Calculator, Leaf, Edit, Trash2, ChevronDown, ChevronUp, CheckCircle2, Clock3, CircleAlert } from 'lucide-react'
 
 interface ActivityHeader {
@@ -223,6 +224,28 @@ function FormSection({ title, children }: { title: string; children: React.React
   )
 }
 
+const CAMP_ONLY_LAND_LABEL = 'เบิกเข้าไร่'
+
+function isPlaceholderLand(landCode?: string, landName?: string) {
+  return landCode?.trim().toUpperCase().startsWith('AUTO-CAMP-')
+    || landName?.trim().toUpperCase().startsWith('[AUTO-CAMP]')
+}
+
+function getLandDisplayLabel(landCode?: string, landName?: string) {
+  if (isPlaceholderLand(landCode, landName)) return CAMP_ONLY_LAND_LABEL
+  if (landCode && landName) return `${landCode} - ${landName}`
+  return landCode ?? landName ?? '—'
+}
+
+function formatQuantityValue(value?: number | null) {
+  if (value == null || Number.isNaN(value)) return '—'
+  const digits = Number.isInteger(value) ? 0 : 3
+  return value.toLocaleString('th-TH', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  })
+}
+
 // Columns matching actual xlsx (inactive): กิจกรรม | ไร่(camp) | แปลง | รายการปัจจัย | ปริมาณ | math | ปริมาณใช้ | ไร่(area) | รวมเป็นเงิน | ประเภทปัจจัย | หน่วยนับ Farmpro | ประเภทใหม่
 // columns matching actual CSV (active): วันที่ปฏิบัติ · หมวดหมู่กิจกรรมหลัก · รายละเอียดกิจกรรมย่อย · ไร่(camps) · แปลง(lands) · พื้นที่ตามแปลง · 
                                       // ประเภทแปลง · ประเภทอ้อย · รายการปัจจัยการผลิต(listEM - ปุ๋ย 23-12-12 Control Release) · ประเภทปัจจัย(UsageType - ปุ๋ย) · ปริมาณรวม · 
@@ -248,11 +271,11 @@ function FormSection({ title, children }: { title: string; children: React.React
           // ประเภทแปลง · ประเภทอ้อย · รายการปัจจัยการผลิต(listEM - ปุ๋ย 23-12-12 Control Release) · ประเภทปัจจัย(UsageType - ปุ๋ย) · 
           // ปริมาณรวม · จำนวน · ปริมาณต่อ1จำนวน · หน่วยนับ · พื้นที่ปฏิบัติรวม            15 colume
 const ACTIVITY_TARGET_COLUMNS: TargetColumn[] = [  // new 05272026  --------------------------------------------------
-  { key: 'log_act_detail_create_at',      label: 'วันที่ปฏิบัติ',           required: false, type: 'date' },
+  { key: 'log_act_detail_create_at',      label: 'วันที่ปฏิบัติ',           required: true, type: 'date' },
   { key: 'act_header_type',               label: 'หมวดหมู่กิจกรรมหลัก',   required: false, type: 'fk', fkTable: 'activities_header_type' },
   { key: 'act_header_detail_type',        label: 'รายละเอียดกิจกรรมย่อย', required: false, type: 'fk', fkTable: 'activities_detail_type' },
-  { key: 'land_camp_name',                label: 'ไร่ / แคมป์',         required: true, type: 'fk', fkTable: 'lands_camps' },
-  { key: 'land_code',                     label: 'แปลง',                required: true, type: 'fk', fkTable: 'lands' },
+  { key: 'land_camp_name',                label: 'ไร่ / แคมป์',         required: false, type: 'fk', fkTable: 'lands_camps' },
+  { key: 'land_code',                     label: 'แปลง',                required: false, type: 'fk', fkTable: 'lands' },
   { key: 'land_size',                     label: 'พื้นที่ตามแปลง',     required: false, type: 'number' },
   { key: 'log_act_detail_areawork',       label: 'พื้นที่ปฏิบัติรวม',        required: false, type: 'number' },
 
@@ -322,8 +345,6 @@ function adjustImportErrorRowNumbers(error: string, startIndex: number) {
   })
 }
 
-
-
 export function ActivitiesPage() {
   const qc = useQueryClient()
   const navigate = useNavigate()
@@ -347,30 +368,85 @@ export function ActivitiesPage() {
   const [headerFilters, setHeaderFilters] = useState<HeaderFilters>(emptyHeaderFilters)
   const [detailFilters, setDetailFilters] = useState<DetailFilters>(emptyDetailFilters)
 
-  const { data: headers  = [], isLoading: hLoad }  = useQuery({ queryKey: ['activity-headers'],  queryFn: () => get<ActivityHeader[]>('/activities/headers') })
-  const { data: details  = [], isLoading: dLoad }  = useQuery({ queryKey: ['activity-details'],  queryFn: () => get<LogDetail[]>('/activities/details') })
-  const { data: lands    = [] }                    = useQuery({ queryKey: ['lands'],              queryFn: () => get<Land[]>('/lands') })
-  const { data: camps    = [] }                    = useQuery({ queryKey: ['camps'],              queryFn: () => get<LandCamp[]>('/lands/camps') })
-  const { data: farmers  = [] }                    = useQuery({ queryKey: ['farmers'],            queryFn: () => get<Farmer[]>('/farmers') })
-  const { data: hdrTypes = [] }                    = useQuery({ queryKey: ['header-types'],       queryFn: () => get<HeaderType[]>('/activities/header-types') })
-  const { data: allDetailTypes = [] }               = useQuery({ queryKey: ['detail-types-all'],   queryFn: () => get<DetailType[]>('/activities/detail-types') })
-  const { data: detailTypes = [] }                  = useQuery({ queryKey: ['detail-types', detailForm.act_header_type_id], queryFn: () => get<DetailType[]>('/activities/detail-types', detailForm.act_header_type_id ? { header_type_id: Number(detailForm.act_header_type_id) } : undefined) })
-  const { data: landTypes = [] }                    = useQuery({ queryKey: ['activity-land-types'], queryFn: () => get<LandType[]>('/activities/land-types') })
-  const { data: sugarCaneTypes = [] }               = useQuery({ queryKey: ['sugarcane-types'],    queryFn: () => get<SugarCaneType[]>('/activities/sugarcane-types') })
-  const { data: resTypes = [] }                    = useQuery({ queryKey: ['resource-types'],     queryFn: () => get<ResourceType[]>('/activities/resource-types') })
-  const { data: calStatuses = [] }                 = useQuery({ queryKey: ['cal-statuses'],       queryFn: () => get<CalStatus[]>('/activities/cal-statuses') })
-  const { data: fertilizers = [] }                  = useQuery({ queryKey: ['fertilizers'],        queryFn: () => get<Fertilizer[]>('/activities/fertilizers') })
-  const { data: equipments = [] }                   = useQuery({ queryKey: ['equipments'],         queryFn: () => get<Equipment[]>('/activities/equipments') })
-  const { data: chemicals = [] }                    = useQuery({ queryKey: ['chemicals'],          queryFn: () => get<Chemical[]>('/activities/chemicals') })
-  const { data: units = [] }                        = useQuery({ queryKey: ['units'],              queryFn: () => get<Unit[]>('/emission-factors/units') })
-  const { data: unitPrefixes = [] }                 = useQuery({ queryKey: ['unit-prefixs'],       queryFn: () => get<UnitPrefix[]>('/emission-factors/unit-prefixs') })
+  const { data: headers  = [], isLoading: hLoad, error: headersError }  = useQuery({ queryKey: ['activity-headers'],  queryFn: () => get<ActivityHeader[]>('/activities/headers') })
+  const { data: details  = [], isLoading: dLoad, error: detailsError }  = useQuery({ queryKey: ['activity-details'],  queryFn: () => get<LogDetail[]>('/activities/details') })
+  const { data: lands    = [], error: landsError }                      = useQuery({ queryKey: ['lands'],              queryFn: () => get<Land[]>('/lands') })
+  const { data: camps    = [], error: campsError }                      = useQuery({ queryKey: ['camps'],              queryFn: () => get<LandCamp[]>('/lands/camps') })
+  const { data: farmers  = [], error: farmersError }                    = useQuery({ queryKey: ['farmers'],            queryFn: () => get<Farmer[]>('/farmers') })
+  const { data: hdrTypes = [], error: hdrTypesError }                   = useQuery({ queryKey: ['header-types'],       queryFn: () => get<HeaderType[]>('/activities/header-types') })
+  const { data: allDetailTypes = [], error: allDetailTypesError }       = useQuery({ queryKey: ['detail-types-all'],   queryFn: () => get<DetailType[]>('/activities/detail-types') })
+  const { data: detailTypes = [], error: detailTypesError }             = useQuery({ queryKey: ['detail-types', detailForm.act_header_type_id], queryFn: () => get<DetailType[]>('/activities/detail-types', detailForm.act_header_type_id ? { header_type_id: Number(detailForm.act_header_type_id) } : undefined) })
+  const { data: landTypes = [], error: landTypesError }                 = useQuery({ queryKey: ['activity-land-types'], queryFn: () => get<LandType[]>('/activities/land-types') })
+  const { data: sugarCaneTypes = [], error: sugarCaneTypesError }       = useQuery({ queryKey: ['sugarcane-types'],    queryFn: () => get<SugarCaneType[]>('/activities/sugarcane-types') })
+  const { data: resTypes = [], error: resTypesError }                   = useQuery({ queryKey: ['resource-types'],     queryFn: () => get<ResourceType[]>('/activities/resource-types') })
+  const { data: calStatuses = [], error: calStatusesError }             = useQuery({ queryKey: ['cal-statuses'],       queryFn: () => get<CalStatus[]>('/activities/cal-statuses') })
+  const { data: fertilizers = [], error: fertilizersError }             = useQuery({ queryKey: ['fertilizers'],        queryFn: () => get<Fertilizer[]>('/activities/fertilizers') })
+  const { data: equipments = [], error: equipmentsError }               = useQuery({ queryKey: ['equipments'],         queryFn: () => get<Equipment[]>('/activities/equipments') })
+  const { data: chemicals = [], error: chemicalsError }                 = useQuery({ queryKey: ['chemicals'],          queryFn: () => get<Chemical[]>('/activities/chemicals') })
+  const { data: units = [], error: unitsError }                         = useQuery({ queryKey: ['units'],              queryFn: () => get<Unit[]>('/emission-factors/units') })
+  const { data: unitPrefixes = [], error: unitPrefixesError }           = useQuery({ queryKey: ['unit-prefixs'],       queryFn: () => get<UnitPrefix[]>('/emission-factors/unit-prefixs') })
 
-  async function importActivityCsvInChunks(mappings: ColumnMapping[], rows: Record<string, string>[]) {
+  const activityQueryItems = [
+    { label: 'หัวข้อกิจกรรม', error: headersError },
+    { label: 'รายการบันทึกกิจกรรม', error: detailsError },
+    { label: 'ข้อมูลแปลง', error: landsError },
+    { label: 'ข้อมูลแคมป์', error: campsError },
+    { label: 'ข้อมูลเกษตรกร', error: farmersError },
+    { label: 'ประเภทกิจกรรม', error: hdrTypesError },
+    { label: 'รายละเอียดกิจกรรม', error: allDetailTypesError ?? detailTypesError },
+    { label: 'ประเภทแปลง', error: landTypesError },
+    { label: 'ประเภทอ้อย', error: sugarCaneTypesError },
+    { label: 'ประเภทปัจจัย', error: resTypesError },
+    { label: 'สถานะการคำนวณ', error: calStatusesError },
+    { label: 'ปุ๋ย', error: fertilizersError },
+    { label: 'อุปกรณ์', error: equipmentsError },
+    { label: 'สารเคมี', error: chemicalsError },
+    { label: 'หน่วยนับ', error: unitsError },
+    { label: 'คำนำหน้าหน่วย', error: unitPrefixesError },
+  ]
+
+  async function importActivityCsvInChunks(
+    mappings: ColumnMapping[],
+    rows: Record<string, string>[],
+    helpers?: { onProgress?: CsvImportProgressReporter },
+  ) {
     const chunks = createActivityImportChunks(mappings, rows)
     const result: ActivityImportResult = { inserted: 0, skipped: 0, errors: [] }
+    const totalBytes = chunks.reduce((sum, chunk) => sum + chunk.sizeBytes, 0)
+    let uploadedBytes = 0
+
+    const reportProgress = (
+      currentChunk: number,
+      currentChunkBytes: number,
+      message: string,
+      includeCurrentChunk = false,
+    ) => {
+      const progressBytes = includeCurrentChunk
+        ? Math.min(totalBytes, uploadedBytes + currentChunkBytes)
+        : uploadedBytes
+
+      helpers?.onProgress?.({
+        currentChunk,
+        totalChunks: chunks.length,
+        uploadedBytes: progressBytes,
+        totalBytes,
+        currentChunkBytes,
+        chunkLimitBytes: ACTIVITY_IMPORT_CHUNK_LIMIT_BYTES,
+        percent: totalBytes > 0 ? (progressBytes / totalBytes) * 100 : 0,
+        message,
+      })
+    }
+
+    reportProgress(0, chunks[0]?.sizeBytes ?? 0, 'กำลังเตรียมชุดข้อมูลนำเข้า')
 
     for (let index = 0; index < chunks.length; index++) {
       const chunk = chunks[index]
+      reportProgress(
+        index + 1,
+        chunk.sizeBytes,
+        `กำลังนำเข้าชุดที่ ${index + 1}/${chunks.length}`,
+        true,
+      )
 
       try {
         const chunkResult = await post<ActivityImportResult>(
@@ -384,6 +460,12 @@ export function ActivitiesPage() {
         result.errors.push(
           ...(chunkResult.errors ?? []).map((error) => adjustImportErrorRowNumbers(error, chunk.startIndex)),
         )
+        uploadedBytes += chunk.sizeBytes
+        reportProgress(
+          index + 1,
+          chunk.sizeBytes,
+          `นำเข้าชุดที่ ${index + 1}/${chunks.length} แล้ว`,
+        )
       } catch (error: any) {
         throw new Error(
           `นำเข้าชุดที่ ${index + 1}/${chunks.length} ไม่สำเร็จ (${Math.ceil(chunk.sizeBytes / 1024)} KB): ${error?.message ?? 'Internal server error'}`,
@@ -395,6 +477,17 @@ export function ActivitiesPage() {
       qc.invalidateQueries({ queryKey: ['activity-headers'] }),
       qc.invalidateQueries({ queryKey: ['activity-details'] }),
     ])
+
+    helpers?.onProgress?.({
+      currentChunk: chunks.length,
+      totalChunks: chunks.length,
+      uploadedBytes: totalBytes,
+      totalBytes,
+      currentChunkBytes: 0,
+      chunkLimitBytes: ACTIVITY_IMPORT_CHUNK_LIMIT_BYTES,
+      percent: 100,
+      message: 'นำเข้าข้อมูลครบทุกชุดแล้ว',
+    })
 
     return result
   }
@@ -473,12 +566,17 @@ export function ActivitiesPage() {
     ?? (getDetailCampId(detail) != null ? campMap[getDetailCampId(detail) ?? 0] : undefined)
 
   const getDetailLandId = (detail: LogDetail) => detail.activities_header?.land_id
+  const getLandLabelById = (landId?: number) => {
+    if (landId == null) return '—'
+    const land = lands.find((item) => item.land_id === landId)
+    if (land) return getLandDisplayLabel(land.land_code, land.name)
+    return landMap[landId] ?? `#${landId}`
+  }
   const getDetailLandLabel = (detail: LogDetail) => {
     const landCode = detail.activities_header?.lands?.land_code
       ?? (getDetailLandId(detail) != null ? landMap[getDetailLandId(detail) ?? 0] : undefined)
     const landName = detail.activities_header?.lands?.name
-    if (landCode && landName) return `${landCode} - ${landName}`
-    return landCode ?? landName ?? '—'
+    return getLandDisplayLabel(landCode, landName)
   }
   const getDetailLandSize = (detail: LogDetail) => {
     const landId = getDetailLandId(detail)
@@ -638,6 +736,9 @@ export function ActivitiesPage() {
 
   const showSelectedHeaderPanel = Boolean(formPanelOpen && selectedHeader)
   const selectedHeaderLand = selectedHeader ? lands.find(l => l.land_id === selectedHeader.land_id) : undefined
+  const selectedHeaderLandLabel = selectedHeaderLand
+    ? getLandDisplayLabel(selectedHeaderLand.land_code, selectedHeaderLand.name)
+    : '—'
   const selectedHeaderCampName = selectedHeaderLand?.land_camp_id != null
     ? campMap[selectedHeaderLand.land_camp_id]
     : undefined
@@ -713,7 +814,7 @@ export function ActivitiesPage() {
     { key: 'activities_header_id', header: 'ID', width: '60px', sortable: true },
     { key: 'activities_header_idCode', header: 'รหัสกิจกรรม', sortable: true },
     { key: 'land_camp_id', header: 'แคมป์', sortable: true, sortValue: (row) => getHeaderCampName(row), render: (r) => <span className="badge-blue">{getHeaderCampName(r)}</span> },
-    { key: 'land_id', header: 'รหัสแปลง', sortable: true, sortValue: (row) => landMap[row.land_id] ?? row.land_id, render: (r) => <span className="badge-green">{landMap[r.land_id] ?? r.land_id}</span> },
+    { key: 'land_id', header: 'รหัสแปลง', sortable: true, sortValue: (row) => getLandLabelById(row.land_id), render: (r) => <span className="badge-green">{getLandLabelById(r.land_id)}</span> },
     { key: 'farmer_id', header: 'รหัสเกษตรกร', sortable: true, sortValue: (row) => farmerMap[row.farmer_id] ?? row.farmer_id, render: (r) => <span className="badge-blue">{farmerMap[r.farmer_id] ?? r.farmer_id}</span> },
     { key: 'activities_header_startDate', header: 'วันที่กิจกรรม', sortable: true, render: (r) => formatBangkokDateTime(r.activities_header_startDate) },
     { key: 'activities_header_curlatitude', header: 'ละติจูด', sortable: true },
@@ -742,7 +843,7 @@ export function ActivitiesPage() {
 
   const detailCols: Column<LogDetail>[] = [
     { key: 'activities_header_id', header: 'หัวข้อกิจกรรม', width: '80px', sortable: true, sortValue: (row) => row.activities_header_id != null ? hdrMap[row.activities_header_id] ?? row.activities_header_id : '—', render: (r) => r.activities_header_id != null ? hdrMap[r.activities_header_id] ?? r.activities_header_id : '—' },
-    { key: 'log_act_detail_create_at', header: 'วันที่ปฏิบัติ', sortable: true, sortValue: (row) => row.log_act_detail_create_at ?? row.activities_header?.activities_header_startDate ?? '', render: (r) => formatBangkokDateTime(r.log_act_detail_create_at ?? r.activities_header?.activities_header_startDate) },
+    { key: 'log_act_detail_create_at', header: 'วันที่ปฏิบัติ', sortable: true, sortValue: (row) => row.log_act_detail_create_at ?? row.activities_header?.activities_header_startDate ?? '', render: (r) => formatBangkokDate(r.log_act_detail_create_at ?? r.activities_header?.activities_header_startDate) },
     { key: 'detail_camp', header: 'แคมป์', sortable: true, sortValue: (row) => getDetailCampName(row) ?? '—', render: (r) => getDetailCampName(r) ? <span className="badge-blue">{getDetailCampName(r)}</span> : '—' },
     { key: 'detail_land', header: 'แปลง', sortable: true, sortValue: (row) => getDetailLandLabel(row), render: (r) => getDetailLandId(r) != null ? <span className="badge-green">{getDetailLandLabel(r)}</span> : '—' },
     { key: 'act_header_type_id', header: 'กิจกรรม', sortable: true, sortValue: (row) => hdrTypeMap[row.act_header_type_id] ?? row.act_header_type_id, render: (r) => hdrTypeMap[r.act_header_type_id] ?? r.act_header_type_id ?? '—' },
@@ -757,7 +858,7 @@ export function ActivitiesPage() {
     },
     { key: 'unit_prefix_id', header: 'Prefix', sortable: true, sortValue: (row) => unitPrefixMap[row.unit_prefix_id ?? 0] ?? row.unit_prefix_id ?? '—', render: (r) => unitPrefixMap[r.unit_prefix_id ?? 0] ?? r.unit_prefix_id ?? '—' },
     { key: 'unit_id', header: 'หน่วย', sortable: true, sortValue: (row) => unitMap[row.unit_id ?? 0] ?? row.unit_id ?? '—', render: (r) => unitMap[r.unit_id ?? 0] ?? r.unit_id ?? '—' },
-    { key: 'log_act_detail_quatity', header: 'จำนวน', sortable: true, render: (r) => r.log_act_detail_quatity ?? '—' },
+    { key: 'log_act_detail_quatity', header: 'จำนวน', sortable: true, render: (r) => formatQuantityValue(r.log_act_detail_quatity) },
     { key: 'log_act_detail_volumePerUnit', header: 'ปริมาณ/หน่วย', sortable: true, render: (r) => r.log_act_detail_volumePerUnit?.toFixed(3) ?? '—' },
     { key: 'log_act_detail_volumeAll', header: 'ปริมาณรวม', sortable: true, render: (r) => <span className="font-mono">{r.log_act_detail_volumeAll?.toFixed(3)}</span> },
     {
@@ -788,7 +889,7 @@ export function ActivitiesPage() {
       </div>
       <div className="mb-4 rounded-lg border border-surface-200 bg-surface-50 p-3 text-xs text-surface-600">
         <p><span className="font-medium text-surface-700">แคมป์:</span> {selectedHeaderCampName ?? '—'}</p>
-        <p><span className="font-medium text-surface-700">แปลง:</span> {selectedHeaderLand ? `${selectedHeaderLand.land_code} - ${selectedHeaderLand.name}` : '—'}</p>
+        <p><span className="font-medium text-surface-700">แปลง:</span> {selectedHeaderLandLabel}</p>
         <p><span className="font-medium text-surface-700">วันที่กิจกรรม:</span> {formatBangkokDateTime(selectedHeader.activities_header_startDate)}</p>
       </div>
       <div className="space-y-3 text-xs">
@@ -816,9 +917,11 @@ export function ActivitiesPage() {
   const standardDoneCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'standardDone').length
   const standardCfpDoneCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'cfpDone').length
   const errorCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'error').length
+  const totalLogRecords = details.length
 
   const dashboardOptions = [
-    { key: 'total', label: 'กิจกรรมทั้งหมด' },
+    { key: 'total', label: 'หัวข้อกิจกรรมทั้งหมด' },
+    { key: 'totalLogs', label: 'บันทึกกิจกรรมทั้งหมด' },
     { key: 'imported', label: 'นำเข้าข้อมูลแล้ว' },
     { key: 'preparing', label: 'กำลังเตรียมข้อมูล' },
     { key: 'ready', label: 'พร้อมคำนวณมาตรฐาน' },
@@ -841,10 +944,17 @@ export function ActivitiesPage() {
   const dashboardCards = [
     {
       key: 'total',
-      label: 'กิจกรรมทั้งหมด',
+      label: 'หัวข้อกิจกรรมทั้งหมด',
       icon: <ActivitySquare size={14} className="text-primary-500" />,
       value: headers.length,
       valueClassName: 'stat-value',
+    },
+    {
+      key: 'totalLogs',
+      label: 'บันทึกกิจกรรมทั้งหมด',
+      icon: <Calculator size={14} className="text-indigo-500" />,
+      value: totalLogRecords,
+      valueClassName: 'stat-value text-indigo-700',
     },
     {
       key: 'imported',
@@ -927,6 +1037,12 @@ export function ActivitiesPage() {
         </div>
       </div>
 
+      <DatabaseConnectionNotice
+        items={activityQueryItems}
+        className="mb-4"
+        onRetry={() => { void qc.refetchQueries({ type: 'active' }) }}
+      />
+
       {/* Stats */}
       <div className="mb-6">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -942,7 +1058,7 @@ export function ActivitiesPage() {
           />
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-6">
           {dashboardCards
             .filter((card) => visibleDashboardKeySet.has(card.key))
             .map((card) => (
@@ -953,7 +1069,7 @@ export function ActivitiesPage() {
                 </div>
                 <p className={card.valueClassName}>{card.value}</p>
               </div>
-            ))}
+          ))}
         </div>
       </div>
 
@@ -1126,7 +1242,7 @@ export function ActivitiesPage() {
               <label className="label">แปลง</label>
               <select className="select" value={detailFilters.landId} onChange={(e) => setDetailFilterValue('landId', e.target.value)}>
                 <option value="">ทั้งหมด</option>
-                {lands.map(l => <option key={l.land_id} value={l.land_id}>{l.land_code} - {l.name}</option>)}
+                {lands.map(l => <option key={l.land_id} value={l.land_id}>{getLandDisplayLabel(l.land_code, l.name)}</option>)}
               </select>
             </div>
             <div>
@@ -1206,7 +1322,7 @@ export function ActivitiesPage() {
                   {trackMethod === 'direct' ? (
                     <select className="select" value={selectedLandId ?? ''} onChange={(e) => setLandFilter(e.target.value ? Number(e.target.value) : null)}>
                       <option value="">— เลือกแปลง —</option>
-                      {lands.map(l => <option key={l.land_id} value={l.land_id}>{l.land_code} — {l.name}</option>)}
+                      {lands.map(l => <option key={l.land_id} value={l.land_id}>{getLandDisplayLabel(l.land_code, l.name)}</option>)}
                     </select>
                   ) : (                                           // If cascade method, show camp selector first, then land selector filtered by camp
                     <div className="grid grid-cols-2 gap-2">
@@ -1220,7 +1336,7 @@ export function ActivitiesPage() {
                       </select>
                       <select className="select" value={selectedLandId ?? ''} onChange={(e) => setLandFilter(e.target.value ? Number(e.target.value) : null)}>
                         <option value="">— แปลง —</option>
-                        {visibleLands.map(l => <option key={l.land_id} value={l.land_id}>{l.land_code} - {l.name}</option>)}
+                        {visibleLands.map(l => <option key={l.land_id} value={l.land_id}>{getLandDisplayLabel(l.land_code, l.name)}</option>)}
                       </select>
                     </div>
                   )}
@@ -1240,7 +1356,7 @@ export function ActivitiesPage() {
                     <option value="">— เลือกหัวข้อกิจกรรม —</option>
                     {visibleHeaders.map(h => (
                       <option key={h.activities_header_id} value={h.activities_header_id}>
-                        #{h.activities_header_id} {h.activities_header_idCode} - {landMap[h.land_id] ?? h.land_id}
+                        #{h.activities_header_id} {h.activities_header_idCode} - {getLandLabelById(h.land_id)}
                       </option>
                     ))}
                   </select>
@@ -1332,7 +1448,7 @@ export function ActivitiesPage() {
                     {units.map(u => <option key={u.unit_id} value={u.unit_id}>{u.unit_name ?? u.unit_initial ?? `#${u.unit_id}`}</option>)}
                   </select>
                 </div>
-                <div><label className="label">ปริมาณ (จำนวน)</label><input type="number" className="input" value={detailForm.log_act_detail_quatity} onChange={(e) => setFormValue('log_act_detail_quatity', e.target.value)} /></div>
+                <div><label className="label">ปริมาณ (จำนวน)</label><input type="number" step="0.001" className="input" value={detailForm.log_act_detail_quatity} onChange={(e) => setFormValue('log_act_detail_quatity', e.target.value)} /></div>
                 <div><label className="label">ปริมาณ/หน่วย</label><input type="number" step="0.001" className="input" value={detailForm.log_act_detail_volumePerUnit} onChange={(e) => setFormValue('log_act_detail_volumePerUnit', e.target.value)} /></div>
                 <div><label className="label">ปริมาณรวม *</label><input type="number" step="0.001" className="input" required value={detailForm.log_act_detail_volumeAll} onChange={(e) => setFormValue('log_act_detail_volumeAll', e.target.value)} /></div>
                 <div><label className="label">พื้นที่ทำงาน (ไร่)</label><input type="number" step="0.01" className="input" value={detailForm.log_act_detail_areawork} onChange={(e) => setFormValue('log_act_detail_areawork', e.target.value)} /></div>
@@ -1389,7 +1505,7 @@ export function ActivitiesPage() {
                     }}
                   >
                     <option value="">— ไม่ระบุ —</option>
-                    {visibleHeaderLands.map(l => <option key={l.land_id} value={l.land_id}>{l.land_code} — {l.name}</option>)}
+                    {visibleHeaderLands.map(l => <option key={l.land_id} value={l.land_id}>{getLandDisplayLabel(l.land_code, l.name)}</option>)}
                   </select>
                 </div>
                 <div>

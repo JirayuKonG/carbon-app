@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { CsvMappingWizard, TargetColumn, ColumnMapping } from '@/components/ui/CsvMappingWizard'
 import { get, post } from '@/lib/api'
@@ -40,11 +41,16 @@ export function WeatherPage() {
   const [showManual, setShowManual]   = useState(false)
   const [selectedCamp, setSelectedCamp] = useState<number | ''>('')
 
-  const { data: records = [], isLoading } = useQuery({
+  const { data: records = [], isLoading, error: recordsError } = useQuery({
     queryKey: ['weather-records', selectedCamp],
     queryFn:  () => get<WeatherRec[]>(`/lands/weather${selectedCamp ? `?camp_id=${selectedCamp}` : ''}`),
   })
-  const { data: camps = [] } = useQuery({ queryKey: ['camps'], queryFn: () => get<LandCamp[]>('/lands/camps') })
+  const { data: camps = [], error: campsError } = useQuery({ queryKey: ['camps'], queryFn: () => get<LandCamp[]>('/lands/camps') })
+
+  const pageQueryItems = [
+    { label: 'ข้อมูลสภาพอากาศ', error: recordsError },
+    { label: 'ข้อมูลแคมป์', error: campsError },
+  ]
 
   const importMut = useMutation({
     mutationFn: (payload: { mappings: ColumnMapping[]; rows: Record<string, string>[] }) =>
@@ -85,6 +91,12 @@ export function WeatherPage() {
           <button className="btn-primary" onClick={() => setShowWizard(true)}><Upload size={14} /> นำเข้า CSV</button>
         </div>
       </div>
+
+      <DatabaseConnectionNotice
+        items={pageQueryItems}
+        className="mb-4"
+        onRetry={() => { void qc.refetchQueries({ type: 'active' }) }}
+      />
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">

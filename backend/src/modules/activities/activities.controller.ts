@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, ParseIntPipe, BadRequestException } from '@nestjs/common'
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, ParseIntPipe, BadRequestException, Logger } from '@nestjs/common'
 import { ApiTags, ApiQuery } from '@nestjs/swagger'
 import { ActivitiesService } from './activities.service'
 import { Co2eEngineService } from './co2e-engine.service'
@@ -6,10 +6,22 @@ import { Co2eEngineService } from './co2e-engine.service'
 @ApiTags('Activities')
 @Controller('activities')
 export class ActivitiesController {
+  private readonly logger = new Logger(ActivitiesController.name)
+
   constructor(
     private svc:    ActivitiesService,
     private engine: Co2eEngineService,
   ) {}
+
+  private getErrorMessage(error: unknown) {
+    if (error instanceof Error) return error.message
+    if (typeof error === 'string') return error
+    try {
+      return JSON.stringify(error)
+    } catch {
+      return 'Unknown import error'
+    }
+  }
 
   // Headers
   @Get('headers')
@@ -95,11 +107,17 @@ export class ActivitiesController {
 
   // CSV import — body: { mappings, rows, calcMode? }
   @Post('import')
-  importCsv(@Body() b: { mappings: any[]; rows: Record<string, string>[]; calcMode?: 'standard' | 'tver' }) {
+  async importCsv(@Body() b: { mappings: any[]; rows: Record<string, string>[]; calcMode?: 'standard' | 'tver' }) {
     if (!Array.isArray(b?.mappings) || !Array.isArray(b?.rows)) {
       throw new BadRequestException('CSV import requires mappings and rows arrays')
     }
 
-    return this.svc.importFromCsv(b.mappings, b.rows, b.calcMode)
+    try {
+      return await this.svc.importFromCsv(b.mappings, b.rows, b.calcMode)
+    } catch (error) {
+      const message = this.getErrorMessage(error)
+      this.logger.error(`CSV import failed: ${message}`, error instanceof Error ? error.stack : undefined)
+      throw new BadRequestException(`CSV import failed: ${message}`)
+    }
   }
 }

@@ -86,7 +86,7 @@ function diffLabel(baseline: number, current: number) {
 
 function currentYearFrom(rows: ProcessActivityBreakdown[]) {
   const years = rows.filter((row) => row.year !== "baseline_avg").map((row) => row.year).sort();
-  return years.at(-1) ?? "";
+  return years[years.length - 1] ?? "";
 }
 
 function fieldProcessRows(field: CampFieldCarbonDetail, year: string, totalEmission: number): ProcessActivityBreakdown[] {

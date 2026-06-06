@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
+import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { del, get, post, put } from '@/lib/api'
@@ -197,8 +198,14 @@ export function LandsPage() {
   })
 
   const filteredLands = selectedCamp ? lands.filter((land) => land.land_camp_id === selectedCamp) : lands
-  const queryError = [landsError, campsError, landmapsError, provincesError, districtsError, subdistrictsError]
-    .find((error): error is Error => error instanceof Error)
+  const pageQueryItems = [
+    { label: 'ข้อมูลแปลง', error: landsError },
+    { label: 'ข้อมูลแคมป์', error: campsError },
+    { label: 'ข้อมูลโฉนด', error: landmapsError },
+    { label: 'จังหวัด', error: provincesError },
+    { label: 'อำเภอ', error: districtsError },
+    { label: 'ตำบล', error: subdistrictsError },
+  ]
 
   const openCreate = (type: TabKey) => {
     setFormError(null)
@@ -363,12 +370,11 @@ export function LandsPage() {
         </button>
       </div>
 
-      {queryError && (
-        <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          <p className="font-medium">ไม่สามารถโหลดข้อมูลพื้นที่จาก PostgreSQL ได้</p>
-          <p className="mt-1">{queryError.message}</p>
-        </div>
-      )}
+      <DatabaseConnectionNotice
+        items={pageQueryItems}
+        className="mb-5"
+        onRetry={() => { void qc.refetchQueries({ type: 'active' }) }}
+      />
 
       {tab === 'lands' && camps.length > 0 && (
         <div className="card mb-5">

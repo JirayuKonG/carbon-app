@@ -803,8 +803,27 @@ export class ActivitiesService {
 
       year = this.normalizeImportedYear(year)
 
+      if (
+        month < 1 || month > 12
+        || day < 1 || day > 31
+        || Number(hh) > 23
+        || Number(mm) > 59
+        || Number(ss) > 59
+      ) {
+        return undefined
+      }
+
       const parsed = new Date(year, month - 1, day, Number(hh), Number(mm), Number(ss))
-      return Number.isNaN(parsed.getTime()) ? undefined : parsed
+      if (
+        Number.isNaN(parsed.getTime())
+        || parsed.getFullYear() !== year
+        || parsed.getMonth() !== month - 1
+        || parsed.getDate() !== day
+      ) {
+        return undefined
+      }
+
+      return parsed
     }
 
     const nativeDate = new Date(text)
@@ -820,14 +839,6 @@ export class ActivitiesService {
     }
 
     return nativeDate
-  }
-
-  private toDateKey(value?: Date) {
-    if (!value) return ''
-    const year = value.getFullYear()
-    const month = String(value.getMonth() + 1).padStart(2, '0')
-    const day = String(value.getDate()).padStart(2, '0')
-    return `${year}-${month}-${day}`
   }
 
   // ── CSV Import ─────────────────────────────────────────────
@@ -859,7 +870,7 @@ export class ActivitiesService {
       landTypes,
       sugarCaneTypes,
       existingHeaders,
-    ] = await Promise.all([
+    ] = await this.prisma.$transaction([
       this.prisma.lands_camps.findMany({ select: { land_camp_id: true, land_camp_name: true } }),
       this.prisma.lands.findMany({ select: { land_id: true, land_code: true, name: true, land_camp_id: true, land_size: true } }),
       this.prisma.resource_used_type.findMany({ select: { resource_used_type_id: true, resc_used_type_name: true } }),
@@ -926,32 +937,27 @@ export class ActivitiesService {
         ?? lands.find(l => normalizeKey(l.land_code ?? undefined) === codeKey)
     }
 
-    const headerCache = new Map<string, { activities_header_id: number }>()
-    const toHeaderCacheKey = (
-      landId?: number,
-      startDate?: Date,
-      actHeaderTypeId?: number,
-      actHeaderTypeLandId?: number,
-      actHeaderTypeSugarCaneId?: number,
-    ) => [
-      landId ?? '',
-      this.toDateKey(startDate),
-      actHeaderTypeId ?? '',
-      actHeaderTypeLandId ?? '',
-      actHeaderTypeSugarCaneId ?? '',
-    ].join('|')
+    const headerCache = new Map<number, { activities_header_id: number; startDateTime: number }>()
+    const getHeaderStartTime = (value?: Date | null) => value?.getTime() ?? Number.NEGATIVE_INFINITY
 
     for (const header of existingHeaders) {
-      headerCache.set(
-        toHeaderCacheKey(
-          header.land_id ?? undefined,
-          header.activities_header_startDate ?? undefined,
-          header.act_header_type_id ?? undefined,
-          header.act_header_typeLand_id ?? undefined,
-          header.act_header_typeSugarCane_id ?? undefined,
-        ),
-        { activities_header_id: header.activities_header_id },
-      )
+      if (header.land_id == null) continue
+
+      const startDateTime = getHeaderStartTime(header.activities_header_startDate)
+      const cached = headerCache.get(header.land_id)
+      const isNewerHeader = !cached
+        || startDateTime > cached.startDateTime
+        || (
+          startDateTime === cached.startDateTime
+          && header.activities_header_id > cached.activities_header_id
+        )
+
+      if (isNewerHeader) {
+        headerCache.set(header.land_id, {
+          activities_header_id: header.activities_header_id,
+          startDateTime,
+        })
+      }
     }
 
     const resolveMappedReferenceId = (
@@ -1243,10 +1249,23 @@ export class ActivitiesService {
         const landCode = get('land_code')
         const importedLandSizeRaw = get('land_size')
         const importedLandSize = importedLandSizeRaw ? Number.parseFloat(importedLandSizeRaw) : undefined
-        const activityDate = this.parseImportDate(get('log_act_detail_create_at'))
+
+        if (!landCode && !campName) {
+          results.errors.push(`Row ${i + 2}: ไม่พบไร่/แปลง - ไม่มีทั้ง land_code และ land_camp_name จึงไม่สามารถสร้างกิจกรรมได้`)
+          results.skipped++
+          continue
+        }
+
+        const activityDateRaw = get('log_act_detail_create_at')
+        const activityDate = this.parseImportDate(activityDateRaw)
+        if (!activityDate) {
+          results.errors.push(`Row ${i + 2}: วันที่ผิด/หาย - log_act_detail_create_at ว่างหรือรูปแบบวันที่ไม่ถูกต้อง`)
+          results.skipped++
+          continue
+        }
 
         if (landCode) {
-          const campId = campName ? byName.camp[campName.toLowerCase()] : undefined
+          const campId = campName ? byName.camp[normalizeKey(campName)] : undefined
           landId = findLand(landCode, campId)?.land_id
             ?? await ensureLandId(landCode, campName, importedLandSize)
           if (landId != null) {
@@ -1268,15 +1287,7 @@ export class ActivitiesService {
         const actHeaderTypeLandId = resolveMappedReferenceId(get('act_header_typeLand_id'), byName.landType)
         const actHeaderTypeSugarCaneId = await ensureSugarCaneTypeId(get('act_header_typeSugarCane_id'))
 
-        const headerKey = toHeaderCacheKey(
-          landId,
-          activityDate,
-          actTypeId,
-          actHeaderTypeLandId,
-          actHeaderTypeSugarCaneId,
-        )
-
-        let activitiesHeaderId = headerCache.get(headerKey)?.activities_header_id
+        let activitiesHeaderId = headerCache.get(landId)?.activities_header_id
         if (!activitiesHeaderId) {
           const header = await this.createHeader({
             land_id: landId,
@@ -1284,10 +1295,13 @@ export class ActivitiesService {
             act_header_typeLand_id: actHeaderTypeLandId,
             act_header_typeSugarCane_id: actHeaderTypeSugarCaneId,
             activities_header_idCode: `IMP-${Date.now()}-${i}`,
-            activities_header_startDate: activityDate ?? new Date(),
+            activities_header_startDate: activityDate,
           })
           activitiesHeaderId = header.activities_header_id
-          headerCache.set(headerKey, { activities_header_id: activitiesHeaderId })
+          headerCache.set(landId, {
+            activities_header_id: activitiesHeaderId,
+            startDateTime: getHeaderStartTime(activityDate),
+          })
         }
 
         // Resolve resource
@@ -1318,7 +1332,7 @@ export class ActivitiesService {
         const quantityRaw   = get('log_act_detail_quatity')
         const volumePerUnitRaw = get('log_act_detail_volumePerUnit')
 
-        const quantityNumber = quantityRaw ? Number.parseInt(quantityRaw, 10) : undefined
+        const quantityNumber = quantityRaw ? Number.parseFloat(quantityRaw) : undefined
         const volumePerUnitNumber = volumePerUnitRaw ? Number.parseFloat(volumePerUnitRaw) : undefined
 
         const explicitVolumeAll = volumeAllRaw ? Number.parseFloat(volumeAllRaw) : undefined
@@ -1329,7 +1343,9 @@ export class ActivitiesService {
             : 0)
 
         const volumePerUnit = volumePerUnitRaw ? Number.parseFloat(volumePerUnitRaw) || undefined : undefined
-        const quantity      = quantityRaw ? Number.parseInt(quantityRaw, 10) || 1 : 1
+        const quantity      = quantityRaw
+          ? (Number.isFinite(quantityNumber) ? quantityNumber : 1)
+          : 1
         const areawork      = parseFloat(get('log_act_detail_areawork'))   || undefined
 
         await this.createDetail({

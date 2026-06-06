@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { Calculator, Droplets, Layers, Leaf, MapPin, Sprout, Tractor } from 'lucide-react'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { get } from '@/lib/api'
@@ -131,6 +132,7 @@ function createEmptyAggregate(detail: LogDetail, landId: number): YearLandAggreg
 }
 
 export function CarbonCreditPage() {
+  const qc = useQueryClient()
   const [selections, setSelections] = useState<SelectionState>(EMPTY_SELECTIONS)
 
   const { data: details = [], isLoading, error } = useQuery({
@@ -402,7 +404,9 @@ export function CarbonCreditPage() {
     },
   ]
 
-  const queryError = error instanceof Error ? error.message : ''
+  const pageQueryItems = [
+    { label: 'ข้อมูลกิจกรรม', error },
+  ]
 
   return (
     <div className="cf-dash">
@@ -419,6 +423,12 @@ export function CarbonCreditPage() {
             </div>
           </div>
         </div>
+
+        <DatabaseConnectionNotice
+          items={pageQueryItems}
+          className="mt-4"
+          onRetry={() => { void qc.refetchQueries({ type: 'active' }) }}
+        />
 
         <div className="card mt-5 min-w-0 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_40px_rgba(91,164,255,0.14)]">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -459,11 +469,6 @@ export function CarbonCreditPage() {
             </div>
           )}
 
-          {queryError && (
-            <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">
-              ไม่สามารถโหลดข้อมูลกิจกรรมได้: {queryError}
-            </div>
-          )}
         </div>
 
         {!validationMessage && creditResult.rows.length > 0 && (

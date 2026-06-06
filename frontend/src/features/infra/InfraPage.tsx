@@ -1,5 +1,6 @@
 import { type FormEvent, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { get, post, put, del } from '@/lib/api'
@@ -36,9 +37,15 @@ export function InfraPage() {
   const [editing, setEditing]   = useState<Record<string, unknown> | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ type: ModalTarget; id: number; name: string } | null>(null)
 
-  const { data: factories   = [], isLoading: fLoad } = useQuery({ queryKey: ['factories'],   queryFn: () => get<FactoryRow[]>('/infra/factories') })
-  const { data: serviceAreas = [], isLoading: sLoad } = useQuery({ queryKey: ['service-areas'], queryFn: () => get<ServiceArea[]>('/infra/service-areas') })
-  const { data: departments  = [], isLoading: dLoad } = useQuery({ queryKey: ['departments'],  queryFn: () => get<Department[]>('/infra/departments') })
+  const { data: factories   = [], isLoading: fLoad, error: factoriesError } = useQuery({ queryKey: ['factories'],   queryFn: () => get<FactoryRow[]>('/infra/factories') })
+  const { data: serviceAreas = [], isLoading: sLoad, error: serviceAreasError } = useQuery({ queryKey: ['service-areas'], queryFn: () => get<ServiceArea[]>('/infra/service-areas') })
+  const { data: departments  = [], isLoading: dLoad, error: departmentsError } = useQuery({ queryKey: ['departments'],  queryFn: () => get<Department[]>('/infra/departments') })
+
+  const pageQueryItems = [
+    { label: 'โรงงาน', error: factoriesError },
+    { label: 'พื้นที่บริการ', error: serviceAreasError },
+    { label: 'แผนก', error: departmentsError },
+  ]
 
   const invalidate = () => { qc.invalidateQueries({ queryKey: ['factories'] }); qc.invalidateQueries({ queryKey: ['service-areas'] }); qc.invalidateQueries({ queryKey: ['departments'] }) }
 
@@ -115,6 +122,12 @@ export function InfraPage() {
           <p className="page-subtitle">จัดการโครงสร้างองค์กรและพื้นที่ให้บริการ</p>
         </div>
       </div>
+
+      <DatabaseConnectionNotice
+        items={pageQueryItems}
+        className="mb-4"
+        onRetry={() => { void qc.refetchQueries({ type: 'active' }) }}
+      />
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         {/* Factories */}
