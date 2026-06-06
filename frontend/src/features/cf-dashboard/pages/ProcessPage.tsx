@@ -4,8 +4,8 @@ import { sortProcessLabels } from "../components/charts/ChartRegistry";
 import { ProcessInputComparisonBar } from "../components/charts/ProcessInputComparisonBar";
 import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
 import { CaneTypeSummaryPanel } from "../components/common/CaneTypeSummaryPanel";
-import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCaneTypeSummaries, getCfProcessActivities, getProcessEmissions, getProcessInputComparisons } from "../services/dashboardApi";
-import type { ActivityValue, CampCarbonSummary, CampFieldCarbonDetail, CaneTypeSummary, DataResult, ProcessActivityBreakdown, ProcessEmission, ProcessInputComparison } from "../types/dashboard";
+import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCaneTypeSummaries, getCfProcessActivities, getOverviewKpi, getProcessEmissions, getProcessInputComparisons } from "../services/dashboardApi";
+import type { ActivityValue, CampCarbonSummary, CampFieldCarbonDetail, CaneTypeSummary, DataResult, OverviewKpi, ProcessActivityBreakdown, ProcessEmission, ProcessInputComparison } from "../types/dashboard";
 import "../cf-dashboard.css";
 
 type PeriodMode = "baseline_avg" | "project";
@@ -20,6 +20,15 @@ function yearName(year: string) {
 function currentYearFrom(data: ProcessEmission[]) {
   const years = data.filter((item) => !item.isBaseline).map((item) => item.year).sort();
   return years[years.length - 1] ?? "";
+}
+
+function baselineYearRange(data: ProcessEmission[], fallback: string[] = []) {
+  const years = Array.from(new Set([
+    ...fallback,
+    ...data.filter((item) => item.isBaseline && item.year !== "baseline_avg").map((item) => item.year),
+  ])).sort();
+  if (!years.length) return "-";
+  return years.length === 1 ? years[0] : `${years[0]} - ${years[years.length - 1]}`;
 }
 
 function periodLabel(period: PeriodMode, currentYear: string) {
@@ -150,18 +159,20 @@ export function CfProcessPage() {
   const [campResult, setCampResult] = useState<DataResult<CampCarbonSummary[]>>({ data: [], source: "mock" });
   const [fieldResult, setFieldResult] = useState<DataResult<CampFieldCarbonDetail[]>>({ data: [], source: "mock" });
   const [caneTypeResult, setCaneTypeResult] = useState<DataResult<CaneTypeSummary[]>>({ data: [], source: "mock" });
+  const [overviewKpi, setOverviewKpi] = useState<OverviewKpi | null>(null);
   const [selectedFieldId, setSelectedFieldId] = useState("all");
   const [error, setError] = useState("");
 
   useEffect(() => {
-    Promise.all([getCfProcessActivities("process"), getProcessEmissions(), getProcessInputComparisons(), getCampCarbonSummaries(), getCampFieldCarbonDetails(), getCaneTypeSummaries()])
-      .then(([activityResult, emissionResult, inputResult, campSummaryResult, fieldDetailResult, caneSummaryResult]) => {
+    Promise.all([getCfProcessActivities("process"), getProcessEmissions(), getProcessInputComparisons(), getCampCarbonSummaries(), getCampFieldCarbonDetails(), getCaneTypeSummaries(), getOverviewKpi()])
+      .then(([activityResult, emissionResult, inputResult, campSummaryResult, fieldDetailResult, caneSummaryResult, kpiResult]) => {
         setActivities(activityResult.data);
         setEmissions(emissionResult.data);
         setInputs(inputResult.data);
         setCampResult(campSummaryResult);
         setFieldResult(fieldDetailResult);
         setCaneTypeResult(caneSummaryResult);
+        setOverviewKpi(kpiResult.data);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "โหลดข้อมูลไม่สำเร็จ"));
   }, []);
@@ -190,6 +201,9 @@ export function CfProcessPage() {
   const campRows = selectedCamp ? [selectedCamp] : campResult.data;
   const baselineTotal = (selectedField ? selectedField.baselineEmission : selectedCamp ? selectedCamp.baselineCo2eTotal : sumEmission(baseline)) * caneMeta.factor;
   const currentTotal = (selectedField ? selectedField.currentEmission : selectedCamp ? selectedCamp.currentCo2eTotal : sumEmission(current)) * caneMeta.factor;
+  const summaryAreaRai = selectedField ? selectedField.areaRai : selectedCamp ? selectedCamp.areaRai : overviewKpi?.areaRai ?? campResult.data.reduce((sum, camp) => sum + camp.areaRai, 0);
+  const summaryFieldCount = selectedField ? 1 : selectedCamp ? selectedCamp.fieldCount : overviewKpi?.fields ?? campResult.data.reduce((sum, camp) => sum + camp.fieldCount, 0);
+  const summaryBaselineYears = baselineYearRange(emissions, overviewKpi?.baselineYears ?? []);
   const totalDiff = baselineTotal - currentTotal;
   const totalDiffPct = baselineTotal ? (totalDiff / baselineTotal) * 100 : 0;
   const topCurrentProcess = [...chartCurrent]
@@ -218,6 +232,33 @@ export function CfProcessPage() {
         </div>
 
         {error && <div className="error-panel">{error}</div>}
+
+        <section className="premium-summary-grid footprint-process-summary" aria-label="สรุป Carbon Footprint">
+          <article>
+            <span>พื้นที่โครงการ</span>
+            <strong>{summaryAreaRai.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
+            <small>ไร่</small>
+            <em>{summaryFieldCount.toLocaleString(undefined, { maximumFractionDigits: 0 })} แปลง</em>
+          </article>
+          <article>
+            <span>Carbon Footprint รวม</span>
+            <strong>{currentTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
+            <small>tCO2e</small>
+            <em>รวม N2O + น้ำมัน + SOC</em>
+          </article>
+          <article>
+            <span>ปีที่ดำเนินโครงการ</span>
+            <strong>{currentYear || overviewKpi?.currentYear || "-"}</strong>
+            <small>Project year</small>
+            <em>{currentTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })} tCO2e</em>
+          </article>
+          <article>
+            <span>ปีฐาน Baseline</span>
+            <strong>{summaryBaselineYears}</strong>
+            <small>Baseline years</small>
+            <em>เฉลี่ย {baselineTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })} tCO2e</em>
+          </article>
+        </section>
 
         <section className="card process-scope-panel">
           <div>

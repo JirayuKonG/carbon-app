@@ -24,6 +24,7 @@ export function ProcessDoughnut({ title, data }: { title?: string; data: Activit
           options={{
             responsive: true,
             maintainAspectRatio: false,
+            cutout: "62%",
             plugins: {
               legend: {
                 display: false,
@@ -40,8 +41,10 @@ export function ProcessDoughnut({ title, data }: { title?: string; data: Activit
             <div className="value-legend-row" key={item.name}>
               <span className="legend-swatch" style={{ background: chartColors[index % chartColors.length] }} />
               <span className="legend-name">{item.name}</span>
-              <strong>{item.emission.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong>
-              <small>{pct.toFixed(1)}%</small>
+              <span className="legend-values">
+                <strong>{item.emission.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong>
+                <small>{pct.toFixed(1)}%</small>
+              </span>
             </div>
           );
         })}

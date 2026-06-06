@@ -6,8 +6,6 @@ import {
   // KONGJIRAYU05JUNE2026
   //   Leaf, ChevronDown, ChevronRight, X, Sprout, MapPin, Calculator, // idea foarm               
   Leaf, ChevronDown, ChevronRight, X, Sprout, MapPin, Calculator, // kong form    
-  // Leaf, ChevronDown, ChevronRight, X, Sprout, MapPin, Calculator, // kong form    
-  
   // KONGJIRAYU05JUNE2026
   Coins, BadgeCheck, FileCheck2, Footprints, ClipboardList,
   
