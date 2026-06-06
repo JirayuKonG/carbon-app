@@ -3,17 +3,22 @@ import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import * as XLSX from "xlsx";
 import { getCfSpatialNodes, getReportSummary } from "../services/dashboardApi";
+import { sortProcessLabels } from "../components/charts/ChartRegistry";
 import type { ReportFilter, ReportFilterLevel, ReportSummary, SpatialSummaryNode } from "../types/dashboard";
 import "../cf-dashboard.css";
 
-const LEVEL_LABEL: Record<ReportFilterLevel, string> = {
-  all: "ทั้งหมด",
-  region: "ภาค",
-  province: "จังหวัด",
-  district: "อำเภอ",
-  subdistrict: "ตำบล",
-  field: "รายแปลง",
-};
+type CascadingReportLevel = Exclude<ReportFilterLevel, "all">;
+const reportLevelOrder: CascadingReportLevel[] = ["region", "province", "district", "subdistrict", "field"];
+
+function emptyReportPath(): Record<CascadingReportLevel, string> {
+  return {
+    region: "",
+    province: "",
+    district: "",
+    subdistrict: "",
+    field: "",
+  };
+}
 
 function diffText(baseline: number, current: number) {
   const diff = baseline - current;
@@ -110,9 +115,18 @@ function escapeHtml(value: unknown) {
     .replace(/"/g, "&quot;");
 }
 
+function sortReportProcessRows<T extends { process: string }>(rows: T[]) {
+  const order = new Map(sortProcessLabels(rows.map((row) => row.process)).map((process, index) => [process, index]));
+  return [...rows].sort((a, b) => (order.get(a.process) ?? 0) - (order.get(b.process) ?? 0));
+}
+
 function pddDraftHtml(report: ReportSummary) {
   const processRows = report.process
     .filter((row) => row.year === "baseline_avg" || row.year === report.kpi.currentYear)
+    .sort((a, b) => {
+      if (a.year !== b.year) return a.year === "baseline_avg" ? -1 : 1;
+      return sortReportProcessRows([a, b])[0] === a ? -1 : 1;
+    })
     .map((row) => `
       <tr>
         <td>${escapeHtml(row.year)}</td>
@@ -378,11 +392,40 @@ function PddCreditingSummary({ report }: { report: ReportSummary }) {
 }
 
 function WebReportSummary({ report }: { report: ReportSummary }) {
+  const summary = pddEmissionSummary(report);
+  const totalInputs = summary.n2oProject + summary.co2FuelProject + summary.socRemoval;
   return (
     <>
-      <h2>Carbon Footprint Summary for Premium T-VER</h2>
+      <h2>Final Submission Summary for Premium T-VER</h2>
       <p className="muted">Generated: {new Date(report.generatedAt).toLocaleString()}</p>
-      <h3>ภาพรวม</h3>
+      <div className="executive-summary-grid tver-executive-summary">
+        <article>
+          <span>พื้นที่โครงการ</span>
+          <strong>{reportAreaRai(report).toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong>
+          <small>ไร่ · {report.kpi.fields.toLocaleString()} แปลง</small>
+        </article>
+        <article>
+          <span>เครดิตที่คาดว่าจะได้</span>
+          <strong>{summary.totalReduction.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+          <small>tCO2e</small>
+        </article>
+        <article>
+          <span>องค์ประกอบเครดิต N2O + น้ำมัน + SOC</span>
+          <strong>{totalInputs.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+          <small>tCO2e</small>
+        </article>
+        <article>
+          <span>Emission ปีดำเนินโครงการ</span>
+          <strong>{report.kpi.currentEmission.toLocaleString()}</strong>
+          <small>Project year {report.kpi.currentYear} · tCO2e</small>
+        </article>
+        <article>
+          <span>Emission ปีฐาน Baseline</span>
+          <strong>{report.kpi.baselineAvgEmission.toLocaleString()}</strong>
+          <small>Baseline year เฉลี่ย · tCO2e</small>
+        </article>
+      </div>
+      <h3>Evidence / Breakdown</h3>
       <div className="report-kpi-grid">
         <div><span>Baseline avg</span><strong>{report.kpi.baselineAvgEmission.toLocaleString()} tCO2e</strong></div>
         <div><span>Project year {report.kpi.currentYear}</span><strong>{report.kpi.currentEmission.toLocaleString()} tCO2e</strong></div>
@@ -418,7 +461,7 @@ function WebReportSummary({ report }: { report: ReportSummary }) {
       <table className="report-table">
         <thead><tr><th>Year</th><th>Process</th><th>Emission</th><th>Type</th></tr></thead>
         <tbody>
-          {report.process.slice(0, 20).map((row) => (
+          {sortReportProcessRows(report.process).slice(0, 20).map((row) => (
             <tr key={`${row.year}-${row.process}`}><td>{row.year}</td><td>{row.process}</td><td>{row.emission}</td><td>{row.isBaseline ? "Baseline" : "Project"}</td></tr>
           ))}
         </tbody>
@@ -455,7 +498,7 @@ export function CfReportPage() {
   const pddEmissionRef = useRef<HTMLDivElement>(null);
   const pddCreditingRef = useRef<HTMLDivElement>(null);
   const [nodes, setNodes] = useState<SpatialSummaryNode[]>([]);
-  const [filter, setFilter] = useState<ReportFilter>({ level: "all" });
+  const [reportPath, setReportPath] = useState<Record<CascadingReportLevel, string>>(emptyReportPath);
   const [report, setReport] = useState<ReportSummary | null>(null);
   const [pdfUrl, setPdfUrl] = useState("");
   const [error, setError] = useState("");
@@ -467,13 +510,27 @@ export function CfReportPage() {
       .catch((err) => setError(err instanceof Error ? err.message : "โหลดตัวกรองพื้นที่ไม่สำเร็จ"));
   }, []);
 
+  const activeReportFilter = useMemo<ReportFilter>(() => {
+    const selectedLevel = [...reportLevelOrder].reverse().find((level) => reportPath[level]);
+    if (!selectedLevel) return { level: "all" };
+    const node = nodes.find((item) => item.id === reportPath[selectedLevel]);
+    return {
+      level: selectedLevel,
+      id: node ? nodeIdValue(node) : reportPath[selectedLevel],
+    };
+  }, [nodes, reportPath]);
+
+  const selectedReportNode = activeReportFilter.level === "all"
+    ? undefined
+    : nodes.find((node) => node.level === activeReportFilter.level && nodeIdValue(node) === activeReportFilter.id);
+
   useEffect(() => {
     setLoading(true);
-    getReportSummary(filter)
+    getReportSummary(activeReportFilter)
       .then(setReport)
       .catch((err) => setError(err instanceof Error ? err.message : "โหลดรายงานไม่สำเร็จ"))
       .finally(() => setLoading(false));
-  }, [filter]);
+  }, [activeReportFilter]);
 
   useEffect(() => {
     if (!report || !pddEmissionRef.current || !pddCreditingRef.current) return;
@@ -508,10 +565,17 @@ export function CfReportPage() {
     };
   }, [report]);
 
-  const areaOptions = useMemo(
-    () => nodes.filter((node) => filter.level !== "all" && node.level === filter.level),
-    [filter.level, nodes],
-  );
+  const reportOptionsFor = (level: CascadingReportLevel, parentId?: string) =>
+    nodes.filter((node) => node.level === level && (!parentId || node.parentId === parentId));
+
+  const selectReportPath = (level: CascadingReportLevel, id: string) => {
+    const levelIndex = reportLevelOrder.indexOf(level);
+    const next = { ...reportPath, [level]: id };
+    reportLevelOrder.slice(levelIndex + 1).forEach((key) => {
+      next[key] = "";
+    });
+    setReportPath(next);
+  };
 
   const downloadPdf = () => {
     if (!pdfUrl) return;
@@ -564,31 +628,55 @@ export function CfReportPage() {
         {error && <div className="error-panel">{error}</div>}
 
         <section className="card report-toolbar">
+          <div>
+            <div className="card-title">ตัวกรองพื้นที่รายงาน</div>
+            <p className="muted">{selectedReportNode ? `กำลังดู: ${selectedReportNode.name}` : "กำลังดู: ภาพรวมทั้งระบบ"}</p>
+          </div>
           <label>
-            ระดับรายงาน
-            <select
-              value={filter.level}
-              onChange={(event) => setFilter({ level: event.target.value as ReportFilterLevel })}
-            >
-              {(Object.keys(LEVEL_LABEL) as ReportFilterLevel[]).map((level) => (
-                <option key={level} value={level}>{LEVEL_LABEL[level]}</option>
+            ภาค
+            <select value={reportPath.region} onChange={(event) => selectReportPath("region", event.target.value)}>
+              <option value="">ภาพรวมทั้งระบบ</option>
+              {reportOptionsFor("region", nodes.find((node) => !node.parentId)?.id).map((node) => (
+                <option key={node.id} value={node.id}>{node.name}</option>
               ))}
             </select>
           </label>
-          {filter.level !== "all" && (
-            <label>
-              พื้นที่
-              <select
-                value={filter.id ?? ""}
-                onChange={(event) => setFilter((prev) => ({ ...prev, id: event.target.value }))}
-              >
-                <option value="">เลือกพื้นที่</option>
-                {areaOptions.map((node) => (
-                  <option key={node.id} value={nodeIdValue(node)}>{node.name}</option>
-                ))}
-              </select>
-            </label>
-          )}
+          <label>
+            จังหวัด
+            <select value={reportPath.province} onChange={(event) => selectReportPath("province", event.target.value)} disabled={!reportPath.region}>
+              <option value="">ทุกจังหวัดในภาค</option>
+              {reportOptionsFor("province", reportPath.region).map((node) => (
+                <option key={node.id} value={node.id}>{node.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            อำเภอ
+            <select value={reportPath.district} onChange={(event) => selectReportPath("district", event.target.value)} disabled={!reportPath.province}>
+              <option value="">ทุกอำเภอในจังหวัด</option>
+              {reportOptionsFor("district", reportPath.province).map((node) => (
+                <option key={node.id} value={node.id}>{node.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            ตำบล
+            <select value={reportPath.subdistrict} onChange={(event) => selectReportPath("subdistrict", event.target.value)} disabled={!reportPath.district}>
+              <option value="">ทุกตำบลในอำเภอ</option>
+              {reportOptionsFor("subdistrict", reportPath.district).map((node) => (
+                <option key={node.id} value={node.id}>{node.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            รายแปลง
+            <select value={reportPath.field} onChange={(event) => selectReportPath("field", event.target.value)} disabled={!reportPath.subdistrict}>
+              <option value="">ทุกแปลงในตำบล</option>
+              {reportOptionsFor("field", reportPath.subdistrict).map((node) => (
+                <option key={node.id} value={node.id}>{node.name}</option>
+              ))}
+            </select>
+          </label>
           <button className="run-btn pdf-download-btn" type="button" onClick={downloadPdf} disabled={!pdfUrl}>Download PDF</button>
           <button className="run-btn word-download-btn" type="button" onClick={downloadWordDraft} disabled={!report}>Download Word</button>
           <button className="run-all-btn excel-download-btn" type="button" onClick={exportExcel} disabled={!report}>Export Excel</button>
@@ -641,7 +729,7 @@ export function CfReportPage() {
                     <table className="report-table">
                       <thead><tr><th>Year</th><th>Process</th><th>Emission</th></tr></thead>
                       <tbody>
-                        {report.process.filter((row) => row.year === "baseline_avg" || row.year === report.kpi.currentYear).slice(0, 8).map((row) => (
+                        {sortReportProcessRows(report.process.filter((row) => row.year === "baseline_avg" || row.year === report.kpi.currentYear)).slice(0, 8).map((row) => (
                           <tr key={`excel-process-${row.year}-${row.process}`}><td>{row.year}</td><td>{row.process}</td><td>{row.emission}</td></tr>
                         ))}
                       </tbody>

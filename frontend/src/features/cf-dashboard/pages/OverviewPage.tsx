@@ -55,28 +55,7 @@ export function CfOverviewPage() {
   const creditTotal = n2oReduction + fuelReduction + socRemoval;
   const baselineYears = trend.data.filter((item) => item.isBaseline).map((item) => item.year);
   const baselineLabel = baselineYears.length > 1 ? `${baselineYears[0]} - ${baselineYears.at(-1)}` : baselineYears[0] ?? "-";
-  const [selectedYear, setSelectedYear] = React.useState("baseline_avg");
 
-  //--- incoming that use before 05 june 2026
-  React.useEffect(() => {
-    if (kpi.data.currentYear !== "-" && selectedYear === "baseline_avg") return;
-    if (kpi.data.currentYear !== "-" && !process.data.some((item) => item.year === selectedYear)) {
-      setSelectedYear(kpi.data.currentYear);
-    }
-  }, [kpi.data.currentYear, process.data, selectedYear]);
-
-  const yearOptions = Array.from(new Set(["baseline_avg", ...process.data.map((item) => item.year)])).filter(Boolean);
-  const selectedPie = process.data
-    .filter((item) => item.year === selectedYear)
-    .map((item) => ({ name: item.process, emission: item.emission }));
-  const diff = kpi.data.baselineAvgEmission - kpi.data.currentEmission;
-  const diffPct = kpi.data.baselineAvgEmission ? (diff / kpi.data.baselineAvgEmission) * 100 : 0;
-  const processSummary = summarizeProcess(process.data, kpi.data.currentYear);
-  const rankedProcessSummary = [...processSummary].sort((a, b) => b.cur - a.cur);
-  const topProcess = rankedProcessSummary[0];
-  const lowProcess = rankedProcessSummary.length ? rankedProcessSummary[rankedProcessSummary.length - 1] : undefined;
-  //--- incoming that use before 05 june 2026
-  
   return (
     <div className="cf-dash">
       <div className="page active">
@@ -99,14 +78,28 @@ export function CfOverviewPage() {
               ["Credit รวม", creditTotal.toFixed(0), "tCO2e", "รวม N2O + น้ำมัน + SOC"],
               ["ปีที่ดำเนินโครงการ", kpi.data.currentYear, "Project year", `${kpi.data.currentEmission.toLocaleString()} tCO2e`],
               ["ปีฐาน Baseline", baselineLabel, "Baseline years", `เฉลี่ย ${kpi.data.baselineAvgEmission.toLocaleString()} tCO2e`],
-            ].map(([label, value, unit, delta]) => (
-              <article className="kpi" key={label}>
-                <div className="kpi-label">{label}</div>
+            ].map(([label, value, unit, delta]) => {
+              const displayLabel = label.includes("Credit")
+                ? "เครดิตที่คาดว่าจะได้"
+                : unit === "Project year"
+                ? "Emission ปีดำเนินโครงการ"
+                : unit === "Baseline years"
+                ? "Emission ปีฐาน Baseline"
+                : label;
+              const displayDelta = label.includes("Credit")
+                ? "คำนวณจากส่วนต่าง emission"
+                : unit === "Baseline years"
+                ? `เฉลี่ย ${kpi.data.baselineAvgEmission.toLocaleString()} tCO2e`
+                : delta;
+              return (
+              <article className="kpi" key={displayLabel}>
+                <div className="kpi-label">{displayLabel}</div>
                 <div className="kpi-val">{value}</div>
                 <div className="kpi-unit">{unit}</div>
-                <div className="delta good">{delta}</div>
+                <div className="delta good">{displayDelta}</div>
               </article>
-            ))}
+              );
+            })}
           </div>
         </section>
 
@@ -134,7 +127,7 @@ export function CfOverviewPage() {
         </section>
 
         <section className="card full-span">
-          <div className="card-title">แนวโน้ม Carbon Credit · กราฟแท่งรายปีและเส้น Time line</div>
+          <div className="card-title">แนวโน้ม Carbon Credit</div>
           <TrendLineChart data={trend.data} />
         </section>
 
