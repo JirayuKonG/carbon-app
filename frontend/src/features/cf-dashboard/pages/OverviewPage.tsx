@@ -103,7 +103,7 @@ export function CfOverviewPage() {
           </div>
         </section>
 
-        <CaneTypeSummaryPanel result={caneTypes} showSource={false} />
+        <CaneTypeSummaryPanel result={caneTypes} showSource={false} creditTotal={creditTotal} />
 
         <section className="card full-span credit-source-card">
           <div className="card-title">แหล่งที่มา Credit</div>

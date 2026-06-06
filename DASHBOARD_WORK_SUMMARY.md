@@ -4,7 +4,62 @@
 
 Branch ที่ทำงาน: `idea`
 
-Commit ล่าสุดที่อัปขึ้น Git: `Refine spatial map markers and footprint report layout`
+Commit ล่าสุดที่อัปขึ้น Git: `Update Premium T-VER report previews and carbon credit summary`
+
+## อัปเดตล่าสุด วันที่ 6 มิถุนายน 2569 - ปรับ Carbon Credit Breakdown และ Premium T-VER Report Preview
+
+รอบนี้ทำงานต่อบน branch `idea` โดยเน้นสองส่วนหลักคือหน้า `Carbon Credit Premium T-VER ไร่บริษัทกลุ่มมิตรผล` และหน้า `สรุปผลทั้งหมดสำหรับเตรียมยื่น Premium T-VER` เพื่อให้ข้อมูลเครดิตอ่านชัดขึ้น ลดข้อมูลซ้ำ และแยกระหว่างการเปลี่ยน filter กับการสร้างเอกสาร preview ให้ผู้ใช้ควบคุมได้มากขึ้น
+
+### หน้า Carbon Credit Premium T-VER
+
+- ปรับ block `สัดส่วนประเภทอ้อยและพื้นที่พักดิน` ให้ตัวเลขหลักด้านบนแสดงจำนวนไร่ของ:
+  - อ้อยปลูก
+  - อ้อยตอ
+  - พื้นที่พักดิน
+  - ไร่รวม
+- คงเปอร์เซ็นต์ไว้เป็นข้อมูลประกอบใต้จำนวนไร่ เพื่อให้เห็นทั้งพื้นที่จริงและสัดส่วน
+- เปลี่ยนรายละเอียดด้านล่างในหน้า Carbon Credit จากค่า Carbon/Emission เดิม มาเป็น `เครดิตที่คาดว่าจะได้` แยกตามประเภทอ้อย โดยคิดตามสัดส่วนพื้นที่โครงการ
+- ซ่อน note `Carbon รวมตามประเภทอ้อย ... tCO2e` ในหน้า Carbon Credit เพื่อลดความสับสนกับหน้า Carbon Footprint
+- ปรับแถบสีสัดส่วนประเภทอ้อยให้บางลง แต่ยืดเต็ม block ตาม feedback ล่าสุด เพื่อให้ยังเห็นภาพรวมโดยไม่แย่งสายตา
+
+### หน้า Premium T-VER Report
+
+- เปลี่ยนส่วน Preview & Download จากการแสดง PDF, Word และ Excel เรียงยาวทั้งหมด เป็นระบบ `Tab`
+  - `PDF`
+  - `Word`
+  - `Excel`
+- เมื่อผู้ใช้กดแท็บใด จะแสดงเฉพาะ preview ของไฟล์นั้น ลดความยาวหน้าและทำให้ตรวจเอกสารง่ายขึ้น
+- เพิ่มปุ่มสีน้ำเงิน `สร้างเอกสารใหม่ (Generate Report)` เพื่อให้ผู้ใช้เลือก filter ให้เรียบร้อยก่อน แล้วค่อยสั่ง render เอกสาร preview/download
+- แยก state ระหว่าง:
+  - `report` สำหรับ summary ฝั่งซ้ายที่ reactive ตาม filter ทันที
+  - `generatedReport` สำหรับเอกสาร preview/download ที่อัปเดตเฉพาะตอนกด Generate Report
+- ถ้าเปลี่ยน filter หลังจาก generate เอกสารแล้ว ระบบจะแจ้งว่า preview ยังเป็นชุดเดิม และปิดปุ่ม download จนกว่าจะ generate ใหม่ เพื่อป้องกันการดาวน์โหลดเอกสารผิด filter
+- เพิ่มข้อความแจ้งเตือนสั้น ๆ หลังเปลี่ยน filter หรือหลัง generate เพื่อให้ผู้ใช้รู้สถานะของรายงาน
+
+### ปรับเนื้อหาและตารางใน Premium T-VER Report
+
+- เอา section `ข้อมูลที่เตรียมใช้กรอกแบบฟอร์ม` ออกจาก summary ฝั่งซ้าย
+- เอา section `สรุปปริมาณก๊าซเรือนกระจกที่คาดว่าจะลดได้` ออกจาก summary/preview เพราะข้อมูลซ้ำกับ KPI และ evidence เดิม
+- เอาเอกสาร/ตาราง crediting summary 15 ปีที่ซ้ำซ้อนออกจาก PDF render source
+- ปรับ `ตารางเปรียบเทียบกระบวนการ` ให้จัดกลุ่มอ่านง่ายขึ้น:
+  - คอลัมน์แรกเป็น `Process`
+  - คอลัมน์ต่อมาเป็น `Year group`
+  - คอลัมน์ `Year`
+  - คอลัมน์ `Emission (tCO2e)`
+- ยุบชื่อ process ที่ซ้ำกันด้วย row span แล้วแยกแถวเป็น `Baseline avg`, `Baseline year` และ `Project year`
+- ปรับ `ตารางพื้นที่` ให้เป็นภาพรวมเท่านั้น โดยแสดงพื้นที่ที่เลือกจาก filter และพื้นที่ลูกชั้นถัดไป ไม่ลงรายละเอียดลึกยาวเกินจำเป็น
+
+### Mock Report และ Reactive Filter
+
+- เนื่องจาก frontend ยังตั้ง `ENABLE_API_DASHBOARD = false` จึงปรับ mock report ให้ scale KPI, process, input และ spatial ตามพื้นที่ที่เลือก
+- ทำให้การเลือก filter ในหน้า Premium T-VER Report เห็นตัวเลข summary ฝั่งซ้ายเปลี่ยนทันทีในโหมด mock data ด้วย
+- เมื่อเปิดใช้ API จริงภายหลัง flow หน้า report ยังรองรับ filter ผ่าน contract เดิมของ `getReportSummary(filter)`
+
+### การตรวจสอบ
+
+- รัน `npm run build --workspace=frontend` ผ่าน
+- Build มีเฉพาะ Vite warning เรื่อง chunk size ใหญ่จาก bundle เดิมของ PDF/Excel ไม่ใช่ error จากงานรอบนี้
+- ตรวจ git status แล้วไฟล์ที่แก้ในรอบนี้อยู่ในกลุ่ม Carbon Dashboard/Report เท่านั้น
 
 ## อัปเดตเพิ่มเติม วันที่ 5 มิถุนายน 2569 - ปรับ marker แผนที่, ลดข้อมูลซ้ำใน Footprint Report และแก้ spacing หน้า Spatial
 
