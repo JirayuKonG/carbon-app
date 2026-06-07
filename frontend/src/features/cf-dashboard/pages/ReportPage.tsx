@@ -4,10 +4,11 @@ import jsPDF from "jspdf";
 import * as XLSX from "xlsx";
 import { getCfSpatialNodes, getReportSummary } from "../services/dashboardApi";
 import { sortProcessLabels } from "../components/charts/ChartRegistry";
-import type { ReportFilter, ReportFilterLevel, ReportSummary, SpatialSummaryNode } from "../types/dashboard";
+import type { ProcessEmission, ReportFilter, ReportFilterLevel, ReportSummary, SpatialSummaryNode } from "../types/dashboard";
 import "../cf-dashboard.css";
 
 type CascadingReportLevel = Exclude<ReportFilterLevel, "all">;
+type PreviewTab = "pdf" | "word" | "excel";
 const reportLevelOrder: CascadingReportLevel[] = ["region", "province", "district", "subdistrict", "field"];
 
 function emptyReportPath(): Record<CascadingReportLevel, string> {
@@ -77,32 +78,6 @@ function pddEmissionSummary(report: ReportSummary) {
   };
 }
 
-function creditingRows(report: ReportSummary) {
-  const summary = pddEmissionSummary(report);
-  const years = Array.from({ length: 15 }, (_, index) => 2567 + index);
-  const rows = years.map((year) => ({
-    year,
-    baseline: summary.baselineEmission,
-    project: summary.projectEmission,
-    leakage: summary.leakage,
-    soc: summary.socRemoval,
-    reduction: summary.emissionReduction,
-    total: summary.totalReduction,
-  }));
-  const total = rows.reduce(
-    (sum, row) => ({
-      baseline: sum.baseline + row.baseline,
-      project: sum.project + row.project,
-      leakage: sum.leakage + row.leakage,
-      soc: sum.soc + row.soc,
-      reduction: sum.reduction + row.reduction,
-      total: sum.total + row.total,
-    }),
-    { baseline: 0, project: 0, leakage: 0, soc: 0, reduction: 0, total: 0 },
-  );
-  return { rows, total };
-}
-
 function numberCell(value: number, digits = 2) {
   return value.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: digits });
 }
@@ -120,22 +95,61 @@ function sortReportProcessRows<T extends { process: string }>(rows: T[]) {
   return [...rows].sort((a, b) => (order.get(a.process) ?? 0) - (order.get(b.process) ?? 0));
 }
 
-function pddDraftHtml(report: ReportSummary) {
-  const processRows = report.process
-    .filter((row) => row.year === "baseline_avg" || row.year === report.kpi.currentYear)
-    .sort((a, b) => {
-      if (a.year !== b.year) return a.year === "baseline_avg" ? -1 : 1;
-      return sortReportProcessRows([a, b])[0] === a ? -1 : 1;
-    })
-    .map((row) => `
+function processComparisonGroups(report: ReportSummary) {
+  const grouped = new Map<string, ProcessEmission[]>();
+  sortReportProcessRows(report.process).forEach((row) => {
+    grouped.set(row.process, [...(grouped.get(row.process) ?? []), row]);
+  });
+  return Array.from(grouped.entries()).map(([process, rows]) => {
+    const baselineAverage = rows.find((row) => row.year === "baseline_avg");
+    const baselineYears = rows.filter((row) => row.isBaseline && row.year !== "baseline_avg");
+    const projectRows = rows.filter((row) => !row.isBaseline);
+    return { process, rows: [baselineAverage, ...baselineYears, ...projectRows].filter((row): row is ProcessEmission => Boolean(row)) };
+  });
+}
+
+function processTypeLabel(row: ProcessEmission) {
+  if (row.year === "baseline_avg") return "Baseline avg";
+  return row.isBaseline ? "Baseline year" : "Project year";
+}
+
+function spatialOverviewRows(report: ReportSummary) {
+  const selected = report.filter.level === "all" || !report.filter.id
+    ? report.spatialNodes.find((node) => node.level === "country") ?? report.spatialNodes[0]
+    : report.spatialNodes.find((node) => node.level === report.filter.level && nodeIdValue(node) === report.filter.id) ?? report.spatialNodes[0];
+  const children = selected ? report.spatialNodes.filter((node) => node.parentId === selected.id) : [];
+  return [selected, ...children].filter((node): node is SpatialSummaryNode => Boolean(node)).slice(0, 8);
+}
+
+function processRowsHtml(report: ReportSummary) {
+  return processComparisonGroups(report).map((group) =>
+    group.rows.map((row, index) => `
       <tr>
+        ${index === 0 ? `<td rowspan="${group.rows.length}">${escapeHtml(group.process)}</td>` : ""}
+        <td>${escapeHtml(processTypeLabel(row))}</td>
         <td>${escapeHtml(row.year)}</td>
-        <td>${escapeHtml(row.process)}</td>
-        <td>${escapeHtml(row.emission)}</td>
-        <td>${row.isBaseline ? "Baseline" : "Project"}</td>
+        <td>${escapeHtml(numberCell(row.emission))}</td>
       </tr>
-    `)
-    .join("");
+    `).join("")
+  ).join("");
+}
+
+function spatialRowsHtml(report: ReportSummary) {
+  return spatialOverviewRows(report).map((node) => `
+    <tr>
+      <td>${escapeHtml(node.level)}</td>
+      <td>${escapeHtml(node.name)}</td>
+      <td>${escapeHtml(node.fields.toLocaleString())}</td>
+      <td>${escapeHtml(node.areaRai.toLocaleString())}</td>
+      <td>${escapeHtml(numberCell(node.baselineEmission))}</td>
+      <td>${escapeHtml(numberCell(node.currentEmission))}</td>
+      <td>${escapeHtml(diffText(node.baselineEmission, node.currentEmission))}</td>
+    </tr>
+  `).join("");
+}
+
+function pddDraftHtml(report: ReportSummary) {
+  const processRows = processRowsHtml(report);
   const inputRows = (report.processInputs ?? []).map((row) => `
     <tr>
       <td>${escapeHtml(row.process)}</td>
@@ -145,16 +159,7 @@ function pddDraftHtml(report: ReportSummary) {
       <td>${escapeHtml(row.currentFuelLiter.toLocaleString())}</td>
     </tr>
   `).join("");
-  const spatialRows = report.spatialNodes.slice(0, 30).map((node) => `
-    <tr>
-      <td>${escapeHtml(node.level)}</td>
-      <td>${escapeHtml(node.name)}</td>
-      <td>${escapeHtml(node.fields)}</td>
-      <td>${escapeHtml(node.areaRai.toLocaleString())}</td>
-      <td>${escapeHtml(node.baselineEmission)}</td>
-      <td>${escapeHtml(node.currentEmission)}</td>
-    </tr>
-  `).join("");
+  const spatialRows = spatialRowsHtml(report);
 
   return `
     <!doctype html>
@@ -203,13 +208,13 @@ function pddDraftHtml(report: ReportSummary) {
         </table>
 
         <h2>4. ตารางเปรียบเทียบกระบวนการ</h2>
-        <table><thead><tr><th>Year</th><th>Process</th><th>Emission</th><th>Type</th></tr></thead><tbody>${processRows}</tbody></table>
+        <table><thead><tr><th>Process</th><th>Year group</th><th>Year</th><th>Emission (tCO2e)</th></tr></thead><tbody>${processRows}</tbody></table>
 
         <h2>5. ตารางปุ๋ยและน้ำมัน</h2>
         <table><thead><tr><th>Process</th><th>ปุ๋ย baseline (kg)</th><th>ปุ๋ย project (kg)</th><th>น้ำมัน baseline (L)</th><th>น้ำมัน project (L)</th></tr></thead><tbody>${inputRows}</tbody></table>
 
-        <h2>6. รายละเอียดพื้นที่สำหรับภาคผนวก</h2>
-        <table><thead><tr><th>Level</th><th>พื้นที่</th><th>แปลง</th><th>ไร่</th><th>Baseline</th><th>Project</th></tr></thead><tbody>${spatialRows}</tbody></table>
+        <h2>6. ตารางพื้นที่ภาพรวม</h2>
+        <table><thead><tr><th>Level</th><th>พื้นที่</th><th>แปลง</th><th>ไร่</th><th>Baseline</th><th>Project</th><th>ผลต่าง</th></tr></thead><tbody>${spatialRows}</tbody></table>
 
         <h2>7. แผนติดตามผลที่ควรแนบ</h2>
         <ul>
@@ -321,76 +326,6 @@ function PddCarbonSummary({ report }: { report: ReportSummary }) {
   );
 }
 
-function PddCreditingSummary({ report }: { report: ReportSummary }) {
-  const { rows, total } = creditingRows(report);
-  return (
-    <div className="pdd-paper">
-      <div className="pdd-doc-header">
-        <div>โครงการลดก๊าซเรือนกระจกภาคสมัครใจตามมาตรฐานของประเทศไทย</div>
-        <div>มาตรฐานขั้นสูง (Premium T-VER)</div>
-        <div>เอกสารสรุปข้อมูลสำหรับจัดทำ PDD จาก Carbon Analytics</div>
-      </div>
-
-      <h2>สรุปปริมาณก๊าซเรือนกระจกที่คาดว่าจะลดได้</h2>
-      <p>ระยะเวลาการคิดเครดิตของโครงการ 15 ปี 1 ตุลาคม 2566 - 31 กันยายน 2581</p>
-      <h3>ปริมาณการลดการปล่อยและการกักเก็บก๊าซเรือนกระจกรวม</h3>
-      <table className="report-table pdd-table pdd-crediting-table">
-        <thead>
-          <tr>
-            <th>ปี</th>
-            <th>ปริมาณก๊าซเรือนกระจกจากกรณีฐาน (tonCO2e)</th>
-            <th>ปริมาณก๊าซเรือนกระจกจากการดำเนินโครงการ (tonCO2e)</th>
-            <th>ปริมาณก๊าซเรือนกระจกนอกขอบเขตโครงการ (tonCO2e)</th>
-            <th>ปริมาณการสะสมคาร์บอนอินทรีย์ในดิน (tonCO2e)</th>
-            <th>ปริมาณการลดก๊าซเรือนกระจก (tonCO2e)</th>
-            <th>ปริมาณการลดการปล่อยและการกักเก็บก๊าซเรือนกระจกรวม (tonCO2e)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.year}>
-              <td>{row.year}</td>
-              <td>{numberCell(row.baseline)}</td>
-              <td>{numberCell(row.project)}</td>
-              <td>{numberCell(row.leakage)}</td>
-              <td>{numberCell(row.soc)}</td>
-              <td>{numberCell(row.reduction)}</td>
-              <td>{numberCell(row.total)}</td>
-            </tr>
-          ))}
-          <tr className="pdd-total-row">
-            <td>รวม (tonCO2e)</td>
-            <td>{numberCell(total.baseline)}</td>
-            <td>{numberCell(total.project)}</td>
-            <td>{numberCell(total.leakage)}</td>
-            <td>{numberCell(total.soc)}</td>
-            <td>{numberCell(total.reduction)}</td>
-            <td>{numberCell(total.total)}</td>
-          </tr>
-          <tr>
-            <td>จำนวนปี</td>
-            <td>15</td>
-            <td>15</td>
-            <td>15</td>
-            <td>15</td>
-            <td>15</td>
-            <td>15</td>
-          </tr>
-          <tr>
-            <td>เฉลี่ยปีละ (tonCO2e/y)</td>
-            <td>{numberCell(total.baseline / 15)}</td>
-            <td>{numberCell(total.project / 15)}</td>
-            <td>{numberCell(total.leakage / 15)}</td>
-            <td>{numberCell(total.soc / 15)}</td>
-            <td>{numberCell(total.reduction / 15)}</td>
-            <td>{numberCell(total.total / 15)}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function WebReportSummary({ report }: { report: ReportSummary }) {
   const summary = pddEmissionSummary(report);
   const totalInputs = summary.n2oProject + summary.co2FuelProject + summary.socRemoval;
@@ -434,22 +369,6 @@ function WebReportSummary({ report }: { report: ReportSummary }) {
         <div><span>Machine / Fuel</span><strong>{report.kpi.machineEmission.toLocaleString()} tCO2e</strong></div>
         <div><span>ปุ๋ยรวม</span><strong>{report.kpi.fertilizerAmountKg.toLocaleString()} kg / {report.kpi.fertilizerEmission.toLocaleString()} tCO2e</strong></div>
       </div>
-      <h3>ข้อมูลที่เตรียมใช้กรอกแบบฟอร์ม</h3>
-      <div className="report-form-grid">
-        <div><span>ขอบเขตโครงการ</span><strong>กระบวนการเพาะปลูกอ้อย 4 ขั้นตอน</strong></div>
-        <div><span>ขั้นตอนที่ครอบคลุม</span><strong>การเตรียมดินและปลูก, การใช้ปุ๋ย, การให้น้ำและกำจัดวัชพืช, การเก็บเกี่ยว</strong></div>
-        <div><span>ปีฐาน</span><strong>ค่าเฉลี่ยจากปีฐานก่อนหน้า</strong></div>
-        <div><span>ปีดำเนินการ</span><strong>{report.kpi.currentYear}</strong></div>
-        <div><span>จำนวนแปลง</span><strong>{report.kpi.fields.toLocaleString()} แปลง</strong></div>
-        <div><span>สรุปพื้นที่</span><strong>{report.analysis.areaSummary}</strong></div>
-      </div>
-      <h3>สรุปปริมาณก๊าซเรือนกระจกที่คาดว่าจะลดได้</h3>
-      <div className="report-form-grid">
-        <div><span>ค่าเฉลี่ยปีฐาน</span><strong>{report.kpi.baselineAvgEmission.toLocaleString()} tCO2e</strong></div>
-        <div><span>ปีดำเนินโครงการ</span><strong>{report.kpi.currentEmission.toLocaleString()} tCO2e</strong></div>
-        <div><span>ผลลดสุทธิ</span><strong>{diffText(report.kpi.baselineAvgEmission, report.kpi.currentEmission)}</strong></div>
-        <div><span>ช่วงเวลาคิดเครดิต</span><strong>15 ปี</strong></div>
-      </div>
       <h3>บทวิเคราะห์</h3>
       <p>{report.analysis.headline}</p>
       <ul>
@@ -459,11 +378,18 @@ function WebReportSummary({ report }: { report: ReportSummary }) {
       </ul>
       <h3>ตารางเปรียบเทียบกระบวนการ</h3>
       <table className="report-table">
-        <thead><tr><th>Year</th><th>Process</th><th>Emission</th><th>Type</th></tr></thead>
+        <thead><tr><th>Process</th><th>Year group</th><th>Year</th><th>Emission (tCO2e)</th></tr></thead>
         <tbody>
-          {sortReportProcessRows(report.process).slice(0, 20).map((row) => (
-            <tr key={`${row.year}-${row.process}`}><td>{row.year}</td><td>{row.process}</td><td>{row.emission}</td><td>{row.isBaseline ? "Baseline" : "Project"}</td></tr>
-          ))}
+          {processComparisonGroups(report).map((group) =>
+            group.rows.map((row, index) => (
+              <tr key={`${row.year}-${row.process}`}>
+                {index === 0 && <td rowSpan={group.rows.length} className="process-group-cell">{group.process}</td>}
+                <td>{processTypeLabel(row)}</td>
+                <td>{row.year}</td>
+                <td>{numberCell(row.emission)}</td>
+              </tr>
+            ))
+          )}
         </tbody>
       </table>
       <h3>ตารางปุ๋ยและน้ำมัน</h3>
@@ -483,10 +409,18 @@ function WebReportSummary({ report }: { report: ReportSummary }) {
       </table>
       <h3>ตารางพื้นที่</h3>
       <table className="report-table">
-        <thead><tr><th>พื้นที่</th><th>แปลง</th><th>ไร่</th><th>Baseline</th><th>Project</th></tr></thead>
+        <thead><tr><th>Level</th><th>พื้นที่</th><th>แปลง</th><th>ไร่</th><th>Baseline</th><th>Project</th><th>ผลต่าง</th></tr></thead>
         <tbody>
-          {report.spatialNodes.slice(0, 20).map((node) => (
-            <tr key={node.id}><td>{node.name}</td><td>{node.fields}</td><td>{node.areaRai}</td><td>{node.baselineEmission}</td><td>{node.currentEmission}</td></tr>
+          {spatialOverviewRows(report).map((node) => (
+            <tr key={node.id}>
+              <td>{node.level}</td>
+              <td>{node.name}</td>
+              <td>{node.fields.toLocaleString()}</td>
+              <td>{node.areaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
+              <td>{numberCell(node.baselineEmission)}</td>
+              <td>{numberCell(node.currentEmission)}</td>
+              <td>{diffText(node.baselineEmission, node.currentEmission)}</td>
+            </tr>
           ))}
         </tbody>
       </table>
@@ -494,15 +428,86 @@ function WebReportSummary({ report }: { report: ReportSummary }) {
   );
 }
 
+function ExcelPreview({ report }: { report: ReportSummary }) {
+  return (
+    <div className="excel-sheet-grid">
+      <div>
+        <h3>KPI</h3>
+        <table className="report-table">
+          <tbody>
+            <tr><th>Baseline avg</th><td>{report.kpi.baselineAvgEmission.toLocaleString()} tCO2e</td></tr>
+            <tr><th>Project year</th><td>{report.kpi.currentEmission.toLocaleString()} tCO2e</td></tr>
+            <tr><th>Fields</th><td>{report.kpi.fields.toLocaleString()} แปลง</td></tr>
+            <tr><th>Fertilizer</th><td>{report.kpi.fertilizerAmountKg.toLocaleString()} kg</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3>Process</h3>
+        <table className="report-table">
+          <thead><tr><th>Process</th><th>Year group</th><th>Year</th><th>Emission</th></tr></thead>
+          <tbody>
+            {processComparisonGroups(report).map((group) =>
+              group.rows.map((row, index) => (
+                <tr key={`excel-process-${row.year}-${row.process}`}>
+                  {index === 0 && <td rowSpan={group.rows.length} className="process-group-cell">{group.process}</td>}
+                  <td>{processTypeLabel(row)}</td>
+                  <td>{row.year}</td>
+                  <td>{numberCell(row.emission)}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3>Inputs</h3>
+        <table className="report-table">
+          <thead><tr><th>Process</th><th>ปุ๋ย project</th><th>น้ำมัน project</th></tr></thead>
+          <tbody>
+            {(report.processInputs ?? []).map((row) => (
+              <tr key={`excel-input-${row.process}`}>
+                <td>{row.process}</td>
+                <td>{row.currentFertilizerKg.toLocaleString()} kg</td>
+                <td>{row.currentFuelLiter.toLocaleString()} L</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3>Spatial</h3>
+        <table className="report-table">
+          <thead><tr><th>Level</th><th>พื้นที่</th><th>แปลง</th><th>ไร่</th></tr></thead>
+          <tbody>
+            {spatialOverviewRows(report).map((node) => (
+              <tr key={`excel-spatial-${node.id}`}>
+                <td>{node.level}</td>
+                <td>{node.name}</td>
+                <td>{node.fields.toLocaleString()}</td>
+                <td>{node.areaRai.toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export function CfReportPage() {
   const pddEmissionRef = useRef<HTMLDivElement>(null);
-  const pddCreditingRef = useRef<HTMLDivElement>(null);
   const [nodes, setNodes] = useState<SpatialSummaryNode[]>([]);
   const [reportPath, setReportPath] = useState<Record<CascadingReportLevel, string>>(emptyReportPath);
   const [report, setReport] = useState<ReportSummary | null>(null);
+  const [generatedReport, setGeneratedReport] = useState<ReportSummary | null>(null);
+  const [activePreviewTab, setActivePreviewTab] = useState<PreviewTab>("pdf");
+  const [reportRenderId, setReportRenderId] = useState(0);
   const [pdfUrl, setPdfUrl] = useState("");
+  const [generateNotice, setGenerateNotice] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [generatingPreview, setGeneratingPreview] = useState(false);
 
   useEffect(() => {
     getCfSpatialNodes()
@@ -533,37 +538,36 @@ export function CfReportPage() {
   }, [activeReportFilter]);
 
   useEffect(() => {
-    if (!report || !pddEmissionRef.current || !pddCreditingRef.current) return;
+    if (!generatedReport || !pddEmissionRef.current) return;
     let revoked = "";
+    setGeneratingPreview(true);
     const timer = window.setTimeout(() => {
-      if (!pddEmissionRef.current || !pddCreditingRef.current) return;
-      Promise.all([
-        html2canvas(pddEmissionRef.current, { scale: 1.8, backgroundColor: "#ffffff" }),
-        html2canvas(pddCreditingRef.current, { scale: 1.8, backgroundColor: "#ffffff" }),
-      ]).then((canvases) => {
+      if (!pddEmissionRef.current) return;
+      html2canvas(pddEmissionRef.current, { scale: 1.8, backgroundColor: "#ffffff" })
+        .then((canvas) => {
         const pdf = new jsPDF("l", "mm", "a4");
         const width = pdf.internal.pageSize.getWidth();
         const margin = 8;
         const imageWidth = width - margin * 2;
-        canvases.forEach((canvas, index) => {
-          if (index > 0) pdf.addPage();
-          const image = canvas.toDataURL("image/png");
-          const height = (canvas.height * imageWidth) / canvas.width;
-          pdf.addImage(image, "PNG", margin, margin, imageWidth, height);
-        });
+        const image = canvas.toDataURL("image/png");
+        const height = (canvas.height * imageWidth) / canvas.width;
+        pdf.addImage(image, "PNG", margin, margin, imageWidth, height);
         const url = URL.createObjectURL(pdf.output("blob"));
         setPdfUrl((old) => {
           if (old) URL.revokeObjectURL(old);
           return url;
         });
         revoked = url;
-      });
+        setGenerateNotice("อัปเดตตัวอย่างรายงานเรียบร้อยแล้ว");
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "สร้าง PDF preview ไม่สำเร็จ"))
+      .finally(() => setGeneratingPreview(false));
     }, 200);
     return () => {
       window.clearTimeout(timer);
       if (revoked) URL.revokeObjectURL(revoked);
     };
-  }, [report]);
+  }, [generatedReport, reportRenderId]);
 
   const reportOptionsFor = (level: CascadingReportLevel, parentId?: string) =>
     nodes.filter((node) => node.level === level && (!parentId || node.parentId === parentId));
@@ -575,6 +579,15 @@ export function CfReportPage() {
       next[key] = "";
     });
     setReportPath(next);
+    setGenerateNotice("ตัวกรองเปลี่ยนแล้ว สรุปด้านซ้ายอัปเดตทันที กดสร้างเอกสารใหม่เมื่อพร้อม");
+  };
+
+  const generateReportPreview = () => {
+    if (!report) return;
+    setGenerateNotice("กำลังสร้างตัวอย่างรายงานตามตัวกรองปัจจุบัน...");
+    setGeneratedReport(report);
+    setReportRenderId((value) => value + 1);
+    setActivePreviewTab("pdf");
   };
 
   const downloadPdf = () => {
@@ -586,12 +599,12 @@ export function CfReportPage() {
   };
 
   const exportExcel = () => {
-    if (!report) return;
+    if (!generatedReport) return;
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet([report.kpi])), "KPI");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(report.process)), "Process");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(report.processInputs ?? [])), "Inputs");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(report.spatialNodes.map((node) => ({
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet([generatedReport.kpi])), "KPI");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(generatedReport.process)), "Process");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(generatedReport.processInputs ?? [])), "Inputs");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(spatialOverviewRows(generatedReport).map((node) => ({
       level: node.level,
       name: node.name,
       fields: node.fields,
@@ -601,13 +614,13 @@ export function CfReportPage() {
       currentEmission: node.currentEmission,
       diff: node.currentEmission - node.baselineEmission,
     })))), "Spatial");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet([report.analysis])), "Analysis");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet([generatedReport.analysis])), "Analysis");
     XLSX.writeFile(wb, "premium-tver-carbon-summary.xlsx");
   };
 
   const downloadWordDraft = () => {
-    if (!report) return;
-    const blob = new Blob([pddDraftHtml(report)], { type: "application/msword;charset=utf-8" });
+    if (!generatedReport) return;
+    const blob = new Blob([pddDraftHtml(generatedReport)], { type: "application/msword;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -615,6 +628,8 @@ export function CfReportPage() {
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  const previewIsCurrent = Boolean(generatedReport && report && generatedReport.generatedAt === report.generatedAt);
 
   return (
     <div className="cf-dash">
@@ -677,92 +692,80 @@ export function CfReportPage() {
               ))}
             </select>
           </label>
-          <button className="run-btn pdf-download-btn" type="button" onClick={downloadPdf} disabled={!pdfUrl}>Download PDF</button>
-          <button className="run-btn word-download-btn" type="button" onClick={downloadWordDraft} disabled={!report}>Download Word</button>
-          <button className="run-all-btn excel-download-btn" type="button" onClick={exportExcel} disabled={!report}>Export Excel</button>
+          <button className="run-all-btn report-generate-btn" type="button" onClick={generateReportPreview} disabled={!report || loading || generatingPreview}>
+            สร้างเอกสารใหม่ (Generate Report)
+          </button>
+          <button className="run-btn pdf-download-btn" type="button" onClick={downloadPdf} disabled={!pdfUrl || generatingPreview || !previewIsCurrent}>Download PDF</button>
+          <button className="run-btn word-download-btn" type="button" onClick={downloadWordDraft} disabled={!generatedReport || !previewIsCurrent}>Download Word</button>
+          <button className="run-all-btn excel-download-btn" type="button" onClick={exportExcel} disabled={!generatedReport || !previewIsCurrent}>Export Excel</button>
         </section>
+
+        {generateNotice && <div className="report-generate-notice">{generateNotice}</div>}
 
         {loading && <div className="empty-state">กำลังสร้างรายงานจากข้อมูลสมมุติเพื่อดูหน้าตาแดชบอร์ด...</div>}
 
         {report && (
           <>
-          <div className="pdf-render-source">
-            <div ref={pddEmissionRef}>
-              <PddCarbonSummary report={report} />
+          {generatedReport && (
+            <div className="pdf-render-source">
+              <div ref={pddEmissionRef}>
+                <PddCarbonSummary report={generatedReport} />
+              </div>
             </div>
-            <div ref={pddCreditingRef}>
-              <PddCreditingSummary report={report} />
-            </div>
-          </div>
+          )}
           <section className="report-layout">
             <div className="card report-paper">
               <WebReportSummary report={report} />
             </div>
 
-            <div className="report-preview-stack">
-              <div className="card pdf-preview">
-                <div className="card-title">PDF Preview</div>
-                {pdfUrl ? <iframe title="Premium T-VER PDF Preview" src={pdfUrl} /> : <div className="empty-state">กำลังเตรียม preview...</div>}
-              </div>
-
-              <div className="card word-preview">
-                <div className="card-title">Word Preview · เอกสารร่างที่แก้ไขได้</div>
-                <iframe title="Premium T-VER Word Draft Preview" srcDoc={pddDraftHtml(report)} />
-              </div>
-
-              <div className="card excel-preview">
-                <div className="card-title">Excel Preview · Sheet ที่จะ Export</div>
-                <div className="excel-sheet-grid">
-                  <div>
-                    <h3>KPI</h3>
-                    <table className="report-table">
-                      <tbody>
-                        <tr><th>Baseline avg</th><td>{report.kpi.baselineAvgEmission.toLocaleString()} tCO2e</td></tr>
-                        <tr><th>Project year</th><td>{report.kpi.currentEmission.toLocaleString()} tCO2e</td></tr>
-                        <tr><th>Fields</th><td>{report.kpi.fields.toLocaleString()} แปลง</td></tr>
-                        <tr><th>Fertilizer</th><td>{report.kpi.fertilizerAmountKg.toLocaleString()} kg</td></tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  <div>
-                    <h3>Process</h3>
-                    <table className="report-table">
-                      <thead><tr><th>Year</th><th>Process</th><th>Emission</th></tr></thead>
-                      <tbody>
-                        {sortReportProcessRows(report.process.filter((row) => row.year === "baseline_avg" || row.year === report.kpi.currentYear)).slice(0, 8).map((row) => (
-                          <tr key={`excel-process-${row.year}-${row.process}`}><td>{row.year}</td><td>{row.process}</td><td>{row.emission}</td></tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div>
-                    <h3>Inputs</h3>
-                    <table className="report-table">
-                      <thead><tr><th>Process</th><th>ปุ๋ย project</th><th>น้ำมัน project</th></tr></thead>
-                      <tbody>
-                        {(report.processInputs ?? []).map((row) => (
-                          <tr key={`excel-input-${row.process}`}>
-                            <td>{row.process}</td>
-                            <td>{row.currentFertilizerKg.toLocaleString()} kg</td>
-                            <td>{row.currentFuelLiter.toLocaleString()} L</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div>
-                    <h3>Spatial</h3>
-                    <table className="report-table">
-                      <thead><tr><th>พื้นที่</th><th>แปลง</th><th>ไร่</th></tr></thead>
-                      <tbody>
-                        {report.spatialNodes.slice(0, 6).map((node) => (
-                          <tr key={`excel-spatial-${node.id}`}><td>{node.name}</td><td>{node.fields}</td><td>{node.areaRai.toLocaleString()}</td></tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+            <div className="card report-preview-panel">
+              <div className="report-preview-header">
+                <div>
+                  <div className="card-title">Preview & Download</div>
+                  <p className="muted">
+                    {generatedReport
+                      ? previewIsCurrent
+                        ? `ตัวอย่างล่าสุด: ${new Date(generatedReport.generatedAt).toLocaleString()}`
+                        : "ตัวอย่างเอกสารยังเป็นชุดเดิม กด Generate Report เพื่ออัปเดตตามตัวกรองปัจจุบัน"
+                      : "เลือกตัวกรองด้านซ้ายให้เรียบร้อย แล้วกดสร้างเอกสารใหม่เพื่อดูตัวอย่าง"}
+                  </p>
+                </div>
+                <div className="report-preview-tabs" role="tablist" aria-label="Report preview tabs">
+                  {[
+                    ["pdf", "PDF"],
+                    ["word", "Word"],
+                    ["excel", "Excel"],
+                  ].map(([tab, label]) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      role="tab"
+                      aria-selected={activePreviewTab === tab}
+                      className={activePreviewTab === tab ? "active" : ""}
+                      onClick={() => setActivePreviewTab(tab as PreviewTab)}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
               </div>
+
+              {!generatedReport && <div className="empty-state">ยังไม่มีตัวอย่างเอกสาร กด “สร้างเอกสารใหม่ (Generate Report)” เพื่อ Render PDF / Word / Excel</div>}
+              {generatedReport && activePreviewTab === "pdf" && (
+                <div className="pdf-preview">
+                  {generatingPreview ? <div className="empty-state">กำลัง Render PDF preview...</div> : pdfUrl ? <iframe title="Premium T-VER PDF Preview" src={pdfUrl} /> : <div className="empty-state">กดสร้างเอกสารใหม่เพื่อเตรียม PDF preview</div>}
+                </div>
+              )}
+              {generatedReport && activePreviewTab === "word" && (
+                <div className="word-preview">
+                  <iframe title="Premium T-VER Word Draft Preview" srcDoc={pddDraftHtml(generatedReport)} />
+                </div>
+              )}
+              {generatedReport && activePreviewTab === "excel" && (
+                <div className="excel-preview">
+                  <ExcelPreview report={generatedReport} />
+                </div>
+              )}
             </div>
           </section>
           </>

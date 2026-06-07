@@ -24,6 +24,7 @@ import "../cf-dashboard.css";
 
 type ScopeValue = "all" | `camp-${number}`;
 type CaneFilter = "all" | string;
+type FootprintPreviewTab = "pdf" | "word" | "excel";
 
 const emptyKpi: OverviewKpi = {
   baselineAvgEmission: 0,
@@ -65,6 +66,21 @@ interface CaneProcessReportRow {
   currentFertilizerKg: number;
   baselineFuelLiter: number;
   currentFuelLiter: number;
+}
+
+interface FootprintReportSnapshot {
+  id: string;
+  scopeLabel: string;
+  currentYear: string;
+  caneLabel: string;
+  baselineTotal: number;
+  currentTotal: number;
+  reduction: ReturnType<typeof diffLabel>;
+  processRows: FootprintProcessReportRow[];
+  hotspotRows: FootprintProcessReportRow[];
+  caneRows: CaneProcessReportRow[];
+  inputs: ProcessInputComparison[];
+  kpi: OverviewKpi;
 }
 
 function sumEmission(rows: ProcessActivityBreakdown[]) {
@@ -387,8 +403,13 @@ export function CfFootprintReportPage() {
   const [scope, setScope] = useState<ScopeValue>("all");
   const [selectedFieldId, setSelectedFieldId] = useState("all");
   const [caneFilter, setCaneFilter] = useState<CaneFilter>("all");
+  const [generatedReport, setGeneratedReport] = useState<FootprintReportSnapshot | null>(null);
+  const [activePreviewTab, setActivePreviewTab] = useState<FootprintPreviewTab>("pdf");
+  const [reportRenderId, setReportRenderId] = useState(0);
   const [pdfUrl, setPdfUrl] = useState("");
+  const [generateNotice, setGenerateNotice] = useState("");
   const [error, setError] = useState("");
+  const [generatingPreview, setGeneratingPreview] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -485,26 +506,56 @@ export function CfFootprintReportPage() {
   const hotspotRows = [...processRows].sort((a, b) => b.currentEmission - a.currentEmission);
 
   const selectedCaneLabel = caneFilter === "all" ? "รวมทุกประเภทอ้อย" : selectedCaneTypes.map((item) => item.name).join(", ") || "-";
+  const currentReport = useMemo<FootprintReportSnapshot>(() => ({
+    id: `${scope}|${selectedFieldId}|${caneFilter}|${currentYear}|${baselineTotal}|${currentTotal}`,
+    scopeLabel: selectedScopeLabel,
+    currentYear,
+    caneLabel: selectedCaneLabel,
+    baselineTotal,
+    currentTotal,
+    reduction,
+    processRows,
+    hotspotRows,
+    caneRows: caneProcessRows,
+    inputs: processInputRows,
+    kpi: kpi.data,
+  }), [
+    baselineTotal,
+    caneFilter,
+    caneProcessRows,
+    currentTotal,
+    currentYear,
+    hotspotRows,
+    kpi.data,
+    processInputRows,
+    processRows,
+    reduction,
+    scope,
+    selectedCaneLabel,
+    selectedFieldId,
+    selectedScopeLabel,
+  ]);
 
   const wordHtml = useMemo(
     () => footprintWordHtml({
-      scopeLabel: selectedScopeLabel,
-      currentYear,
-      caneLabel: selectedCaneLabel,
-      baselineTotal,
-      currentTotal,
-      reductionText: reduction.text,
-      processRows: hotspotRows,
-      caneRows: caneProcessRows,
-      inputs: processInputRows,
-      kpi: kpi.data,
+      scopeLabel: generatedReport?.scopeLabel ?? currentReport.scopeLabel,
+      currentYear: generatedReport?.currentYear ?? currentReport.currentYear,
+      caneLabel: generatedReport?.caneLabel ?? currentReport.caneLabel,
+      baselineTotal: generatedReport?.baselineTotal ?? currentReport.baselineTotal,
+      currentTotal: generatedReport?.currentTotal ?? currentReport.currentTotal,
+      reductionText: (generatedReport?.reduction ?? currentReport.reduction).text,
+      processRows: generatedReport?.hotspotRows ?? currentReport.hotspotRows,
+      caneRows: generatedReport?.caneRows ?? currentReport.caneRows,
+      inputs: generatedReport?.inputs ?? currentReport.inputs,
+      kpi: generatedReport?.kpi ?? currentReport.kpi,
     }),
-    [baselineTotal, caneProcessRows, currentTotal, currentYear, hotspotRows, kpi.data, processInputRows, reduction.text, selectedCaneLabel, selectedScopeLabel],
+    [currentReport, generatedReport],
   );
 
   useEffect(() => {
-    if (!reportPaperRef.current || !processRows.length) return;
+    if (!generatedReport || !reportPaperRef.current || !generatedReport.processRows.length) return;
     let revoked = "";
+    setGeneratingPreview(true);
     const timer = window.setTimeout(() => {
       if (!reportPaperRef.current) return;
       html2canvas(reportPaperRef.current, { scale: 1.8, backgroundColor: "#ffffff" }).then((canvas) => {
@@ -532,17 +583,34 @@ export function CfFootprintReportPage() {
           return url;
         });
         revoked = url;
-      });
+        setGenerateNotice("อัปเดตตัวอย่างรายงานเรียบร้อยแล้ว");
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "สร้าง PDF preview ไม่สำเร็จ"))
+      .finally(() => setGeneratingPreview(false));
     }, 250);
 
     return () => {
       window.clearTimeout(timer);
       if (revoked) URL.revokeObjectURL(revoked);
     };
-  }, [baselineTotal, caneFilter, caneProcessRows.length, currentTotal, currentYear, processRows.length, scope, selectedFieldId]);
+  }, [generatedReport, reportRenderId]);
+
+  const previewIsCurrent = Boolean(generatedReport && generatedReport.id === currentReport.id);
+
+  const generateReportPreview = () => {
+    if (!currentReport.processRows.length) return;
+    setGenerateNotice("กำลังสร้างตัวอย่างรายงานตามตัวกรองปัจจุบัน...");
+    setGeneratedReport(currentReport);
+    setReportRenderId((value) => value + 1);
+    setActivePreviewTab("pdf");
+  };
+
+  const markFilterChanged = () => {
+    setGenerateNotice("ตัวกรองเปลี่ยนแล้ว สรุปด้านซ้ายอัปเดตทันที กดสร้างเอกสารใหม่เมื่อพร้อม");
+  };
 
   const downloadPdf = () => {
-    if (!pdfUrl) return;
+    if (!pdfUrl || !previewIsCurrent) return;
     const a = document.createElement("a");
     a.href = pdfUrl;
     a.download = "mitrphol-carbon-footprint-report.pdf";
@@ -550,6 +618,7 @@ export function CfFootprintReportPage() {
   };
 
   const downloadWordDraft = () => {
+    if (!generatedReport || !previewIsCurrent) return;
     const blob = new Blob([wordHtml], { type: "application/msword;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -560,20 +629,22 @@ export function CfFootprintReportPage() {
   };
 
   const exportExcel = () => {
+    if (!generatedReport || !previewIsCurrent) return;
+    const report = generatedReport;
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet([{
-      scope: selectedScopeLabel,
-      caneType: selectedCaneLabel,
-      currentYear,
-      baselineTotal,
-      currentTotal,
-      diff: reduction.diff,
-      diffPercent: reduction.pct,
-      areaRai: kpi.data.areaRai,
-      yieldTon: kpi.data.yieldTon,
-      co2ePerTon: kpi.data.co2ePerTon,
+      scope: report.scopeLabel,
+      caneType: report.caneLabel,
+      currentYear: report.currentYear,
+      baselineTotal: report.baselineTotal,
+      currentTotal: report.currentTotal,
+      diff: report.reduction.diff,
+      diffPercent: report.reduction.pct,
+      areaRai: report.kpi.areaRai,
+      yieldTon: report.kpi.yieldTon,
+      co2ePerTon: report.kpi.co2ePerTon,
     }])), "Summary");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(hotspotRows.map((row) => ({
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(report.hotspotRows.map((row) => ({
       process: row.process,
       mainActivity: row.activity,
       baselineEmission: row.baselineEmission,
@@ -585,7 +656,7 @@ export function CfFootprintReportPage() {
       baselineFuelLiter: row.inputRow?.baselineFuelLiter ?? 0,
       currentFuelLiter: row.inputRow?.currentFuelLiter ?? 0,
     })))), "Process Hotspot");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(caneProcessRows.map((row) => ({
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(report.caneRows.map((row) => ({
       caneType: row.cane.name,
       caneAreaPercent: row.cane.percent,
       caneAreaRai: row.cane.areaRai,
@@ -596,7 +667,7 @@ export function CfFootprintReportPage() {
       shareInCanePercent: row.shareInCane,
       shareInScopePercent: row.shareInScope,
     })))), "Cane x Process");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(processInputRows)), "Activity Inputs");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(report.inputs)), "Activity Inputs");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(reportSections().map((section, index) => ({
       order: index + 1,
       section,
@@ -615,32 +686,39 @@ export function CfFootprintReportPage() {
 
         {error && <div className="error-panel">{error}</div>}
 
-        <div className="pdf-render-source">
-          <div ref={reportPaperRef}>
-            <FootprintReportDocument
-              scopeLabel={selectedScopeLabel}
-              currentYear={currentYear}
-              caneLabel={selectedCaneLabel}
-              baselineTotal={baselineTotal}
-              currentTotal={currentTotal}
-              reduction={reduction}
-              processRows={hotspotRows}
-              caneRows={caneProcessRows}
-              inputs={processInputRows}
-              kpi={kpi.data}
-            />
+        {generatedReport && (
+          <div className="pdf-render-source">
+            <div ref={reportPaperRef}>
+              <FootprintReportDocument
+                scopeLabel={generatedReport.scopeLabel}
+                currentYear={generatedReport.currentYear}
+                caneLabel={generatedReport.caneLabel}
+                baselineTotal={generatedReport.baselineTotal}
+                currentTotal={generatedReport.currentTotal}
+                reduction={generatedReport.reduction}
+                processRows={generatedReport.hotspotRows}
+                caneRows={generatedReport.caneRows}
+                inputs={generatedReport.inputs}
+                kpi={generatedReport.kpi}
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         <section className="card report-toolbar footprint-report-toolbar">
           <div>
             <div className="card-title">เอกสารรายงาน</div>
-            <p className="muted">จัดรายงานเป็น block summary สำหรับอ่านตรวจทาน พร้อมพรีวิวและดาวน์โหลด PDF, Word และ Excel</p>
+            <p className="muted">เลือกตัวกรองให้เรียบร้อย แล้วกดสร้างเอกสารใหม่เพื่อ Render PDF, Word และ Excel สำหรับ preview/download</p>
           </div>
-          <button className="run-btn pdf-download-btn" type="button" onClick={downloadPdf} disabled={!pdfUrl}>Download PDF</button>
-          <button className="run-btn word-download-btn" type="button" onClick={downloadWordDraft} disabled={!processRows.length}>Download Word</button>
-          <button className="run-all-btn excel-download-btn" type="button" onClick={exportExcel} disabled={!processRows.length}>Export Excel</button>
+          <button className="run-all-btn report-generate-btn" type="button" onClick={generateReportPreview} disabled={!processRows.length || generatingPreview}>
+            สร้างเอกสารใหม่ (Generate Report)
+          </button>
+          <button className="run-btn pdf-download-btn" type="button" onClick={downloadPdf} disabled={!pdfUrl || generatingPreview || !previewIsCurrent}>Download PDF</button>
+          <button className="run-btn word-download-btn" type="button" onClick={downloadWordDraft} disabled={!generatedReport || !previewIsCurrent}>Download Word</button>
+          <button className="run-all-btn excel-download-btn" type="button" onClick={exportExcel} disabled={!generatedReport || !previewIsCurrent}>Export Excel</button>
         </section>
+
+        {generateNotice && <div className="report-generate-notice">{generateNotice}</div>}
 
         <section className="card process-scope-panel footprint-report-filter">
           <div>
@@ -654,6 +732,7 @@ export function CfFootprintReportPage() {
               onChange={(event) => {
                 setScope(event.target.value as ScopeValue);
                 setSelectedFieldId("all");
+                markFilterChanged();
               }}
             >
               <option value="all">ภาพรวมทั้งระบบ</option>
@@ -664,7 +743,10 @@ export function CfFootprintReportPage() {
           </label>
           <label>
             แปลงในแคมป์
-            <select value={selectedFieldId} disabled={!selectedCampId} onChange={(event) => setSelectedFieldId(event.target.value)}>
+            <select value={selectedFieldId} disabled={!selectedCampId} onChange={(event) => {
+              setSelectedFieldId(event.target.value);
+              markFilterChanged();
+            }}>
               <option value="all">{selectedCampId ? "ทุกแปลงในแคมป์" : "เลือกแคมป์ก่อน"}</option>
               {fieldsInCamp.map((field) => (
                 <option key={field.id} value={field.id}>{field.fieldCode} · {field.fieldName}</option>
@@ -673,7 +755,10 @@ export function CfFootprintReportPage() {
           </label>
           <label>
             ประเภทอ้อย
-            <select value={caneFilter} onChange={(event) => setCaneFilter(event.target.value)}>
+            <select value={caneFilter} onChange={(event) => {
+              setCaneFilter(event.target.value);
+              markFilterChanged();
+            }}>
               <option value="all">อ้อยปลูก + อ้อยตอ + พื้นที่พักดิน</option>
               {caneTypeResult.data.map((cane) => (
                 <option key={cane.name} value={cane.name}>{cane.name}</option>
@@ -790,28 +875,60 @@ export function CfFootprintReportPage() {
           </div>
         </section>
 
-        <section className="report-preview-stack full-span footprint-preview-layout">
-            <div className="card pdf-preview">
-              <div className="card-title">PDF Preview · รายงานคาร์บอนฟุตพริ้นท์</div>
-              {pdfUrl ? <iframe title="Carbon Footprint PDF Preview" src={pdfUrl} /> : <div className="empty-state">กำลังเตรียม preview...</div>}
+        <section className="card report-preview-panel full-span footprint-preview-layout">
+          <div className="report-preview-header">
+            <div>
+              <div className="card-title">Preview & Download</div>
+              <p className="muted">
+                {generatedReport
+                  ? previewIsCurrent
+                    ? `ตัวอย่างล่าสุด: ${generatedReport.scopeLabel} · ${generatedReport.caneLabel}`
+                    : "ตัวอย่างเอกสารยังเป็นชุดเดิม กด Generate Report เพื่ออัปเดตตามตัวกรองปัจจุบัน"
+                  : "ยังไม่มีตัวอย่างเอกสาร กดสร้างเอกสารใหม่เพื่อ Render PDF / Word / Excel"}
+              </p>
             </div>
+            <div className="report-preview-tabs" role="tablist" aria-label="Carbon Footprint report preview tabs">
+              {[
+                ["pdf", "PDF"],
+                ["word", "Word"],
+                ["excel", "Excel"],
+              ].map(([tab, label]) => (
+                <button
+                  key={tab}
+                  type="button"
+                  role="tab"
+                  aria-selected={activePreviewTab === tab}
+                  className={activePreviewTab === tab ? "active" : ""}
+                  onClick={() => setActivePreviewTab(tab as FootprintPreviewTab)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
 
-            <div className="card word-preview">
-              <div className="card-title">Word Preview · เอกสารที่แก้ไขต่อได้</div>
+          {!generatedReport && <div className="empty-state">เลือกตัวกรองด้านบนให้เรียบร้อย แล้วกด “สร้างเอกสารใหม่ (Generate Report)”</div>}
+          {generatedReport && activePreviewTab === "pdf" && (
+            <div className="pdf-preview">
+              {generatingPreview ? <div className="empty-state">กำลัง Render PDF preview...</div> : pdfUrl ? <iframe title="Carbon Footprint PDF Preview" src={pdfUrl} /> : <div className="empty-state">กดสร้างเอกสารใหม่เพื่อเตรียม PDF preview</div>}
+            </div>
+          )}
+          {generatedReport && activePreviewTab === "word" && (
+            <div className="word-preview">
               <iframe title="Carbon Footprint Word Preview" srcDoc={wordHtml} />
             </div>
-
-            <div className="card excel-preview">
-              <div className="card-title">Excel Preview · Sheet ที่จะ Export</div>
+          )}
+          {generatedReport && activePreviewTab === "excel" && (
+            <div className="excel-preview">
               <div className="excel-sheet-grid">
                 <div>
                   <h3>Summary</h3>
                   <table className="report-table">
                     <tbody>
-                      <tr><th>Scope</th><td>{selectedScopeLabel}</td></tr>
-                      <tr><th>Baseline</th><td>{formatNumber(baselineTotal)} tCO2e</td></tr>
-                      <tr><th>Project</th><td>{formatNumber(currentTotal)} tCO2e</td></tr>
-                      <tr><th>Diff</th><td>{reduction.text}</td></tr>
+                      <tr><th>Scope</th><td>{generatedReport.scopeLabel}</td></tr>
+                      <tr><th>Baseline</th><td>{formatNumber(generatedReport.baselineTotal)} tCO2e</td></tr>
+                      <tr><th>Project</th><td>{formatNumber(generatedReport.currentTotal)} tCO2e</td></tr>
+                      <tr><th>Diff</th><td>{generatedReport.reduction.text}</td></tr>
                     </tbody>
                   </table>
                 </div>
@@ -820,7 +937,7 @@ export function CfFootprintReportPage() {
                   <table className="report-table">
                     <thead><tr><th>Process</th><th>Current</th><th>Share</th></tr></thead>
                     <tbody>
-                      {hotspotRows.slice(0, 6).map((row) => (
+                      {generatedReport.hotspotRows.slice(0, 6).map((row) => (
                         <tr key={`excel-preview-${row.process}`}><td>{row.process}</td><td>{formatNumber(row.currentEmission)}</td><td>{row.share.toFixed(1)}%</td></tr>
                       ))}
                     </tbody>
@@ -831,7 +948,7 @@ export function CfFootprintReportPage() {
                   <table className="report-table">
                     <thead><tr><th>Process</th><th>Fertilizer</th><th>Fuel</th></tr></thead>
                     <tbody>
-                      {processInputRows.map((row) => (
+                      {generatedReport.inputs.map((row) => (
                         <tr key={`input-preview-${row.process}`}><td>{row.process}</td><td>{formatNumber(row.currentFertilizerKg, 1)} kg</td><td>{formatNumber(row.currentFuelLiter, 1)} L</td></tr>
                       ))}
                     </tbody>
@@ -839,6 +956,7 @@ export function CfFootprintReportPage() {
                 </div>
               </div>
             </div>
+          )}
         </section>
       </div>
     </div>

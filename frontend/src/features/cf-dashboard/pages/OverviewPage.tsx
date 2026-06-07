@@ -54,8 +54,6 @@ export function CfOverviewPage() {
   const socDiff = socProject - socBaseline;
   const creditTotal = n2oReduction + fuelReduction + socRemoval;
   const baselineYears = trend.data.filter((item) => item.isBaseline).map((item) => item.year);
-  const lastBaselineYear = baselineYears[baselineYears.length - 1];
-  // const baselineLabel = baselineYears.length > 1 ? `${baselineYears[0]} - ${lastBaselineYear}` : baselineYears[0] ?? "-";
   const baselineLabel = baselineYears.length > 1 ? `${baselineYears[0]} - ${baselineYears.at(-1)}` : baselineYears[0] ?? "-";
 
   return (
@@ -105,7 +103,7 @@ export function CfOverviewPage() {
           </div>
         </section>
 
-        <CaneTypeSummaryPanel result={caneTypes} showSource={false} />
+        <CaneTypeSummaryPanel result={caneTypes} showSource={false} creditTotal={creditTotal} />
 
         <section className="card full-span credit-source-card">
           <div className="card-title">แหล่งที่มา Credit</div>

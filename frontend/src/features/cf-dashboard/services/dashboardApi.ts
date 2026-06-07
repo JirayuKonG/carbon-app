@@ -126,25 +126,61 @@ export async function getCampFieldCarbonDetails(campId?: number): Promise<DataRe
 
 export async function getReportSummary(filter: ReportFilter): Promise<ReportSummary> {
   if (ENABLE_API_DASHBOARD) return get<ReportSummary>("/analytics/cf-report-summary", cleanParams(filter));
-  const process = mockDashboard.processEmissions;
+  const selectedNode = filter.level && filter.level !== "all" && filter.id
+    ? mockDashboard.spatialNodes.find((node) => node.id === `${filter.level}-${filter.id}` || node.id === filter.id)
+    : mockDashboard.spatialNodes.find((node) => node.level === "country") ?? mockDashboard.spatialNodes[0];
+  const keepIds = new Set<string>();
+  if (selectedNode) {
+    const visit = (nodeId: string) => {
+      keepIds.add(nodeId);
+      mockDashboard.spatialNodes.filter((node) => node.parentId === nodeId).forEach((node) => visit(node.id));
+    };
+    visit(selectedNode.id);
+  }
+  const spatialNodes = keepIds.size ? mockDashboard.spatialNodes.filter((node) => keepIds.has(node.id)) : mockDashboard.spatialNodes;
+  const baselineScale = selectedNode ? selectedNode.baselineEmission / mockDashboard.kpi.baselineAvgEmission : 1;
+  const currentScale = selectedNode ? selectedNode.currentEmission / mockDashboard.kpi.currentEmission : 1;
+  const process = mockDashboard.processEmissions.map((row) => ({
+    ...row,
+    emission: Number((row.emission * (row.isBaseline ? baselineScale : currentScale)).toFixed(2)),
+  }));
+  const processInputs = mockDashboard.processInputComparisons.map((row) => ({
+    ...row,
+    baselineFertilizerKg: Number((row.baselineFertilizerKg * baselineScale).toFixed(1)),
+    currentFertilizerKg: Number((row.currentFertilizerKg * currentScale).toFixed(1)),
+    baselineFuelLiter: Number((row.baselineFuelLiter * baselineScale).toFixed(1)),
+    currentFuelLiter: Number((row.currentFuelLiter * currentScale).toFixed(1)),
+  }));
   const currentRows = process.filter((item) => !item.isBaseline);
   const topProcess = [...currentRows].sort((a, b) => b.emission - a.emission)[0]?.process ?? "-";
   const lowProcess = [...currentRows].sort((a, b) => a.emission - b.emission)[0]?.process ?? "-";
+  const kpi = {
+    ...mockDashboard.kpi,
+    baselineAvgEmission: Number((mockDashboard.kpi.baselineAvgEmission * baselineScale).toFixed(2)),
+    currentEmission: Number((mockDashboard.kpi.currentEmission * currentScale).toFixed(2)),
+    machineEmission: Number((mockDashboard.kpi.machineEmission * currentScale).toFixed(2)),
+    inputEmission: Number((mockDashboard.kpi.inputEmission * currentScale).toFixed(2)),
+    fertilizerAmountKg: Number((mockDashboard.kpi.fertilizerAmountKg * currentScale).toFixed(1)),
+    fertilizerEmission: Number((mockDashboard.kpi.fertilizerEmission * currentScale).toFixed(2)),
+    areaRai: selectedNode?.areaRai ?? mockDashboard.kpi.areaRai,
+    farmers: selectedNode?.farmers ?? mockDashboard.kpi.farmers,
+    fields: selectedNode?.fields ?? mockDashboard.kpi.fields,
+  };
   return {
     generatedAt: new Date().toISOString(),
     filter,
-    kpi: mockDashboard.kpi,
+    kpi,
     trend: mockDashboard.trend,
     process,
     transport: [],
-    processInputs: mockDashboard.processInputComparisons,
-    spatialNodes: mockDashboard.spatialNodes,
+    processInputs,
+    spatialNodes,
     analysis: {
       headline: "ข้อมูลสมมุติสำหรับตรวจหน้าตาแดชบอร์ดก่อนเชื่อมข้อมูลจริง แสดงเฉพาะกระบวนการเพาะปลูก 4 ขั้นตอน",
       topProcess,
       lowProcess,
       topTransport: "ตัดออกจากขอบเขต Carbon Analytics แล้ว",
-      areaSummary: `มีแปลงเข้าร่วมโครงการ ${mockDashboard.kpi.fields.toLocaleString()} แปลง รวมพื้นที่ ${mockDashboard.spatialNodes[0]?.areaRai.toLocaleString() ?? 0} ไร่`,
+      areaSummary: `มีแปลงเข้าร่วมโครงการ ${kpi.fields.toLocaleString()} แปลง รวมพื้นที่ ${kpi.areaRai.toLocaleString()} ไร่`,
     },
   };
 }

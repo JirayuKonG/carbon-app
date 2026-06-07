@@ -4,7 +4,117 @@
 
 Branch ที่ทำงาน: `idea`
 
-Commit ล่าสุดที่อัปขึ้น Git: `Refine spatial map markers and footprint report layout`
+Commit ล่าสุดที่อัปขึ้น Git: `Refine footprint report generation and charts`
+
+## อัปเดตล่าสุด วันที่ 6 มิถุนายน 2569 - ปรับ Carbon Footprint Charts และ Footprint Report Generate Flow
+
+รอบนี้ทำงานต่อบน branch `idea` โดยเน้นหน้า `Carbon Footprint ไร่บริษัทกลุ่มมิตรผล` และหน้า `รายงานคาร์บอนฟุตพริ้นท์ ไร่บริษัทกลุ่มมิตรผล` เพื่อให้หน่วยข้อมูลบน chart สอดคล้องกันมากขึ้น และให้ flow การสร้างเอกสารรายงานเหมือนกับ Premium T-VER Report
+
+### หน้า Carbon Footprint ไร่บริษัทกลุ่มมิตรผล
+
+- ปรับ block `สัดส่วนประเภทอ้อยและพื้นที่พักดิน` ในหน้า Carbon Footprint ให้แสดงปริมาณ `Carbon Footprint` รายประเภทอ้อยแทนจำนวนไร่
+  - อ้อยปลูก แสดงค่า tCO2e
+  - อ้อยตอ แสดงค่า tCO2e
+  - พื้นที่พักดิน แสดงค่า tCO2e
+  - รวม แสดงค่า tCO2e รวม
+- คงเปอร์เซ็นต์ของแต่ละประเภทไว้เป็นข้อมูลประกอบ เพื่อให้เห็นทั้งสัดส่วนพื้นที่และปริมาณ footprint
+- ปรับ Doughnut chart ให้ตัวเลขกลางวงเป็น `ปริมาณการปล่อย ... tCO2e`
+- ปรับ tooltip และ legend ของ Doughnut chart ให้ใช้หน่วยเดียวกันคือ `tCO2e`
+- ปรับ `CO2e ตามกลุ่ม` ให้ตัวเลขบนกราฟและตัวเลขสรุปด้านล่างสอดคล้องกันในฐานะปริมาณการปล่อย
+- ปรับโหมด `ตามกิจกรรม` ใน `CO2e ตามกลุ่ม` ให้แสดง 4 กระบวนการหลัก:
+  - `1. การเตรียมดินและปลูก`
+  - `2. การใช้ปุ๋ย`
+  - `3. การให้น้ำและกำจัดวัชพืช`
+  - `4. การเก็บเกี่ยว`
+- ปรับ `Grouped Bar · ปีฐาน vs ปีดำเนินโครงการ` ให้ตัวเลข summary ใต้กราฟใช้ข้อมูลชุดเดียวกับกราฟหลัง filter/cane scope
+- ปรับ `ปุ๋ยและน้ำมันรายขั้นตอน · ค่าเฉลี่ยปีฐาน vs ปีดำเนินโครงการ` ให้ยังคำนวณตาม filter แคมป์/แปลง/ประเภทอ้อย
+
+### หน้า รายงานคาร์บอนฟุตพริ้นท์ ไร่บริษัทกลุ่มมิตรผล
+
+- แยก flow ระหว่างข้อมูลสรุปหน้าเว็บกับเอกสาร preview/download:
+  - ข้อมูลสรุปฝั่งซ้ายยัง reactive ทันทีตาม filter
+  - เอกสาร preview/download ใช้ snapshot `generatedReport` ที่สร้างจากปุ่ม Generate เท่านั้น
+- เพิ่มปุ่ม `สร้างเอกสารใหม่ (Generate Report)` สำหรับสั่ง render เอกสารตามตัวกรองปัจจุบัน
+- เมื่อผู้ใช้เปลี่ยน filter ระบบจะแจ้งว่า summary อัปเดตแล้ว แต่ preview ยังต้องกด Generate ใหม่
+- ปิดปุ่ม `Download PDF`, `Download Word` และ `Export Excel` เมื่อ preview ไม่ตรงกับ filter ปัจจุบัน เพื่อป้องกันการดาวน์โหลดเอกสารผิดชุดข้อมูล
+- เปลี่ยน Preview & Download เป็นระบบ `Tab`:
+  - `PDF`
+  - `Word`
+  - `Excel`
+- เมื่อกดแท็บใด จะแสดงเฉพาะ preview ของไฟล์นั้น ลดความยาวหน้าและช่วยให้ตรวจเอกสารง่ายขึ้น
+
+### ปรับสีปุ่ม Generate Report
+
+- ปรับปุ่ม `สร้างเอกสารใหม่ (Generate Report)` ที่ใช้ร่วมกันทั้งหน้า Footprint Report และ Premium T-VER Report จากสีฟ้าสดเป็นสีเทาเข้ม
+- สีปุ่มปกติ: `#344456`
+- สี hover: `#233142`
+- เป้าหมายคือให้ปุ่มยังดูเป็น action สำคัญ แต่ไม่เด่นจนแย่งสายตาจากเนื้อหารายงาน
+
+### การตรวจสอบ
+
+- รัน `npm run build --workspace=frontend` ผ่าน
+- Build มีเฉพาะ Vite warning เรื่อง chunk size ใหญ่จาก bundle เดิมของ PDF/Excel ไม่ใช่ error จากงานรอบนี้
+- ไฟล์ที่แก้ในรอบนี้อยู่ในกลุ่ม Carbon Dashboard/Report:
+  - `frontend/src/features/cf-dashboard/pages/ProcessPage.tsx`
+  - `frontend/src/features/cf-dashboard/pages/FootprintReportPage.tsx`
+  - `frontend/src/features/cf-dashboard/components/common/CaneTypeSummaryPanel.tsx`
+  - `frontend/src/features/cf-dashboard/components/charts/ProcessDoughnut.tsx`
+  - `frontend/src/features/cf-dashboard/cf-dashboard.css`
+
+## อัปเดตล่าสุด วันที่ 6 มิถุนายน 2569 - ปรับ Carbon Credit Breakdown และ Premium T-VER Report Preview
+
+รอบนี้ทำงานต่อบน branch `idea` โดยเน้นสองส่วนหลักคือหน้า `Carbon Credit Premium T-VER ไร่บริษัทกลุ่มมิตรผล` และหน้า `สรุปผลทั้งหมดสำหรับเตรียมยื่น Premium T-VER` เพื่อให้ข้อมูลเครดิตอ่านชัดขึ้น ลดข้อมูลซ้ำ และแยกระหว่างการเปลี่ยน filter กับการสร้างเอกสาร preview ให้ผู้ใช้ควบคุมได้มากขึ้น
+
+### หน้า Carbon Credit Premium T-VER
+
+- ปรับ block `สัดส่วนประเภทอ้อยและพื้นที่พักดิน` ให้ตัวเลขหลักด้านบนแสดงจำนวนไร่ของ:
+  - อ้อยปลูก
+  - อ้อยตอ
+  - พื้นที่พักดิน
+  - ไร่รวม
+- คงเปอร์เซ็นต์ไว้เป็นข้อมูลประกอบใต้จำนวนไร่ เพื่อให้เห็นทั้งพื้นที่จริงและสัดส่วน
+- เปลี่ยนรายละเอียดด้านล่างในหน้า Carbon Credit จากค่า Carbon/Emission เดิม มาเป็น `เครดิตที่คาดว่าจะได้` แยกตามประเภทอ้อย โดยคิดตามสัดส่วนพื้นที่โครงการ
+- ซ่อน note `Carbon รวมตามประเภทอ้อย ... tCO2e` ในหน้า Carbon Credit เพื่อลดความสับสนกับหน้า Carbon Footprint
+- ปรับแถบสีสัดส่วนประเภทอ้อยให้บางลง แต่ยืดเต็ม block ตาม feedback ล่าสุด เพื่อให้ยังเห็นภาพรวมโดยไม่แย่งสายตา
+
+### หน้า Premium T-VER Report
+
+- เปลี่ยนส่วน Preview & Download จากการแสดง PDF, Word และ Excel เรียงยาวทั้งหมด เป็นระบบ `Tab`
+  - `PDF`
+  - `Word`
+  - `Excel`
+- เมื่อผู้ใช้กดแท็บใด จะแสดงเฉพาะ preview ของไฟล์นั้น ลดความยาวหน้าและทำให้ตรวจเอกสารง่ายขึ้น
+- เพิ่มปุ่มสีน้ำเงิน `สร้างเอกสารใหม่ (Generate Report)` เพื่อให้ผู้ใช้เลือก filter ให้เรียบร้อยก่อน แล้วค่อยสั่ง render เอกสาร preview/download
+- แยก state ระหว่าง:
+  - `report` สำหรับ summary ฝั่งซ้ายที่ reactive ตาม filter ทันที
+  - `generatedReport` สำหรับเอกสาร preview/download ที่อัปเดตเฉพาะตอนกด Generate Report
+- ถ้าเปลี่ยน filter หลังจาก generate เอกสารแล้ว ระบบจะแจ้งว่า preview ยังเป็นชุดเดิม และปิดปุ่ม download จนกว่าจะ generate ใหม่ เพื่อป้องกันการดาวน์โหลดเอกสารผิด filter
+- เพิ่มข้อความแจ้งเตือนสั้น ๆ หลังเปลี่ยน filter หรือหลัง generate เพื่อให้ผู้ใช้รู้สถานะของรายงาน
+
+### ปรับเนื้อหาและตารางใน Premium T-VER Report
+
+- เอา section `ข้อมูลที่เตรียมใช้กรอกแบบฟอร์ม` ออกจาก summary ฝั่งซ้าย
+- เอา section `สรุปปริมาณก๊าซเรือนกระจกที่คาดว่าจะลดได้` ออกจาก summary/preview เพราะข้อมูลซ้ำกับ KPI และ evidence เดิม
+- เอาเอกสาร/ตาราง crediting summary 15 ปีที่ซ้ำซ้อนออกจาก PDF render source
+- ปรับ `ตารางเปรียบเทียบกระบวนการ` ให้จัดกลุ่มอ่านง่ายขึ้น:
+  - คอลัมน์แรกเป็น `Process`
+  - คอลัมน์ต่อมาเป็น `Year group`
+  - คอลัมน์ `Year`
+  - คอลัมน์ `Emission (tCO2e)`
+- ยุบชื่อ process ที่ซ้ำกันด้วย row span แล้วแยกแถวเป็น `Baseline avg`, `Baseline year` และ `Project year`
+- ปรับ `ตารางพื้นที่` ให้เป็นภาพรวมเท่านั้น โดยแสดงพื้นที่ที่เลือกจาก filter และพื้นที่ลูกชั้นถัดไป ไม่ลงรายละเอียดลึกยาวเกินจำเป็น
+
+### Mock Report และ Reactive Filter
+
+- เนื่องจาก frontend ยังตั้ง `ENABLE_API_DASHBOARD = false` จึงปรับ mock report ให้ scale KPI, process, input และ spatial ตามพื้นที่ที่เลือก
+- ทำให้การเลือก filter ในหน้า Premium T-VER Report เห็นตัวเลข summary ฝั่งซ้ายเปลี่ยนทันทีในโหมด mock data ด้วย
+- เมื่อเปิดใช้ API จริงภายหลัง flow หน้า report ยังรองรับ filter ผ่าน contract เดิมของ `getReportSummary(filter)`
+
+### การตรวจสอบ
+
+- รัน `npm run build --workspace=frontend` ผ่าน
+- Build มีเฉพาะ Vite warning เรื่อง chunk size ใหญ่จาก bundle เดิมของ PDF/Excel ไม่ใช่ error จากงานรอบนี้
+- ตรวจ git status แล้วไฟล์ที่แก้ในรอบนี้อยู่ในกลุ่ม Carbon Dashboard/Report เท่านั้น
 
 ## อัปเดตเพิ่มเติม วันที่ 5 มิถุนายน 2569 - ปรับ marker แผนที่, ลดข้อมูลซ้ำใน Footprint Report และแก้ spacing หน้า Spatial
 
