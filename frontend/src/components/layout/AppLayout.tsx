@@ -29,10 +29,10 @@ export function AppLayout() {
       </div>
 
       {/* Main area */}
-      <div className="main-content flex flex-col min-h-screen">
+      <div className="main-content flex flex-col min-h-screen min-w-0">
         <Topbar onMenuClick={() => setSidebarOpen(true)} />
 
-        <main className="flex-1 w-full max-w-screen-2xl mx-auto animate-fade p-4 md:p-6 xl:p-8">
+        <main className="flex-1 w-full min-w-0 max-w-screen-2xl mx-auto animate-fade p-4 md:p-6 xl:p-8">
           <Outlet />
         </main>
       </div>

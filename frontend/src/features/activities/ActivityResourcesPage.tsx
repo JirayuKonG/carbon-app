@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { del, get, post, put } from '@/lib/api'
 import { ChevronDown, ChevronUp, FlaskConical, Pencil, Plus, Settings2, Trash2 } from 'lucide-react'
@@ -140,8 +141,11 @@ export function ActivityResourcesPage() {
     queryFn: () => get<ResourceType[]>('/activities/resource-types'),
   })
 
-  const queryError = [fertilizersError, equipmentsError, resourceTypesError]
-    .find((error): error is Error => error instanceof Error)
+  const pageQueryItems = [
+    { label: 'ปุ๋ย', error: fertilizersError },
+    { label: 'อุปกรณ์', error: equipmentsError },
+    { label: 'ประเภทปัจจัย', error: resourceTypesError },
+  ]
 
   const saveResourceTypeMut = useMutation({
     mutationFn: ({ id, payload }: { id?: number; payload: ResourceTypePayload }) =>
@@ -618,12 +622,11 @@ export function ActivityResourcesPage() {
         </button>
       </div>
 
-      {queryError && (
-        <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          <p className="font-medium">ไม่สามารถโหลดข้อมูลรายการอ้างอิงได้</p>
-          <p className="mt-1">{queryError.message}</p>
-        </div>
-      )}
+      <DatabaseConnectionNotice
+        items={pageQueryItems}
+        className="mb-6"
+        onRetry={() => { void qc.refetchQueries({ type: 'active' }) }}
+      />
 
       {visibleButtons.resourceTypes && showResourceTypeSection && (
         <div className="card mb-5">

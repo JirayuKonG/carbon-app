@@ -130,11 +130,11 @@ export function DataTable<T>({
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="min-w-0 flex flex-col gap-3">
       {/* Toolbar */}
       {searchable && (
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-2 bg-white border border-surface-200 rounded-lg px-3 py-2 flex-1 min-w-[200px] max-w-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="flex w-full items-center gap-2 rounded-lg border border-surface-200 bg-white px-3 py-2 sm:max-w-sm">
             <Search size={14} className="text-surface-400 shrink-0" />
             <input
               value={search}
@@ -143,7 +143,7 @@ export function DataTable<T>({
               className="flex-1 text-sm outline-none placeholder:text-surface-400 bg-transparent"
             />
           </div>
-          <div className="flex items-center gap-2 text-xs text-surface-500 ml-auto">
+          <div className="flex w-full items-center justify-between gap-2 text-xs text-surface-500 sm:ml-auto sm:w-auto sm:justify-start">
             <span>แสดง</span>
             <select
               value={pageSize}
@@ -160,7 +160,59 @@ export function DataTable<T>({
       )}
 
       {/* Table */}
-      <div className="table-wrapper">
+      <div className="space-y-3 md:hidden">
+        {isLoading ? (
+          Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="rounded-xl border border-surface-100 bg-white p-4 shadow-card">
+              <div className="space-y-3">
+                {Array.from({ length: Math.min(columns.length, 4) }).map((__, idx) => (
+                  <div key={idx} className="grid grid-cols-[88px,1fr] gap-3">
+                    <div className="h-3 w-16 rounded bg-surface-100 animate-pulse" />
+                    <div className="h-4 w-full rounded bg-surface-100 animate-pulse" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        ) : slice.length === 0 ? (
+          <div className="rounded-xl border border-surface-100 bg-white px-4 py-10 text-center text-sm text-surface-400 shadow-card">
+            {emptyMessage}
+          </div>
+        ) : (
+          slice.map((row) => (
+            <article
+              key={rowKey(row)}
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+              className={`rounded-xl border border-surface-100 bg-white p-4 shadow-card ${onRowClick ? 'cursor-pointer' : ''}`}
+            >
+              <div className="space-y-3">
+                {columns.map((col) => (
+                  <div key={String(col.key)} className="grid grid-cols-[96px,1fr] gap-3 border-b border-surface-50 pb-3 last:border-b-0 last:pb-0">
+                    <span className="text-xs font-medium text-surface-500">{col.header}</span>
+                    <div className="min-w-0 text-sm text-surface-800 break-words">
+                      {col.render
+                        ? col.render(row)
+                        : String(getValue(row, String(col.key)) ?? '-')}
+                    </div>
+                  </div>
+                ))}
+                {actions && (
+                  <div
+                    className="border-t border-surface-100 pt-3"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {actions(row)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </article>
+          ))
+        )}
+      </div>
+
+      <div className="table-wrapper hidden md:block">
         <table className="table">
           <thead>
             <tr>
@@ -191,7 +243,7 @@ export function DataTable<T>({
                 <tr key={i}>
                   {columns.map((col) => (
                     <td key={String(col.key)}>
-                      <div className="h-4 bg-surface-100 rounded animate-pulse w-3/4" />
+                      <div className="h-4 w-3/4 animate-pulse rounded bg-surface-100" />
                     </td>
                   ))}
                   {actions && <td />}
@@ -199,7 +251,7 @@ export function DataTable<T>({
               ))
             ) : slice.length === 0 ? (
               <tr>
-                <td colSpan={columns.length + (actions ? 1 : 0)} className="text-center py-12 text-surface-400">
+                <td colSpan={columns.length + (actions ? 1 : 0)} className="py-12 text-center text-surface-400">
                   {emptyMessage}
                 </td>
               </tr>
@@ -230,11 +282,11 @@ export function DataTable<T>({
       </div>
 
       {/* Pagination */}
-      <div className="flex items-center justify-between text-xs text-surface-500">
+      <div className="flex flex-col gap-3 text-xs text-surface-500 sm:flex-row sm:items-center sm:justify-between">
         <span>
           {sorted.length === 0 ? 'ไม่มีข้อมูล' : `แสดง ${(safePage - 1) * pageSize + 1}–${Math.min(safePage * pageSize, sorted.length)} จาก ${sorted.length} รายการ`}
         </span>
-        <div className="pagination">
+        <div className="pagination flex-wrap">
           <button className="pagination-btn" onClick={() => goTo(1)} disabled={safePage === 1}>
             <ChevronsLeft size={13} />
           </button>

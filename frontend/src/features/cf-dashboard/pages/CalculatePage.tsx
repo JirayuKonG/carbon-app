@@ -1,8 +1,15 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ActivitySquare, Calculator, CheckCircle2, CircleAlert, Clock3, Edit3, Leaf } from 'lucide-react'
+import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { DataTable, type Column } from '@/components/ui/DataTable'
-import { getActivityCalStatusBadgeClass, getActivityCalStatusKind, getActivityCalStatusLabel } from '@/features/activities/cal-status'
+import { DashboardVisibilityMenu, useDashboardVisibility } from '@/components/ui/DashboardVisibilityMenu'
+import {
+  ACTIVITY_CAL_STATUS_NAMES,
+  getActivityCalStatusBadgeClass,
+  getActivityCalStatusKind,
+  getActivityCalStatusLabel,
+} from '@/features/activities/cal-status'
 import { get, post } from '@/lib/api'
 import { formatBangkokDateTime } from '@/lib/datetime'
 import '../cf-dashboard.css'
@@ -42,7 +49,7 @@ interface DetailType { act_header_detail_type_id: number; act_header_detail_type
 interface ResourceType { resource_used_type_id: number; resc_used_type_name: string }
 interface CalStatus { log_act_detail_calStatus_id: number; log_act_detail_calStatus_name: string }
 
-type WorkflowStatusName = 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน'
+type ManualStatusName = 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' | 'คำนวณแล้ว(มาตรฐาน)'
 type CalcMode = 'standard' | 'tver'
 
 type CalculateRow = {
@@ -69,6 +76,15 @@ function formatNumber(value?: number, digits = 0) {
   })
 }
 
+function formatQuantityValue(value?: number | null) {
+  if (value == null || Number.isNaN(value)) return '—'
+  const digits = Number.isInteger(value) ? 0 : 3
+  return value.toLocaleString('th-TH', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  })
+}
+
 export function CfCalculatePage() {
   const qc = useQueryClient()
   const [selectedIds, setSelectedIds] = useState<number[]>([])
@@ -76,26 +92,34 @@ export function CfCalculatePage() {
   const [activityTypeFilter, setActivityTypeFilter] = useState('')
   const [resourceTypeFilter, setResourceTypeFilter] = useState('')
 
-  const { data: details = [], isLoading } = useQuery({
+  const { data: details = [], isLoading, error: detailsError } = useQuery({
     queryKey: ['activity-details-calculate'],
     queryFn: () => get<LogDetail[]>('/activities/details'),
   })
-  const { data: calStatuses = [] } = useQuery({
+  const { data: calStatuses = [], error: calStatusesError } = useQuery({
     queryKey: ['cal-statuses-calculate'],
     queryFn: () => get<CalStatus[]>('/activities/cal-statuses'),
   })
-  const { data: headerTypes = [] } = useQuery({
+  const { data: headerTypes = [], error: headerTypesError } = useQuery({
     queryKey: ['header-types-calculate'],
     queryFn: () => get<HeaderType[]>('/activities/header-types'),
   })
-  const { data: detailTypes = [] } = useQuery({
+  const { data: detailTypes = [], error: detailTypesError } = useQuery({
     queryKey: ['detail-types-calculate'],
     queryFn: () => get<DetailType[]>('/activities/detail-types'),
   })
-  const { data: resourceTypes = [] } = useQuery({
+  const { data: resourceTypes = [], error: resourceTypesError } = useQuery({
     queryKey: ['resource-types-calculate'],
     queryFn: () => get<ResourceType[]>('/activities/resource-types'),
   })
+
+  const pageQueryItems = [
+    { label: 'รายการสำหรับคำนวณ', error: detailsError },
+    { label: 'สถานะการคำนวณ', error: calStatusesError },
+    { label: 'ประเภทกิจกรรม', error: headerTypesError },
+    { label: 'รายละเอียดกิจกรรม', error: detailTypesError },
+    { label: 'ประเภทปัจจัย', error: resourceTypesError },
+  ]
 
   const headerTypeMap = Object.fromEntries(headerTypes.map((item) => [item.act_header_type_id, item.act_header_type_name_th]))
   const detailTypeMap = Object.fromEntries(detailTypes.map((item) => [item.act_header_detail_type_id, item.act_header_detail_type_name_th]))
@@ -123,7 +147,7 @@ export function CfCalculatePage() {
       detailTypeName: detailTypeMap[detail.act_header_detail_type_id ?? 0] ?? (detail.act_header_detail_type_id != null ? String(detail.act_header_detail_type_id) : '—'),
       resourceTypeName: detail.resource_used_type?.resc_used_type_name ?? resourceTypeMap[detail.resource_used_type_id] ?? '—',
       resourceItemName: getResourceItemName(detail),
-      quantityLabel: formatNumber(detail.log_act_detail_quatity),
+      quantityLabel: formatQuantityValue(detail.log_act_detail_quatity),
       totalVolumeLabel: formatNumber(detail.log_act_detail_volumeAll, 3),
       statusLabel: getActivityCalStatusLabel(statusRawName, detail.log_act_detail_calStatus_id),
       statusRawName,
@@ -156,11 +180,11 @@ export function CfCalculatePage() {
     setResourceTypeFilter('')
   }
 
-  const workflowMut = useMutation({
-    mutationFn: ({ ids, statusName }: { ids: number[]; statusName: WorkflowStatusName }) => (
+  const statusMut = useMutation({
+    mutationFn: ({ ids, statusName }: { ids: number[]; statusName: ManualStatusName }) => (
       ids.length === 1
-        ? post(`/activities/details/${ids[0]}/workflow-status`, { statusName })
-        : post('/activities/details/workflow-status/bulk', { ids, statusName })
+        ? post(`/activities/details/${ids[0]}/manual-status`, { statusName })
+        : post('/activities/details/manual-status/bulk', { ids, statusName })
     ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['activity-details-calculate'] })
@@ -186,6 +210,7 @@ export function CfCalculatePage() {
   const selectedRows = filteredRows.filter((row) => selectedIds.includes(row.id))
   const preparingEligibleIds = selectedRows.filter((row) => ['imported', 'ready', 'standardDone', 'cfpDone', 'error'].includes(getKind(row))).map((row) => row.id)
   const readyEligibleIds = selectedRows.filter((row) => getKind(row) === 'preparing').map((row) => row.id)
+  const standardStatusEligibleIds = selectedRows.filter((row) => ['ready', 'cfpDone'].includes(getKind(row))).map((row) => row.id)
   const standardEligibleIds = selectedRows.filter((row) => getKind(row) === 'ready').map((row) => row.id)
   const cfpEligibleIds = selectedRows.filter((row) => ['standardDone', 'cfpDone'].includes(getKind(row))).map((row) => row.id)
   const importedCount = rows.filter((row) => getKind(row) === 'imported').length
@@ -194,6 +219,93 @@ export function CfCalculatePage() {
   const standardDoneCount = rows.filter((row) => getKind(row) === 'standardDone').length
   const cfpDoneCount = rows.filter((row) => getKind(row) === 'cfpDone').length
   const errorCount = rows.filter((row) => getKind(row) === 'error').length
+
+  const dashboardOptions = [
+    { key: 'total', label: 'รายการทั้งหมด' },
+    { key: 'imported', label: 'นำเข้าข้อมูลแล้ว' },
+    { key: 'preparing', label: 'กำลังเตรียมข้อมูล' },
+    { key: 'ready', label: 'พร้อมคำนวณมาตรฐาน' },
+    { key: 'standardDone', label: 'คำนวณแล้ว(มาตรฐาน)' },
+    { key: 'cfpDone', label: 'คำนวณแล้ว(มาตรฐาน,CFP)' },
+    { key: 'error', label: 'คำนวณผิดพลาด' },
+  ]
+
+  const {
+    visibleKeys: visibleDashboardKeys,
+    visibleKeySet: visibleDashboardKeySet,
+    toggleKey: toggleDashboardKey,
+    reset: resetDashboardKeys,
+  } = useDashboardVisibility(
+    'carbon-footprint-dashboard-cards',
+    dashboardOptions.map((option) => option.key),
+    dashboardOptions,
+  )
+
+  const dashboardCards = [
+    {
+      key: 'total',
+      label: 'รายการทั้งหมด',
+      icon: <ActivitySquare size={14} className="text-primary-500" />,
+      value: rows.length,
+      valueClassName: 'stat-value',
+      accentClassName: 'bg-gradient-to-r from-sky-300 via-blue-400 to-cyan-300',
+      cardClassName: 'border-[#d9e7f2]',
+    },
+    {
+      key: 'imported',
+      label: 'นำเข้าข้อมูลแล้ว',
+      icon: <ActivitySquare size={14} className="text-surface-500" />,
+      value: importedCount,
+      valueClassName: 'stat-value text-surface-700',
+      accentClassName: 'bg-gradient-to-r from-slate-200 via-slate-300 to-sky-200',
+      cardClassName: 'border-[#d9e7f2]',
+    },
+    {
+      key: 'preparing',
+      label: 'กำลังเตรียมข้อมูล',
+      icon: <Edit3 size={14} className="text-blue-500" />,
+      value: preparingCount,
+      valueClassName: 'stat-value text-blue-700',
+      accentClassName: 'bg-gradient-to-r from-blue-300 via-blue-400 to-indigo-300',
+      cardClassName: 'border-[#d9e7f2]',
+    },
+    {
+      key: 'ready',
+      label: 'พร้อมคำนวณมาตรฐาน',
+      icon: <Clock3 size={14} className="text-accent-500" />,
+      value: readyCount,
+      valueClassName: 'stat-value text-accent-600',
+      accentClassName: 'bg-gradient-to-r from-amber-200 via-amber-400 to-orange-300',
+      cardClassName: 'border-[#d9e7f2]',
+    },
+    {
+      key: 'standardDone',
+      label: 'คำนวณแล้ว(มาตรฐาน)',
+      icon: <CheckCircle2 size={14} className="text-primary-500" />,
+      value: standardDoneCount,
+      valueClassName: 'stat-value text-primary-700',
+      accentClassName: 'bg-gradient-to-r from-emerald-300 via-green-400 to-lime-300',
+      cardClassName: 'border-[#d9e7f2]',
+    },
+    {
+      key: 'cfpDone',
+      label: 'คำนวณแล้ว(มาตรฐาน,CFP)',
+      icon: <Leaf size={14} className="text-cyan-600" />,
+      value: cfpDoneCount,
+      valueClassName: 'stat-value text-cyan-700',
+      accentClassName: 'bg-gradient-to-r from-cyan-300 via-teal-400 to-sky-300',
+      cardClassName: 'border-[#d9e7f2]',
+    },
+    {
+      key: 'error',
+      label: 'คำนวณผิดพลาด',
+      icon: <CircleAlert size={14} className="text-red-500" />,
+      value: errorCount,
+      valueClassName: 'stat-value text-red-700',
+      accentClassName: 'bg-gradient-to-r from-rose-300 via-red-400 to-orange-300',
+      cardClassName: 'border-[#f0d0cd]',
+    },
+  ]
 
   const columns: Column<CalculateRow>[] = [
     {
@@ -226,86 +338,80 @@ export function CfCalculatePage() {
 
   return (
     <div className="cf-dash">
-      <div className="page active relative overflow-hidden">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-72 overflow-hidden">
-          <div className="absolute -left-16 top-4 h-48 w-48 rounded-full bg-[radial-gradient(circle,rgba(123,199,255,0.42)_0%,rgba(123,199,255,0)_72%)] blur-xl" />
-          <div className="absolute right-8 top-0 h-56 w-56 rounded-full bg-[radial-gradient(circle,rgba(114,214,201,0.34)_0%,rgba(114,214,201,0)_72%)] blur-xl" />
-          <div className="absolute left-1/3 top-20 h-40 w-40 rounded-full bg-[radial-gradient(circle,rgba(183,156,255,0.26)_0%,rgba(183,156,255,0)_72%)] blur-xl" />
-        </div>
-
-        <div className="relative rounded-[28px] border border-[#d9e7f2] bg-[linear-gradient(135deg,rgba(255,255,255,0.95),rgba(240,248,255,0.92))] px-6 py-6 shadow-[0_10px_35px_rgba(91,164,255,0.08)] backdrop-blur-sm">
-          <div className="page-title">
+      <div className="page active">
+        <div className="card">
+          <div className="page-header mb-0">
             <div>
-              <p className="eyebrow">07 · Calculate</p>
-              <h1 className="flex items-center gap-2"><Calculator size={20} className="text-primary-600" /> คำนวณ Carbon Footprint</h1>
-              <p className="muted mt-2 max-w-3xl">หน้าจัดการสถานะก่อนคำนวณ พร้อมสั่งคำนวณมาตรฐานและ CFP แบบรายรายการหรือหลายรายการ</p>
+              <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold text-surface-900"><Calculator size={20} className="text-primary-600 shrink-0" /> Carbon Footprint</h1>
+              <p className="page-subtitle">หน้าจัดการสถานะก่อนคำนวณ พร้อมสั่งคำนวณมาตรฐานและ CFP แบบรายรายการหรือหลายรายการ</p>
             </div>
-            <div className="source-badge">
-              <span>Workflow</span>
-              <span>{filteredRows.length.toLocaleString('th-TH')} รายการพร้อมดูแล</span>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
+              <div className="source-badge w-full justify-start md:w-auto md:justify-end">
+                <span>Workflow</span>
+                <span>{filteredRows.length.toLocaleString('th-TH')} รายการพร้อมดูแล</span>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <button type="button" className="btn-secondary w-full justify-center sm:w-auto" onClick={selectVisibleRows}>
+                  เลือกทั้งหมดที่กรอง
+                </button>
+                <button type="button" className="btn-ghost w-full justify-center sm:w-auto" onClick={clearSelectedRows}>
+                  ล้างรายการที่เลือก
+                </button>
+              </div>
             </div>
-          </div>
-          <div className="mt-5 flex flex-wrap gap-2">
-            <button type="button" className="btn-secondary" onClick={selectVisibleRows}>
-              เลือกทั้งหมดที่กรอง
-            </button>
-            <button type="button" className="btn-ghost" onClick={clearSelectedRows}>
-              ล้างรายการที่เลือก
-            </button>
           </div>
         </div>
 
-        <div className="mb-1 grid grid-cols-2 gap-4 md:grid-cols-6">
-          <div className="stat-card relative overflow-hidden border border-[#d9e7f2] bg-white/90 backdrop-blur-sm transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_18px_40px_rgba(91,164,255,0.18)]">
-            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-sky-300 via-blue-400 to-cyan-300" />
-            <div className="flex items-center gap-2"><ActivitySquare size={14} className="text-primary-500" /><span className="stat-label">รายการทั้งหมด</span></div>
-            <p className="stat-value">{rows.length}</p>
-          </div>
-          <div className="stat-card relative overflow-hidden border border-[#d9e7f2] bg-white/90 backdrop-blur-sm transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_18px_40px_rgba(91,164,255,0.18)]">
-            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-slate-200 via-slate-300 to-sky-200" />
-            <div className="flex items-center gap-2"><ActivitySquare size={14} className="text-surface-500" /><span className="stat-label">นำเข้าข้อมูลแล้ว</span></div>
-            <p className="stat-value text-surface-700">{importedCount}</p>
-          </div>
-          <div className="stat-card relative overflow-hidden border border-[#d9e7f2] bg-white/90 backdrop-blur-sm transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_18px_40px_rgba(91,164,255,0.18)]">
-            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-300 via-blue-400 to-indigo-300" />
-            <div className="flex items-center gap-2"><Edit3 size={14} className="text-blue-500" /><span className="stat-label">กำลังเตรียมข้อมูล</span></div>
-            <p className="stat-value text-blue-700">{preparingCount}</p>
-          </div>
-          <div className="stat-card relative overflow-hidden border border-[#d9e7f2] bg-white/90 backdrop-blur-sm transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_18px_40px_rgba(91,164,255,0.18)]">
-            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-200 via-amber-400 to-orange-300" />
-            <div className="flex items-center gap-2"><Clock3 size={14} className="text-accent-500" /><span className="stat-label">พร้อมคำนวณมาตรฐาน</span></div>
-            <p className="stat-value text-accent-600">{readyCount}</p>
-          </div>
-          <div className="stat-card relative overflow-hidden border border-[#d9e7f2] bg-white/90 backdrop-blur-sm transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_18px_40px_rgba(91,164,255,0.18)]">
-            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-300 via-green-400 to-lime-300" />
-            <div className="flex items-center gap-2"><CheckCircle2 size={14} className="text-primary-500" /><span className="stat-label">คำนวณแล้ว(มาตรฐาน)</span></div>
-            <p className="stat-value text-primary-700">{standardDoneCount}</p>
-          </div>
-          <div className="stat-card relative overflow-hidden border border-[#d9e7f2] bg-white/90 backdrop-blur-sm transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_18px_40px_rgba(91,164,255,0.18)]">
-            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-cyan-300 via-teal-400 to-sky-300" />
-            <div className="flex items-center gap-2"><Leaf size={14} className="text-cyan-600" /><span className="stat-label">คำนวณแล้ว(มาตรฐาน,CFP)</span></div>
-            <p className="stat-value text-cyan-700">{cfpDoneCount}</p>
-          </div>
-          <div className="stat-card relative overflow-hidden border border-[#f0d0cd] bg-white/90 backdrop-blur-sm transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_18px_40px_rgba(186,9,0,0.14)]">
-            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-rose-300 via-red-400 to-orange-300" />
-            <div className="flex items-center gap-2"><CircleAlert size={14} className="text-red-500" /><span className="stat-label">คำนวณผิดพลาด</span></div>
-            <p className="stat-value text-red-700">{errorCount}</p>
-          </div>
-        </div>
+        <DatabaseConnectionNotice
+          items={pageQueryItems}
+          className="mt-4"
+          onRetry={() => { void qc.refetchQueries({ type: 'active' }) }}
+        />
 
-        <div className="card transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_40px_rgba(91,164,255,0.14)]">
-          <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="mb-1">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
+              <h2 className="text-sm font-semibold">Dashboard</h2>
+              <p className="mt-1 text-xs text-surface-500">เลือกการ์ดสรุปที่ต้องการแสดงในส่วนนี้ได้</p>
+            </div>
+            <DashboardVisibilityMenu
+              options={dashboardOptions}
+              visibleKeys={visibleDashboardKeys}
+              onToggle={toggleDashboardKey}
+              onReset={resetDashboardKeys}
+              buttonLabel="Edit Dashboard"
+            />
+          </div>
+
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-4">
+            {dashboardCards
+              .filter((card) => visibleDashboardKeySet.has(card.key))
+              .map((card) => (
+                <div key={card.key} className={`stat-card relative overflow-hidden bg-white/90 backdrop-blur-sm transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_18px_40px_rgba(91,164,255,0.18)] border ${card.cardClassName}`}>
+                  <div className={`absolute inset-x-0 top-0 h-1 ${card.accentClassName}`} />
+                  <div className="flex items-center gap-2">
+                    {card.icon}
+                    <span className="stat-label">{card.label}</span>
+                  </div>
+                  <p className={card.valueClassName}>{card.value}</p>
+                </div>
+              ))}
+          </div>
+        </div>
+
+        <div className="card min-w-0 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_40px_rgba(91,164,255,0.14)]">
+          <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
               <h2 className="text-sm font-semibold">ตารางรายการสำหรับคำนวณ</h2>
               <p className="mt-1 text-xs text-surface-500">เลือกตัวกรอง เลือกรายการ และใช้ปุ่มด้านล่างเพื่อขยับสถานะหรือคำนวณตามขั้นตอน</p>
             </div>
-            <button type="button" className="btn-ghost btn-sm" onClick={clearFilters}>
+            <button type="button" className="btn-ghost btn-sm w-full justify-center sm:w-auto" onClick={clearFilters}>
               ล้างตัวกรอง
             </button>
           </div>
 
           <div className="mb-4 rounded-[20px] border border-[#d9e7f2] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(243,247,251,0.96))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
               <div>
                 <label className="label">สถานะ</label>
                 <select className="select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
@@ -348,44 +454,71 @@ export function CfCalculatePage() {
             </div>
           </div>
 
-          <div className="mb-4 flex flex-wrap gap-2">
-            <button
-              type="button"
-              className="btn-secondary btn-sm"
-              disabled={!preparingEligibleIds.length || workflowMut.isPending}
-              onClick={() => workflowMut.mutate({ ids: preparingEligibleIds, statusName: 'กำลังเตรียมข้อมูล' })}
-            >
-              <Edit3 size={14} /> ย้ายเป็นกำลังเตรียมข้อมูล
-            </button>
-            <button
-              type="button"
-              className="btn-secondary btn-sm"
-              disabled={!readyEligibleIds.length || workflowMut.isPending}
-              onClick={() => workflowMut.mutate({ ids: readyEligibleIds, statusName: 'พร้อมคำนวณมาตรฐาน' })}
-            >
-              <Clock3 size={14} /> ย้ายเป็นพร้อมคำนวณมาตรฐาน
-            </button>
-            <button
-              type="button"
-              className="btn-primary btn-sm"
-              disabled={!standardEligibleIds.length || calculateMut.isPending}
-              onClick={() => calculateMut.mutate({ ids: standardEligibleIds, calcMode: 'standard' })}
-            >
-              <Calculator size={14} /> คำนวณมาตรฐาน
-            </button>
-            <button
-              type="button"
-              className="btn-primary btn-sm"
-              disabled={!cfpEligibleIds.length || calculateMut.isPending}
-              onClick={() => calculateMut.mutate({ ids: cfpEligibleIds, calcMode: 'tver' })}
-            >
-              <Leaf size={14} /> คำนวณ CFP
-            </button>
+          <div className="mb-4 rounded-[20px] border border-[#d9e7f2] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(243,247,251,0.96))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+            <div className="space-y-4">
+              <div>
+                <div className="mb-2 flex items-center gap-2">
+                  <Edit3 size={14} className="text-primary-600" />
+                  <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-surface-600">เปลี่ยนสถานะ</h3>
+                </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm w-full justify-center"
+                    disabled={!preparingEligibleIds.length || statusMut.isPending}
+                    onClick={() => statusMut.mutate({ ids: preparingEligibleIds, statusName: ACTIVITY_CAL_STATUS_NAMES.preparing })}
+                  >
+                    <Edit3 size={14} /> ย้ายเป็นกำลังเตรียมข้อมูล
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm w-full justify-center"
+                    disabled={!readyEligibleIds.length || statusMut.isPending}
+                    onClick={() => statusMut.mutate({ ids: readyEligibleIds, statusName: ACTIVITY_CAL_STATUS_NAMES.ready })}
+                  >
+                    <Clock3 size={14} /> ย้ายเป็นพร้อมคำนวณมาตรฐาน
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm w-full justify-center"
+                    disabled={!standardStatusEligibleIds.length || statusMut.isPending}
+                    onClick={() => statusMut.mutate({ ids: standardStatusEligibleIds, statusName: ACTIVITY_CAL_STATUS_NAMES.standardDone })}
+                  >
+                    <CheckCircle2 size={14} /> ย้ายเป็นคำนวณแล้ว(มาตรฐาน)
+                  </button>
+                </div>
+              </div>
+
+              <div className="border-t border-[#d9e7f2] pt-3">
+                <div className="mb-2 flex items-center gap-2">
+                  <Calculator size={14} className="text-primary-600" />
+                  <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-surface-600">คำนวณ</h3>
+                </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:max-w-[32rem]">
+                  <button
+                    type="button"
+                    className="btn-primary btn-sm w-full justify-center"
+                    disabled={!standardEligibleIds.length || calculateMut.isPending}
+                    onClick={() => calculateMut.mutate({ ids: standardEligibleIds, calcMode: 'standard' })}
+                  >
+                    <Calculator size={14} /> คำนวณมาตรฐาน
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary btn-sm w-full justify-center"
+                    disabled={!cfpEligibleIds.length || calculateMut.isPending}
+                    onClick={() => calculateMut.mutate({ ids: cfpEligibleIds, calcMode: 'tver' })}
+                  >
+                    <Leaf size={14} /> คำนวณ CFP
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
 
-          {(workflowMut.isError || calculateMut.isError) && (
+          {(statusMut.isError || calculateMut.isError) && (
             <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">
-              {workflowMut.error?.message ?? calculateMut.error?.message}
+              {statusMut.error?.message ?? calculateMut.error?.message}
             </div>
           )}
 
@@ -405,7 +538,7 @@ export function CfCalculatePage() {
                     <button
                       type="button"
                       className="btn-ghost btn-sm"
-                      onClick={() => workflowMut.mutate({ ids: [row.id], statusName: 'กำลังเตรียมข้อมูล' })}
+                      onClick={() => statusMut.mutate({ ids: [row.id], statusName: ACTIVITY_CAL_STATUS_NAMES.preparing })}
                     >
                       เตรียม
                     </button>
@@ -414,9 +547,18 @@ export function CfCalculatePage() {
                     <button
                       type="button"
                       className="btn-ghost btn-sm"
-                      onClick={() => workflowMut.mutate({ ids: [row.id], statusName: 'พร้อมคำนวณมาตรฐาน' })}
+                      onClick={() => statusMut.mutate({ ids: [row.id], statusName: ACTIVITY_CAL_STATUS_NAMES.ready })}
                     >
                       พร้อมคำนวณ
+                    </button>
+                  )}
+                  {['ready', 'cfpDone'].includes(kind) && (
+                    <button
+                      type="button"
+                      className="btn-ghost btn-sm"
+                      onClick={() => statusMut.mutate({ ids: [row.id], statusName: ACTIVITY_CAL_STATUS_NAMES.standardDone })}
+                    >
+                      มาตรฐานแล้ว
                     </button>
                   )}
                   {kind === 'ready' && (
@@ -444,7 +586,7 @@ export function CfCalculatePage() {
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
-          <div className="card transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_18px_40px_rgba(91,164,255,0.16)]">
+          <div className="card min-w-0 transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_18px_40px_rgba(91,164,255,0.16)]">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-semibold">ลำดับการทำงาน</h2>
             </div>
@@ -457,16 +599,17 @@ export function CfCalculatePage() {
             </div>
           </div>
 
-          <div className="card transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_18px_40px_rgba(91,164,255,0.16)]">
+          <div className="card min-w-0 transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_18px_40px_rgba(91,164,255,0.16)]">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-semibold">สรุปรายการที่เลือก</h2>
             </div>
             <div className="space-y-3 text-sm text-surface-700">
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)]"><span>เลือกอยู่</span><strong>{selectedIds.length} รายการ</strong></div>
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)]"><span>ย้ายเป็นกำลังเตรียมข้อมูลได้</span><strong>{preparingEligibleIds.length} รายการ</strong></div>
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)]"><span>ย้ายเป็นพร้อมคำนวณมาตรฐานได้</span><strong>{readyEligibleIds.length} รายการ</strong></div>
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)]"><span>คำนวณมาตรฐานได้</span><strong>{standardEligibleIds.length} รายการ</strong></div>
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)]"><span>คำนวณ CFP ได้</span><strong>{cfpEligibleIds.length} รายการ</strong></div>
+              <div className="flex flex-col gap-1 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)] sm:flex-row sm:items-center sm:justify-between sm:gap-3"><span>เลือกอยู่</span><strong>{selectedIds.length} รายการ</strong></div>
+              <div className="flex flex-col gap-1 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)] sm:flex-row sm:items-center sm:justify-between sm:gap-3"><span>ย้ายเป็นกำลังเตรียมข้อมูลได้</span><strong>{preparingEligibleIds.length} รายการ</strong></div>
+              <div className="flex flex-col gap-1 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)] sm:flex-row sm:items-center sm:justify-between sm:gap-3"><span>ย้ายเป็นพร้อมคำนวณมาตรฐานได้</span><strong>{readyEligibleIds.length} รายการ</strong></div>
+              <div className="flex flex-col gap-1 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)] sm:flex-row sm:items-center sm:justify-between sm:gap-3"><span>ย้ายเป็นคำนวณแล้ว(มาตรฐาน)ได้</span><strong>{standardStatusEligibleIds.length} รายการ</strong></div>
+              <div className="flex flex-col gap-1 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)] sm:flex-row sm:items-center sm:justify-between sm:gap-3"><span>คำนวณมาตรฐานได้</span><strong>{standardEligibleIds.length} รายการ</strong></div>
+              <div className="flex flex-col gap-1 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)] sm:flex-row sm:items-center sm:justify-between sm:gap-3"><span>คำนวณ CFP ได้</span><strong>{cfpEligibleIds.length} รายการ</strong></div>
             </div>
           </div>
         </div>

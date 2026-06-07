@@ -1,5 +1,6 @@
 import { type FormEvent, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { get, post, put, del } from '@/lib/api'
@@ -36,9 +37,15 @@ export function FarmersPage() {
   const [editing, setEditing]           = useState<Farmer | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null)
 
-  const { data: farmers     = [], isLoading } = useQuery({ queryKey: ['farmers'],      queryFn: () => get<Farmer[]>('/farmers') })
-  const { data: factories   = [] }            = useQuery({ queryKey: ['factories'],    queryFn: () => get<Factory[]>('/infra/factories') })
-  const { data: serviceAreas = [] }           = useQuery({ queryKey: ['service-areas'], queryFn: () => get<ServiceArea[]>('/infra/service-areas') })
+  const { data: farmers     = [], isLoading, error: farmersError } = useQuery({ queryKey: ['farmers'],      queryFn: () => get<Farmer[]>('/farmers') })
+  const { data: factories   = [], error: factoriesError } = useQuery({ queryKey: ['factories'],    queryFn: () => get<Factory[]>('/infra/factories') })
+  const { data: serviceAreas = [], error: serviceAreasError } = useQuery({ queryKey: ['service-areas'], queryFn: () => get<ServiceArea[]>('/infra/service-areas') })
+
+  const pageQueryItems = [
+    { label: 'ข้อมูลเกษตรกร', error: farmersError },
+    { label: 'โรงงาน', error: factoriesError },
+    { label: 'พื้นที่บริการ', error: serviceAreasError },
+  ]
 
   const factMap = Object.fromEntries(factories.map(f => [f.factory_id, f.name]))
   const saMap   = Object.fromEntries(serviceAreas.map(s => [s.service_area_id, s.name]))
@@ -109,6 +116,12 @@ export function FarmersPage() {
           <Plus size={14} /> เพิ่มเกษตรกร
         </button>
       </div>
+
+      <DatabaseConnectionNotice
+        items={pageQueryItems}
+        className="mb-4"
+        onRetry={() => { void qc.refetchQueries({ type: 'active' }) }}
+      />
 
       <div className="card">
         <DataTable

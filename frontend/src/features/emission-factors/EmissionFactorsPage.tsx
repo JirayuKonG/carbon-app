@@ -1,5 +1,6 @@
 import { type FormEvent, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { get, post, put, del } from '@/lib/api'
@@ -41,12 +42,21 @@ export function EmissionFactorsPage() {
   const [deleteTarget,  setDeleteTarget]    = useState<{ type: 'unit' | 'unit-prefix'; id: number; name: string } | null>(null)
 
   // ── queries ───────────────────────────────────────────────────────────────
-  const { data: efs      = [], isLoading: efLoad  } = useQuery({ queryKey: ['efs'],          queryFn: () => get<Ef[]>('/emission-factors/coefficients') })
-  const { data: gwps     = [], isLoading: gwpLoad } = useQuery({ queryKey: ['gwps'],         queryFn: () => get<Gwp[]>('/emission-factors/gwp') })
-  const { data: cfTypes  = [], isLoading: ctLoad  } = useQuery({ queryKey: ['cf-types'],     queryFn: () => get<CfType[]>('/emission-factors/cf-types') })
-  const { data: efGroups = [], isLoading: egLoad  } = useQuery({ queryKey: ['ef-groups'],    queryFn: () => get<EfGroup[]>('/emission-factors/groups') })
-  const { data: units    = [], isLoading: uLoad   } = useQuery({ queryKey: ['units'],        queryFn: () => get<Unit[]>('/emission-factors/units') })
-  const { data: unitPfxs = [], isLoading: upLoad  } = useQuery({ queryKey: ['unit-prefixs'], queryFn: () => get<UnitPrefix[]>('/emission-factors/unit-prefixs') })
+  const { data: efs      = [], isLoading: efLoad, error: efsError } = useQuery({ queryKey: ['efs'],          queryFn: () => get<Ef[]>('/emission-factors/coefficients') })
+  const { data: gwps     = [], isLoading: gwpLoad, error: gwpsError } = useQuery({ queryKey: ['gwps'],         queryFn: () => get<Gwp[]>('/emission-factors/gwp') })
+  const { data: cfTypes  = [], isLoading: ctLoad, error: cfTypesError } = useQuery({ queryKey: ['cf-types'],     queryFn: () => get<CfType[]>('/emission-factors/cf-types') })
+  const { data: efGroups = [], isLoading: egLoad, error: efGroupsError } = useQuery({ queryKey: ['ef-groups'],    queryFn: () => get<EfGroup[]>('/emission-factors/groups') })
+  const { data: units    = [], isLoading: uLoad, error: unitsError } = useQuery({ queryKey: ['units'],        queryFn: () => get<Unit[]>('/emission-factors/units') })
+  const { data: unitPfxs = [], isLoading: upLoad, error: unitPfxsError } = useQuery({ queryKey: ['unit-prefixs'], queryFn: () => get<UnitPrefix[]>('/emission-factors/unit-prefixs') })
+
+  const pageQueryItems = [
+    { label: 'Emission Factors', error: efsError },
+    { label: 'GWP', error: gwpsError },
+    { label: 'CF Types', error: cfTypesError },
+    { label: 'กลุ่ม EF', error: efGroupsError },
+    { label: 'หน่วยนับ', error: unitsError },
+    { label: 'คำนำหน้าหน่วย', error: unitPfxsError },
+  ]
 
   // ── mutations ─────────────────────────────────────────────────────────────
   const saveUnitMut = useMutation({
@@ -191,6 +201,12 @@ export function EmissionFactorsPage() {
           <Plus size={14} /> {ADD_LABEL[tab]}
         </button>
       </div>
+
+      <DatabaseConnectionNotice
+        items={pageQueryItems}
+        className="mb-4"
+        onRetry={() => { void qc.refetchQueries({ type: 'active' }) }}
+      />
 
       {/* GWP quick reference */}
       {gwps.length > 0 && (

@@ -24,6 +24,7 @@ export interface OverviewKpi {
   inputEmission: number;
   fertilizerAmountKg: number;
   fertilizerEmission: number;
+  areaRai: number;
   yieldTon: number;
   co2ePerTon: number;
   farmers: number;
@@ -66,6 +67,13 @@ export interface ProcessInputComparison {
   currentFuelLiter: number;
 }
 
+export interface CaneTypeSummary {
+  name: string;
+  areaRai: number;
+  percent: number;
+  co2eTotal?: number;
+}
+
 export interface SpatialSummaryNode {
   id: string;
   parentId?: string;
@@ -103,6 +111,30 @@ export interface FieldCarbonDetail extends SpatialSummaryNode {
   chanots: ChanotRecord[];
 }
 
+export interface CampCarbonSummary {
+  campId: number;
+  campName: string;
+  fieldCount: number;
+  areaRai: number;
+  baselineCo2eTotal: number;
+  currentCo2eTotal: number;
+  co2eTotal: number;
+  co2ePerRai: number;
+  topActivity: string;
+  baselineActivityBreakdown: ActivityValue[];
+  currentActivityBreakdown: ActivityValue[];
+  baselineProcessActivities: ProcessActivityBreakdown[];
+  currentProcessActivities: ProcessActivityBreakdown[];
+  processInputComparisons: ProcessInputComparison[];
+}
+
+export interface CampFieldCarbonDetail extends FieldCarbonDetail {
+  campId: number;
+  campName: string;
+  activitiesLogged: string[];
+  co2eTotal: number;
+}
+
 export interface DashboardDataset {
   kpi: OverviewKpi;
   trend: TrendPoint[];
@@ -110,8 +142,11 @@ export interface DashboardDataset {
   processActivities: ProcessActivityBreakdown[];
   processInputComparisons: ProcessInputComparison[];
   transportActivities: ProcessActivityBreakdown[];
+  caneTypeSummaries: CaneTypeSummary[];
   spatialNodes: SpatialSummaryNode[];
   fields: FieldCarbonDetail[];
+  campSummaries: CampCarbonSummary[];
+  campFields: CampFieldCarbonDetail[];
 }
 
 export type ReportFilterLevel = "all" | "region" | "province" | "district" | "subdistrict" | "field";

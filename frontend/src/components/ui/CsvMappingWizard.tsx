@@ -18,11 +18,28 @@ export interface ColumnMapping {
   sourceKey: string | null
 }
 
+export type CsvImportProgress = {
+  currentChunk: number
+  totalChunks: number
+  uploadedBytes: number
+  totalBytes: number
+  currentChunkBytes: number
+  chunkLimitBytes?: number
+  percent: number
+  message?: string
+}
+
+export type CsvImportProgressReporter = (progress: CsvImportProgress) => void
+
 interface CsvMappingWizardProps {
   title: string
   subtitle?: string
   targetColumns: TargetColumn[]
-  onComplete: (mappings: ColumnMapping[], rows: Record<string, string>[]) => Promise<any>
+  onComplete: (
+    mappings: ColumnMapping[],
+    rows: Record<string, string>[],
+    helpers?: { onProgress?: CsvImportProgressReporter },
+  ) => Promise<any>
   onCancel: () => void
   onFinish?: () => void
   showImportTimeConfirmation?: boolean
@@ -67,6 +84,17 @@ function normalizeCsvCell(value: unknown) {
   return String(value ?? '')
     .replace(/^\uFEFF/, '')
     .trim()
+}
+
+function getJsonSizeBytes(value: unknown) {
+  return new Blob([JSON.stringify(value)]).size
+}
+
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
 }
 
 const TYPE_LABELS: Record<TargetColumn['type'], string> = {
@@ -114,6 +142,13 @@ type ImportEstimate = {
   warningText: string
 }
 
+type ImportErrorSummary = {
+  key: string
+  label: string
+  count: number
+  examples: string[]
+}
+
 function getImportEstimate(rowCount: number): ImportEstimate {
   if (rowCount >= 500) {
     return {
@@ -142,6 +177,74 @@ function normalizeLookupKey(value: string | undefined | null) {
   return (value ?? '').trim().toLowerCase()
 }
 
+function classifyImportError(message: string) {
+  const normalized = message.toLowerCase()
+
+  if (
+    /ไม่มีทั้งรหัสแปลงและชื่อแคมป์/.test(normalized)
+    || /ไม่พบ land_code และไม่มี land_camp_name/.test(normalized)
+    || /ไม่พบไร่\/แปลง/.test(normalized)
+  ) {
+    return { key: 'missing-land', label: 'ไม่พบไร่/แปลง' }
+  }
+
+  if (/invalid date/.test(normalized) || /รูปแบบวันที่ไม่ถูกต้อง/.test(normalized) || /วันที่ผิด\/หาย/.test(normalized)) {
+    return { key: 'invalid-date', label: 'วันที่ผิด/หาย' }
+  }
+
+  if (/invalid number/.test(normalized) || /รูปแบบตัวเลขไม่ถูกต้อง/.test(normalized)) {
+    return { key: 'invalid-number', label: 'ตัวเลขผิดรูปแบบ' }
+  }
+
+  if (/กรอกข้อมูล.+ให้ครบถ้วน/.test(normalized) || /is required/.test(normalized) || /is missing/.test(normalized)) {
+    return { key: 'missing-required', label: 'ข้อมูลสำคัญไม่ครบ' }
+  }
+
+  if (/foreign key/.test(normalized) || /ข้อมูลอ้างอิงไม่ถูกต้อง/.test(normalized)) {
+    return { key: 'invalid-reference', label: 'ข้อมูลอ้างอิงไม่ถูกต้อง' }
+  }
+
+  if (/unique constraint/.test(normalized) || /ข้อมูลซ้ำ/.test(normalized)) {
+    return { key: 'duplicate', label: 'ข้อมูลซ้ำ' }
+  }
+
+  if (/unit/.test(normalized) || /หน่วย/.test(normalized)) {
+    return { key: 'unit-issue', label: 'unit สร้างหรือหาไม่สำเร็จ' }
+  }
+
+  if (/resource/.test(normalized) || /ปัจจัย/.test(normalized) || /fertilizer|equipment|chemical/.test(normalized)) {
+    return { key: 'resource-issue', label: 'resource สร้างหรือหาไม่สำเร็จ' }
+  }
+
+  return { key: 'other', label: 'สาเหตุอื่น ๆ' }
+}
+
+function summarizeImportErrors(errors: string[]): ImportErrorSummary[] {
+  const summaryMap = new Map<string, ImportErrorSummary>()
+
+  errors.forEach((error) => {
+    const category = classifyImportError(error)
+    const existing = summaryMap.get(category.key)
+
+    if (existing) {
+      existing.count += 1
+      if (existing.examples.length < 2) {
+        existing.examples.push(error)
+      }
+      return
+    }
+
+    summaryMap.set(category.key, {
+      key: category.key,
+      label: category.label,
+      count: 1,
+      examples: [error],
+    })
+  })
+
+  return Array.from(summaryMap.values()).sort((left, right) => right.count - left.count)
+}
+
 export function CsvMappingWizard({
   title,
   subtitle,
@@ -161,6 +264,7 @@ export function CsvMappingWizard({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [importResult, setImportResult] = useState<{ inserted: number; skipped: number; errors: string[] } | null>(null)
+  const [importProgress, setImportProgress] = useState<CsvImportProgress | null>(null)
   const [fileName, setFileName]         = useState('')
   const [resourceItemCategories, setResourceItemCategories] = useState<Record<string, ResourceItemCategory>>({})
   const [resourceItemResourceTypes, setResourceItemResourceTypes] = useState<Record<string, string>>({})
@@ -271,6 +375,8 @@ export function CsvMappingWizard({
     setSourceHeaders([])
     setPreviewRows([])
     setAllRows([])
+    setImportResult(null)
+    setImportProgress(null)
     const reader = new FileReader()
     reader.onload = (e) => {
       const text = e.target?.result as string
@@ -327,6 +433,7 @@ export function CsvMappingWizard({
   const detailTypeKey = mapIdx['act_header_detail_type']
   const landCodeKey = mapIdx['land_code']
   const campNameKey = mapIdx['land_camp_name']
+  const shouldAssessLandRows = targetColumns.some((column) => column.key === 'land_code' || column.key === 'land_camp_name')
   const uniqueResourceItems = resourceItemNameKey
     ? Array.from(new Set(allRows.map((row) => row[resourceItemNameKey]?.trim() ?? '').filter(Boolean)))
     : []
@@ -357,7 +464,7 @@ export function CsvMappingWizard({
     }),
   ) as Record<string, string[]>
 
-  const rowAssessments: ImportRowAssessment[] = allRows.map((row, index) => {
+  const rowAssessments: ImportRowAssessment[] = shouldAssessLandRows ? allRows.map((row, index) => {
     const landCode = landCodeKey ? row[landCodeKey]?.trim() ?? '' : ''
     const campName = campNameKey ? row[campNameKey]?.trim() ?? '' : ''
 
@@ -377,7 +484,7 @@ export function CsvMappingWizard({
         landCode,
         campName,
         status: 'placeholder',
-        message: `Row ${index + 2}: ไม่มีรหัสแปลง จึงจะใช้แปลงอัตโนมัติของแคมป์ "${campName}"`,
+        message: `Row ${index + 2}: ไม่มีรหัสแปลง จึงจะบันทึกเป็น "เบิกเข้าไร่" ของแคมป์ "${campName}"`,
       }
     }
 
@@ -388,11 +495,12 @@ export function CsvMappingWizard({
       status: 'blocking',
       message: `Row ${index + 2}: ไม่มีทั้งรหัสแปลงและชื่อแคมป์`,
     }
-  })
+  }) : []
 
   const readyRows = rowAssessments.filter((row) => row.status === 'ready')
   const placeholderRows = rowAssessments.filter((row) => row.status === 'placeholder')
   const blockingRows = rowAssessments.filter((row) => row.status === 'blocking')
+  const importErrorSummaries = summarizeImportErrors(importResult?.errors ?? [])
 
   const unresolvedDetailTypes = detailTypeKey
     ? uniqueDetailTypes.filter((detailType) => {
@@ -643,6 +751,7 @@ export function CsvMappingWizard({
   async function handleSubmit() {
     setShowImportConfirm(false)
     setSubmitError(null)
+    setImportProgress(null)
     setIsSubmitting(true)
     try {
       const volumeAllKey = mappings.find((m) => m.targetKey === 'log_act_detail_volumeAll')?.sourceKey ?? null
@@ -654,7 +763,7 @@ export function CsvMappingWizard({
 
         if (volumeAllKey && !nextRow[volumeAllKey]?.trim()) {
           const volumePerUnit = toNumber(nextRow[volumePerUnitKey ?? ''])
-          const quantity = Number.parseInt((nextRow[quantityKey ?? ''] ?? '').trim(), 10)
+          const quantity = Number.parseFloat((nextRow[quantityKey ?? ''] ?? '').trim())
 
           if (Number.isFinite(quantity) && volumePerUnit !== undefined) {
             nextRow = { ...nextRow, [volumeAllKey]: String(quantity * volumePerUnit) }
@@ -694,8 +803,32 @@ export function CsvMappingWizard({
         return nextRow
       })
 
-      const res = await onComplete(mappings, enhancedRows)
+      const estimatedTotalBytes = getJsonSizeBytes({ mappings, rows: enhancedRows })
+      setImportProgress({
+        currentChunk: 0,
+        totalChunks: 0,
+        uploadedBytes: 0,
+        totalBytes: estimatedTotalBytes,
+        currentChunkBytes: 0,
+        percent: 0,
+        message: 'กำลังเตรียมข้อมูลนำเข้า',
+      })
+
+      const res = await onComplete(mappings, enhancedRows, {
+        onProgress: (progress) => setImportProgress(progress),
+      })
       if (res) setImportResult(res as any)
+      setImportProgress((prev) => (
+        prev
+          ? {
+              ...prev,
+              uploadedBytes: prev.totalBytes,
+              currentChunkBytes: 0,
+              percent: 100,
+              message: 'นำเข้าข้อมูลครบทุกชุดแล้ว',
+            }
+          : prev
+      ))
       setStep('done')
     } catch (error: any) {
       setSubmitError(getFriendlySubmitError(error?.message || 'เกิดข้อผิดพลาดระหว่างนำเข้าข้อมูล'))
@@ -715,6 +848,9 @@ export function CsvMappingWizard({
 
   const currentStepIdx = STEPS.indexOf(step)
   const isLocked = isSubmitting
+  const importProgressPercent = importProgress
+    ? Math.min(100, Math.max(0, Math.round(importProgress.percent)))
+    : 0
   const getSelectStateClass = (hasValue: boolean) =>
     hasValue
       ? 'border-primary-300 bg-primary-50 text-primary-900 shadow-sm'
@@ -864,6 +1000,38 @@ export function CsvMappingWizard({
                     <p className="text-xs mt-1 text-red-700">{submitError}</p>
                     <p className="text-xs mt-2 text-red-600">คำแนะนำ: ตรวจสอบแถวที่ไม่มี land/camp, ตรวจสอบชื่อประเภทกิจกรรมย่อย, และรอให้การประมวลผลเดิมจบก่อนลองใหม่</p>
                   </div>
+                </div>
+              )}
+              {importProgress && (
+                <div className="mb-4 rounded-xl border border-primary-200 bg-primary-50 p-4">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium text-primary-900">
+                        {importProgress.message ?? 'กำลังนำเข้าข้อมูล'}
+                      </p>
+                      <p className="mt-0.5 text-xs text-primary-700">
+                        {importProgress.totalChunks > 0
+                          ? `ชุดที่ ${Math.max(importProgress.currentChunk, 1)} / ${importProgress.totalChunks}`
+                          : 'กำลังคำนวณขนาดชุดข้อมูล'}
+                        {' · '}
+                        {formatBytes(importProgress.uploadedBytes)} / {formatBytes(importProgress.totalBytes)}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-primary-800 shadow-sm">
+                      {importProgressPercent}%
+                    </span>
+                  </div>
+                  <div className="h-3 overflow-hidden rounded-full bg-white shadow-inner">
+                    <div
+                      className="h-full rounded-full bg-primary-600 transition-all duration-300"
+                      style={{ width: `${importProgressPercent}%` }}
+                    />
+                  </div>
+                  <p className="mt-2 text-[11px] text-primary-700">
+                    คิด progress จากขนาดข้อมูลที่แบ่งส่งเข้า API:
+                    {' '}ชุดปัจจุบันประมาณ {formatBytes(importProgress.currentChunkBytes)}
+                    {importProgress.chunkLimitBytes ? ` จากขนาดชุดมาตรฐาน ${formatBytes(importProgress.chunkLimitBytes)}` : ''}
+                  </p>
                 </div>
               )}
               <div className="grid gap-4 mb-4 md:grid-cols-3">
@@ -1113,6 +1281,32 @@ export function CsvMappingWizard({
               ) : (
                 <p className="text-xs text-surface-500 mb-3">ระบบบันทึกข้อมูลเสร็จแล้ว รวมทั้งแถวที่ระบุเฉพาะแคมป์ซึ่งจะถูกผูกกับแปลงอัตโนมัติของแคมป์</p>
               )}
+              {importErrorSummaries.length > 0 && (
+                <div className="mb-4 w-full rounded-xl border border-amber-100 bg-amber-50 p-4 text-left text-xs text-amber-800 overflow-hidden">
+                  <div className="font-medium">สรุปสาเหตุแถวที่ถูก skip:</div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {importErrorSummaries.map((item) => (
+                      <div key={item.key} className="rounded-lg border border-amber-200 bg-white/70 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-medium">{item.label}</span>
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
+                            {item.count} แถว
+                          </span>
+                        </div>
+                        {item.examples.length > 0 && (
+                          <div className="mt-2 space-y-1 text-[11px] text-amber-900/90">
+                            {item.examples.map((example, index) => (
+                              <div key={`${item.key}-${index}`} className="break-words">
+                                {example}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {importResult && importResult.errors?.length > 0 && (
                 <div className="w-full rounded-xl border border-red-100 bg-red-50 p-4 text-left text-xs text-red-700 overflow-hidden">
                   <div className="font-medium">รายละเอียดแถวที่ต้องตรวจสอบ:</div>
@@ -1130,7 +1324,7 @@ export function CsvMappingWizard({
 
         {isLocked && (
           <div className="absolute inset-0 z-30 flex items-center justify-center rounded-2xl bg-white/45 backdrop-blur-md">
-            <div className="mx-6 w-full max-w-sm rounded-3xl border border-white/70 bg-white/90 p-7 text-center shadow-card-lg animate-slide-up">
+            <div className="mx-6 w-full max-w-md rounded-3xl border border-white/70 bg-white/90 p-7 text-center shadow-card-lg animate-slide-up">
               <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-primary-100 via-white to-primary-50 shadow-inner">
                 <div className="loading-orbit">
                   <div className="loading-orbit-ring" />
@@ -1138,7 +1332,39 @@ export function CsvMappingWizard({
                 </div>
               </div>
               <h3 className="text-lg font-semibold text-surface-900">กำลังนำเข้าข้อมูล</h3>
-              <p className="mt-2 text-sm text-surface-500">กรุณารอสักครู่ ระบบกำลังบันทึกข้อมูลและผูกความสัมพันธ์ให้ครบถ้วน</p>
+              <p className="mt-2 text-sm text-surface-500">
+                {importProgress?.message ?? 'กรุณารอสักครู่ ระบบกำลังบันทึกข้อมูลและผูกความสัมพันธ์ให้ครบถ้วน'}
+              </p>
+              {importProgress && (
+                <div className="mt-5 rounded-2xl border border-primary-100 bg-primary-50/80 p-4 text-left">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-primary-900">
+                        {importProgress.totalChunks > 0
+                          ? `ชุดที่ ${Math.max(importProgress.currentChunk, 1)} / ${importProgress.totalChunks}`
+                          : 'กำลังคำนวณขนาดข้อมูล'}
+                      </p>
+                      <p className="mt-1 text-[11px] text-primary-700">
+                        {formatBytes(importProgress.uploadedBytes)} / {formatBytes(importProgress.totalBytes)}
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-white px-3 py-1 text-xs font-semibold text-primary-800 shadow-sm">
+                      {importProgressPercent}%
+                    </span>
+                  </div>
+                  <div className="h-3 overflow-hidden rounded-full bg-white shadow-inner">
+                    <div
+                      className="h-full rounded-full bg-primary-600 transition-all duration-300"
+                      style={{ width: `${importProgressPercent}%` }}
+                    />
+                  </div>
+                  <p className="mt-2 text-[11px] text-primary-700">
+                    ประมาณจาก chunk ที่ส่งเข้า API:
+                    {' '}ชุดนี้ {formatBytes(importProgress.currentChunkBytes)}
+                    {importProgress.chunkLimitBytes ? ` จากขนาดมาตรฐาน ${formatBytes(importProgress.chunkLimitBytes)}` : ''}
+                  </p>
+                </div>
+              )}
               <div className="mt-5 flex items-center justify-center gap-2">
                 <span className="loading-dot" />
                 <span className="loading-dot" />

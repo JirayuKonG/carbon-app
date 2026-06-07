@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { get } from '@/lib/api'
 import { MapPin } from 'lucide-react'
@@ -10,6 +11,7 @@ interface Subdistrict { subdistricts_id: number; district_code: number ; zip_cod
 interface Geography { geographies_id: number; name: string }
 
 export function GeoPage() {
+  const qc = useQueryClient()
   const [selectedGeography, setSelectedGeography] = useState<number | null>(null)
   const [selectedProvince, setSelectedProvince] = useState<number | null>(null)
   const [selectedDistrict, setSelectedDistrict] = useState<number | null>(null)
@@ -59,8 +61,12 @@ export function GeoPage() {
     { key: 'zip_code',        header: 'รหัสไปรษณีย์', width: '120px' },
   ]
 
-  const queryError = [geographiesError, provincesError, districtsError, subdistrictsError]
-    .find((error): error is Error => error instanceof Error)
+  const pageQueryItems = [
+    { label: 'ภูมิภาค', error: geographiesError },
+    { label: 'จังหวัด', error: provincesError },
+    { label: 'อำเภอ', error: districtsError },
+    { label: 'ตำบล', error: subdistrictsError },
+  ]
 
   return (
     <div>
@@ -76,12 +82,11 @@ export function GeoPage() {
         </button> */}
       </div>
 
-      {queryError && (
-        <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          <p className="font-medium">ไม่สามารถโหลดข้อมูลพื้นที่จาก PostgreSQL ได้</p>
-          <p className="mt-1">{queryError.message}</p>
-        </div>
-      )}
+      <DatabaseConnectionNotice
+        items={pageQueryItems}
+        className="mb-6"
+        onRetry={() => { void qc.refetchQueries({ type: 'active' }) }}
+      />
 
       {/* Cascading filters */}
       <div className="card mb-6">
