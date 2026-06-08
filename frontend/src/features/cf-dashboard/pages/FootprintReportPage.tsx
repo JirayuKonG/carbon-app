@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import * as XLSX from "xlsx";
@@ -6,6 +7,7 @@ import {
   getCampCarbonSummaries,
   getCampFieldCarbonDetails,
   getCaneTypeSummaries,
+  getCfSpatialNodes,
   getCfProcessActivities,
   getOverviewKpi,
   getProcessInputComparisons,
@@ -19,12 +21,21 @@ import type {
   OverviewKpi,
   ProcessActivityBreakdown,
   ProcessInputComparison,
+  SpatialLevel,
+  SpatialSummaryNode,
 } from "../types/dashboard";
 import "../cf-dashboard.css";
 
 type ScopeValue = "all" | `camp-${number}`;
 type CaneFilter = "all" | string;
 type FootprintPreviewTab = "pdf" | "word" | "excel";
+type FootprintAreaLevel = Exclude<SpatialLevel, "country">;
+
+const footprintAreaOrder: FootprintAreaLevel[] = ["region", "province", "district", "subdistrict", "field"];
+
+function emptyFootprintAreaPath(): Record<FootprintAreaLevel, string> {
+  return { region: "", province: "", district: "", subdistrict: "", field: "" };
+}
 
 const emptyKpi: OverviewKpi = {
   baselineAvgEmission: 0,
@@ -130,6 +141,59 @@ function scaleInputsForField(data: ProcessInputComparison[], field?: CampFieldCa
     baselineFuelLiter: Number((item.baselineFuelLiter * baselineFactor).toFixed(1)),
     currentFuelLiter: Number((item.currentFuelLiter * currentFactor).toFixed(1)),
   }));
+}
+
+function aggregateActivityRows(camps: CampCarbonSummary[], key: "baselineProcessActivities" | "currentProcessActivities"): ProcessActivityBreakdown[] {
+  const grouped = new Map<string, ProcessActivityBreakdown>();
+  camps.flatMap((camp) => camp[key]).forEach((row) => {
+    const current = grouped.get(row.process) ?? {
+      year: row.year,
+      process: row.process,
+      totalEmission: 0,
+      activities: [],
+    };
+    const activityMap = new Map(current.activities.map((activity) => [activity.name, activity.emission]));
+    row.activities.forEach((activity) => activityMap.set(activity.name, (activityMap.get(activity.name) ?? 0) + activity.emission));
+    grouped.set(row.process, {
+      year: row.year,
+      process: row.process,
+      totalEmission: current.totalEmission + row.totalEmission,
+      activities: Array.from(activityMap.entries()).map(([name, emission]) => ({ name, emission })),
+    });
+  });
+  return Array.from(grouped.values());
+}
+
+function aggregateInputRows(rows: ProcessInputComparison[][]): ProcessInputComparison[] {
+  const grouped = new Map<string, ProcessInputComparison>();
+  rows.flat().forEach((row) => {
+    const current = grouped.get(row.process) ?? {
+      process: row.process,
+      baselineFertilizerKg: 0,
+      currentFertilizerKg: 0,
+      baselineFuelLiter: 0,
+      currentFuelLiter: 0,
+    };
+    grouped.set(row.process, {
+      process: row.process,
+      baselineFertilizerKg: current.baselineFertilizerKg + row.baselineFertilizerKg,
+      currentFertilizerKg: current.currentFertilizerKg + row.currentFertilizerKg,
+      baselineFuelLiter: current.baselineFuelLiter + row.baselineFuelLiter,
+      currentFuelLiter: current.currentFuelLiter + row.currentFuelLiter,
+    });
+  });
+  return Array.from(grouped.values());
+}
+
+function nodeIsWithin(nodes: SpatialSummaryNode[], nodeId: string | undefined, scopeId: string | undefined) {
+  if (!scopeId || !nodeId) return false;
+  if (scopeId === nodeId) return true;
+  let cur = nodes.find((node) => node.id === nodeId);
+  while (cur?.parentId) {
+    if (cur.parentId === scopeId) return true;
+    cur = nodes.find((node) => node.id === cur?.parentId);
+  }
+  return false;
 }
 
 function topActivity(row?: ProcessActivityBreakdown) {
@@ -394,15 +458,19 @@ function FootprintReportDocument({
 
 export function CfFootprintReportPage() {
   const reportPaperRef = useRef<HTMLDivElement>(null);
+  const [searchParams] = useSearchParams();
   const [kpi, setKpi] = useState<DataResult<OverviewKpi>>({ data: emptyKpi, source: "mock" });
   const [activities, setActivities] = useState<ProcessActivityBreakdown[]>([]);
   const [inputs, setInputs] = useState<ProcessInputComparison[]>([]);
   const [campResult, setCampResult] = useState<DataResult<CampCarbonSummary[]>>({ data: [], source: "mock" });
   const [fieldResult, setFieldResult] = useState<DataResult<CampFieldCarbonDetail[]>>({ data: [], source: "mock" });
   const [caneTypeResult, setCaneTypeResult] = useState<DataResult<CaneTypeSummary[]>>({ data: [], source: "mock" });
+  const [spatialNodes, setSpatialNodes] = useState<SpatialSummaryNode[]>([]);
+  const [areaPath, setAreaPath] = useState<Record<FootprintAreaLevel, string>>(emptyFootprintAreaPath);
   const [scope, setScope] = useState<ScopeValue>("all");
   const [selectedFieldId, setSelectedFieldId] = useState("all");
   const [caneFilter, setCaneFilter] = useState<CaneFilter>("all");
+  const [showAllScopeRows, setShowAllScopeRows] = useState(false);
   const [generatedReport, setGeneratedReport] = useState<FootprintReportSnapshot | null>(null);
   const [activePreviewTab, setActivePreviewTab] = useState<FootprintPreviewTab>("pdf");
   const [reportRenderId, setReportRenderId] = useState(0);
@@ -419,35 +487,58 @@ export function CfFootprintReportPage() {
       getCampCarbonSummaries(),
       getCampFieldCarbonDetails(),
       getCaneTypeSummaries(),
+      getCfSpatialNodes(),
     ])
-      .then(([kpiResult, activityResult, inputResult, campSummaryResult, fieldDetailResult, caneSummaryResult]) => {
+      .then(([kpiResult, activityResult, inputResult, campSummaryResult, fieldDetailResult, caneSummaryResult, spatialResult]) => {
         setKpi(kpiResult);
         setActivities(activityResult.data);
         setInputs(inputResult.data);
         setCampResult(campSummaryResult);
         setFieldResult(fieldDetailResult);
         setCaneTypeResult(caneSummaryResult);
+        setSpatialNodes(spatialResult.data);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "โหลดข้อมูลรายงานไม่สำเร็จ"));
   }, []);
 
+  useEffect(() => {
+    const campId = Number(searchParams.get("campId"));
+    if (!campId || !campResult.data.some((camp) => camp.campId === campId)) return;
+    setScope(`camp-${campId}`);
+    setSelectedFieldId("all");
+    setAreaPath(emptyFootprintAreaPath());
+    setGenerateNotice("เลือกแคมป์จากหน้า Carbon Footprint แล้ว กดสร้างเอกสารเมื่อพร้อม");
+  }, [campResult.data, searchParams]);
+
   const currentYear = currentYearFrom(activities) || kpi.data.currentYear;
   const selectedCampId = scope === "all" ? undefined : Number(scope.replace("camp-", ""));
-  const selectedCamp = selectedCampId ? campResult.data.find((camp) => camp.campId === selectedCampId) : undefined;
-  const fieldsInCamp = selectedCampId ? fieldResult.data.filter((field) => field.campId === selectedCampId) : [];
-  const selectedField = selectedFieldId === "all" ? undefined : fieldResult.data.find((field) => field.id === selectedFieldId);
+  const rootNode = spatialNodes.find((node) => !node.parentId);
+  const selectedAreaId = [...footprintAreaOrder].reverse().map((level) => areaPath[level]).find(Boolean) || rootNode?.id;
+  const fieldsInArea = selectedAreaId
+    ? fieldResult.data.filter((field) => !rootNode || selectedAreaId === rootNode.id || nodeIsWithin(spatialNodes, field.parentId, selectedAreaId) || nodeIsWithin(spatialNodes, field.id, selectedAreaId))
+    : fieldResult.data;
+  const campIdsInArea = new Set(fieldsInArea.map((field) => field.campId));
+  const campsInArea = campResult.data.filter((camp) => campIdsInArea.has(camp.campId));
+  const selectedCamp = selectedCampId ? campsInArea.find((camp) => camp.campId === selectedCampId) : undefined;
+  const fieldsInCamp = selectedCampId ? fieldsInArea.filter((field) => field.campId === selectedCampId) : [];
+  const selectedField = selectedFieldId === "all" ? undefined : fieldsInArea.find((field) => field.id === selectedFieldId);
+  const aggregateCamps = selectedCamp ? [selectedCamp] : campsInArea.length ? campsInArea : campResult.data;
 
   const baselineRows = selectedField
     ? fieldProcessRows(selectedField, "baseline_avg", selectedField.baselineEmission)
     : selectedCamp
     ? selectedCamp.baselineProcessActivities
+    : aggregateCamps.length
+    ? aggregateActivityRows(aggregateCamps, "baselineProcessActivities")
     : activities.filter((item) => item.year === "baseline_avg");
   const currentRows = selectedField
     ? fieldProcessRows(selectedField, currentYear, selectedField.currentEmission)
     : selectedCamp
     ? selectedCamp.currentProcessActivities
+    : aggregateCamps.length
+    ? aggregateActivityRows(aggregateCamps, "currentProcessActivities")
     : activities.filter((item) => item.year === currentYear);
-  const processInputRows = selectedField ? scaleInputsForField(inputs, selectedField) : selectedCamp ? selectedCamp.processInputComparisons : inputs;
+  const processInputRows = selectedField ? scaleInputsForField(inputs, selectedField) : selectedCamp ? selectedCamp.processInputComparisons : aggregateCamps.length ? aggregateInputRows(aggregateCamps.map((camp) => camp.processInputComparisons)) : inputs;
   const baselineTotal = sumEmission(baselineRows);
   const currentTotal = sumEmission(currentRows);
   const reduction = diffLabel(baselineTotal, currentTotal);
@@ -455,7 +546,34 @@ export function CfFootprintReportPage() {
   const orderedCurrentRows = [...currentRows].sort((a, b) => (processOrder.get(a.process) ?? 0) - (processOrder.get(b.process) ?? 0));
   const topProcess = [...currentRows].sort((a, b) => b.totalEmission - a.totalEmission)[0];
   const lowProcess = [...currentRows].sort((a, b) => a.totalEmission - b.totalEmission)[0];
-  const selectedScopeLabel = selectedField?.fieldName ?? selectedCamp?.campName ?? "ภาพรวมทั้งระบบ";
+  const selectedAreaNode = selectedAreaId ? spatialNodes.find((node) => node.id === selectedAreaId) : undefined;
+  const selectedScopeLabel = selectedField?.fieldName ?? selectedCamp?.campName ?? selectedAreaNode?.name ?? "ภาพรวมทั้งระบบ";
+  const scopedKpi: OverviewKpi = selectedField
+    ? {
+        ...kpi.data,
+        areaRai: selectedField.areaRai,
+        fields: selectedField.fields,
+        farmers: selectedField.farmers,
+        currentEmission: selectedField.currentEmission,
+        baselineAvgEmission: selectedField.baselineEmission,
+      }
+    : selectedCamp
+    ? {
+        ...kpi.data,
+        areaRai: selectedCamp.areaRai,
+        fields: selectedCamp.fieldCount,
+        farmers: fieldsInCamp.reduce((sum, field) => sum + field.farmers, 0),
+        currentEmission: selectedCamp.currentCo2eTotal,
+        baselineAvgEmission: selectedCamp.baselineCo2eTotal,
+      }
+    : {
+        ...kpi.data,
+        areaRai: fieldsInArea.reduce((sum, field) => sum + field.areaRai, 0) || kpi.data.areaRai,
+        fields: fieldsInArea.reduce((sum, field) => sum + field.fields, 0) || kpi.data.fields,
+        farmers: fieldsInArea.reduce((sum, field) => sum + field.farmers, 0) || kpi.data.farmers,
+        currentEmission: currentTotal,
+        baselineAvgEmission: baselineTotal,
+      };
   const selectedCaneTypes = caneTypeResult.data.filter((item) => caneFilter === "all" || item.name === caneFilter);
   const selectedCanePercent = selectedCaneTypes.reduce((sum, item) => sum + item.percent, 0);
 
@@ -504,10 +622,45 @@ export function CfFootprintReportPage() {
       };
     });
   const hotspotRows = [...processRows].sort((a, b) => b.currentEmission - a.currentEmission);
+  const shouldLazyScopeRows = !areaPath.region && scope === "all" && selectedFieldId === "all";
+  const footprintScopeRows = selectedField
+    ? [{
+        id: selectedField.id,
+        type: "รายแปลง",
+        name: `${selectedField.fieldCode} · ${selectedField.fieldName}`,
+        fields: selectedField.fields,
+        areaRai: selectedField.areaRai,
+        farmers: selectedField.farmers,
+        baselineEmission: selectedField.baselineEmission,
+        currentEmission: selectedField.currentEmission,
+      }]
+    : selectedCamp
+    ? fieldsInCamp.map((field) => ({
+        id: field.id,
+        type: "รายแปลง",
+        name: `${field.fieldCode} · ${field.fieldName}`,
+        fields: field.fields,
+        areaRai: field.areaRai,
+        farmers: field.farmers,
+        baselineEmission: field.baselineEmission,
+        currentEmission: field.currentEmission,
+      }))
+    : aggregateCamps.map((camp) => ({
+        id: `camp-${camp.campId}`,
+        type: "แคมป์",
+        name: camp.campName,
+        fields: camp.fieldCount,
+        areaRai: camp.areaRai,
+        farmers: fieldsInArea.filter((field) => field.campId === camp.campId).reduce((sum, field) => sum + field.farmers, 0),
+        baselineEmission: camp.baselineCo2eTotal,
+        currentEmission: camp.currentCo2eTotal,
+      }));
+  const visibleFootprintScopeRows = shouldLazyScopeRows && !showAllScopeRows ? footprintScopeRows.slice(0, 10) : footprintScopeRows;
+  const hiddenFootprintScopeRows = Math.max(footprintScopeRows.length - visibleFootprintScopeRows.length, 0);
 
   const selectedCaneLabel = caneFilter === "all" ? "รวมทุกประเภทอ้อย" : selectedCaneTypes.map((item) => item.name).join(", ") || "-";
   const currentReport = useMemo<FootprintReportSnapshot>(() => ({
-    id: `${scope}|${selectedFieldId}|${caneFilter}|${currentYear}|${baselineTotal}|${currentTotal}`,
+    id: `${areaPath.region}|${areaPath.province}|${areaPath.district}|${areaPath.subdistrict}|${areaPath.field}|${scope}|${selectedFieldId}|${caneFilter}|${currentYear}|${baselineTotal}|${currentTotal}`,
     scopeLabel: selectedScopeLabel,
     currentYear,
     caneLabel: selectedCaneLabel,
@@ -518,15 +671,16 @@ export function CfFootprintReportPage() {
     hotspotRows,
     caneRows: caneProcessRows,
     inputs: processInputRows,
-    kpi: kpi.data,
+    kpi: scopedKpi,
   }), [
     baselineTotal,
     caneFilter,
     caneProcessRows,
     currentTotal,
     currentYear,
+    areaPath,
     hotspotRows,
-    kpi.data,
+    scopedKpi,
     processInputRows,
     processRows,
     reduction,
@@ -606,6 +760,7 @@ export function CfFootprintReportPage() {
   };
 
   const markFilterChanged = () => {
+    setShowAllScopeRows(false);
     setGenerateNotice("ตัวกรองเปลี่ยนแล้ว สรุปด้านซ้ายอัปเดตทันที กดสร้างเอกสารใหม่เมื่อพร้อม");
   };
 
@@ -675,6 +830,43 @@ export function CfFootprintReportPage() {
     XLSX.writeFile(wb, "mitrphol-carbon-footprint-report.xlsx");
   };
 
+  const areaOptionsFor = (level: FootprintAreaLevel, parentId?: string) =>
+    spatialNodes.filter((node) => node.level === level && (!parentId || node.parentId === parentId));
+
+  const selectAreaPath = (level: FootprintAreaLevel, id: string) => {
+    const levelIndex = footprintAreaOrder.indexOf(level);
+    const next = { ...areaPath, [level]: id };
+    footprintAreaOrder.slice(levelIndex + 1).forEach((key) => {
+      next[key] = "";
+    });
+    setAreaPath(next);
+    setScope("all");
+    setSelectedFieldId("all");
+    markFilterChanged();
+  };
+
+  const selectScopeValue = (value: string) => {
+    if (value === "all") {
+      setScope("all");
+      setSelectedFieldId("all");
+      markFilterChanged();
+      return;
+    }
+    if (value.startsWith("field:")) {
+      const fieldId = value.replace("field:", "");
+      const field = fieldsInArea.find((item) => item.id === fieldId);
+      setScope(field ? `camp-${field.campId}` : "all");
+      setSelectedFieldId(fieldId);
+      markFilterChanged();
+      return;
+    }
+    setScope(value as ScopeValue);
+    setSelectedFieldId("all");
+    markFilterChanged();
+  };
+
+  const scopeSelectValue = selectedField ? `field:${selectedField.id}` : scope;
+
   return (
     <div className="cf-dash">
       <div className="page active">
@@ -705,6 +897,56 @@ export function CfFootprintReportPage() {
           </div>
         )}
 
+        <section className="card process-scope-panel footprint-report-filter footprint-area-filter">
+          <div>
+            <div className="card-title">ตัวกรองรายงาน</div>
+            <p className="muted">เลือกพื้นที่ตามลำดับ แล้วเลือกแคมป์หรือรายแปลงก่อนกดสร้างเอกสาร ประเภทอ้อยเลือกได้ทุกระดับฟิลเตอร์</p>
+          </div>
+          <label>
+            ภาค
+            <select value={areaPath.region} onChange={(event) => selectAreaPath("region", event.target.value)}>
+              <option value="">ทั้งหมด</option>
+              {areaOptionsFor("region", rootNode?.id).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+            </select>
+          </label>
+          <label>
+            จังหวัด
+            <select value={areaPath.province} onChange={(event) => selectAreaPath("province", event.target.value)} disabled={!areaPath.region}>
+              <option value="">ทุกจังหวัด</option>
+              {areaOptionsFor("province", areaPath.region).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+            </select>
+          </label>
+          <label>
+            อำเภอ
+            <select value={areaPath.district} onChange={(event) => selectAreaPath("district", event.target.value)} disabled={!areaPath.province}>
+              <option value="">ทุกอำเภอ</option>
+              {areaOptionsFor("district", areaPath.province).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+            </select>
+          </label>
+          <label>
+            ตำบล
+            <select value={areaPath.subdistrict} onChange={(event) => selectAreaPath("subdistrict", event.target.value)} disabled={!areaPath.district}>
+              <option value="">ทุกตำบล</option>
+              {areaOptionsFor("subdistrict", areaPath.district).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+            </select>
+          </label>
+          <label>
+            แปลง
+            <select value={areaPath.field} onChange={(event) => selectAreaPath("field", event.target.value)} disabled={!areaPath.subdistrict}>
+              <option value="">ทุกแปลง</option>
+              {areaOptionsFor("field", areaPath.subdistrict).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+            </select>
+          </label>
+          <label>
+            รายแปลงในแคมป์
+            <select value={scopeSelectValue} onChange={(event) => selectScopeValue(event.target.value)}>
+              <option value="all">ภาพรวมตามพื้นที่/แปลงที่เลือก</option>
+              {campsInArea.map((camp) => <option key={camp.campId} value={`camp-${camp.campId}`}>{camp.campName}</option>)}
+              {(selectedCamp ? fieldsInCamp : fieldsInArea).map((field) => <option key={field.id} value={`field:${field.id}`}>{field.fieldCode} · {field.fieldName}</option>)}
+            </select>
+          </label>
+        </section>
+
         <section className="card report-toolbar footprint-report-toolbar">
           <div>
             <div className="card-title">เอกสารรายงาน</div>
@@ -720,7 +962,7 @@ export function CfFootprintReportPage() {
 
         {generateNotice && <div className="report-generate-notice">{generateNotice}</div>}
 
-        <section className="card process-scope-panel footprint-report-filter">
+        <section className="card process-scope-panel footprint-report-filter" style={{ display: "none" }}>
           <div>
             <div className="card-title">ตัวกรองรายงาน</div>
             <p className="muted">เลือกขอบเขตพื้นที่และประเภทอ้อยเพื่อให้ตัวเลขในรายงาน PDF, Word และ Excel ตรงกัน</p>
@@ -767,6 +1009,67 @@ export function CfFootprintReportPage() {
           </label>
         </section>
 
+        <section className="card full-span">
+          <div className="section-head">
+            <div>
+              <div className="card-title">ข้อมูลตามตัวกรอง</div>
+              <p className="muted">
+                {shouldLazyScopeRows
+                  ? "เลือกทั้งหมดจะแสดงแคมป์ 10 รายการแรกก่อน แล้วกดดูเพิ่มเติมเมื่อจำเป็น"
+                  : "ข้อมูลตารางเปลี่ยนตามภาค จังหวัด อำเภอ ตำบล แปลง และรายแปลงในแคมป์ที่เลือก"}
+              </p>
+            </div>
+            <strong>{formatNumber(footprintScopeRows.length, 0)} รายการ</strong>
+          </div>
+          <div className="input-table-wrap">
+            <table className="input-table">
+              <thead>
+                <tr>
+                  <th>ระดับข้อมูล</th>
+                  <th>ชื่อพื้นที่/แคมป์/รายแปลง</th>
+                  <th>จำนวนแปลง</th>
+                  <th>พื้นที่</th>
+                  <th>เกษตรกร</th>
+                  <th>ปีฐาน</th>
+                  <th>ปีดำเนินการ</th>
+                  <th>ผลต่าง</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleFootprintScopeRows.map((row) => {
+                  const diff = row.baselineEmission - row.currentEmission;
+                  return (
+                    <tr key={row.id}>
+                      <td>{row.type}</td>
+                      <td>{row.name}</td>
+                      <td>{formatNumber(row.fields, 0)}</td>
+                      <td>{formatNumber(row.areaRai, 1)} ไร่</td>
+                      <td>{formatNumber(row.farmers, 0)}</td>
+                      <td>{formatNumber(row.baselineEmission)} tCO2e</td>
+                      <td>{formatNumber(row.currentEmission)} tCO2e</td>
+                      <td className={diff >= 0 ? "green-text" : "red-text"}>
+                        {diff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} {formatNumber(Math.abs(diff))} tCO2e
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!visibleFootprintScopeRows.length && (
+                  <tr>
+                    <td colSpan={8}>ไม่พบข้อมูลตามตัวกรองนี้</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {hiddenFootprintScopeRows > 0 && (
+            <div className="table-more-row">
+              <button className="run-btn" type="button" onClick={() => setShowAllScopeRows(true)}>
+                ดูเพิ่มเติมอีก {formatNumber(hiddenFootprintScopeRows, 0)} รายการ
+              </button>
+            </div>
+          )}
+        </section>
+
         <section className="process-summary-grid footprint-exec-grid">
           <article>
             <span>ขอบเขตรายงาน</span>
@@ -790,13 +1093,13 @@ export function CfFootprintReportPage() {
           </article>
           <article>
             <span>Intensity</span>
-            <strong>{formatNumber(kpi.data.co2ePerTon, 3)}</strong>
+            <strong>{formatNumber(scopedKpi.co2ePerTon, 3)}</strong>
             <small>tCO2e/ตันอ้อย</small>
           </article>
           <article>
             <span>พื้นที่ / ผลผลิต</span>
-            <strong>{formatNumber(kpi.data.areaRai, 0)}</strong>
-            <small>ไร่ · {formatNumber(kpi.data.yieldTon, 0)} ตัน</small>
+            <strong>{formatNumber(scopedKpi.areaRai, 0)}</strong>
+            <small>ไร่ · {formatNumber(scopedKpi.yieldTon, 0)} ตัน</small>
           </article>
           <article>
             <span>Hotspot สูงสุด</span>

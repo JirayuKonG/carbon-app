@@ -4,7 +4,71 @@
 
 Branch ที่ทำงาน: `idea`
 
-Commit ล่าสุดที่อัปขึ้น Git: `Refine footprint report generation and charts`
+Commit ล่าสุดที่อัปขึ้น Git: `Update spatial and footprint dashboard filters`
+
+## อัปเดตล่าสุด วันที่ 8 มิถุนายน 2569 - ปรับ Spatial, Carbon Footprint และ Footprint Report Filter
+
+รอบนี้ทำงานต่อบน branch `idea` หลังดึงข้อมูลล่าสุดจาก `main` แล้ว โดยเน้นแก้หน้าที่เกี่ยวกับแผนที่, Carbon Footprint ภาพรวม และรายงานคาร์บอนฟุตพริ้นท์ให้ข้อมูลสอดคล้องกับตัวกรองมากขึ้น รวมถึงแยกจังหวะการดูข้อมูลหน้าเว็บออกจากการสร้างเอกสาร Preview/Download
+
+### 1. หน้าแผนที่ประเทศไทยและรายละเอียดรายพื้นที่
+
+- แก้ปัญหาหน้า `/spatial` ขาวหลังเปิดหน้าแผนที่ โดยปรับ logic ที่คำนวณข้อมูล SOC ให้รองรับกรณีที่ยังไม่มีพื้นที่ focus
+- ปรับ filter พื้นที่ให้สอดคล้องกันระหว่าง block แผนที่และ block รายละเอียดรายพื้นที่
+- ให้ข้อมูลที่แสดงในแผนที่, marker, polygon และข้อมูลสรุปด้านล่างเปลี่ยนตาม filter เดียวกัน
+- เพิ่มการ zoom-in แผนที่ตามระดับพื้นที่ที่เลือก และเน้น polygon ของพื้นที่/แปลงให้เห็นชัดขึ้น
+- เพิ่มปุ่มสร้างเอกสารสีเขียว `#10A345` เพื่อให้ผู้ใช้เลือก filter ก่อน แล้วค่อยสร้าง Preview
+- เพิ่มการแสดงข้อมูลโฉนดที่ดินในรายละเอียดแคมป์/พื้นที่
+- เพิ่มข้อมูล SOC ใน block สรุปและกราฟที่เกี่ยวข้อง
+- เพิ่มกราฟ Net Zero Progress สำหรับ Carbon Credit โดยแยก Emissions สีแดง และ Credits สีเขียว
+- เพิ่มกราฟ Correlation ระหว่างการใช้ปุ๋ยเคมีกับค่า SOC เพื่อดูความสัมพันธ์กับศักยภาพคาร์บอนเครดิต
+
+### 2. หน้า Carbon Footprint ไร่บริษัทกลุ่มมิตรผล
+
+- ปรับ filter ให้เหลือเฉพาะระดับภาพรวมที่เหมาะกับหน้าผู้บริหาร:
+  - ปีดำเนินการ
+  - ภาค/โซน
+  - ศูนย์ส่งเสริมฯ หรือแคมป์
+- เก็บกราฟเปรียบเทียบภาพรวมไว้ทั้งหมด และปรับให้แสดงผลตามรายภาค/รายแคมป์
+- เพิ่ม Leaderboard แบบ Top 5 / Bottom 5 เพื่อดูแคมป์ที่ปล่อยคาร์บอนสูง และแคมป์ที่ลดคาร์บอนหรือกักเก็บ SOC ได้ดีที่สุด
+- เพิ่มปุ่ม `ดูรายงานละเอียด` สำหรับ drill-down จากแคมป์ในหน้านี้ไปยังหน้า Footprint Report พร้อมส่ง filter แคมป์ไปให้อัตโนมัติ
+
+### 3. หน้า รายงานคาร์บอนฟุตพริ้นท์ ไร่บริษัทกลุ่มมิตรผล
+
+- ปรับ filter ให้เป็น Cascading Filter 6 ระดับตามลำดับ:
+  - ภาค
+  - จังหวัด
+  - อำเภอ
+  - ตำบล
+  - แปลง
+  - รายแปลงในแคมป์
+- ตัด filter ประเภทอ้อยออกจากแถบตัวกรองหน้านี้ เพื่อไม่ให้ซ้ำซ้อนกับหน้าภาพรวม
+- เพิ่มตาราง `ข้อมูลตามตัวกรอง` ให้ข้อมูลหน้าเว็บเปลี่ยนตาม filter ทันที
+- เพิ่ม Lazy Loading ในกรณีเลือก `ทั้งหมด` ตั้งแต่ระดับแรก โดยแสดงแคมป์ 10 รายการแรกก่อน และมีปุ่ม `ดูเพิ่มเติม`
+- คงพฤติกรรมเดิมของเอกสาร Preview/Download คือข้อมูลเอกสารจะอัปเดตเฉพาะตอนกด `สร้างเอกสารใหม่ (Generate Report)` เท่านั้น
+- ปุ่มสร้างเอกสารใช้สีเขียว `#10A345`
+
+### 4. ไฟล์ที่แก้ในรอบนี้
+
+- `frontend/src/features/cf-dashboard/pages/SpatialPage.tsx`
+- `frontend/src/features/cf-dashboard/pages/ProcessPage.tsx`
+- `frontend/src/features/cf-dashboard/pages/FootprintReportPage.tsx`
+- `frontend/src/features/cf-dashboard/cf-dashboard.css`
+- `frontend/src/features/cf-dashboard/components/charts/NetZeroProgressBar.tsx`
+- `frontend/src/features/cf-dashboard/components/charts/SocCorrelationChart.tsx`
+
+### 5. การตรวจสอบ
+
+- รัน `npm run build` ใน `frontend` ผ่านแล้ว
+- เหลือเฉพาะ Vite warning เรื่อง chunk size ใหญ่จาก bundle เดิม ไม่ใช่ error จากงานรอบนี้
+
+### สรุปสั้นสำหรับจดโน๊ต
+
+- ดึง main ล่าสุดเข้า branch `idea` แล้ว
+- แก้หน้าแผนที่ขาว และทำให้ filter แผนที่/รายละเอียดพื้นที่สอดคล้องกัน
+- เพิ่ม SOC, โฉนดที่ดิน, Net Zero Progress และ SOC Correlation ในหน้าแผนที่
+- ปรับหน้า Carbon Footprint ให้เป็นหน้าภาพรวมผู้บริหาร มี filter ปี/ภาค/แคมป์, Leaderboard และปุ่ม drill-down
+- ปรับหน้า Footprint Report ให้มี filter 6 ระดับแบบ cascading พร้อม lazy loading 10 รายการแรก
+- Preview/Download ของรายงานยังรอให้ผู้ใช้กด Generate ก่อนเหมือนเดิม
 
 ## อัปเดตล่าสุด วันที่ 6 มิถุนายน 2569 - ปรับ Carbon Footprint Charts และ Footprint Report Generate Flow
 
