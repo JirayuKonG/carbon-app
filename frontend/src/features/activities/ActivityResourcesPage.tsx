@@ -32,8 +32,19 @@ interface Equipment {
   }
 }
 
-type ResourceSectionKey = 'fertilizers' | 'equipments'
+interface ResourceOther {
+  act_resourceOther_id: number
+  act_resourceOther_name?: string | null
+  act_resourceOther_info?: string | null
+  resource_used_type_id?: number | null
+  resource_used_type?: {
+    resc_used_type_name?: string | null
+  }
+}
+
+type ResourceSectionKey = 'fertilizers' | 'equipments' | 'resourceOthers'
 type VisibleButtonKey = ResourceSectionKey | 'resourceTypes'
+type ResourceCategory = 'fertilizer' | 'equipment' | 'resourceOther'
 
 type ResourceTypePayload = {
   resc_used_type_name: string
@@ -52,20 +63,27 @@ type EquipmentPayload = {
   resource_used_type_id?: number
 }
 
+type ResourceOtherPayload = {
+  act_resourceOther_name: string
+  act_resourceOther_info?: string
+  resource_used_type_id?: number
+}
+
 type ResourceRow = {
   key: string
-  category: 'fertilizer' | 'equipment'
+  category: ResourceCategory
   resourceId: number
   name: string
   info: string
   resourceUsedTypeName: string
-  source: Fertilizer | Equipment
+  source: Fertilizer | Equipment | ResourceOther
 }
 
 type DeleteTarget =
   | { type: 'resource-type'; id: number; name: string }
   | { type: 'fertilizer'; id: number; name: string }
   | { type: 'equipment'; id: number; name: string }
+  | { type: 'resource-other'; id: number; name: string }
 
 type ResourceTypeFormState = {
   resc_used_type_name: string
@@ -73,6 +91,11 @@ type ResourceTypeFormState = {
 }
 
 const RESOURCE_PAGE_PREFS_KEY = 'activity-resources-page-prefs'
+const RESOURCE_CATEGORY_LABELS: Record<ResourceCategory, string> = {
+  fertilizer: 'ปุ๋ย',
+  equipment: 'น้ำมัน',
+  resourceOther: 'รายการอื่น ๆ',
+}
 
 const readStoredPreferences = () => {
   if (typeof window === 'undefined') {
@@ -101,9 +124,11 @@ export function ActivityResourcesPage() {
   const [showResourceTypeModal, setShowResourceTypeModal] = useState(false)
   const [showFertilizerModal, setShowFertilizerModal] = useState(false)
   const [showEquipmentModal, setShowEquipmentModal] = useState(false)
+  const [showResourceOtherModal, setShowResourceOtherModal] = useState(false)
   const [editingResourceType, setEditingResourceType] = useState<ResourceType | null>(null)
   const [editingFertilizer, setEditingFertilizer] = useState<Fertilizer | null>(null)
   const [editingEquipment, setEditingEquipment] = useState<Equipment | null>(null)
+  const [editingResourceOther, setEditingResourceOther] = useState<ResourceOther | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [resourceTypeForm, setResourceTypeForm] = useState<ResourceTypeFormState>({
     resc_used_type_name: '',
@@ -114,6 +139,7 @@ export function ActivityResourcesPage() {
     return {
       fertilizers: prefs?.visibleButtons?.fertilizers ?? true,
       equipments: prefs?.visibleButtons?.equipments ?? true,
+      resourceOthers: prefs?.visibleButtons?.resourceOthers ?? true,
       resourceTypes: prefs?.visibleButtons?.resourceTypes ?? false,
     }
   })
@@ -136,6 +162,11 @@ export function ActivityResourcesPage() {
     queryFn: () => get<Equipment[]>('/activities/equipments'),
   })
 
+  const { data: resourceOthers = [], isLoading: resourceOthersLoading, error: resourceOthersError } = useQuery({
+    queryKey: ['activity-resource-others'],
+    queryFn: () => get<ResourceOther[]>('/activities/resource-others'),
+  })
+
   const { data: resourceTypes = [], isLoading: resourceTypesLoading, error: resourceTypesError } = useQuery({
     queryKey: ['activity-resource-types'],
     queryFn: () => get<ResourceType[]>('/activities/resource-types'),
@@ -144,6 +175,7 @@ export function ActivityResourcesPage() {
   const pageQueryItems = [
     { label: 'ปุ๋ย', error: fertilizersError },
     { label: 'อุปกรณ์', error: equipmentsError },
+    { label: 'รายการอื่น ๆ', error: resourceOthersError },
     { label: 'ประเภทปัจจัย', error: resourceTypesError },
   ]
 
@@ -230,6 +262,31 @@ export function ActivityResourcesPage() {
     },
   })
 
+  const saveResourceOtherMut = useMutation({
+    mutationFn: ({ id, payload }: { id?: number; payload: ResourceOtherPayload }) =>
+      id ? put<ResourceOther>(`/activities/resource-others/${id}`, payload) : post<ResourceOther>('/activities/resource-others', payload),
+    onSuccess: (saved) => {
+      qc.setQueryData<ResourceOther[]>(['activity-resource-others'], (current = []) => {
+        const next = [...current]
+        const existingIndex = next.findIndex((item) => item.act_resourceOther_id === saved.act_resourceOther_id)
+
+        if (existingIndex >= 0) {
+          next[existingIndex] = saved
+        } else {
+          next.push(saved)
+        }
+
+        return next.sort((left, right) => left.act_resourceOther_id - right.act_resourceOther_id)
+      })
+
+      qc.invalidateQueries({ queryKey: ['activity-resource-others'] })
+      qc.invalidateQueries({ queryKey: ['activity-resource-types'] })
+      setShowAddResourceModal(false)
+      setShowResourceOtherModal(false)
+      setEditingResourceOther(null)
+    },
+  })
+
   const deleteMut = useMutation({
     mutationFn: (target: DeleteTarget) => {
       if (target.type === 'resource-type') {
@@ -238,6 +295,9 @@ export function ActivityResourcesPage() {
       if (target.type === 'fertilizer') {
         return del(`/activities/fertilizers/${target.id}`)
       }
+      if (target.type === 'resource-other') {
+        return del(`/activities/resource-others/${target.id}`)
+      }
       return del(`/activities/equipments/${target.id}`)
     },
     onSuccess: (_, target) => {
@@ -245,6 +305,7 @@ export function ActivityResourcesPage() {
         qc.invalidateQueries({ queryKey: ['activity-resource-types'] })
         qc.invalidateQueries({ queryKey: ['activity-resource-fertilizers'] })
         qc.invalidateQueries({ queryKey: ['activity-resource-equipments'] })
+        qc.invalidateQueries({ queryKey: ['activity-resource-others'] })
         setVisibleResourceTypeFilters((prev) => {
           const next = { ...prev }
           delete next[target.id]
@@ -255,6 +316,8 @@ export function ActivityResourcesPage() {
         }
       } else if (target.type === 'fertilizer') {
         qc.invalidateQueries({ queryKey: ['activity-resource-fertilizers'] })
+      } else if (target.type === 'resource-other') {
+        qc.invalidateQueries({ queryKey: ['activity-resource-others'] })
       } else {
         qc.invalidateQueries({ queryKey: ['activity-resource-equipments'] })
       }
@@ -294,10 +357,11 @@ export function ActivityResourcesPage() {
       header: 'ประเภทปัจจัย',
       sortable: true,
       render: (row) => {
-        const tone =
-          row.category === 'fertilizer'
-            ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-            : 'bg-amber-50 text-amber-700 ring-amber-200'
+        const tone = row.category === 'fertilizer'
+          ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+          : row.category === 'equipment'
+            ? 'bg-amber-50 text-amber-700 ring-amber-200'
+            : 'bg-sky-50 text-sky-700 ring-sky-200'
 
         return row.resourceUsedTypeName && row.resourceUsedTypeName !== '-'
           ? (
@@ -316,13 +380,17 @@ export function ActivityResourcesPage() {
     },
   ]
 
-  const hasVisibleResourceSections = visibleButtons.fertilizers || visibleButtons.equipments
+  const visibleResourceSectionCount = Number(visibleButtons.fertilizers)
+    + Number(visibleButtons.equipments)
+    + Number(visibleButtons.resourceOthers)
+  const hasVisibleResourceSections = visibleResourceSectionCount > 0
 
   const defaultResourceTypeVisible = (item: ResourceType) => {
     const normalized = item.resc_used_type_name?.trim().toLowerCase() ?? ''
     if (!normalized) return false
     return /น้ำมัน|diesel|fuel|gas|gasoline|benzene|equipment|อุปกรณ์/.test(normalized)
       || /ปุ๋ย|fertilizer/.test(normalized)
+      || /อื่น|other|พันธุ์|variety|sugarcane|อ้อย/.test(normalized)
   }
 
   useEffect(() => {
@@ -384,6 +452,10 @@ export function ActivityResourcesPage() {
     ? equipments
     : equipments.filter((row) => row.resource_used_type_id === activeResourceTypeFilter)
 
+  const filteredResourceOthers = activeResourceTypeFilter === 'all'
+    ? resourceOthers
+    : resourceOthers.filter((row) => row.resource_used_type_id === activeResourceTypeFilter)
+
   const mergedResources: ResourceRow[] = [
     ...(visibleButtons.fertilizers
       ? filteredFertilizers.map((row) => ({
@@ -407,9 +479,20 @@ export function ActivityResourcesPage() {
           source: row,
         }))
       : []),
+    ...(visibleButtons.resourceOthers
+      ? filteredResourceOthers.map((row) => ({
+          key: `resource-other-${row.act_resourceOther_id}`,
+          category: 'resourceOther' as const,
+          resourceId: row.act_resourceOther_id,
+          name: row.act_resourceOther_name?.trim() || '-',
+          info: row.act_resourceOther_info?.trim() || '',
+          resourceUsedTypeName: row.resource_used_type?.resc_used_type_name ?? resourceTypeMap[row.resource_used_type_id ?? 0] ?? '-',
+          source: row,
+        }))
+      : []),
   ]
 
-  const inferResourceKindFromTypeName = (name?: string | null): 'fertilizer' | 'equipment' | null => {
+  const inferResourceKindFromTypeName = (name?: string | null): ResourceCategory | null => {
     const normalized = name?.trim().toLowerCase()
     if (!normalized) return null
 
@@ -421,13 +504,18 @@ export function ActivityResourcesPage() {
       return 'fertilizer'
     }
 
+    if (/อื่น|other|พันธุ์|variety|sugarcane|อ้อย/.test(normalized)) {
+      return 'resourceOther'
+    }
+
     return null
   }
 
-  const inferResourceKindFromExistingType = (typeId?: number): 'fertilizer' | 'equipment' | null => {
+  const inferResourceKindFromExistingType = (typeId?: number): ResourceCategory | null => {
     if (!typeId || typeId <= 0) return null
     if (fertilizers.some((row) => row.resource_used_type_id === typeId)) return 'fertilizer'
     if (equipments.some((row) => row.resource_used_type_id === typeId)) return 'equipment'
+    if (resourceOthers.some((row) => row.resource_used_type_id === typeId)) return 'resourceOther'
     return null
   }
 
@@ -471,17 +559,25 @@ export function ActivityResourcesPage() {
     saveEquipmentMut.reset()
   }
 
+  const closeResourceOtherModal = () => {
+    setShowResourceOtherModal(false)
+    setEditingResourceOther(null)
+    saveResourceOtherMut.reset()
+  }
+
   const closeAddResourceModal = () => {
     setShowAddResourceModal(false)
     setAddResourceFormError('')
     saveFertilizerMut.reset()
     saveEquipmentMut.reset()
+    saveResourceOtherMut.reset()
   }
 
   const openAddResourceModal = () => {
     setAddResourceFormError('')
     saveFertilizerMut.reset()
     saveEquipmentMut.reset()
+    saveResourceOtherMut.reset()
     setShowAddResourceModal(true)
   }
 
@@ -544,17 +640,44 @@ export function ActivityResourcesPage() {
     })
   }
 
+  const handleSaveResourceOther = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const act_resourceOther_name = String(form.get('act_resourceOther_name') ?? '').trim()
+    const act_resourceOther_info = String(form.get('act_resourceOther_info') ?? '').trim()
+    const resource_used_type_id = Number(form.get('resource_used_type_id') ?? '')
+
+    if (!act_resourceOther_name) return
+
+    saveResourceOtherMut.mutate({
+      id: editingResourceOther?.act_resourceOther_id,
+      payload: {
+        act_resourceOther_name,
+        act_resourceOther_info: act_resourceOther_info || undefined,
+        resource_used_type_id: Number.isFinite(resource_used_type_id) && resource_used_type_id > 0 ? resource_used_type_id : undefined,
+      },
+    })
+  }
+
   const handleSaveAddResource = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     saveFertilizerMut.reset()
     saveEquipmentMut.reset()
+    saveResourceOtherMut.reset()
     const form = new FormData(event.currentTarget)
     const resource_used_type_id = Number(form.get('resource_used_type_id') ?? '')
     const selectedResourceType = resourceTypes.find((item) => item.resource_used_type_id === resource_used_type_id)
-    const shouldInferKind = visibleButtons.fertilizers && visibleButtons.equipments
+    const firstVisibleKind = (
+      visibleButtons.fertilizers
+        ? 'fertilizer'
+        : visibleButtons.equipments
+          ? 'equipment'
+          : 'resourceOther'
+    ) as ResourceCategory
+    const shouldInferKind = visibleResourceSectionCount > 1
     const selectedKind = shouldInferKind
       ? inferResourceKindFromExistingType(resource_used_type_id) ?? inferResourceKindFromTypeName(selectedResourceType?.resc_used_type_name)
-      : (visibleButtons.fertilizers ? 'fertilizer' : 'equipment')
+      : firstVisibleKind
 
     if (shouldInferKind && (!Number.isFinite(resource_used_type_id) || resource_used_type_id <= 0)) {
       setAddResourceFormError('กรุณาเลือกประเภทปัจจัยก่อนบันทึก')
@@ -563,7 +686,7 @@ export function ActivityResourcesPage() {
 
     setAddResourceFormError('')
 
-    const finalKind = selectedKind ?? (visibleButtons.fertilizers ? 'fertilizer' : 'equipment')
+    const finalKind = selectedKind ?? firstVisibleKind
 
     if (finalKind === 'fertilizer') {
       const act_fertilizer_name = String(form.get('resource_name') ?? '').trim()
@@ -574,6 +697,21 @@ export function ActivityResourcesPage() {
         payload: {
           act_fertilizer_name,
           act_fertilizer_info: act_fertilizer_info || undefined,
+          resource_used_type_id: Number.isFinite(resource_used_type_id) && resource_used_type_id > 0 ? resource_used_type_id : undefined,
+        },
+      })
+      return
+    }
+
+    if (finalKind === 'resourceOther') {
+      const act_resourceOther_name = String(form.get('resource_name') ?? '').trim()
+      const act_resourceOther_info = String(form.get('resource_info') ?? '').trim()
+      if (!act_resourceOther_name) return
+
+      saveResourceOtherMut.mutate({
+        payload: {
+          act_resourceOther_name,
+          act_resourceOther_info: act_resourceOther_info || undefined,
           resource_used_type_id: Number.isFinite(resource_used_type_id) && resource_used_type_id > 0 ? resource_used_type_id : undefined,
         },
       })
@@ -593,14 +731,62 @@ export function ActivityResourcesPage() {
     })
   }
 
+  const openEditResourceRow = (row: ResourceRow) => {
+    if (row.category === 'fertilizer') {
+      saveFertilizerMut.reset()
+      setEditingFertilizer(row.source as Fertilizer)
+      setShowFertilizerModal(true)
+      return
+    }
+
+    if (row.category === 'resourceOther') {
+      saveResourceOtherMut.reset()
+      setEditingResourceOther(row.source as ResourceOther)
+      setShowResourceOtherModal(true)
+      return
+    }
+
+    saveEquipmentMut.reset()
+    setEditingEquipment(row.source as Equipment)
+    setShowEquipmentModal(true)
+  }
+
+  const openDeleteResourceRow = (row: ResourceRow) => {
+    deleteMut.reset()
+
+    if (row.category === 'fertilizer') {
+      setDeleteTarget({
+        type: 'fertilizer',
+        id: row.resourceId,
+        name: row.name,
+      })
+      return
+    }
+
+    if (row.category === 'resourceOther') {
+      setDeleteTarget({
+        type: 'resource-other',
+        id: row.resourceId,
+        name: row.name,
+      })
+      return
+    }
+
+    setDeleteTarget({
+      type: 'equipment',
+      id: row.resourceId,
+      name: row.name,
+    })
+  }
+
   return (
     <div>
       <div className="page-header">
         <div>
           <h1 className="page-title flex items-center gap-2">
-            <FlaskConical size={20} className="text-primary-600" /> ปุ๋ย / น้ำมัน
+            <FlaskConical size={20} className="text-primary-600" /> ปุ๋ย / น้ำมัน / รายการอื่น ๆ
           </h1>
-          <p className="page-subtitle">จัดการข้อมูลอ้างอิงสำหรับปุ๋ยและน้ำมันที่ใช้ในหน้าบันทึกกิจกรรมและการนำเข้าข้อมูล</p>
+          <p className="page-subtitle">จัดการข้อมูลอ้างอิงสำหรับปุ๋ย น้ำมัน และรายการอื่น ๆ ที่ใช้ในหน้าบันทึกกิจกรรมและการนำเข้าข้อมูล</p>
         </div>
       </div>
 
@@ -718,14 +904,14 @@ export function ActivityResourcesPage() {
       {!hasVisibleResourceSections ? (
         <div className="card">
           <div className="rounded-xl border border-dashed border-surface-300 bg-surface-50 px-4 py-8 text-center text-sm text-surface-600">
-            ยังไม่มีส่วนข้อมูลที่เปิดแสดงอยู่ กรุณากด <span className="font-medium text-surface-800">Edit ปุ่ม</span> เพื่อเลือกให้แสดง `ปุ๋ย` หรือ `น้ำมัน`
+            ยังไม่มีส่วนข้อมูลที่เปิดแสดงอยู่ กรุณากด <span className="font-medium text-surface-800">Edit ปุ่ม</span> เพื่อเลือกให้แสดง `ปุ๋ย`, `น้ำมัน` หรือ `รายการอื่น ๆ`
           </div>
         </div>
       ) : (
         <div className="card">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-surface-800">
-              รายการปุ๋ย / น้ำมัน ({mergedResources.length})
+              รายการปุ๋ย / น้ำมัน / รายการอื่น ๆ ({mergedResources.length})
             </h2>
             <button
               className="btn-primary btn-sm"
@@ -738,55 +924,28 @@ export function ActivityResourcesPage() {
           <DataTable
             data={mergedResources}
             columns={resourceCols}
-            isLoading={fertilizersLoading || equipmentsLoading}
+            isLoading={fertilizersLoading || equipmentsLoading || resourceOthersLoading}
             rowKey={(row) => row.key}
             defaultPageSize={10}
-            searchPlaceholder="ค้นหาชื่อปุ๋ย ชื่อน้ำมัน หรือประเภทปัจจัย..."
-            emptyMessage="ไม่พบข้อมูลปุ๋ยหรือน้ำมัน"
+            searchPlaceholder="ค้นหาชื่อปุ๋ย ชื่อน้ำมัน รายการอื่น ๆ หรือประเภทปัจจัย..."
+            emptyMessage="ไม่พบข้อมูลปุ๋ย น้ำมัน หรือรายการอื่น ๆ"
             actions={(row) => (
               <div className="flex items-center justify-end gap-1">
                 <button
                   className="btn-icon btn-ghost btn-sm"
                   type="button"
-                  title={row.category === 'fertilizer' ? 'แก้ไขปุ๋ย' : 'แก้ไขน้ำมัน'}
-                  aria-label={row.category === 'fertilizer' ? 'แก้ไขปุ๋ย' : 'แก้ไขน้ำมัน'}
-                  onClick={() => {
-                    if (row.category === 'fertilizer') {
-                      saveFertilizerMut.reset()
-                      setEditingFertilizer(row.source as Fertilizer)
-                      setShowFertilizerModal(true)
-                      return
-                    }
-
-                    saveEquipmentMut.reset()
-                    setEditingEquipment(row.source as Equipment)
-                    setShowEquipmentModal(true)
-                  }}
+                  title={`แก้ไข${RESOURCE_CATEGORY_LABELS[row.category]}`}
+                  aria-label={`แก้ไข${RESOURCE_CATEGORY_LABELS[row.category]}`}
+                  onClick={() => openEditResourceRow(row)}
                 >
                   <Pencil size={13} />
                 </button>
                 <button
                   className="btn-icon btn-ghost btn-sm text-red-500"
                   type="button"
-                  title={row.category === 'fertilizer' ? 'ลบปุ๋ย' : 'ลบน้ำมัน'}
-                  aria-label={row.category === 'fertilizer' ? 'ลบปุ๋ย' : 'ลบน้ำมัน'}
-                  onClick={() => {
-                    deleteMut.reset()
-                    if (row.category === 'fertilizer') {
-                      setDeleteTarget({
-                        type: 'fertilizer',
-                        id: row.resourceId,
-                        name: row.name,
-                      })
-                      return
-                    }
-
-                    setDeleteTarget({
-                      type: 'equipment',
-                      id: row.resourceId,
-                      name: row.name,
-                    })
-                  }}
+                  title={`ลบ${RESOURCE_CATEGORY_LABELS[row.category]}`}
+                  aria-label={`ลบ${RESOURCE_CATEGORY_LABELS[row.category]}`}
+                  onClick={() => openDeleteResourceRow(row)}
                 >
                   <Trash2 size={13} />
                 </button>
@@ -854,7 +1013,7 @@ export function ActivityResourcesPage() {
             <div className="border-b border-surface-200 px-6 py-5">
               <h3 className="font-semibold">ตั้งค่าการแสดงปุ่มและตัวกรอง</h3>
               <p className="mt-2 text-sm text-surface-600">
-                เลือกได้ว่าหน้านี้จะแสดงตัวกรองหรือส่วนข้อมูลไหนบ้าง เช่น ปุ๋ย, น้ำมัน และประเภทปัจจัย
+                เลือกได้ว่าหน้านี้จะแสดงตัวกรองหรือส่วนข้อมูลไหนบ้าง เช่น ปุ๋ย, น้ำมัน, รายการอื่น ๆ และประเภทปัจจัย
               </p>
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-5">
@@ -873,6 +1032,14 @@ export function ActivityResourcesPage() {
                     type="checkbox"
                     checked={visibleButtons.equipments}
                     onChange={(event) => setVisibleButtons((prev) => ({ ...prev, equipments: event.target.checked }))}
+                  />
+                </label>
+                <label className="flex items-center justify-between gap-3 rounded-lg border border-surface-200 px-4 py-3">
+                  <span className="text-sm text-surface-700">แสดงตัวกรอง รายการอื่น ๆ</span>
+                  <input
+                    type="checkbox"
+                    checked={visibleButtons.resourceOthers}
+                    onChange={(event) => setVisibleButtons((prev) => ({ ...prev, resourceOthers: event.target.checked }))}
                   />
                 </label>
                 <label className="flex items-center justify-between gap-3 rounded-lg border border-surface-200 px-4 py-3">
@@ -976,12 +1143,12 @@ export function ActivityResourcesPage() {
                   <input className="input" name="resource_name" required />
                 </div>
                 <div>
-                  <label className="label">ประเภทปัจจัย{visibleButtons.fertilizers && visibleButtons.equipments ? ' *' : ''}</label>
+                  <label className="label">ประเภทปัจจัย{visibleResourceSectionCount > 1 ? ' *' : ''}</label>
                   <select
                     className="select"
                     name="resource_used_type_id"
                     defaultValue=""
-                    required={visibleButtons.fertilizers && visibleButtons.equipments}
+                    required={visibleResourceSectionCount > 1}
                   >
                     <option value="">— ไม่ระบุ —</option>
                     {resourceTypes.map((item) => (
@@ -1005,14 +1172,17 @@ export function ActivityResourcesPage() {
               {saveEquipmentMut.isError && (
                 <p className="mt-3 text-sm text-red-600">{saveEquipmentMut.error.message}</p>
               )}
+              {saveResourceOtherMut.isError && (
+                <p className="mt-3 text-sm text-red-600">{saveResourceOtherMut.error.message}</p>
+              )}
               <div className="mt-5 flex gap-3">
                 <button type="button" className="btn-secondary flex-1" onClick={closeAddResourceModal}>ยกเลิก</button>
                 <button
                   type="submit"
                   className="btn-primary flex-1"
-                  disabled={saveFertilizerMut.isPending || saveEquipmentMut.isPending}
+                  disabled={saveFertilizerMut.isPending || saveEquipmentMut.isPending || saveResourceOtherMut.isPending}
                 >
-                  {saveFertilizerMut.isPending || saveEquipmentMut.isPending ? 'กำลังบันทึก...' : 'บันทึก'}
+                  {saveFertilizerMut.isPending || saveEquipmentMut.isPending || saveResourceOtherMut.isPending ? 'กำลังบันทึก...' : 'บันทึก'}
                 </button>
               </div>
             </form>
@@ -1091,6 +1261,54 @@ export function ActivityResourcesPage() {
                 <button type="button" className="btn-secondary flex-1" onClick={closeEquipmentModal}>ยกเลิก</button>
                 <button type="submit" className="btn-primary flex-1" disabled={saveEquipmentMut.isPending}>
                   {saveEquipmentMut.isPending ? 'กำลังบันทึก...' : 'บันทึก'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showResourceOtherModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={closeResourceOtherModal} />
+          <div className="relative w-full max-w-md animate-slide-up rounded-2xl bg-white p-6 shadow-card-lg">
+            <h3 className="mb-5 font-semibold">{editingResourceOther ? 'แก้ไขรายการอื่น ๆ' : 'เพิ่มรายการอื่น ๆ'}</h3>
+            <form onSubmit={handleSaveResourceOther}>
+              <div className="space-y-3">
+                <div>
+                  <label className="label">ชื่อรายการ *</label>
+                  <input
+                    className="input"
+                    name="act_resourceOther_name"
+                    required
+                    defaultValue={editingResourceOther?.act_resourceOther_name ?? ''}
+                  />
+                </div>
+                <div>
+                  <label className="label">ประเภทปัจจัย</label>
+                  <select className="select" name="resource_used_type_id" defaultValue={editingResourceOther?.resource_used_type_id ?? ''}>
+                    <option value="">— ไม่ระบุ —</option>
+                    {resourceTypes.map((item) => (
+                      <option key={item.resource_used_type_id} value={item.resource_used_type_id}>
+                        {item.resc_used_type_name ?? `#${item.resource_used_type_id}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">ข้อมูลเพิ่มเติม</label>
+                  <textarea
+                    className="input min-h-24"
+                    name="act_resourceOther_info"
+                    defaultValue={editingResourceOther?.act_resourceOther_info ?? ''}
+                  />
+                </div>
+              </div>
+              {saveResourceOtherMut.isError && <p className="mt-3 text-sm text-red-600">{saveResourceOtherMut.error.message}</p>}
+              <div className="mt-5 flex gap-3">
+                <button type="button" className="btn-secondary flex-1" onClick={closeResourceOtherModal}>ยกเลิก</button>
+                <button type="submit" className="btn-primary flex-1" disabled={saveResourceOtherMut.isPending}>
+                  {saveResourceOtherMut.isPending ? 'กำลังบันทึก...' : 'บันทึก'}
                 </button>
               </div>
             </form>

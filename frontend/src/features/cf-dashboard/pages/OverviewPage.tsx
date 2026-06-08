@@ -54,7 +54,8 @@ export function CfOverviewPage() {
   const socDiff = socProject - socBaseline;
   const creditTotal = n2oReduction + fuelReduction + socRemoval;
   const baselineYears = trend.data.filter((item) => item.isBaseline).map((item) => item.year);
-  const baselineLabel = baselineYears.length > 1 ? `${baselineYears[0]} - ${baselineYears.at(-1)}` : baselineYears[0] ?? "-";
+  const lastBaselineYear = baselineYears.length > 0 ? baselineYears[baselineYears.length - 1] : undefined;
+  const baselineLabel = baselineYears.length > 1 ? `${baselineYears[0]} - ${lastBaselineYear}` : baselineYears[0] ?? "-";
 
   return (
     <div className="cf-dash">

@@ -1,6 +1,6 @@
 # Project Context Memory
 
-Last updated: 2026-06-05
+Last updated: 2026-06-08
 
 This file is a working memory for the project. It summarizes the current repo state, important decisions, active risks, and where future work should start. Update it when major behavior, routes, architecture, or project status changes.
 
@@ -52,6 +52,24 @@ Useful docs already in the repo:
 - `BUG_LOG.md`: known bugs and verification notes
 - `SECURITY.md`: security handling guidance
 - `DASHBOARD_WORK_SUMMARY.md`: Carbon Analytics work history and dashboard-specific decisions
+
+## Recent Database / Prisma Sync
+
+- On 2026-06-08, `backend/src/prisma/schema.prisma` was re-introspected from the live Aiven PostgreSQL database configured by `backend/.env`.
+- The live database currently contains 39 Prisma models and is ahead of the older SQL dump in the repo.
+- Newly surfaced live-database models now represented in Prisma are:
+  - `activities_fileNameUse`
+  - `activities_resourceOther`
+  - `carbon_process_queue`
+  - `carbon_roundCal`
+  - `carbon_typeCal`
+- The live database introspection also removed old Prisma `autoincrement()` assumptions from many primary keys, which means backend create flows must keep supplying explicit IDs where the database has no default/identity.
+- After the sync, backend compatibility fixes were applied in:
+  - `backend/src/modules/activities/activities.service.ts`
+  - `backend/src/modules/lands/lands.service.ts`
+- Verification after the sync:
+  - `npx prisma generate --schema src/prisma/schema.prisma`
+  - `npm run build --workspace=backend`
 
 ## Current App Routing Snapshot
 
@@ -125,6 +143,9 @@ Recent activity-page UI note:
 - On 2026-06-04, both `จัดการกิจกรรม` and `รายการบันทึกกิจกรรม` got a small header control for dashboard-card visibility.
 - The control is implemented by `frontend/src/components/ui/DashboardVisibilityMenu.tsx`.
 - Users can choose which summary stat cards are shown on each page, and the selection is stored locally in the browser.
+- On 2026-06-08, `frontend/src/features/activities/ActivitiesPage.tsx` added an import-history table backed by the new `activities_fileNameUse` table.
+- Successful CSV imports from the activities wizard now create one `activities_fileNameUse` record with filename, row count, column count, and timestamps through new backend endpoints in `backend/src/modules/activities/activities.controller.ts` and `activities.service.ts`.
+- The `จัดการกิจกรรม` dashboard now also shows a `ไฟล์ที่นำเข้าแล้ว` summary card sourced from that import-history list.
 
 Recent CSV import note:
 
@@ -191,8 +212,8 @@ Backend:
 
 ## Database And Data Rules
 
-- The SQL dump `managementDataSystem_forCalculate_1.3_05192026_postgres.sql` is treated as the database source of truth
-- Prisma schema lives at `backend/src/prisma/schema.prisma`
+- `backend/src/prisma/schema.prisma` is the current schema reference because it was synced from the live Aiven PostgreSQL database on 2026-06-08
+- The SQL dump `managementDataSystem_forCalculate_1.3_05192026_postgres.sql` is now best treated as a historical/bootstrap artifact unless it is re-exported from the live database
 - Some tables do not have database-generated primary keys, so create flows must be checked carefully before assuming `autoincrement()`
 - For analytics, the docs say important source tables include:
   - `log_activities_detail`
