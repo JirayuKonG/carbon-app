@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ActivityGroupedBar } from "../components/charts/ActivityGroupedBar";
+import { NetZeroProgressBar } from "../components/charts/NetZeroProgressBar";
 import { sortProcessLabels } from "../components/charts/ChartRegistry";
-import { ProcessInputComparisonBar } from "../components/charts/ProcessInputComparisonBar";
 import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
+import { SocCorrelationChart } from "../components/charts/SocCorrelationChart";
 import { CaneTypeSummaryPanel } from "../components/common/CaneTypeSummaryPanel";
-import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCaneTypeSummaries, getCfProcessActivities, getCfSpatialNodes, getOverviewKpi, getProcessEmissions, getProcessInputComparisons } from "../services/dashboardApi";
+import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCaneTypeSummaries, getCfProcessActivities, getCfSpatialNodes, getOverviewKpi, getProcessEmissions } from "../services/dashboardApi";
 import type { ActivityValue, CampCarbonSummary, CampFieldCarbonDetail, CaneTypeSummary, DataResult, OverviewKpi, ProcessActivityBreakdown, ProcessEmission, ProcessInputComparison, SpatialSummaryNode } from "../types/dashboard";
 import "../cf-dashboard.css";
 
@@ -13,6 +14,7 @@ type PeriodMode = "baseline_avg" | "project";
 type ScopeValue = "all" | `camp-${number}`;
 type DonutMode = "camp" | "activity" | "field";
 type CaneScope = "all" | "new" | "ratoon";
+type FootprintView = "emissions" | "sequestration";
 
 interface ScopeComparisonRow {
   id: string;
@@ -90,19 +92,6 @@ function fieldProcessRows(field: CampFieldCarbonDetail, year: string, totalEmiss
       activities: [{ name: item.name, emission }],
     };
   });
-}
-
-function scaleInputsForField(data: ProcessInputComparison[], field?: CampFieldCarbonDetail): ProcessInputComparison[] {
-  if (!field) return data;
-  const baselineFactor = field.baselineEmission / 896;
-  const currentFactor = field.currentEmission / 723;
-  return data.map((item) => ({
-    process: item.process,
-    baselineFertilizerKg: Number((item.baselineFertilizerKg * baselineFactor).toFixed(1)),
-    currentFertilizerKg: Number((item.currentFertilizerKg * currentFactor).toFixed(1)),
-    baselineFuelLiter: Number((item.baselineFuelLiter * baselineFactor).toFixed(1)),
-    currentFuelLiter: Number((item.currentFuelLiter * currentFactor).toFixed(1)),
-  }));
 }
 
 function caneScopeInfo(data: CaneTypeSummary[], scope: CaneScope) {
@@ -183,27 +172,6 @@ function aggregateCampActivities(camps: CampCarbonSummary[], key: "baselineProce
   return Array.from(grouped.values());
 }
 
-function aggregateCampInputs(camps: CampCarbonSummary[]) {
-  const grouped = new Map<string, ProcessInputComparison>();
-  camps.flatMap((camp) => camp.processInputComparisons).forEach((row) => {
-    const current = grouped.get(row.process) ?? {
-      process: row.process,
-      baselineFertilizerKg: 0,
-      currentFertilizerKg: 0,
-      baselineFuelLiter: 0,
-      currentFuelLiter: 0,
-    };
-    grouped.set(row.process, {
-      process: row.process,
-      baselineFertilizerKg: current.baselineFertilizerKg + row.baselineFertilizerKg,
-      currentFertilizerKg: current.currentFertilizerKg + row.currentFertilizerKg,
-      baselineFuelLiter: current.baselineFuelLiter + row.baselineFuelLiter,
-      currentFuelLiter: current.currentFuelLiter + row.currentFuelLiter,
-    });
-  });
-  return Array.from(grouped.values());
-}
-
 function comparisonRowsToActivities(rows: ScopeComparisonRow[], year: string, key: "baseline" | "current"): ProcessActivityBreakdown[] {
   return rows.map((row) => ({
     year,
@@ -228,13 +196,13 @@ function PeriodSwitch({ value, currentYear, onChange }: { value: PeriodMode; cur
 
 export function CfProcessPage() {
   const [period, setPeriod] = useState<PeriodMode>("project");
+  const [activeView, setActiveView] = useState<FootprintView>("emissions");
   const [donutMode, setDonutMode] = useState<DonutMode>("camp");
   const [caneScope, setCaneScope] = useState<CaneScope>("all");
   const [scope, setScope] = useState<ScopeValue>("all");
   const [regionId, setRegionId] = useState("all");
   const [activities, setActivities] = useState<ProcessActivityBreakdown[]>([]);
   const [emissions, setEmissions] = useState<ProcessEmission[]>([]);
-  const [inputs, setInputs] = useState<ProcessInputComparison[]>([]);
   const [campResult, setCampResult] = useState<DataResult<CampCarbonSummary[]>>({ data: [], source: "mock" });
   const [fieldResult, setFieldResult] = useState<DataResult<CampFieldCarbonDetail[]>>({ data: [], source: "mock" });
   const [caneTypeResult, setCaneTypeResult] = useState<DataResult<CaneTypeSummary[]>>({ data: [], source: "mock" });
@@ -244,11 +212,10 @@ export function CfProcessPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    Promise.all([getCfProcessActivities("process"), getProcessEmissions(), getProcessInputComparisons(), getCampCarbonSummaries(), getCampFieldCarbonDetails(), getCaneTypeSummaries(), getOverviewKpi(), getCfSpatialNodes()])
-      .then(([activityResult, emissionResult, inputResult, campSummaryResult, fieldDetailResult, caneSummaryResult, kpiResult, spatialResult]) => {
+    Promise.all([getCfProcessActivities("process"), getProcessEmissions(), getCampCarbonSummaries(), getCampFieldCarbonDetails(), getCaneTypeSummaries(), getOverviewKpi(), getCfSpatialNodes()])
+      .then(([activityResult, emissionResult, campSummaryResult, fieldDetailResult, caneSummaryResult, kpiResult, spatialResult]) => {
         setActivities(activityResult.data);
         setEmissions(emissionResult.data);
-        setInputs(inputResult.data);
         setCampResult(campSummaryResult);
         setFieldResult(fieldDetailResult);
         setCaneTypeResult(caneSummaryResult);
@@ -299,7 +266,6 @@ export function CfProcessPage() {
   const totalDiffPct = baselineTotal ? (totalDiff / baselineTotal) * 100 : 0;
   const topCurrentProcess = [...chartCurrent]
     .sort((a, b) => b.totalEmission - a.totalEmission)[0];
-  const processInputData = scaleInputRows(selectedField ? scaleInputsForField(inputs, selectedField) : selectedCamp ? selectedCamp.processInputComparisons : scopedCamps.length ? aggregateCampInputs(scopedCamps) : inputs, caneMeta.factor);
   const currentScopeRows = chartCurrent;
   const groupDonutData: ActivityValue[] = donutMode === "camp"
     ? selectedField
@@ -344,6 +310,38 @@ export function CfProcessPage() {
   const topEmitters = [...campComparisonRows].sort((a, b) => b.current - a.current).slice(0, 5);
   const bestReducers = [...campComparisonRows].sort((a, b) => (b.baseline - b.current) - (a.baseline - a.current)).slice(0, 5);
   const bottomReducers = [...campComparisonRows].sort((a, b) => (a.baseline - a.current) - (b.baseline - b.current)).slice(0, 5);
+  const sequestrationRows = campComparisonRows.map((row) => {
+    const reduction = Math.max(row.baseline - row.current, 0);
+    const fertilizerKg = row.camp?.processInputComparisons.reduce((sum, item) => sum + item.currentFertilizerKg, 0) ?? 0;
+    const socIncrease = Number((reduction * 0.35 + row.areaRai * 0.012).toFixed(2));
+    const credits = Number((reduction * 0.6 + socIncrease).toFixed(2));
+    return {
+      ...row,
+      reduction,
+      fertilizerKg,
+      socIncrease,
+      socIndex: row.areaRai ? Number(((socIncrease / row.areaRai) * 100).toFixed(2)) : 0,
+      credits,
+      netEmission: Math.max(row.current - credits, 0),
+    };
+  });
+  const totalSocIncrease = sequestrationRows.reduce((sum, row) => sum + row.socIncrease, 0);
+  const totalCredits = sequestrationRows.reduce((sum, row) => sum + row.credits, 0);
+  const netEmissions = Math.max(currentTotal - totalCredits, 0);
+  const netOffsetPct = currentTotal ? (totalCredits / currentTotal) * 100 : 0;
+  const bestSocCamps = [...sequestrationRows].sort((a, b) => b.socIncrease - a.socIncrease).slice(0, 5);
+  const followUpSocCamps = [...sequestrationRows].sort((a, b) => b.netEmission - a.netEmission).slice(0, 5);
+  const socChartMax = Math.max(...sequestrationRows.map((row) => row.socIncrease), 1);
+  const socCorrelationData: ProcessInputComparison[] = sequestrationRows.map((row) => ({
+    process: row.name,
+    baselineFertilizerKg: 0,
+    currentFertilizerKg: row.fertilizerKg,
+    baselineFuelLiter: 0,
+    currentFuelLiter: 0,
+  }));
+  const socCorrelationValues = sequestrationRows.map((row) => row.socIndex);
+  const bestSocInsight = bestSocCamps[0];
+  const fertilizerInsight = [...sequestrationRows].filter((row) => row.socIncrease > 0).sort((a, b) => a.fertilizerKg - b.fertilizerKg)[0];
 
   return (
     <div className="cf-dash">
@@ -482,6 +480,35 @@ export function CfProcessPage() {
           </div>
         </section>
 
+        <section className="card footprint-view-tabs-card">
+          <div>
+            <div className="card-title">เลือกมุมมองข้อมูล</div>
+            <p className="muted">สลับระหว่างภาพรวมการปล่อยคาร์บอน และภาพรวมการกักเก็บ/ชดเชยด้วย SOC & Credits</p>
+          </div>
+          <div className="footprint-view-tabs" role="tablist" aria-label="Carbon Footprint view tabs">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeView === "emissions"}
+              className={activeView === "emissions" ? "active" : ""}
+              onClick={() => setActiveView("emissions")}
+            >
+              การปล่อยคาร์บอน
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeView === "sequestration"}
+              className={activeView === "sequestration" ? "active" : ""}
+              onClick={() => setActiveView("sequestration")}
+            >
+              การกักเก็บ / SOC & Credits
+            </button>
+          </div>
+        </section>
+
+        {activeView === "emissions" && (
+          <>
         <CaneTypeSummaryPanel result={caneTypeResult} showSource={false} mode="footprint" />
 
         <section className="process-summary-grid">
@@ -561,6 +588,28 @@ export function CfProcessPage() {
               <ProcessSummary baseline={chartBaseline} current={chartCurrent} />
             )}
           </article>
+        </section>
+
+        <section className="card full-span">
+          <div className="card-title-row">
+            <div className="card-title">รายการกิจกรรมย่อยในแต่ละขั้นตอน · {periodLabel(period, currentYear)}</div>
+            <PeriodSwitch value={period} currentYear={currentYear} onChange={setPeriod} />
+          </div>
+          <div className="sub-pie-grid">
+            {selectedByCane.map((item) => {
+              const comparisonActivities = (period === "baseline_avg" ? chartCurrent : chartBaseline).find((row) => row.process === item.process)?.activities;
+              return (
+                <article className="card sub-card" key={`${item.year}-${item.process}`}>
+                  <ProcessDoughnut
+                    title={selectedField ? `${item.process} · ${selectedField.fieldCode}` : selectedCamp ? `${item.process} · ${periodLabel(period, currentYear)}` : `${item.process} · ${yearName(item.year)}`}
+                    data={item.activities}
+                    comparisonData={comparisonActivities}
+                  />
+                </article>
+              );
+            })}
+            {!selectedByCane.length && <div className="empty-state">ไม่มีข้อมูลกระบวนการเพาะปลูกสำหรับช่วงที่เลือก</div>}
+          </div>
         </section>
 
         <section className="grid2 process-leaderboard-grid">
@@ -657,33 +706,117 @@ export function CfProcessPage() {
             </table>
           </div>
         </section>
-
-        <section className="card full-span">
-          <div className="card-title">ปุ๋ยและน้ำมันรายขั้นตอน · ค่าเฉลี่ยปีฐาน vs ปีดำเนินโครงการ</div>
-          <ProcessInputComparisonBar data={processInputData} />
-        </section>
-
-        {false && !selectedCamp && (
-          <section className="card full-span">
-            <div className="card-title">ปุ๋ยและน้ำมันรายขั้นตอน · ค่าเฉลี่ยปีฐาน vs ปีดำเนินโครงการ</div>
-            <ProcessInputComparisonBar data={inputs} />
-          </section>
+          </>
         )}
 
-        <section className="card full-span">
-          <div className="card-title-row">
-            <div className="card-title">รายการกิจกรรมย่อยในแต่ละขั้นตอน · {periodLabel(period, currentYear)}</div>
-            <PeriodSwitch value={period} currentYear={currentYear} onChange={setPeriod} />
+        {activeView === "sequestration" && (
+        <section className="carbon-sequestration-section">
+          <div className="section-head">
+            <div>
+              <span className="section-kicker">Carbon Sequestration / SOC & Credits</span>
+              <h2>กักเก็บคืนได้เท่าไหร่ และหลังหักเครดิตแล้วสุทธิเป็นอย่างไร</h2>
+              <p className="muted">โซนนี้คำนวณจากแคมป์ที่อยู่ในตัวกรองปัจจุบัน เพื่อดู SOC, Carbon Credits และแคมป์ที่ควรขยายผลหรือติดตามต่อ</p>
+            </div>
           </div>
-          <div className="sub-pie-grid">
-            {selectedByCane.map((item) => (
-              <article className="card sub-card" key={`${item.year}-${item.process}`}>
-                <ProcessDoughnut title={selectedField ? `${item.process} · ${selectedField.fieldCode}` : selectedCamp ? `${item.process} · ${periodLabel(period, currentYear)}` : `${item.process} · ${yearName(item.year)}`} data={item.activities} />
-              </article>
-            ))}
-            {!selectedByCane.length && <div className="empty-state">ไม่มีข้อมูลกระบวนการเพาะปลูกสำหรับช่วงที่เลือก</div>}
-          </div>
+
+          <section className="process-summary-grid sequestration-kpi-grid">
+            <article>
+              <span>SOC เพิ่มขึ้นโดยประมาณ</span>
+              <strong>{totalSocIncrease.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+              <small>tCO2e</small>
+              <em>จากการลดการปล่อยและพื้นที่แคมป์</em>
+            </article>
+            <article>
+              <span>Carbon Credits ประมาณการ</span>
+              <strong>{totalCredits.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+              <small>tCO2e</small>
+              <em>{netOffsetPct.toFixed(1)}% ของ emissions ปัจจุบัน</em>
+            </article>
+            <article>
+              <span>Net Emissions หลังหักเครดิต</span>
+              <strong className={netEmissions <= currentTotal ? "green-text" : "red-text"}>{netEmissions.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+              <small>tCO2e</small>
+              <em>Emissions - Credits/SOC</em>
+            </article>
+            <article>
+              <span>แคมป์ SOC ดีที่สุด</span>
+              <strong>{bestSocInsight?.name ?? "-"}</strong>
+              <small>{bestSocInsight ? `${bestSocInsight.socIncrease.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e` : "-"}</small>
+              <em>เหมาะสำหรับขยายผลเป็นแนวทาง</em>
+            </article>
+          </section>
+
+          <section className="grid2">
+            <article className="card">
+              <div className="card-title">Net Zero Progress · Emissions vs Credits</div>
+              <NetZeroProgressBar emissions={currentTotal} credits={totalCredits} />
+              <div className="summary-list">
+                <div><span>ปล่อยคาร์บอน</span><strong className="red-text">{currentTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
+                <div><span>ชดเชย/กักเก็บคืน</span><strong className="green-text">{totalCredits.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
+                <div><span>คงเหลือสุทธิ</span><strong>{netEmissions.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
+              </div>
+            </article>
+            <article className="card">
+              <div className="card-title">Correlation · ปุ๋ยเคมี vs SOC</div>
+              <SocCorrelationChart data={socCorrelationData} socValues={socCorrelationValues} />
+              <p className="muted insight-copy">
+                {fertilizerInsight
+                  ? `Insight: ${fertilizerInsight.name} มีค่า SOC เพิ่มขึ้น ${fertilizerInsight.socIncrease.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e ในกลุ่มที่ใช้ปุ๋ยเคมีต่ำกว่าแคมป์อื่น ควรใช้เป็นตัวอย่างสำหรับปรับแนวทางลดปุ๋ยเคมีและเพิ่มอินทรียวัตถุ`
+                  : "Insight: ยังไม่มีข้อมูลเพียงพอสำหรับวิเคราะห์ความสัมพันธ์ระหว่างปุ๋ยเคมีกับ SOC"}
+              </p>
+            </article>
+          </section>
+
+          <section className="grid2">
+            <article className="card">
+              <div className="card-title">SOC by Camp · แคมป์ที่กักเก็บได้ดี</div>
+              <div className="soc-camp-bars">
+                {bestSocCamps.map((row) => (
+                  <div className="soc-camp-row" key={`soc-${row.id}`}>
+                    <div>
+                      <strong>{row.name}</strong>
+                      <small>{row.areaRai.toLocaleString()} ไร่ · SOC index {row.socIndex.toFixed(2)}</small>
+                    </div>
+                    <div className="soc-bar-track" aria-label={`${row.name} SOC ${row.socIncrease} tCO2e`}>
+                      <span style={{ width: `${Math.max((row.socIncrease / socChartMax) * 100, 4)}%` }} />
+                    </div>
+                    <b>{row.socIncrease.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</b>
+                  </div>
+                ))}
+                {!bestSocCamps.length && <div className="empty-state">ยังไม่มีข้อมูล SOC ตามตัวกรองนี้</div>}
+              </div>
+            </article>
+            <article className="card">
+              <div className="card-title">แคมป์ที่ควรขยายผล / ติดตามต่อ</div>
+              <div className="leaderboard-list compact">
+                {bestSocCamps.map((row, index) => (
+                  <div key={`expand-${row.id}`} className="leaderboard-row">
+                    <span className="rank-pill">#{index + 1}</span>
+                    <div>
+                      <strong>{row.name}</strong>
+                      <small>Credits {row.credits.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e · SOC {row.socIncrease.toLocaleString(undefined, { maximumFractionDigits: 2 })}</small>
+                    </div>
+                    <b className="green-text">ขยายผล</b>
+                    {row.camp && <Link className="run-btn drilldown-link" to={`/footprint-report?campId=${row.camp.campId}`}>ดูรายงานละเอียด</Link>}
+                  </div>
+                ))}
+                {followUpSocCamps.map((row, index) => (
+                  <div key={`follow-${row.id}`} className="leaderboard-row">
+                    <span className="rank-pill">!{index + 1}</span>
+                    <div>
+                      <strong>{row.name}</strong>
+                      <small>Net emissions {row.netEmission.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e หลังหักเครดิต</small>
+                    </div>
+                    <b className="red-text">ติดตาม</b>
+                    {row.camp && <Link className="run-btn drilldown-link" to={`/footprint-report?campId=${row.camp.campId}`}>ดูรายงานละเอียด</Link>}
+                  </div>
+                ))}
+              </div>
+            </article>
+          </section>
         </section>
+        )}
+
       </div>
     </div>
   );

@@ -4,7 +4,67 @@
 
 Branch ที่ทำงาน: `idea`
 
-Commit ล่าสุดที่อัปขึ้น Git: `Update spatial and footprint dashboard filters`
+Commit ล่าสุดที่อัปขึ้น Git: `Add footprint emissions and sequestration tabs`
+
+## อัปเดตล่าสุด วันที่ 8 มิถุนายน 2569 - แยกหน้า Carbon Footprint เป็นแท็บการปล่อยและการกักเก็บ
+
+รอบนี้ปรับหน้า `Carbon Footprint ไร่บริษัทกลุ่มมิตรผล` ให้แยกเรื่องหลักเป็น 2 มุมมองผ่าน Segmented Tabs เพื่อให้ผู้ใช้ดูข้อมูลได้ชัดขึ้น ไม่ต้องเลื่อนหน้ายาว และไม่สับสนระหว่างข้อมูล “การปล่อยคาร์บอน” กับ “การกักเก็บ / SOC & Credits”
+
+### สิ่งที่ปรับเพิ่ม
+
+- เพิ่ม Segmented Tabs 2 โหมด:
+  - `การปล่อยคาร์บอน`
+  - `การกักเก็บ / SOC & Credits`
+- คง KPI และตัวกรองหลักไว้ด้านบนเหมือนเดิม เพื่อให้ทั้ง 2 แท็บใช้ filter ชุดเดียวกัน:
+  - ปีดำเนินการ
+  - ภาค/โซน
+  - ศูนย์ส่งเสริมฯ หรือแคมป์
+- แท็บ `การปล่อยคาร์บอน` แสดงข้อมูลเดิมของหน้า Carbon Footprint:
+  - Carbon Footprint รวม
+  - CO2e ตามกลุ่ม
+  - กราฟเปรียบเทียบปีฐาน vs ปีดำเนินการ
+  - รายการกิจกรรมย่อยในแต่ละขั้นตอน
+  - Leaderboard และ Bottom 5
+  - ตารางสรุปรายแคมป์
+- แท็บ `การกักเก็บ / SOC & Credits` แสดงข้อมูลใหม่:
+  - SOC เพิ่มขึ้นโดยประมาณ
+  - Carbon Credits ประมาณการ
+  - Net Emissions หลังหักเครดิต
+  - Net Zero Progress Bar แสดง Emissions เทียบกับ Credits
+  - Correlation Chart ระหว่างปุ๋ยเคมีกับ SOC
+  - SOC by Camp
+  - แคมป์ที่ควรขยายผล และแคมป์ที่ควรติดตามต่อ
+- เพิ่ม Delta/Growth % ในกราฟวงกลมกิจกรรมย่อย:
+  - แสดงใน tooltip
+  - แสดงเป็น badge ใน legend
+- เอา block กราฟ `ปุ๋ยและน้ำมันรายขั้นตอน · ค่าเฉลี่ยปีฐาน vs ปีดำเนินโครงการ` ออกจากหน้า Carbon Footprint ตามที่ขอ
+
+### เหตุผลของการปรับ
+
+- ทำให้หน้า Carbon Footprint อ่านง่ายขึ้น แยก narrative ชัดเจน:
+  - แท็บแรกตอบว่า “เราปล่อยเท่าไหร่ ปล่อยจากอะไร และเทียบปีฐานดีขึ้นหรือแย่ลง”
+  - แท็บสองตอบว่า “เรากักเก็บ/ชดเชยคืนได้เท่าไหร่ หลังหักเครดิตแล้วสุทธิเป็นอย่างไร และแคมป์ไหนควรขยายผลหรือติดตาม”
+- ลดความยาวของหน้า และลดการแสดงกราฟหลายชุดพร้อมกัน
+- เหมาะกับการใช้งานแบบผู้บริหารหรือการนำเสนอ เพราะสามารถเลือกเล่าเรื่องทีละด้านได้
+
+### ไฟล์ที่แก้ในรอบนี้
+
+- `frontend/src/features/cf-dashboard/pages/ProcessPage.tsx`
+- `frontend/src/features/cf-dashboard/components/charts/ProcessDoughnut.tsx`
+- `frontend/src/features/cf-dashboard/cf-dashboard.css`
+
+### การตรวจสอบ
+
+- รัน `npm run build` ใน `frontend` ผ่านแล้ว
+- เหลือเฉพาะ Vite warning เรื่อง chunk size ใหญ่จาก bundle เดิม ไม่ใช่ error จากงานรอบนี้
+
+### สรุปสั้นสำหรับจดโน๊ต
+
+- ปรับหน้า Carbon Footprint ให้มีแท็บ `การปล่อยคาร์บอน` และ `การกักเก็บ / SOC & Credits`
+- ย้ายข้อมูล SOC/Credits ไปอยู่ในแท็บเฉพาะ ไม่ต้องเลื่อนลงยาว
+- เพิ่ม KPI, Net Zero Progress, SOC by Camp, Correlation ปุ๋ยเคมี vs SOC และแคมป์ที่ควรขยายผล/ติดตาม
+- เพิ่ม Delta/Growth % ในกราฟวงกลมกิจกรรมย่อย
+- ลบกราฟปุ๋ยและน้ำมันรายขั้นตอนออกจากหน้า Carbon Footprint
 
 ## อัปเดตล่าสุด วันที่ 8 มิถุนายน 2569 - ปรับ Spatial, Carbon Footprint และ Footprint Report Filter
 
