@@ -1454,6 +1454,18 @@
   align-items: center;
 }
 
+.cf-dash .export-preview-note {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.cf-dash .spatial-preview-tabs {
+  justify-self: start;
+  width: max-content;
+  max-width: 100%;
+}
+
 .cf-dash .spatial-doc-preview-card {
   overflow: hidden;
 }
@@ -1863,6 +1875,13 @@
   font-size: 12px;
   text-align: center;
 }
+.cf-dash .footprint-paper .pdd-doc-header > div:nth-child(3) {
+  display: none;
+}
+.cf-dash .footprint-paper h2:has(+ .footprint-doc-order),
+.cf-dash .footprint-paper .footprint-doc-order {
+  display: none;
+}
 .cf-dash .pdd-paper h2 {
   margin-top: 18px;
   margin-bottom: 8px;
@@ -2040,8 +2059,57 @@
   margin-right: auto;
 }
 
+.cf-dash .footprint-report-page > * {
+  order: 10;
+}
+
+.cf-dash .footprint-report-page > .page-title {
+  order: 0;
+}
+
+.cf-dash .footprint-report-page > .error-panel,
+.cf-dash .footprint-report-page > .pdf-render-source {
+  order: 1;
+}
+
+.cf-dash .footprint-report-page > .footprint-area-filter {
+  order: 2;
+}
+
+.cf-dash .footprint-report-page > .footprint-report-toolbar {
+  order: 3;
+}
+
+.cf-dash .footprint-report-page > .report-generate-notice {
+  order: 4;
+}
+
+.cf-dash .footprint-report-page > .footprint-preview-layout {
+  order: 5;
+}
+
+.cf-dash .footprint-report-page > .footprint-soc-summary-block {
+  order: 6;
+}
+
+.cf-dash .footprint-report-page > .footprint-net-result-block {
+  order: 7;
+}
+
+.cf-dash .footprint-report-page > .footprint-soc-contribution-block {
+  order: 11;
+}
+
+.cf-dash .footprint-filtered-data-block {
+  display: none;
+}
+
 .cf-dash .footprint-exec-grid {
   grid-template-columns: repeat(4, minmax(0,1fr));
+}
+
+.cf-dash .footprint-net-result-block {
+  grid-template-columns: repeat(3, minmax(0,1fr));
 }
 
 .cf-dash .footprint-order-grid {
@@ -2301,6 +2369,23 @@
 
 .cf-dash .footprint-doc-order li {
   margin: 3px 0;
+}
+
+.cf-dash .footprint-doc-footer {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  gap: 4px 12px;
+  margin-top: 18px;
+  border-top: 1px solid #d1d5db;
+  padding-top: 10px;
+  color: #4b5563;
+  font-size: 10px;
+}
+
+.cf-dash .footprint-doc-footer strong {
+  grid-column: 1 / -1;
+  color: #111827;
+  font-size: 11px;
 }
 
 /* Leaflet (global — can't be scoped) */

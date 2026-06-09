@@ -1,12 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
+import * as XLSX from "xlsx";
 import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
 import { ThailandMap } from "../components/map/ThailandMap";
 import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCfSpatialNodes } from "../services/dashboardApi";
 import type { CampCarbonSummary, CampFieldCarbonDetail, DataResult, FieldCarbonDetail, ProcessInputComparison, SpatialLevel, SpatialSummaryNode } from "../types/dashboard";
 import { MapPinned } from "lucide-react";
 import "../cf-dashboard.css";
+
+type SpatialPreviewTab = "pdf" | "excel";
+
+interface SpatialExcelRows {
+  campRows: Record<string, unknown>[];
+  provinceRows: Record<string, unknown>[];
+  plotRows: Record<string, unknown>[];
+}
 
 function isField(node?: SpatialSummaryNode): node is FieldCarbonDetail {
   return node?.level === "field";
@@ -90,6 +99,10 @@ function formatNumber(value: number, digits = 2) {
   return value.toLocaleString(undefined, { maximumFractionDigits: digits });
 }
 
+function rowsForSheet<T extends object>(rows: T[]): Record<string, unknown>[] {
+  return rows.length ? rows.map((row) => ({ ...row }) as Record<string, unknown>) : [{}];
+}
+
 function creditSummary(baseline: number, current: number) {
   const diff = baseline - current;
   const credit = Math.max(diff, 0);
@@ -98,6 +111,109 @@ function creditSummary(baseline: number, current: number) {
     credit,
     direction: diff >= 0 ? "ลดลง" : "เพิ่มขึ้น",
   };
+}
+
+function caneTypeForField(field: CampFieldCarbonDetail) {
+  const record = field as CampFieldCarbonDetail & { caneType?: string; cane_type?: string; caneName?: string; cane_name?: string };
+  return record.caneType ?? record.cane_type ?? record.caneName ?? record.cane_name ?? "-";
+}
+
+function buildSpatialExcelRows(fieldsForExport: CampFieldCarbonDetail[], campsForScope: CampCarbonSummary[]): SpatialExcelRows {
+  const campsForExport = campsForScope.filter((camp) => fieldsForExport.some((field) => field.campId === camp.campId));
+  const campRows = campsForExport.map((camp) => {
+    const campFields = fieldsForExport.filter((field) => field.campId === camp.campId);
+    const province = Array.from(new Set(campFields.map((field) => field.province).filter(Boolean))).join(", ") || "-";
+    const farmerCount = new Set(campFields.map((field) => field.farmerName).filter(Boolean)).size;
+    const campBaseline = campFields.reduce((sum, field) => sum + field.baselineEmission, 0) || camp.baselineCo2eTotal;
+    const campCurrent = campFields.reduce((sum, field) => sum + field.currentEmission, 0) || camp.currentCo2eTotal;
+    return {
+      "Camp Code": camp.campId,
+      "Camp Name": camp.campName,
+      Province: province,
+      "Number of Plots": campFields.length || camp.fieldCount,
+      "Number of Farmers": farmerCount,
+      "Area (Rai)": Number((campFields.reduce((sum, field) => sum + field.areaRai, 0) || camp.areaRai).toFixed(2)),
+      "Carbon Footprint (tCO2e)": Number(campCurrent.toFixed(2)),
+      "Carbon Credit (tCO2e)": Number(Math.max(campBaseline - campCurrent, 0).toFixed(2)),
+    };
+  });
+
+  const provinceMap = new Map<string, CampFieldCarbonDetail[]>();
+  fieldsForExport.forEach((field) => {
+    const province = field.province || "-";
+    provinceMap.set(province, [...(provinceMap.get(province) ?? []), field]);
+  });
+  const provinceRows = Array.from(provinceMap.entries()).map(([province, fields]) => {
+    const campIds = new Set(fields.map((field) => field.campId));
+    const farmers = new Set(fields.map((field) => field.farmerName).filter(Boolean));
+    const baseline = fields.reduce((sum, field) => sum + field.baselineEmission, 0);
+    const current = fields.reduce((sum, field) => sum + field.currentEmission, 0);
+    return {
+      Province: province,
+      "Number of Camps": campIds.size,
+      "Number of Plots": fields.length,
+      "Number of Farmers": farmers.size,
+      "Area (Rai)": Number(fields.reduce((sum, field) => sum + field.areaRai, 0).toFixed(2)),
+      "Carbon Footprint (tCO2e)": Number(current.toFixed(2)),
+      "Carbon Credit (tCO2e)": Number(Math.max(baseline - current, 0).toFixed(2)),
+    };
+  });
+
+  const plotRows = fieldsForExport.map((field) => {
+    const reduction = field.baselineEmission - field.currentEmission;
+    return {
+      "Plot ID": field.fieldCode || field.id,
+      Camp: field.campName,
+      Province: field.province,
+      Farmer: field.farmerName,
+      "Area (Rai)": Number(field.areaRai.toFixed(2)),
+      "Cane Type": caneTypeForField(field),
+      "Baseline Emission (tCO2e)": Number(field.baselineEmission.toFixed(2)),
+      "Project Emission (tCO2e)": Number(field.currentEmission.toFixed(2)),
+      "Emission Reduction (tCO2e)": Number(reduction.toFixed(2)),
+      "Carbon Credit (tCO2e)": Number(Math.max(reduction, 0).toFixed(2)),
+    };
+  });
+
+  return { campRows, provinceRows, plotRows };
+}
+
+function SpatialExcelPreview({ rows }: { rows: SpatialExcelRows }) {
+  const sheets = [
+    ["Camp Summary", rows.campRows],
+    ["Province Summary", rows.provinceRows],
+    ["Plot Detail", rows.plotRows],
+  ] as const;
+
+  return (
+    <div className="excel-sheet-grid">
+      {sheets.map(([title, sheetRows]) => {
+        const previewRows = sheetRows.slice(0, 6);
+        const columns = Object.keys(sheetRows[0] ?? {});
+        return (
+          <div key={title}>
+            <h3>{title}</h3>
+            <table className="report-table">
+              <thead>
+                <tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr>
+              </thead>
+              <tbody>
+                {previewRows.map((row, index) => (
+                  <tr key={`${title}-${index}`}>
+                    {columns.map((column) => <td key={`${title}-${index}-${column}`}>{String(row[column] ?? "-")}</td>)}
+                  </tr>
+                ))}
+                {!previewRows.length && (
+                  <tr><td colSpan={Math.max(columns.length, 1)}>No data for current filters</td></tr>
+                )}
+              </tbody>
+            </table>
+            {sheetRows.length > previewRows.length && <p className="muted export-preview-note">Showing first {previewRows.length} of {sheetRows.length} rows. Export Excel includes all filtered rows.</p>}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function fieldThumbnail(field: CampFieldCarbonDetail, index: number) {
@@ -194,7 +310,8 @@ export function CfSpatialPage() {
   const [selectedCampId, setSelectedCampId] = useState<number | "all">("all");
   const [selectedBoundaryFieldId, setSelectedBoundaryFieldId] = useState("");
   const [showAllCampRows, setShowAllCampRows] = useState(false);
-  const [generatedDocument, setGeneratedDocument] = useState<{ title: string; fields: CampFieldCarbonDetail[] } | null>(null);
+  const [generatedDocument, setGeneratedDocument] = useState<{ title: string; fields: CampFieldCarbonDetail[]; camps: CampCarbonSummary[] } | null>(null);
+  const [activePreviewTab, setActivePreviewTab] = useState<SpatialPreviewTab>("pdf");
   const [documentRenderId, setDocumentRenderId] = useState(0);
   const [generatingDocument, setGeneratingDocument] = useState(false);
   const [documentNotice, setDocumentNotice] = useState("");
@@ -321,7 +438,17 @@ export function CfSpatialPage() {
     ? `รายละเอียดรายแปลง ${selectedCamp.campName}`
     : `รายละเอียดรายแปลง ${selected?.name ?? "ภาพรวมทุกแคมป์"}`;
 
-  const documentIsCurrent = Boolean(generatedDocument && generatedDocument.title === documentTitle && generatedDocument.fields.map((field) => field.id).join("|") === documentFields.map((field) => field.id).join("|"));
+  const documentCamps = selectedCamp ? [selectedCamp] : scopedCamps;
+  const documentIsCurrent = Boolean(
+    generatedDocument
+      && generatedDocument.title === documentTitle
+      && generatedDocument.fields.map((field) => field.id).join("|") === documentFields.map((field) => field.id).join("|")
+      && generatedDocument.camps.map((camp) => camp.campId).join("|") === documentCamps.map((camp) => camp.campId).join("|"),
+  );
+  const generatedExcelRows = useMemo(
+    () => generatedDocument ? buildSpatialExcelRows(generatedDocument.fields, generatedDocument.camps) : undefined,
+    [generatedDocument],
+  );
 
   useEffect(() => {
     if (selectedBoundaryFieldId && !displayCampFields.some((field) => field.id === selectedBoundaryFieldId)) {
@@ -374,8 +501,9 @@ export function CfSpatialPage() {
 
   const generateSpatialDocument = () => {
     setDocumentNotice("กำลังสร้าง Preview เอกสารตามฟิลเตอร์ปัจจุบัน...");
-    setGeneratedDocument({ title: documentTitle, fields: documentFields });
+    setGeneratedDocument({ title: documentTitle, fields: documentFields, camps: documentCamps });
     setDocumentRenderId((value) => value + 1);
+    setActivePreviewTab("pdf");
   };
 
   const markSpatialFilterChanged = () => {
@@ -401,6 +529,15 @@ export function CfSpatialPage() {
     a.download = "mitrphol-spatial-fields.doc";
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const exportExcel = () => {
+    if (!generatedExcelRows || !documentIsCurrent) return;
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(generatedExcelRows.campRows)), "Camp Summary");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(generatedExcelRows.provinceRows)), "Province Summary");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(generatedExcelRows.plotRows)), "Plot Detail");
+    XLSX.writeFile(wb, "mitrphol-spatial-carbon-export.xlsx");
   };
 
   const breadcrumbs = useMemo(() => {
@@ -685,26 +822,51 @@ export function CfSpatialPage() {
         <section className="card report-toolbar spatial-export-toolbar">
           <div>
             <div className="card-title">เอกสารรายละเอียดรายแปลง</div>
-            <p className="muted">Preview เดียวกันนี้ใช้สร้างทั้ง PDF และ Word ตามขอบเขตพื้นที่หรือแคมป์ที่เลือก</p>
+            <p className="muted">Preview PDF ใช้ตรวจรูปแบบเอกสารรายแปลง ส่วน Excel จะ Export เป็น 3 Sheet: Camp Summary, Province Summary และ Plot Detail</p>
+            <p className="muted export-preview-note">หมายเหตุ: Word ไม่มี preview แยก เพราะเนื้อหาภายในเหมือน PDF และเตรียมไว้ให้ดาวน์โหลดไปแก้ไขต่อใน Word ได้เอง</p>
           </div>
           <button className="run-all-btn report-generate-btn" type="button" onClick={generateSpatialDocument} disabled={!documentFields.length || generatingDocument}>
             สร้างเอกสารใหม่ (Generate Report)
           </button>
           <button className="run-btn pdf-download-btn" type="button" onClick={downloadPdf} disabled={!pdfUrl || generatingDocument || !documentIsCurrent}>Download PDF</button>
           <button className="run-btn word-download-btn" type="button" onClick={downloadWordDraft} disabled={!generatedDocument || !documentIsCurrent}>Download Word</button>
+          <button className="run-all-btn excel-download-btn" type="button" onClick={exportExcel} disabled={!generatedExcelRows || !documentIsCurrent}>Export Excel</button>
         </section>
 
         {documentNotice && <div className="report-generate-notice">{documentNotice}</div>}
 
-        <section className="card spatial-doc-preview-card">
+        <section className="card report-preview-panel spatial-doc-preview-card">
+          <div className="report-preview-tabs spatial-preview-tabs" role="tablist" aria-label="Spatial report preview tabs">
+            {[
+              ["pdf", "PDF"],
+              ["excel", "Excel"],
+            ].map(([tab, label]) => (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={activePreviewTab === tab}
+                className={activePreviewTab === tab ? "active" : ""}
+                onClick={() => setActivePreviewTab(tab as SpatialPreviewTab)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <div className="card-title">Preview เอกสารรายแปลง</div>
+          <p className="muted export-preview-note">Preview ไม่ได้มีการแสดงข้อมูลของ Word เนื่องจากใช้เนื้อหาเดียวกันกับ PDF</p>
           {!generatedDocument && <div className="empty-state">เลือกฟิลเตอร์ให้เรียบร้อย แล้วกดสร้างเอกสารใหม่เพื่อ Render preview</div>}
-          <div className="spatial-doc-preview" style={{ display: generatedDocument ? undefined : "none" }}>
+          <div className="spatial-doc-preview" style={{ display: generatedDocument && activePreviewTab === "pdf" ? undefined : "none" }}>
             {generatingDocument && <div className="empty-state">กำลัง Render PDF preview...</div>}
             <div ref={spatialDocRef}>
               <SpatialDocument title={generatedDocument?.title ?? documentTitle} fields={generatedDocument?.fields ?? []} />
             </div>
           </div>
+          {generatedDocument && activePreviewTab === "excel" && generatedExcelRows && (
+            <div className="excel-preview">
+              <SpatialExcelPreview rows={generatedExcelRows} />
+            </div>
+          )}
         </section>
 
         <section className="grid2">

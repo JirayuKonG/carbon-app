@@ -197,7 +197,8 @@ function PeriodSwitch({ value, currentYear, onChange }: { value: PeriodMode; cur
 export function CfProcessPage() {
   const [period, setPeriod] = useState<PeriodMode>("project");
   const [activeView, setActiveView] = useState<FootprintView>("emissions");
-  const [donutMode, setDonutMode] = useState<DonutMode>("camp");
+  const [donutMode, setDonutMode] = useState<DonutMode>("activity");
+  const [socContributionMode, setSocContributionMode] = useState<DonutMode>("activity");
   const [caneScope, setCaneScope] = useState<CaneScope>("all");
   const [scope, setScope] = useState<ScopeValue>("all");
   const [regionId, setRegionId] = useState("all");
@@ -335,6 +336,27 @@ export function CfProcessPage() {
     { name: "Green Manure", emission: Number((totalSocIncrease * 0.22).toFixed(2)) },
     { name: "Trash Retention", emission: Number((totalSocIncrease * 0.16).toFixed(2)) },
   ];
+  const socFieldRows = selectedField
+    ? [selectedField]
+    : selectedCampId
+    ? fieldsInCamp
+    : fieldsInRegion;
+  const socContributionByCamp: ActivityValue[] = sequestrationRows.map((row) => ({
+    name: row.name,
+    emission: row.socIncrease,
+  }));
+  const socContributionByField: ActivityValue[] = socFieldRows.map((field) => {
+    const reduction = Math.max(field.baselineEmission - field.currentEmission, 0);
+    return {
+      name: field.fieldName,
+      emission: Number(((reduction * 0.35 + field.areaRai * 0.012) * caneMeta.factor).toFixed(2)),
+    };
+  });
+  const socContributionChartData = socContributionMode === "camp"
+    ? socContributionByCamp
+    : socContributionMode === "field"
+    ? socContributionByField
+    : socContributionData;
   const socTrendRows = [
     { label: "Baseline", value: socBaselineTotal },
     { label: currentYear || "Project", value: socTotal },
@@ -415,6 +437,60 @@ export function CfProcessPage() {
               ผลลัพธ์สุทธิ
             </button>
           </div>
+        </section>
+
+        <section className="card process-scope-panel process-executive-filter">
+          <div>
+            <div className="card-title">ตัวกรองภาพรวม Carbon Footprint</div>
+            <p className="muted">หน้านี้ใช้ดูภาพรวมระดับผู้บริหาร เลือกเฉพาะปีดำเนินการ ภาค/โซน และศูนย์ส่งเสริมฯ</p>
+          </div>
+          <label>
+            ปีดำเนินการ
+            <select value={period} onChange={(event) => setPeriod(event.target.value as PeriodMode)}>
+              <option value="project">ปีดำเนินการ {currentYear || overviewKpi?.currentYear || "-"}</option>
+              <option value="baseline_avg">ปีฐานเฉลี่ย</option>
+            </select>
+          </label>
+          <label>
+            ภาค/โซน
+            <select
+              value={regionId}
+              onChange={(event) => {
+                setRegionId(event.target.value);
+                setScope("all");
+                setSelectedFieldId("all");
+              }}
+            >
+              <option value="all">ทุกภาค/โซน</option>
+              {regionOptions.map((region) => (
+                <option key={region.id} value={region.id}>{region.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            ศูนย์ส่งเสริมฯ (แคมป์)
+            <select
+              value={scope}
+              onChange={(event) => {
+                setScope(event.target.value as ScopeValue);
+                setSelectedFieldId("all");
+              }}
+            >
+              <option value="all">{selectedRegion ? `ทุกแคมป์ใน ${selectedRegion.name}` : "ทุกแคมป์"}</option>
+              {campsInRegion.map((camp) => (
+                <option key={camp.campId} value={`camp-${camp.campId}`}>{camp.campName}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            ประเภทอ้อย
+            <select value={caneScope} onChange={(event) => setCaneScope(event.target.value as CaneScope)}>
+              <option value="all">อ้อยปลูก + อ้อยตอ + พื้นที่พักดิน</option>
+              <option value="new">อ้อยปลูกใหม่</option>
+              <option value="ratoon">อ้อยตอ</option>
+              <option value="fallow">พื้นที่พักดิน</option>
+            </select>
+          </label>
         </section>
 
         <section className="premium-summary-grid footprint-process-summary" aria-label="สรุป Carbon Footprint">
@@ -504,60 +580,6 @@ export function CfProcessPage() {
           )}
         </section>
 
-        <section className="card process-scope-panel process-executive-filter">
-          <div>
-            <div className="card-title">ตัวกรองภาพรวม Carbon Footprint</div>
-            <p className="muted">หน้านี้ใช้ดูภาพรวมระดับผู้บริหาร เลือกเฉพาะปีดำเนินการ ภาค/โซน และศูนย์ส่งเสริมฯ</p>
-          </div>
-          <label>
-            ปีดำเนินการ
-            <select value={period} onChange={(event) => setPeriod(event.target.value as PeriodMode)}>
-              <option value="project">ปีดำเนินการ {currentYear || overviewKpi?.currentYear || "-"}</option>
-              <option value="baseline_avg">ปีฐานเฉลี่ย</option>
-            </select>
-          </label>
-          <label>
-            ภาค/โซน
-            <select
-              value={regionId}
-              onChange={(event) => {
-                setRegionId(event.target.value);
-                setScope("all");
-                setSelectedFieldId("all");
-              }}
-            >
-              <option value="all">ทุกภาค/โซน</option>
-              {regionOptions.map((region) => (
-                <option key={region.id} value={region.id}>{region.name}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            ศูนย์ส่งเสริมฯ (แคมป์)
-            <select
-              value={scope}
-              onChange={(event) => {
-                setScope(event.target.value as ScopeValue);
-                setSelectedFieldId("all");
-              }}
-            >
-              <option value="all">{selectedRegion ? `ทุกแคมป์ใน ${selectedRegion.name}` : "ทุกแคมป์"}</option>
-              {campsInRegion.map((camp) => (
-                <option key={camp.campId} value={`camp-${camp.campId}`}>{camp.campName}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            ประเภทอ้อย
-            <select value={caneScope} onChange={(event) => setCaneScope(event.target.value as CaneScope)}>
-              <option value="all">อ้อยปลูก + อ้อยตอ + พื้นที่พักดิน</option>
-              <option value="new">อ้อยปลูกใหม่</option>
-              <option value="ratoon">อ้อยตอ</option>
-              <option value="fallow">พื้นที่พักดิน</option>
-            </select>
-          </label>
-        </section>
-
         <section className="card process-scope-panel" style={{ display: "none" }}>
           <div>
             <div className="card-title">มุมมองกระบวนการเพาะปลูก</div>
@@ -634,8 +656,8 @@ export function CfProcessPage() {
               <div className="card-title">CO2e ตามกลุ่ม · {selectedField?.fieldName ?? selectedCamp?.campName ?? `ปีดำเนินการ ${currentYear || "-"}`}</div>
               <div className="group-mode-switch" role="group" aria-label="เลือกกลุ่มข้อมูลโดนัท">
                 {[
-                  ["camp", "ตามแคมป์"],
                   ["activity", "ตามกิจกรรม"],
+                  ["camp", "ตามแคมป์"],
                   ["field", "ตามแปลง"],
                 ].map(([value, label]) => (
                   <button
@@ -752,8 +774,26 @@ export function CfProcessPage() {
 
             <section className="grid2">
               <article className="card">
-                <div className="card-title">Contribution · SOC Practices</div>
-                <ProcessDoughnut data={socContributionData} />
+                <div className="card-title-row">
+                  <div className="card-title">Contribution · SOC Practices</div>
+                  <div className="group-mode-switch" role="group" aria-label="เลือกกลุ่มข้อมูล SOC contribution">
+                    {[
+                      ["activity", "ตามกิจกรรม"],
+                      ["camp", "ตามแคมป์"],
+                      ["field", "ตามแปลง"],
+                    ].map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        className={socContributionMode === value ? "active" : ""}
+                        onClick={() => setSocContributionMode(value as DonutMode)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <ProcessDoughnut data={socContributionChartData} />
               </article>
               <article className="card">
                 <div className="card-title">SOC Before vs After · ปีฐาน vs ปีดำเนินการ</div>

@@ -973,3 +973,10 @@ Backend API:
 - Row 2 `Headline KPI`: Gross Emission, SOC Offset, Net Emission, Reduction
 - Row 3 `SOC Summary`: Carbon Sequestration Summary, SOC Baseline, SOC Project, SOC Increase
 - ค่า Scope ยังคงเปลี่ยนตามตัวกรองพื้นที่/แคมป์/รายแปลงของหน้า report
+
+## อัปเดต KPI และตัวกรองหน้า Footprint Report ล่าสุด
+
+- ปรับ dropdown `รายแปลงในแคมป์` ใน `ตัวกรองรายงาน` ให้อยู่ในกรอบ filter ด้วย responsive grid และให้หัวข้อ filter กินเต็มแถว
+- Redesign KPI เป็น parent section + child KPI cards แบบเดียวกันทั้ง 3 ส่วน: `Project Context`, `Emission Summary`, `Carbon Sequestration Summary`
+- KPI cards ใช้ white background, light border, 16px radius, equal-height card layout และ spacing สม่ำเสมอ
+- Highlight `Net Emission` เป็น primary KPI ในแถว `Emission Summary`

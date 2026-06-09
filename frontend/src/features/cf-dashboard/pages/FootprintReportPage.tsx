@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
@@ -1001,6 +1002,58 @@ export function CfFootprintReportPage() {
   };
 
   const scopeSelectValue = selectedField ? `field:${selectedField.id}` : scope;
+  const kpiSectionStyle: CSSProperties = {
+    display: "grid",
+    gap: 16,
+    order: 5,
+    borderRadius: 16,
+    border: "1px solid #E5E7EB",
+    background: "#FFFFFF",
+    boxShadow: "0 10px 28px rgba(15, 23, 42, 0.06)",
+  };
+  const kpiGridStyle = (minWidth = 170): CSSProperties => ({
+    display: "grid",
+    gridTemplateColumns: `repeat(auto-fit, minmax(${minWidth}px, 1fr))`,
+    gap: 16,
+    alignItems: "stretch",
+  });
+  const kpiCardStyle = (primary = false): CSSProperties => ({
+    display: "flex",
+    minHeight: 118,
+    flexDirection: "column",
+    justifyContent: "space-between",
+    gap: 14,
+    border: `1px solid ${primary ? "#93C5FD" : "#E5E7EB"}`,
+    borderRadius: 16,
+    background: primary ? "#EFF6FF" : "#FFFFFF",
+    padding: "16px 18px",
+    boxShadow: primary ? "0 12px 30px rgba(37, 99, 235, 0.12)" : "none",
+  });
+  const kpiLabelStyle: CSSProperties = {
+    color: "#6B7280",
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: "0.02em",
+    textTransform: "uppercase",
+  };
+  const kpiValueStyle = (primary = false): CSSProperties => ({
+    color: primary ? "#1D4ED8" : "#111827",
+    fontSize: 24,
+    fontWeight: 700,
+    lineHeight: 1.15,
+  });
+  const kpiMetaStyle: CSSProperties = {
+    color: "#6B7280",
+    fontSize: 12,
+    lineHeight: 1.4,
+  };
+  const renderKpiCard = (label: string, value: ReactNode, meta: ReactNode, primary = false) => (
+    <article key={label} style={kpiCardStyle(primary)}>
+      <span style={kpiLabelStyle}>{label}</span>
+      <strong style={kpiValueStyle(primary)}>{value}</strong>
+      <small style={kpiMetaStyle}>{meta}</small>
+    </article>
+  );
 
   return (
     <div className="cf-dash">
@@ -1032,47 +1085,50 @@ export function CfFootprintReportPage() {
           </div>
         )}
 
-        <section className="card process-scope-panel footprint-report-filter footprint-area-filter">
-          <div>
+        <section
+          className="card process-scope-panel footprint-report-filter footprint-area-filter"
+          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", alignItems: "end", overflow: "hidden" }}
+        >
+          <div style={{ gridColumn: "1 / -1", minWidth: 0 }}>
             <div className="card-title">ตัวกรองรายงาน</div>
             <p className="muted">เลือกพื้นที่ตามลำดับ แล้วเลือกแคมป์หรือรายแปลงก่อนกดสร้างเอกสาร ประเภทอ้อยเลือกได้ทุกระดับฟิลเตอร์</p>
           </div>
-          <label>
+          <label style={{ minWidth: 0 }}>
             ภาค
             <select value={areaPath.region} onChange={(event) => selectAreaPath("region", event.target.value)}>
               <option value="">ทั้งหมด</option>
               {areaOptionsFor("region", rootNode?.id).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
             </select>
           </label>
-          <label>
+          <label style={{ minWidth: 0 }}>
             จังหวัด
             <select value={areaPath.province} onChange={(event) => selectAreaPath("province", event.target.value)} disabled={!areaPath.region}>
               <option value="">ทุกจังหวัด</option>
               {areaOptionsFor("province", areaPath.region).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
             </select>
           </label>
-          <label>
+          <label style={{ minWidth: 0 }}>
             อำเภอ
             <select value={areaPath.district} onChange={(event) => selectAreaPath("district", event.target.value)} disabled={!areaPath.province}>
               <option value="">ทุกอำเภอ</option>
               {areaOptionsFor("district", areaPath.province).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
             </select>
           </label>
-          <label>
+          <label style={{ minWidth: 0 }}>
             ตำบล
             <select value={areaPath.subdistrict} onChange={(event) => selectAreaPath("subdistrict", event.target.value)} disabled={!areaPath.district}>
               <option value="">ทุกตำบล</option>
               {areaOptionsFor("subdistrict", areaPath.district).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
             </select>
           </label>
-          <label>
+          <label style={{ minWidth: 0 }}>
             แปลง
             <select value={areaPath.field} onChange={(event) => selectAreaPath("field", event.target.value)} disabled={!areaPath.subdistrict}>
               <option value="">ทุกแปลง</option>
               {areaOptionsFor("field", areaPath.subdistrict).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
             </select>
           </label>
-          <label>
+          <label style={{ minWidth: 0 }}>
             รายแปลงในแคมป์
             <select value={scopeSelectValue} onChange={(event) => selectScopeValue(event.target.value)}>
               <option value="all">ภาพรวมตามพื้นที่/แปลงที่เลือก</option>
@@ -1205,63 +1261,42 @@ export function CfFootprintReportPage() {
           )}
         </section>
 
-        <section className="process-summary-grid footprint-kpi-row footprint-context-grid" style={{ order: 5, gridTemplateColumns: "repeat(5, minmax(0,1fr))" }}>
-          <article>
-            <span>Scope</span>
-            <strong>{selectedScopeLabel}</strong>
-            <small>{selectedCanePercent.toFixed(1)}% selected cane type share</small>
-          </article>
-          <article>
-            <span>Project Year</span>
-            <strong>{currentYear || "-"}</strong>
-            <small>Current reporting period</small>
-          </article>
-          <article>
-            <span>Baseline Year</span>
-            <strong>{baselineYearLabel}</strong>
-            <small>Baseline comparison period</small>
-          </article>
-          <article>
-            <span>Area</span>
-            <strong>{formatNumber(scopedKpi.areaRai, 0)}</strong>
-            <small>rai</small>
-          </article>
-          <article>
-            <span>Intensity</span>
-            <strong>{formatNumber(scopedKpi.co2ePerTon, 3)}</strong>
-            <small>tCO2e/ton cane</small>
-          </article>
+        <section className="card full-span footprint-kpi-section footprint-context-grid" style={kpiSectionStyle}>
+          <div>
+            <div className="card-title">Project Context</div>
+            <p className="muted">Current reporting scope and baseline context from the selected filters.</p>
+          </div>
+          <div style={kpiGridStyle(165)}>
+            {renderKpiCard("Scope", selectedScopeLabel, `${selectedCanePercent.toFixed(1)}% selected cane type share`)}
+            {renderKpiCard("Project Year", currentYear || "-", "Current reporting period")}
+            {renderKpiCard("Baseline Year", baselineYearLabel, "Baseline comparison period")}
+            {renderKpiCard("Area", formatNumber(scopedKpi.areaRai, 0), "rai")}
+            {renderKpiCard("Intensity", formatNumber(scopedKpi.co2ePerTon, 3), "tCO2e/ton cane")}
+          </div>
         </section>
 
-        <section className="process-summary-grid footprint-kpi-row footprint-headline-grid" style={{ order: 6, gridTemplateColumns: "repeat(4, minmax(0,1fr))" }}>
-          <article>
-            <span>Gross Emission</span>
-            <strong>{formatNumber(currentTotal)}</strong>
-            <small>tCO2e</small>
-          </article>
-          <article>
-            <span>SOC Offset</span>
-            <strong className="green-text">{formatNumber(socIncrease)}</strong>
-            <small>tCO2e</small>
-          </article>
-          <article>
-            <span>Net Emission</span>
-            <strong className={netEmission <= currentTotal ? "green-text" : "red-text"}>{formatNumber(netEmission)}</strong>
-            <small>tCO2e</small>
-          </article>
-          <article>
-            <span>Reduction</span>
-            <strong className={reduction.diff >= 0 ? "green-text" : "red-text"}>{formatNumber(Math.abs(reduction.diff))}</strong>
-            <small>{Math.abs(reduction.pct).toFixed(1)}% · tCO2e</small>
-          </article>
+        <section className="card full-span footprint-kpi-section footprint-headline-grid" style={{ ...kpiSectionStyle, order: 6 }}>
+          <div>
+            <div className="card-title">Emission Summary</div>
+            <p className="muted">Executive carbon result after SOC offset and baseline reduction comparison.</p>
+          </div>
+          <div style={kpiGridStyle(180)}>
+            {renderKpiCard("Gross Emission", formatNumber(currentTotal), "tCO2e")}
+            {renderKpiCard("SOC Offset", formatNumber(socIncrease), "tCO2e")}
+            {renderKpiCard("Net Emission", formatNumber(netEmission), "tCO2e", true)}
+            {renderKpiCard("Reduction", formatNumber(Math.abs(reduction.diff)), `${Math.abs(reduction.pct).toFixed(1)}% · tCO2e`)}
+          </div>
         </section>
 
-        <section className="card full-span footprint-kpi-row footprint-soc-summary-block" style={{ order: 7 }}>
-          <div className="card-title">Carbon Sequestration Summary</div>
-          <div className="mini-stat-grid wide">
-            <div><strong>{formatNumber(socBaseline)}</strong><span>SOC Baseline · tCO2e</span></div>
-            <div><strong>{formatNumber(socProject)}</strong><span>SOC Project · tCO2e</span></div>
-            <div><strong className="green-text">{formatNumber(socIncrease)}</strong><span>SOC Increase · tCO2e</span></div>
+        <section className="card full-span footprint-kpi-section footprint-soc-summary-block" style={{ ...kpiSectionStyle, order: 7 }}>
+          <div>
+            <div className="card-title">Carbon Sequestration Summary</div>
+            <p className="muted">SOC baseline, project value, and increase used as the carbon offset summary.</p>
+          </div>
+          <div style={kpiGridStyle(220)}>
+            {renderKpiCard("SOC Baseline", formatNumber(socBaseline), "tCO2e")}
+            {renderKpiCard("SOC Project", formatNumber(socProject), "tCO2e")}
+            {renderKpiCard("SOC Increase", formatNumber(socIncrease), "tCO2e")}
           </div>
         </section>
 
