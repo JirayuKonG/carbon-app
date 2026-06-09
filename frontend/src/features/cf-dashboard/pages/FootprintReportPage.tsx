@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
@@ -92,6 +93,41 @@ interface FootprintReportSnapshot {
   caneRows: CaneProcessReportRow[];
   inputs: ProcessInputComparison[];
   kpi: OverviewKpi;
+}
+
+function socValues(baselineTotal: number, currentTotal: number, areaRai: number) {
+  const socIncrease = Math.max(baselineTotal - currentTotal, 0) * 0.35;
+  const socBaseline = areaRai * 1.8;
+  const socProject = socBaseline + socIncrease;
+  const netEmission = Math.max(currentTotal - socIncrease, 0);
+  return { socBaseline, socProject, socIncrease, netEmission };
+}
+
+function socPracticeValues(socIncrease: number) {
+  return {
+    vinasse: socIncrease * 0.34,
+    filterCake: socIncrease * 0.28,
+    greenManure: socIncrease * 0.22,
+    trashRetention: socIncrease * 0.16,
+  };
+}
+
+function caneTypeSummaryRows(caneRows: CaneProcessReportRow[]) {
+  const grouped = new Map<string, { caneType: string; area: number; baseline: number; project: number; reduction: number }>();
+  caneRows.forEach((row) => {
+    const current = grouped.get(row.cane.name) ?? {
+      caneType: row.cane.name,
+      area: row.cane.areaRai,
+      baseline: 0,
+      project: 0,
+      reduction: 0,
+    };
+    current.baseline += row.baselineEmission;
+    current.project += row.currentEmission;
+    current.reduction += row.diff;
+    grouped.set(row.cane.name, current);
+  });
+  return Array.from(grouped.values());
 }
 
 function sumEmission(rows: ProcessActivityBreakdown[]) {
@@ -252,6 +288,9 @@ function footprintWordHtml({
   inputs: ProcessInputComparison[];
   kpi: OverviewKpi;
 }) {
+  const { socBaseline, socProject, socIncrease, netEmission } = socValues(baselineTotal, currentTotal, kpi.areaRai);
+  const practice = socPracticeValues(socIncrease);
+  const generatedDate = new Date().toLocaleString();
   const processHtml = processRows.map((row) => `
     <tr>
       <td>${escapeHtml(row.process)}</td>
@@ -321,19 +360,44 @@ function footprintWordHtml({
           <tr><th>Intensity</th><td>${formatNumber(kpi.co2ePerTon, 3)} tCO2e/ตันอ้อย</td></tr>
         </table>
 
-        <h2>3. ลำดับหัวข้อที่ควรมีในรายงาน</h2>
-        <ol>${reportSections().map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol>
-
-        <h2>4. Hotspot รายกระบวนการ</h2>
+        <h2>3. Hotspot รายกระบวนการ</h2>
         <table><thead><tr><th>กระบวนการ</th><th>กิจกรรมหลัก</th><th>ปีฐาน</th><th>ปีรายงาน</th><th>ผลต่าง</th><th>สัดส่วน</th></tr></thead><tbody>${processHtml}</tbody></table>
 
-        <h2>5. ประเภทอ้อย x กระบวนการ</h2>
+        <h2>4. ประเภทอ้อย x กระบวนการ</h2>
         <table><thead><tr><th>ประเภทอ้อย</th><th>สัดส่วนพื้นที่</th><th>กระบวนการ</th><th>ปีรายงาน</th><th>สัดส่วนรวม</th></tr></thead><tbody>${caneHtml}</tbody></table>
 
-        <h2>6. ปัจจัยกิจกรรมหลัก</h2>
+        <h2>5. ปัจจัยกิจกรรมหลัก</h2>
         <table><thead><tr><th>กระบวนการ</th><th>ปุ๋ยปีฐาน kg</th><th>ปุ๋ยปีรายงาน kg</th><th>น้ำมันปีฐาน L</th><th>น้ำมันปีรายงาน L</th></tr></thead><tbody>${inputHtml}</tbody></table>
+        <h2>6. SOC Section</h2>
+        <table>
+          <tr><th>SOC Baseline</th><th>SOC Project</th><th>SOC Increase</th></tr>
+          <tr><td>${formatNumber(socBaseline)} tCO2e</td><td>${formatNumber(socProject)} tCO2e</td><td>${formatNumber(socIncrease)} tCO2e</td></tr>
+        </table>
+        <table>
+          <tr><th>Vinasse</th><th>Filter Cake</th><th>Green Manure</th><th>Trash Retention</th></tr>
+          <tr><td>${formatNumber(practice.vinasse)} tCO2e</td><td>${formatNumber(practice.filterCake)} tCO2e</td><td>${formatNumber(practice.greenManure)} tCO2e</td><td>${formatNumber(practice.trashRetention)} tCO2e</td></tr>
+        </table>
 
-        <h2>7. หลักฐานที่ควรแนบ</h2>
+        <h2>7. Net Result Section</h2>
+        <table>
+          <tr><th>Gross Emission</th><th>SOC Offset</th><th>Net Emission</th></tr>
+          <tr><td>${formatNumber(currentTotal)} tCO2e</td><td>${formatNumber(socIncrease)} tCO2e</td><td>${formatNumber(netEmission)} tCO2e</td></tr>
+        </table>
+
+        <h2>8. Metadata</h2>
+        <table>
+          <tr><th>Scope</th><td>${escapeHtml(scopeLabel)}</td><th>Cane Type</th><td>${escapeHtml(caneLabel)}</td></tr>
+          <tr><th>Report Year</th><td>${escapeHtml(currentYear)}</td><th>Generated</th><td>${escapeHtml(generatedDate)}</td></tr>
+        </table>
+
+        <h2>9. Data Source</h2>
+        <table>
+          <tr><th>Source System</th><td>Carbon Analytics Dashboard</td></tr>
+          <tr><th>Baseline Data</th><td>Baseline process activities and input comparison data</td></tr>
+          <tr><th>Project Data</th><td>Current year process activities, cane type summary, and selected area filters</td></tr>
+        </table>
+
+        <h2>10. หลักฐานที่ควรแนบ</h2>
         <ul>
           <li>ทะเบียนแปลง พิกัด พื้นที่ไร่ และเจ้าของแปลง</li>
           <li>บันทึกกิจกรรมรายแปลง ปริมาณปุ๋ย น้ำมัน เครื่องจักร และวันที่ดำเนินงาน</li>
@@ -369,6 +433,8 @@ function FootprintReportDocument({
   kpi: OverviewKpi;
 }) {
   const topRows = processRows.slice(0, 4);
+  const { socBaseline, socProject, socIncrease, netEmission } = socValues(baselineTotal, currentTotal, kpi.areaRai);
+  const generatedDate = new Date();
 
   return (
     <div className="pdd-paper footprint-paper">
@@ -400,7 +466,7 @@ function FootprintReportDocument({
         {reportSections().map((item) => <li key={item}>{item}</li>)}
       </ol>
 
-      <h2>4. Hotspot ที่ควรจัดการก่อน</h2>
+      <h2>3. Hotspot ที่ควรจัดการก่อน</h2>
       <table className="report-table">
         <thead>
           <tr><th>ลำดับ</th><th>กระบวนการ</th><th>กิจกรรมหลัก</th><th>ปีรายงาน</th><th>สัดส่วน</th><th>ผลต่างจากปีฐาน</th></tr>
@@ -419,7 +485,7 @@ function FootprintReportDocument({
         </tbody>
       </table>
 
-      <h2>5. สรุปตามประเภทอ้อย</h2>
+      <h2>4. สรุปตามประเภทอ้อย</h2>
       <table className="report-table compact-report-table">
         <thead>
           <tr><th>ประเภทอ้อย</th><th>กระบวนการ</th><th>ปีรายงาน</th><th>สัดส่วนในประเภท</th><th>สัดส่วนเทียบทั้งขอบเขต</th></tr>
@@ -437,7 +503,7 @@ function FootprintReportDocument({
         </tbody>
       </table>
 
-      <h2>6. ปัจจัยกิจกรรมและหลักฐานที่ควรแนบ</h2>
+      <h2>5. ปัจจัยกิจกรรมและหลักฐานที่ควรแนบ</h2>
       <table className="report-table compact-report-table">
         <thead>
           <tr><th>กระบวนการ</th><th>ปุ๋ยปีฐาน / ปีรายงาน</th><th>น้ำมันปีฐาน / ปีรายงาน</th></tr>
@@ -452,6 +518,29 @@ function FootprintReportDocument({
           ))}
         </tbody>
       </table>
+
+      <h2>Carbon Sequestration & Net Carbon Result</h2>
+      <div className="footprint-doc-block-grid">
+        <div><span>SOC Baseline</span><strong>{formatNumber(socBaseline)} tCO2e</strong></div>
+        <div><span>SOC Project</span><strong>{formatNumber(socProject)} tCO2e</strong></div>
+        <div><span>SOC Increase / Offset</span><strong>{formatNumber(socIncrease)} tCO2e</strong></div>
+        <div><span>Net Emission</span><strong>{formatNumber(netEmission)} tCO2e</strong></div>
+      </div>
+      <table className="report-table">
+        <tbody>
+          <tr><th>Gross Emission</th><td>{formatNumber(currentTotal)} tCO2e</td><th>SOC Offset</th><td>{formatNumber(socIncrease)} tCO2e</td></tr>
+          <tr><th>Net Emission</th><td>{formatNumber(netEmission)} tCO2e</td><th>Carbon Result</th><td>{netEmission <= currentTotal ? "Improved after SOC offset" : "No SOC offset applied"}</td></tr>
+        </tbody>
+      </table>
+
+      <div className="footprint-doc-footer">
+        <strong>Footer Metadata</strong>
+        <span>Scope: {scopeLabel}</span>
+        <span>Cane type: {caneLabel}</span>
+        <span>Report year: {currentYear}</span>
+        <span>Generated: {generatedDate.toLocaleString()}</span>
+        <span>Source: Carbon Analytics Dashboard</span>
+      </div>
     </div>
   );
 }
@@ -544,8 +633,6 @@ export function CfFootprintReportPage() {
   const reduction = diffLabel(baselineTotal, currentTotal);
   const processOrder = new Map(sortProcessLabels(currentRows.map((item) => item.process)).map((process, index) => [process, index]));
   const orderedCurrentRows = [...currentRows].sort((a, b) => (processOrder.get(a.process) ?? 0) - (processOrder.get(b.process) ?? 0));
-  const topProcess = [...currentRows].sort((a, b) => b.totalEmission - a.totalEmission)[0];
-  const lowProcess = [...currentRows].sort((a, b) => a.totalEmission - b.totalEmission)[0];
   const selectedAreaNode = selectedAreaId ? spatialNodes.find((node) => node.id === selectedAreaId) : undefined;
   const selectedScopeLabel = selectedField?.fieldName ?? selectedCamp?.campName ?? selectedAreaNode?.name ?? "ภาพรวมทั้งระบบ";
   const scopedKpi: OverviewKpi = selectedField
@@ -622,6 +709,20 @@ export function CfFootprintReportPage() {
       };
     });
   const hotspotRows = [...processRows].sort((a, b) => b.currentEmission - a.currentEmission);
+  const { socBaseline, socProject, socIncrease, netEmission } = socValues(baselineTotal, currentTotal, scopedKpi.areaRai);
+  const socContributionRows = caneProcessRows.map((row) => {
+    const increase = Math.max(row.diff, 0) * 0.35;
+    const baseline = Math.max(row.baselineEmission * 0.35, 0);
+    return {
+      caneType: row.cane.name,
+      canePercent: row.cane.percent,
+      caneAreaRai: row.cane.areaRai,
+      practice: row.activity,
+      socBaseline: baseline,
+      socProject: baseline + increase,
+      socIncrease: increase,
+    };
+  });
   const shouldLazyScopeRows = !areaPath.region && scope === "all" && selectedFieldId === "all";
   const footprintScopeRows = selectedField
     ? [{
@@ -659,6 +760,7 @@ export function CfFootprintReportPage() {
   const hiddenFootprintScopeRows = Math.max(footprintScopeRows.length - visibleFootprintScopeRows.length, 0);
 
   const selectedCaneLabel = caneFilter === "all" ? "รวมทุกประเภทอ้อย" : selectedCaneTypes.map((item) => item.name).join(", ") || "-";
+  const baselineYearLabel = scopedKpi.baselineYears?.length ? scopedKpi.baselineYears.join(", ") : "Baseline avg";
   const currentReport = useMemo<FootprintReportSnapshot>(() => ({
     id: `${areaPath.region}|${areaPath.province}|${areaPath.district}|${areaPath.subdistrict}|${areaPath.field}|${scope}|${selectedFieldId}|${caneFilter}|${currentYear}|${baselineTotal}|${currentTotal}`,
     scopeLabel: selectedScopeLabel,
@@ -750,6 +852,9 @@ export function CfFootprintReportPage() {
   }, [generatedReport, reportRenderId]);
 
   const previewIsCurrent = Boolean(generatedReport && generatedReport.id === currentReport.id);
+  const generatedSoc = generatedReport ? socValues(generatedReport.baselineTotal, generatedReport.currentTotal, generatedReport.kpi.areaRai) : undefined;
+  const generatedPractice = generatedSoc ? socPracticeValues(generatedSoc.socIncrease) : undefined;
+  const generatedCaneTypeRows = generatedReport ? caneTypeSummaryRows(generatedReport.caneRows) : [];
 
   const generateReportPreview = () => {
     if (!currentReport.processRows.length) return;
@@ -786,6 +891,9 @@ export function CfFootprintReportPage() {
   const exportExcel = () => {
     if (!generatedReport || !previewIsCurrent) return;
     const report = generatedReport;
+    const reportSoc = socValues(report.baselineTotal, report.currentTotal, report.kpi.areaRai);
+    const reportPractice = socPracticeValues(reportSoc.socIncrease);
+    const reportCaneTypeRows = caneTypeSummaryRows(report.caneRows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet([{
       scope: report.scopeLabel,
@@ -823,6 +931,34 @@ export function CfFootprintReportPage() {
       shareInScopePercent: row.shareInScope,
     })))), "Cane x Process");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(report.inputs)), "Activity Inputs");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(report.hotspotRows.map((row) => ({
+      Process: row.process,
+      Baseline: row.baselineEmission,
+      Project: row.currentEmission,
+      Reduction: row.diff,
+      "Share (%)": row.share,
+    })))), "Emission Reduction Analysis");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(reportCaneTypeRows.map((row) => ({
+      "Cane Type": row.caneType,
+      Area: row.area,
+      Baseline: row.baseline,
+      Project: row.project,
+      Reduction: row.reduction,
+    })))), "Cane Type Analysis");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet([{
+      "SOC Baseline": reportSoc.socBaseline,
+      "SOC Project": reportSoc.socProject,
+      "SOC Increase": reportSoc.socIncrease,
+      Vinasse: reportPractice.vinasse,
+      "Filter Cake": reportPractice.filterCake,
+      "Green Manure": reportPractice.greenManure,
+      "Trash Retention": reportPractice.trashRetention,
+    }])), "SOC Summary");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet([{
+      "Gross Emission": report.currentTotal,
+      "SOC Offset": reportSoc.socIncrease,
+      "Net Emission": reportSoc.netEmission,
+    }])), "Net Carbon Result");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(reportSections().map((section, index) => ({
       order: index + 1,
       section,
@@ -866,10 +1002,62 @@ export function CfFootprintReportPage() {
   };
 
   const scopeSelectValue = selectedField ? `field:${selectedField.id}` : scope;
+  const kpiSectionStyle: CSSProperties = {
+    display: "grid",
+    gap: 16,
+    order: 5,
+    borderRadius: 16,
+    border: "1px solid #E5E7EB",
+    background: "#FFFFFF",
+    boxShadow: "0 10px 28px rgba(15, 23, 42, 0.06)",
+  };
+  const kpiGridStyle = (minWidth = 170): CSSProperties => ({
+    display: "grid",
+    gridTemplateColumns: `repeat(auto-fit, minmax(${minWidth}px, 1fr))`,
+    gap: 16,
+    alignItems: "stretch",
+  });
+  const kpiCardStyle = (primary = false): CSSProperties => ({
+    display: "flex",
+    minHeight: 118,
+    flexDirection: "column",
+    justifyContent: "space-between",
+    gap: 14,
+    border: `1px solid ${primary ? "#93C5FD" : "#E5E7EB"}`,
+    borderRadius: 16,
+    background: primary ? "#EFF6FF" : "#FFFFFF",
+    padding: "16px 18px",
+    boxShadow: primary ? "0 12px 30px rgba(37, 99, 235, 0.12)" : "none",
+  });
+  const kpiLabelStyle: CSSProperties = {
+    color: "#6B7280",
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: "0.02em",
+    textTransform: "uppercase",
+  };
+  const kpiValueStyle = (primary = false): CSSProperties => ({
+    color: primary ? "#1D4ED8" : "#111827",
+    fontSize: 24,
+    fontWeight: 700,
+    lineHeight: 1.15,
+  });
+  const kpiMetaStyle: CSSProperties = {
+    color: "#6B7280",
+    fontSize: 12,
+    lineHeight: 1.4,
+  };
+  const renderKpiCard = (label: string, value: ReactNode, meta: ReactNode, primary = false) => (
+    <article key={label} style={kpiCardStyle(primary)}>
+      <span style={kpiLabelStyle}>{label}</span>
+      <strong style={kpiValueStyle(primary)}>{value}</strong>
+      <small style={kpiMetaStyle}>{meta}</small>
+    </article>
+  );
 
   return (
     <div className="cf-dash">
-      <div className="page active">
+      <div className="page active footprint-report-page">
         <div className="page-title">
           <div>
             <h1>รายงานคาร์บอนฟุตพริ้นท์ ไร่บริษัทกลุ่มมิตรผล</h1>
@@ -897,47 +1085,50 @@ export function CfFootprintReportPage() {
           </div>
         )}
 
-        <section className="card process-scope-panel footprint-report-filter footprint-area-filter">
-          <div>
+        <section
+          className="card process-scope-panel footprint-report-filter footprint-area-filter"
+          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", alignItems: "end", overflow: "hidden" }}
+        >
+          <div style={{ gridColumn: "1 / -1", minWidth: 0 }}>
             <div className="card-title">ตัวกรองรายงาน</div>
             <p className="muted">เลือกพื้นที่ตามลำดับ แล้วเลือกแคมป์หรือรายแปลงก่อนกดสร้างเอกสาร ประเภทอ้อยเลือกได้ทุกระดับฟิลเตอร์</p>
           </div>
-          <label>
+          <label style={{ minWidth: 0 }}>
             ภาค
             <select value={areaPath.region} onChange={(event) => selectAreaPath("region", event.target.value)}>
               <option value="">ทั้งหมด</option>
               {areaOptionsFor("region", rootNode?.id).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
             </select>
           </label>
-          <label>
+          <label style={{ minWidth: 0 }}>
             จังหวัด
             <select value={areaPath.province} onChange={(event) => selectAreaPath("province", event.target.value)} disabled={!areaPath.region}>
               <option value="">ทุกจังหวัด</option>
               {areaOptionsFor("province", areaPath.region).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
             </select>
           </label>
-          <label>
+          <label style={{ minWidth: 0 }}>
             อำเภอ
             <select value={areaPath.district} onChange={(event) => selectAreaPath("district", event.target.value)} disabled={!areaPath.province}>
               <option value="">ทุกอำเภอ</option>
               {areaOptionsFor("district", areaPath.province).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
             </select>
           </label>
-          <label>
+          <label style={{ minWidth: 0 }}>
             ตำบล
             <select value={areaPath.subdistrict} onChange={(event) => selectAreaPath("subdistrict", event.target.value)} disabled={!areaPath.district}>
               <option value="">ทุกตำบล</option>
               {areaOptionsFor("subdistrict", areaPath.district).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
             </select>
           </label>
-          <label>
+          <label style={{ minWidth: 0 }}>
             แปลง
             <select value={areaPath.field} onChange={(event) => selectAreaPath("field", event.target.value)} disabled={!areaPath.subdistrict}>
               <option value="">ทุกแปลง</option>
               {areaOptionsFor("field", areaPath.subdistrict).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
             </select>
           </label>
-          <label>
+          <label style={{ minWidth: 0 }}>
             รายแปลงในแคมป์
             <select value={scopeSelectValue} onChange={(event) => selectScopeValue(event.target.value)}>
               <option value="all">ภาพรวมตามพื้นที่/แปลงที่เลือก</option>
@@ -1009,7 +1200,7 @@ export function CfFootprintReportPage() {
           </label>
         </section>
 
-        <section className="card full-span">
+        <section className="card full-span footprint-filtered-data-block">
           <div className="section-head">
             <div>
               <div className="card-title">ข้อมูลตามตัวกรอง</div>
@@ -1070,47 +1261,43 @@ export function CfFootprintReportPage() {
           )}
         </section>
 
-        <section className="process-summary-grid footprint-exec-grid">
-          <article>
-            <span>ขอบเขตรายงาน</span>
-            <strong>{selectedScopeLabel}</strong>
-            <small>{selectedCanePercent.toFixed(1)}% ของสัดส่วนประเภทอ้อยที่เลือก</small>
-          </article>
-          <article>
-            <span>ปีฐานรวม</span>
-            <strong>{formatNumber(baselineTotal)}</strong>
-            <small>tCO2e</small>
-          </article>
-          <article>
-            <span>ปีรายงาน {currentYear}</span>
-            <strong>{formatNumber(currentTotal)}</strong>
-            <small>tCO2e</small>
-          </article>
-          <article>
-            <span>{reduction.diff >= 0 ? "ลดลงจากปีฐาน" : "เพิ่มขึ้นจากปีฐาน"}</span>
-            <strong className={reduction.diff >= 0 ? "green-text" : "red-text"}>{formatNumber(Math.abs(reduction.diff))}</strong>
-            <small>{Math.abs(reduction.pct).toFixed(1)}% · tCO2e</small>
-          </article>
-          <article>
-            <span>Intensity</span>
-            <strong>{formatNumber(scopedKpi.co2ePerTon, 3)}</strong>
-            <small>tCO2e/ตันอ้อย</small>
-          </article>
-          <article>
-            <span>พื้นที่ / ผลผลิต</span>
-            <strong>{formatNumber(scopedKpi.areaRai, 0)}</strong>
-            <small>ไร่ · {formatNumber(scopedKpi.yieldTon, 0)} ตัน</small>
-          </article>
-          <article>
-            <span>Hotspot สูงสุด</span>
-            <strong>{topProcess?.process ?? "-"}</strong>
-            <small>{formatNumber(topProcess?.totalEmission ?? 0)} tCO2e</small>
-          </article>
-          <article>
-            <span>กระบวนการต่ำสุด</span>
-            <strong>{lowProcess?.process ?? "-"}</strong>
-            <small>{formatNumber(lowProcess?.totalEmission ?? 0)} tCO2e</small>
-          </article>
+        <section className="card full-span footprint-kpi-section footprint-context-grid" style={kpiSectionStyle}>
+          <div>
+            <div className="card-title">Project Context</div>
+            <p className="muted">Current reporting scope and baseline context from the selected filters.</p>
+          </div>
+          <div style={kpiGridStyle(165)}>
+            {renderKpiCard("Scope", selectedScopeLabel, `${selectedCanePercent.toFixed(1)}% selected cane type share`)}
+            {renderKpiCard("Project Year", currentYear || "-", "Current reporting period")}
+            {renderKpiCard("Baseline Year", baselineYearLabel, "Baseline comparison period")}
+            {renderKpiCard("Area", formatNumber(scopedKpi.areaRai, 0), "rai")}
+            {renderKpiCard("Intensity", formatNumber(scopedKpi.co2ePerTon, 3), "tCO2e/ton cane")}
+          </div>
+        </section>
+
+        <section className="card full-span footprint-kpi-section footprint-headline-grid" style={{ ...kpiSectionStyle, order: 6 }}>
+          <div>
+            <div className="card-title">Emission Summary</div>
+            <p className="muted">Executive carbon result after SOC offset and baseline reduction comparison.</p>
+          </div>
+          <div style={kpiGridStyle(180)}>
+            {renderKpiCard("Gross Emission", formatNumber(currentTotal), "tCO2e")}
+            {renderKpiCard("SOC Offset", formatNumber(socIncrease), "tCO2e")}
+            {renderKpiCard("Net Emission", formatNumber(netEmission), "tCO2e", true)}
+            {renderKpiCard("Reduction", formatNumber(Math.abs(reduction.diff)), `${Math.abs(reduction.pct).toFixed(1)}% · tCO2e`)}
+          </div>
+        </section>
+
+        <section className="card full-span footprint-kpi-section footprint-soc-summary-block" style={{ ...kpiSectionStyle, order: 7 }}>
+          <div>
+            <div className="card-title">Carbon Sequestration Summary</div>
+            <p className="muted">SOC baseline, project value, and increase used as the carbon offset summary.</p>
+          </div>
+          <div style={kpiGridStyle(220)}>
+            {renderKpiCard("SOC Baseline", formatNumber(socBaseline), "tCO2e")}
+            {renderKpiCard("SOC Project", formatNumber(socProject), "tCO2e")}
+            {renderKpiCard("SOC Increase", formatNumber(socIncrease), "tCO2e")}
+          </div>
         </section>
 
         <section className="card full-span">
@@ -1178,7 +1365,7 @@ export function CfFootprintReportPage() {
           </div>
         </section>
 
-        <section className="card report-preview-panel full-span footprint-preview-layout">
+        <section className="card report-preview-panel full-span footprint-preview-layout" style={{ order: 8 }}>
           <div className="report-preview-header">
             <div>
               <div className="card-title">Preview & Download</div>
@@ -1257,9 +1444,90 @@ export function CfFootprintReportPage() {
                     </tbody>
                   </table>
                 </div>
+                <div>
+                  <h3>Emission Reduction Analysis</h3>
+                  <table className="report-table">
+                    <thead><tr><th>Process</th><th>Baseline</th><th>Project</th><th>Reduction</th></tr></thead>
+                    <tbody>
+                      {generatedReport.hotspotRows.slice(0, 6).map((row) => (
+                        <tr key={`reduction-preview-${row.process}`}><td>{row.process}</td><td>{formatNumber(row.baselineEmission)}</td><td>{formatNumber(row.currentEmission)}</td><td>{formatNumber(row.diff)}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div>
+                  <h3>Cane Type Analysis</h3>
+                  <table className="report-table">
+                    <thead><tr><th>Cane Type</th><th>Area</th><th>Baseline</th><th>Project</th><th>Reduction</th></tr></thead>
+                    <tbody>
+                      {generatedCaneTypeRows.map((row) => (
+                        <tr key={`cane-summary-${row.caneType}`}><td>{row.caneType}</td><td>{formatNumber(row.area, 1)}</td><td>{formatNumber(row.baseline)}</td><td>{formatNumber(row.project)}</td><td>{formatNumber(row.reduction)}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div>
+                  <h3>SOC Summary</h3>
+                  <table className="report-table">
+                    <tbody>
+                      <tr><th>SOC Baseline</th><td>{formatNumber(generatedSoc?.socBaseline ?? 0)}</td><th>SOC Project</th><td>{formatNumber(generatedSoc?.socProject ?? 0)}</td><th>SOC Increase</th><td>{formatNumber(generatedSoc?.socIncrease ?? 0)}</td></tr>
+                      <tr><th>Vinasse</th><td>{formatNumber(generatedPractice?.vinasse ?? 0)}</td><th>Filter Cake</th><td>{formatNumber(generatedPractice?.filterCake ?? 0)}</td><th>Green Manure</th><td>{formatNumber(generatedPractice?.greenManure ?? 0)}</td></tr>
+                      <tr><th>Trash Retention</th><td>{formatNumber(generatedPractice?.trashRetention ?? 0)}</td><td colSpan={4}></td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div>
+                  <h3>Net Carbon Result</h3>
+                  <table className="report-table">
+                    <tbody>
+                      <tr><th>Gross Emission</th><td>{formatNumber(generatedReport.currentTotal)}</td><th>SOC Offset</th><td>{formatNumber(generatedSoc?.socIncrease ?? 0)}</td><th>Net Emission</th><td>{formatNumber(generatedSoc?.netEmission ?? 0)}</td></tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
+        </section>
+
+        <section className="card full-span footprint-soc-contribution-block">
+          <div className="card-title">SOC Contribution Analysis</div>
+          <div className="input-table-wrap">
+            <table className="input-table">
+              <thead>
+                <tr>
+                  <th>ประเภทอ้อย</th>
+                  <th>สัดส่วนพื้นที่</th>
+                  <th>Practice</th>
+                  <th>SOC Baseline</th>
+                  <th>SOC Project</th>
+                  <th>SOC Increase</th>
+                </tr>
+              </thead>
+              <tbody>
+                {socContributionRows.map((row, index, rows) => {
+                  const isFirstCaneRow = index === 0 || rows[index - 1].caneType !== row.caneType;
+                  const rowSpan = rows.filter((item) => item.caneType === row.caneType).length;
+                  return (
+                  <tr key={`${row.caneType}-${row.practice}-${index}`}>
+                    {isFirstCaneRow && (
+                      <>
+                        <td rowSpan={rowSpan} className="rowspan-cell cane-rowspan-name">{row.caneType}</td>
+                        <td rowSpan={rowSpan} className="rowspan-cell">{row.canePercent.toFixed(1)}% · {formatNumber(row.caneAreaRai, 1)} ไร่</td>
+                      </>
+                    )}
+                    <td className="process-name-cell">{row.practice}</td>
+                    <td>{formatNumber(row.socBaseline)} tCO2e</td>
+                    <td>{formatNumber(row.socProject)} tCO2e</td>
+                    <td className="green-text">{formatNumber(row.socIncrease)} tCO2e</td>
+                  </tr>
+                  );
+                })}
+                {!socContributionRows.length && (
+                  <tr><td colSpan={6}>ไม่พบข้อมูล SOC Contribution ตามตัวกรองนี้</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </section>
       </div>
     </div>

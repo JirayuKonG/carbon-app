@@ -920,3 +920,63 @@ Backend API:
 ## ขอบเขตงานของส่วนนี้
 
 งานนี้เน้นเฉพาะส่วนแสดงผลและสรุปผล Carbon Dashboard ไม่ได้ทำส่วนบันทึกหรือนำเข้าข้อมูลกิจกรรมโดยตรง ส่วนการนำเข้าข้อมูลจริงและการจัดการข้อมูลต้นทางยังเป็นงานอีกส่วนหนึ่งของระบบ แต่ Dashboard สามารถนำข้อมูลที่มีอยู่แล้วในฐานข้อมูลมาแสดงผล วิเคราะห์ และสรุปรายงานได้
+
+## อัปเดตงาน Dashboard ล่าสุด
+
+สิ่งที่ปรับเพิ่มในรอบล่าสุด:
+
+- หน้าแผนที่ประเทศไทยและรายละเอียดรายพื้นที่
+  - ลบกราฟเปรียบเทียบปุ๋ยและน้ำมันรวม
+  - ลบตาราง/กราฟเจาะรายกระบวนการของปุ๋ยและน้ำมัน
+  - ลบแผนภูมิแท่งปีฐาน vs ปีดำเนินการ
+  - ลบ Carbon Credit Net Zero Progress และ SOC Correlation ออกจากหน้านี้
+- หน้า Carbon Credit Premium T-VER
+  - เพิ่มรายละเอียดแหล่งที่มา Credit ให้แยกเป็น N2O Reduction, Fuel Reduction และ SOC Removal
+  - เพิ่ม Contribution Breakdown พร้อมรายการสัดส่วนและยอดรวมแหล่งที่มา Credit
+  - ปรับ UI ให้ลบแถบสีแนวนอนใน Contribution Breakdown และคงเส้นสีด้านบนของการ์ดแหล่งที่มา Credit
+  - ลบยอดรวมด้านขวาบนของหัว Contribution Breakdown และลบข้อความ “เท่ากับ Credit รวมด้านบน”
+- หน้า Carbon Footprint ไร่บริษัทกลุ่มมิตรผล
+  - ย้าย toggle มุมมองไปไว้ด้านบน KPI และเพิ่ม 3 แท็บ: การปล่อยคาร์บอน, การกักเก็บคาร์บอน, ผลลัพธ์สุทธิ
+  - คง filter ปี, ภาค/โซน, ศูนย์ส่งเสริมฯ/แคมป์ และประเภทอ้อย
+  - ปรับ KPI ของแต่ละแท็บให้ตรงกับบริบทของการปล่อย, SOC และผลลัพธ์สุทธิ
+  - เพิ่มหัวข้อ section ของแท็บการปล่อยคาร์บอนให้ใช้รูปแบบเดียวกับแท็บการกักเก็บคาร์บอนและผลลัพธ์สุทธิ
+  - ลบ Leaderboard Top 5 แคมป์ปล่อยคาร์บอนสูงสุดออกจากแท็บการปล่อยคาร์บอน
+  - เอาสัดส่วนประเภทอ้อยและพื้นที่พักดินออกจากแท็บการกักเก็บคาร์บอนและผลลัพธ์สุทธิ
+  - เพิ่ม Donut Contribution ของ SOC practices: Vinasse, Filter Cake, Green Manure, Trash Retention
+  - คง Correlation ปุ๋ยเคมี vs SOC ไว้ในแท็บการกักเก็บคาร์บอน
+  - เปลี่ยน SOC Before vs After จาก progress bar เป็น grouped bar
+  - ลบ Ranking Top Region SOC และเอา progress bar สีเขียวออกจาก Ranking Top Camp SOC
+  - ย้าย Net Zero Progress ไปไว้ในแท็บผลลัพธ์สุทธิ และเพิ่ม Carbon Balance Waterfall
+
+ตรวจสอบแล้ว:
+
+- `npm run build --workspace=frontend` ผ่าน
+- ยังมี Vite warning เรื่อง bundle chunk ใหญ่ ซึ่งเป็น warning ด้าน optimization
+
+## อัปเดตหน้า Footprint Report Export ล่าสุด
+
+- Word preview/download
+  - เพิ่ม `SOC Section` พร้อมค่า SOC Baseline, SOC Project, SOC Increase และ practice contribution: Vinasse, Filter Cake, Green Manure, Trash Retention
+  - เพิ่ม `Net Result Section` พร้อม Gross Emission, SOC Offset และ Net Emission
+  - เพิ่ม `Metadata` และ `Data Source`
+  - เอา section `ลำดับหัวข้อที่ควรมีในรายงาน` ออกจากเอกสาร Word
+- Excel preview/download
+  - เพิ่ม `Emission Reduction Analysis`
+  - เพิ่ม `Cane Type Analysis` แบบสรุปย่อ พร้อมคอลัมน์ Cane Type, Area, Baseline, Project, Reduction
+  - เพิ่ม `SOC Summary` พร้อมคอลัมน์ SOC Baseline, SOC Project, SOC Increase และ practice columns Vinasse, Filter Cake, Green Manure, Trash Retention
+  - เพิ่ม `Net Carbon Result` พร้อมคอลัมน์ Gross Emission, SOC Offset, Net Emission
+
+## อัปเดต KPI หน้า Footprint Report ล่าสุด
+
+- จัด KPI หน้า `รายงานคาร์บอนฟุตพริ้นท์ ไร่บริษัทกลุ่มมิตรผล` ใหม่เป็น 3 แถว
+- Row 1 `Project Context`: Scope, Project Year, Baseline Year, Area, Intensity
+- Row 2 `Headline KPI`: Gross Emission, SOC Offset, Net Emission, Reduction
+- Row 3 `SOC Summary`: Carbon Sequestration Summary, SOC Baseline, SOC Project, SOC Increase
+- ค่า Scope ยังคงเปลี่ยนตามตัวกรองพื้นที่/แคมป์/รายแปลงของหน้า report
+
+## อัปเดต KPI และตัวกรองหน้า Footprint Report ล่าสุด
+
+- ปรับ dropdown `รายแปลงในแคมป์` ใน `ตัวกรองรายงาน` ให้อยู่ในกรอบ filter ด้วย responsive grid และให้หัวข้อ filter กินเต็มแถว
+- Redesign KPI เป็น parent section + child KPI cards แบบเดียวกันทั้ง 3 ส่วน: `Project Context`, `Emission Summary`, `Carbon Sequestration Summary`
+- KPI cards ใช้ white background, light border, 16px radius, equal-height card layout และ spacing สม่ำเสมอ
+- Highlight `Net Emission` เป็น primary KPI ในแถว `Emission Summary`
