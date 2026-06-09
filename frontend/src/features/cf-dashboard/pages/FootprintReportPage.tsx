@@ -937,14 +937,14 @@ export function CfFootprintReportPage() {
       Project: row.currentEmission,
       Reduction: row.diff,
       "Share (%)": row.share,
-    })))), "Section 4 Reduction");
+    })))), "Emission Reduction Analysis");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(reportCaneTypeRows.map((row) => ({
       "Cane Type": row.caneType,
       Area: row.area,
       Baseline: row.baseline,
       Project: row.project,
       Reduction: row.reduction,
-    })))), "Section 5 Cane Type");
+    })))), "Cane Type Analysis");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet([{
       "SOC Baseline": reportSoc.socBaseline,
       "SOC Project": reportSoc.socProject,
@@ -953,12 +953,12 @@ export function CfFootprintReportPage() {
       "Filter Cake": reportPractice.filterCake,
       "Green Manure": reportPractice.greenManure,
       "Trash Retention": reportPractice.trashRetention,
-    }])), "Section 6 SOC Summary");
+    }])), "SOC Summary");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet([{
       "Gross Emission": report.currentTotal,
       "SOC Offset": reportSoc.socIncrease,
       "Net Emission": reportSoc.netEmission,
-    }])), "Section 7 Net Result");
+    }])), "Net Carbon Result");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(reportSections().map((section, index) => ({
       order: index + 1,
       section,
@@ -1394,7 +1394,7 @@ export function CfFootprintReportPage() {
                   </table>
                 </div>
                 <div>
-                  <h3>Section 4 ? Emission Reduction Analysis</h3>
+                  <h3>Emission Reduction Analysis</h3>
                   <table className="report-table">
                     <thead><tr><th>Process</th><th>Baseline</th><th>Project</th><th>Reduction</th></tr></thead>
                     <tbody>
@@ -1405,7 +1405,7 @@ export function CfFootprintReportPage() {
                   </table>
                 </div>
                 <div>
-                  <h3>Section 5 ? Cane Type Analysis</h3>
+                  <h3>Cane Type Analysis</h3>
                   <table className="report-table">
                     <thead><tr><th>Cane Type</th><th>Area</th><th>Baseline</th><th>Project</th><th>Reduction</th></tr></thead>
                     <tbody>
@@ -1416,7 +1416,7 @@ export function CfFootprintReportPage() {
                   </table>
                 </div>
                 <div>
-                  <h3>Section 6 ? SOC Summary</h3>
+                  <h3>SOC Summary</h3>
                   <table className="report-table">
                     <tbody>
                       <tr><th>SOC Baseline</th><td>{formatNumber(generatedSoc?.socBaseline ?? 0)}</td><th>SOC Project</th><td>{formatNumber(generatedSoc?.socProject ?? 0)}</td><th>SOC Increase</th><td>{formatNumber(generatedSoc?.socIncrease ?? 0)}</td></tr>
@@ -1426,7 +1426,7 @@ export function CfFootprintReportPage() {
                   </table>
                 </div>
                 <div>
-                  <h3>Section 7 ? Net Carbon Result</h3>
+                  <h3>Net Carbon Result</h3>
                   <table className="report-table">
                     <tbody>
                       <tr><th>Gross Emission</th><td>{formatNumber(generatedReport.currentTotal)}</td><th>SOC Offset</th><td>{formatNumber(generatedSoc?.socIncrease ?? 0)}</td><th>Net Emission</th><td>{formatNumber(generatedSoc?.netEmission ?? 0)}</td></tr>
