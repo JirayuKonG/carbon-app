@@ -41,6 +41,7 @@ interface LogDetail {
   act_equipment_id?: number
   act_fertilizer_id?: number
   act_chemiscal_id?: number
+  act_resourceOther_id?: number
   resource_used_type_id: number
   unit_prefix_id?: number
   unit_id?: number
@@ -53,6 +54,7 @@ interface LogDetail {
   activities_fertilizers?: { act_fertilizer_name?: string }
   activities_equipments?: { act_equipment_name?: string }
   activities_chemiscals?: { act_chemiscal_name?: string }
+  activities_resourceOther?: { act_resourceOther_name?: string }
   resource_used_type?: { resc_used_type_name?: string }
   log_act_detail_calStatus?: { log_act_detail_calStatus_name?: string }
   activities_header?: DetailHeaderLocation
@@ -67,6 +69,7 @@ interface CalStatus { log_act_detail_calStatus_id: number; log_act_detail_calSta
 interface Fertilizer { act_fertilizer_id: number; act_fertilizer_name: string }
 interface Equipment { act_equipment_id: number; act_equipment_name: string }
 interface Chemical { act_chemiscal_id: number; act_chemiscal_name: string }
+interface ResourceOther { act_resourceOther_id: number; act_resourceOther_name: string }
 interface Unit { unit_id: number; unit_name?: string; unit_initial?: string }
 interface UnitPrefix { unit_prefix_id: number; unit_prefix_name?: string; unit_prefix_initial?: string }
 
@@ -78,6 +81,7 @@ type DetailForm = {
   act_equipment_id: string
   act_fertilizer_id: string
   act_chemiscal_id: string
+  act_resourceOther_id: string
   resource_used_type_id: string
   unit_prefix_id: string
   unit_id: string
@@ -124,6 +128,7 @@ const emptyDetailForm: DetailForm = {
   act_equipment_id: '',
   act_fertilizer_id: '',
   act_chemiscal_id: '',
+  act_resourceOther_id: '',
   resource_used_type_id: '',
   unit_prefix_id: '',
   unit_id: '',
@@ -204,6 +209,7 @@ export function ActivityLogListPage() {
   const { data: fertilizers = [], error: fertilizersError } = useQuery({ queryKey: ['fertilizers'], queryFn: () => get<Fertilizer[]>('/activities/fertilizers') })
   const { data: equipments = [], error: equipmentsError } = useQuery({ queryKey: ['equipments'], queryFn: () => get<Equipment[]>('/activities/equipments') })
   const { data: chemicals = [], error: chemicalsError } = useQuery({ queryKey: ['chemicals'], queryFn: () => get<Chemical[]>('/activities/chemicals') })
+  const { data: resourceOthers = [], error: resourceOthersError } = useQuery({ queryKey: ['resource-others'], queryFn: () => get<ResourceOther[]>('/activities/resource-others') })
   const { data: units = [], error: unitsError } = useQuery({ queryKey: ['units'], queryFn: () => get<Unit[]>('/emission-factors/units') })
   const { data: unitPrefixes = [], error: unitPrefixesError } = useQuery({ queryKey: ['unit-prefixs'], queryFn: () => get<UnitPrefix[]>('/emission-factors/unit-prefixs') })
 
@@ -219,6 +225,7 @@ export function ActivityLogListPage() {
     { label: 'ปุ๋ย', error: fertilizersError },
     { label: 'อุปกรณ์', error: equipmentsError },
     { label: 'สารเคมี', error: chemicalsError },
+    { label: 'รายการอื่น ๆ', error: resourceOthersError },
     { label: 'หน่วยนับ', error: unitsError },
     { label: 'คำนำหน้าหน่วย', error: unitPrefixesError },
   ]
@@ -257,6 +264,7 @@ export function ActivityLogListPage() {
   const fertilizerMap = Object.fromEntries(fertilizers.map((item) => [item.act_fertilizer_id, item.act_fertilizer_name]))
   const equipmentMap = Object.fromEntries(equipments.map((item) => [item.act_equipment_id, item.act_equipment_name]))
   const chemicalMap = Object.fromEntries(chemicals.map((item) => [item.act_chemiscal_id, item.act_chemiscal_name]))
+  const resourceOtherMap = Object.fromEntries(resourceOthers.map((item) => [item.act_resourceOther_id, item.act_resourceOther_name]))
   const unitMap = Object.fromEntries(units.map((unit) => [unit.unit_id, unit.unit_name ?? unit.unit_initial ?? `#${unit.unit_id}`]))
   const unitPrefixMap = Object.fromEntries(unitPrefixes.map((prefix) => [prefix.unit_prefix_id, prefix.unit_prefix_name ?? prefix.unit_prefix_initial ?? `#${prefix.unit_prefix_id}`]))
 
@@ -292,9 +300,11 @@ export function ActivityLogListPage() {
     detail.activities_fertilizers?.act_fertilizer_name
     ?? detail.activities_equipments?.act_equipment_name
     ?? detail.activities_chemiscals?.act_chemiscal_name
+    ?? detail.activities_resourceOther?.act_resourceOther_name
     ?? fertilizerMap[detail.act_fertilizer_id ?? 0]
     ?? equipmentMap[detail.act_equipment_id ?? 0]
     ?? chemicalMap[detail.act_chemiscal_id ?? 0]
+    ?? resourceOtherMap[detail.act_resourceOther_id ?? 0]
     ?? '—'
 
   const getUnitLabel = (detail: LogDetail) => {
@@ -334,6 +344,9 @@ export function ActivityLogListPage() {
   }))
 
   const visibleLands = selectedCampId ? lands.filter((land) => land.land_camp_id === selectedCampId) : lands
+  const visibleDetailFilterLands = detailFilters.campId
+    ? lands.filter((land) => land.land_camp_id === Number(detailFilters.campId))
+    : lands
   const visibleHeaders = selectedLandId ? headers.filter((header) => header.land_id === selectedLandId) : headers
 
   const setFormValue = (key: keyof DetailForm, value: string) => {
@@ -341,7 +354,17 @@ export function ActivityLogListPage() {
   }
 
   const setDetailFilterValue = (key: keyof DetailFilters, value: string) => {
-    setDetailFilters((prev) => ({ ...prev, [key]: value }))
+    setDetailFilters((prev) => {
+      if (key === 'campId') {
+        return {
+          ...prev,
+          campId: value,
+          landId: '',
+        }
+      }
+
+      return { ...prev, [key]: value }
+    })
   }
 
   useEffect(() => {
@@ -354,6 +377,17 @@ export function ActivityLogListPage() {
       campId,
     }))
   }, [searchParams])
+
+  useEffect(() => {
+    if (!detailFilters.landId) return
+
+    const selectedLand = lands.find((land) => land.land_id === Number(detailFilters.landId))
+    const selectedCamp = detailFilters.campId ? Number(detailFilters.campId) : null
+
+    if (selectedCamp != null && selectedLand?.land_camp_id !== selectedCamp) {
+      setDetailFilters((prev) => ({ ...prev, landId: '' }))
+    }
+  }, [detailFilters.campId, detailFilters.landId, lands])
 
   const setLandFilter = (landId: number | null) => {
     setSelectedLandId(landId)
@@ -388,6 +422,7 @@ export function ActivityLogListPage() {
       act_equipment_id: detail.act_equipment_id ? String(detail.act_equipment_id) : '',
       act_fertilizer_id: detail.act_fertilizer_id ? String(detail.act_fertilizer_id) : '',
       act_chemiscal_id: detail.act_chemiscal_id ? String(detail.act_chemiscal_id) : '',
+      act_resourceOther_id: detail.act_resourceOther_id ? String(detail.act_resourceOther_id) : '',
       resource_used_type_id: detail.resource_used_type_id ? String(detail.resource_used_type_id) : '',
       unit_prefix_id: detail.unit_prefix_id ? String(detail.unit_prefix_id) : '',
       unit_id: detail.unit_id ? String(detail.unit_id) : '',
@@ -419,6 +454,7 @@ export function ActivityLogListPage() {
       act_equipment_id: toNumberOrUndefined(detailForm.act_equipment_id),
       act_fertilizer_id: toNumberOrUndefined(detailForm.act_fertilizer_id),
       act_chemiscal_id: toNumberOrUndefined(detailForm.act_chemiscal_id),
+      act_resourceOther_id: toNumberOrUndefined(detailForm.act_resourceOther_id),
       resource_used_type_id: toNumberOrUndefined(detailForm.resource_used_type_id),
       unit_prefix_id: toNumberOrUndefined(detailForm.unit_prefix_id),
       unit_id: toNumberOrUndefined(detailForm.unit_id),
@@ -622,7 +658,7 @@ export function ActivityLogListPage() {
               <label className="label">แปลง</label>
               <select className="select" value={detailFilters.landId} onChange={(e) => setDetailFilterValue('landId', e.target.value)}>
                 <option value="">ทั้งหมด</option>
-                {lands.map((land) => <option key={land.land_id} value={land.land_id}>{getLandDisplayLabel(land.land_code, land.name)}</option>)}
+                {visibleDetailFilterLands.map((land) => <option key={land.land_id} value={land.land_id}>{getLandDisplayLabel(land.land_code, land.name)}</option>)}
               </select>
             </div>
             <div>
@@ -803,6 +839,7 @@ export function ActivityLogListPage() {
                       if (e.target.value) {
                         setFormValue('act_equipment_id', '')
                         setFormValue('act_chemiscal_id', '')
+                        setFormValue('act_resourceOther_id', '')
                       }
                     }}
                   >
@@ -820,6 +857,7 @@ export function ActivityLogListPage() {
                       if (e.target.value) {
                         setFormValue('act_fertilizer_id', '')
                         setFormValue('act_chemiscal_id', '')
+                        setFormValue('act_resourceOther_id', '')
                       }
                     }}
                   >
@@ -837,11 +875,30 @@ export function ActivityLogListPage() {
                       if (e.target.value) {
                         setFormValue('act_fertilizer_id', '')
                         setFormValue('act_equipment_id', '')
+                        setFormValue('act_resourceOther_id', '')
                       }
                     }}
                   >
                     <option value="">— ไม่ระบุ —</option>
                     {chemicals.map((item) => <option key={item.act_chemiscal_id} value={item.act_chemiscal_id}>{item.act_chemiscal_name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">รายการอื่น ๆ</label>
+                  <select
+                    className="select"
+                    value={detailForm.act_resourceOther_id}
+                    onChange={(e) => {
+                      setFormValue('act_resourceOther_id', e.target.value)
+                      if (e.target.value) {
+                        setFormValue('act_fertilizer_id', '')
+                        setFormValue('act_equipment_id', '')
+                        setFormValue('act_chemiscal_id', '')
+                      }
+                    }}
+                  >
+                    <option value="">— ไม่ระบุ —</option>
+                    {resourceOthers.map((item) => <option key={item.act_resourceOther_id} value={item.act_resourceOther_id}>{item.act_resourceOther_name}</option>)}
                   </select>
                 </div>
               </FormSection>

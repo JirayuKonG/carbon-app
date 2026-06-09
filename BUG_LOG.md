@@ -96,16 +96,17 @@ Use the checkboxes to track what is fixed. Keep new findings here so future work
   - Backend gap: `backend/src/modules/emission-factors/emission-factors.controller.ts` has no delete routes for `gwp`, `cf-types`, or `groups`, so complete CRUD is not available even if the frontend is wired.
   - Next: either hide unfinished controls or implement real forms/mutations and matching backend delete endpoints for each tab.
 
-- [ ] BUG-014: Several services manually compute `MAX(id) + 1` on autoincrement tables, creating a race condition under concurrent inserts.
+- [ ] BUG-014: Several services manually compute `MAX(id) + 1`, creating a race condition under concurrent inserts.
   - Impact: two requests that create the same resource type at the same time can calculate the same next ID and fail with duplicate primary-key errors.
   - Evidence: manual ID generation appears in `backend/src/modules/infra/infra.service.ts:16`, `:48`, `:78`; `backend/src/modules/users/users.service.ts:31`, `:65`; `backend/src/modules/farmers/farmers.service.ts:39`; `backend/src/modules/emission-factors/emission-factors.service.ts:72`, `:112`; `backend/src/modules/activities/activities.service.ts:139`, `:217`, plus import helper ID allocators later in the same file.
-  - Schema mismatch: Prisma already marks many of these IDs as autoincrement in `backend/src/prisma/schema.prisma:51`, `:59`, `:66`, `:100`, `:112`, `:125`, `:261`, `:280`, `:469`, `:499`.
-  - Next: let PostgreSQL own IDs on autoincrement tables, and reserve manual `MAX(id) + 1` logic only for tables whose real database schema truly has no default/identity.
+  - Update 2026-06-08: `backend/src/prisma/schema.prisma` was re-introspected from the live Aiven database, so the old Prisma autoincrement mismatch is no longer the main issue. The remaining risk is that the live database still exposes many primary keys with no default/identity, so concurrent `MAX(id) + 1` writes can still collide.
+  - Next: replace manual next-ID allocation with database-managed sequences/identity where possible, and keep manual ID assignment only on tables whose real database schema must stay without defaults.
 
 ## Verification Notes
 
 - `npm run build --workspace=backend`: passed after BUG-001 fix and again on 2026-05-30.
 - `npm run build --workspace=backend`: passed again on 2026-06-05 after activity CSV import rule changes.
+- `npm run build --workspace=backend`: passed again on 2026-06-08 after syncing Prisma schema from the live Aiven PostgreSQL database and updating affected create flows.
 - `npm run prisma:generate --workspace=backend`: passed.
 - `npm run build --workspace=frontend`: passed on 2026-05-25 and again on 2026-05-30.
 - `npm run build --workspace=frontend`: passed again on 2026-06-05 after activity CSV import UI updates.

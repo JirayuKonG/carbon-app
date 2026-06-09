@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 
@@ -24,6 +25,13 @@ export class LandsService {
   private async nextLandmapId() {
     const current = await this.prisma.landmaps.aggregate({ _max: { landmap_id: true } })
     return (current._max.landmap_id ?? 0) + 1
+  }
+
+  private async nextLandmapOwnerId() {
+    const current = await this.prisma.landmaps_owner.aggregate({
+      _max: { landmap_owner_id: true },
+    })
+    return (current._max.landmap_owner_id ?? 0) + 1
   }
 
   // ── Lands ──────────────────────────────────────────────────
@@ -148,8 +156,15 @@ export class LandsService {
     })
   }
 
-  createLandmapOwner(data: { landmap_id?: number; landmap_owner_fid?: number; landmap_owner_uid?: number; landmap_owner_info?: string }) {
-    return this.prisma.landmaps_owner.create({ data: { ...data, landmap_owner_create_at: new Date(), landmap_owner_update_at: new Date() } })
+  async createLandmapOwner(data: { landmap_id?: number; landmap_owner_fid?: number; landmap_owner_uid?: number; landmap_owner_info?: string }) {
+    return this.prisma.landmaps_owner.create({
+      data: {
+        landmap_owner_id: await this.nextLandmapOwnerId(),
+        ...data,
+        landmap_owner_create_at: new Date(),
+        landmap_owner_update_at: new Date(),
+      } as Prisma.landmaps_ownerUncheckedCreateInput,
+    })
   }
 
   // ── Mapping (land ↔ landmap) ───────────────────────────────

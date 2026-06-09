@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { Calculator, Droplets, Layers, Leaf, MapPin, Sprout, Tractor } from 'lucide-react'
 import { DataTable, type Column } from '@/components/ui/DataTable'
+import { getActivityCalStatusKind } from '@/features/activities/cal-status'
 import { get } from '@/lib/api'
 import '../cf-dashboard.css'
 
@@ -27,10 +28,12 @@ interface LogDetail {
   resource_used_type_id: number
   log_act_detail_volumeAll?: number
   log_act_detail_areawork?: number
+  log_act_detail_calStatus_id?: number
   activities_fertilizers?: { act_fertilizer_name?: string }
   activities_equipments?: { act_equipment_name?: string }
   activities_chemiscals?: { act_chemiscal_name?: string }
   resource_used_type?: { resc_used_type_name?: string }
+  log_act_detail_calStatus?: { log_act_detail_calStatus_name?: string }
   activities_header?: DetailHeaderLocation
 }
 
@@ -140,16 +143,25 @@ export function CarbonCreditPage() {
     queryFn: () => get<LogDetail[]>('/activities/details'),
   })
 
+  const readyDetails = useMemo(() => (
+    details.filter((detail) => (
+      getActivityCalStatusKind(
+        detail.log_act_detail_calStatus?.log_act_detail_calStatus_name,
+        detail.log_act_detail_calStatus_id,
+      ) === 'ready'
+    ))
+  ), [details])
+
   const availableYears = useMemo(() => (
     Array.from(new Set(
-      details
+      readyDetails
         .map((detail) => parseYear(detail.activities_header?.activities_header_startDate))
         .filter((year): year is number => year != null),
     )).sort((left, right) => left - right)
-  ), [details])
+  ), [readyDetails])
 
   const validationMessage = useMemo(() => {
-    if (!availableYears.length) return 'ยังไม่มีข้อมูลปีจากกิจกรรมสำหรับใช้คำนวณ Carbon Credit'
+    if (!availableYears.length) return 'ยังไม่มีข้อมูลกิจกรรมสถานะพร้อมคำนวณมาตรฐานสำหรับใช้คำนวณ Carbon Credit'
 
     const missingKey = (Object.keys(selections) as SelectionKey[]).find((key) => !selections[key])
     if (missingKey) return `กรุณาเลือก ${SELECTION_LABELS[missingKey]} ให้ครบทั้ง 5 ส่วน`
@@ -189,7 +201,7 @@ export function CarbonCreditPage() {
     const selectedYearSet = new Set([...baselineYears, projectYear])
     const yearLandMap = new Map<number, Map<number, YearLandAggregate>>()
 
-    details.forEach((detail) => {
+    readyDetails.forEach((detail) => {
       const year = parseYear(detail.activities_header?.activities_header_startDate)
       const landId = detail.activities_header?.land_id
 
@@ -288,7 +300,7 @@ export function CarbonCreditPage() {
     })
 
     return { rows, totals }
-  }, [details, selections, validationMessage])
+  }, [readyDetails, selections, validationMessage])
 
   const columns: Column<CarbonCreditRow>[] = [
     { key: 'campName', header: 'ไร่ / แคมป์', sortable: true },
@@ -415,11 +427,11 @@ export function CarbonCreditPage() {
           <div className="page-header mb-0">
             <div>
               <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold text-surface-900"><Leaf size={20} className="text-primary-600 shrink-0" /> Carbon Credit</h1>
-              <p className="page-subtitle">เลือกปีฐาน 4 ส่วนและปีดำเนินกิจกรรม 1 ส่วน เพื่อเปรียบเทียบข้อมูลรายแปลงตามไร่ แยกปุ๋ยและน้ำมัน พร้อมแสดงชนิดปุ๋ยที่ใช้</p>
+              <p className="page-subtitle">ใช้เฉพาะข้อมูลสถานะพร้อมคำนวณมาตรฐาน เพื่อเลือกปีฐาน 4 ส่วนและปีดำเนินกิจกรรม 1 ส่วนสำหรับเปรียบเทียบรายแปลง</p>
             </div>
             <div className="source-badge w-full justify-start md:w-auto md:justify-end">
-              <span>5 Parts</span>
-              <span>{availableYears.length.toLocaleString('th-TH')} ปีให้เลือก</span>
+              <span>Ready Only</span>
+              <span>{readyDetails.length.toLocaleString('th-TH')} รายการพร้อมใช้งาน</span>
             </div>
           </div>
         </div>

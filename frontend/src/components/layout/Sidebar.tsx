@@ -73,6 +73,7 @@ const NAV_GROUPS: NavGroup[] = [
         labelEn: 'Calculate',
         icon: <Calculator size={17} />,
         children: [
+          { path: '/calculate/prepare', label: 'เตรียมข้อมูล Carbon', labelEn: 'Prepare Carbon', icon: <ClipboardList size={15} /> },
           { path: '/calculate/footprint', label: 'Carbon Footprint', labelEn: 'Carbon Footprint', icon: <Calculator size={15} /> },
           { path: '/calculate/credit', label: 'Carbon Credit', labelEn: 'Carbon Credit', icon: <Leaf size={15} /> },
         ],

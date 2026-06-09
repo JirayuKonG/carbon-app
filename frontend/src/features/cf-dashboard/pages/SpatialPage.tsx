@@ -1,35 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-import { ActivityGroupedBar } from "../components/charts/ActivityGroupedBar";
+import * as XLSX from "xlsx";
 import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
-import { ProcessInputComparisonBar } from "../components/charts/ProcessInputComparisonBar";
-import { sortProcessLabels } from "../components/charts/ChartRegistry";
 import { ThailandMap } from "../components/map/ThailandMap";
 import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCfSpatialNodes } from "../services/dashboardApi";
-import type { CampCarbonSummary, CampFieldCarbonDetail, DataResult, FieldCarbonDetail, ProcessActivityBreakdown, ProcessInputComparison, SpatialLevel, SpatialSummaryNode } from "../types/dashboard";
+import type { CampCarbonSummary, CampFieldCarbonDetail, DataResult, FieldCarbonDetail, ProcessInputComparison, SpatialLevel, SpatialSummaryNode } from "../types/dashboard";
 import { MapPinned } from "lucide-react";
 import "../cf-dashboard.css";
 
-function isField(node?: SpatialSummaryNode): node is FieldCarbonDetail {
-  return node?.level === "field";
+type SpatialPreviewTab = "pdf" | "excel";
+
+interface SpatialExcelRows {
+  campRows: Record<string, unknown>[];
+  provinceRows: Record<string, unknown>[];
+  plotRows: Record<string, unknown>[];
 }
 
-function nodeCompare(selected: SpatialSummaryNode): { baseline: ProcessActivityBreakdown[]; current: ProcessActivityBreakdown[] } {
-  return {
-    baseline: [{
-      year: "baseline_avg",
-      process: selected.name,
-      totalEmission: selected.baselineEmission,
-      activities: [{ name: "Baseline avg", emission: selected.baselineEmission }],
-    }],
-    current: [{
-      year: "project",
-      process: selected.name,
-      totalEmission: selected.currentEmission,
-      activities: [{ name: "Project year", emission: selected.currentEmission }],
-    }],
-  };
+function isField(node?: SpatialSummaryNode): node is FieldCarbonDetail {
+  return node?.level === "field";
 }
 
 function sumInputs(inputs: ProcessInputComparison[]) {
@@ -49,6 +38,35 @@ function inputPct(base: number, current: number) {
 }
 
 const spatialOrder: Exclude<SpatialLevel, "country">[] = ["region", "province", "district", "subdistrict", "field"];
+
+function aggregateInputs(inputs: ProcessInputComparison[][]): ProcessInputComparison[] {
+  const grouped = new Map<string, ProcessInputComparison>();
+  inputs.flat().forEach((item) => {
+    const current = grouped.get(item.process) ?? {
+      process: item.process,
+      baselineFertilizerKg: 0,
+      currentFertilizerKg: 0,
+      baselineFuelLiter: 0,
+      currentFuelLiter: 0,
+    };
+    grouped.set(item.process, {
+      process: item.process,
+      baselineFertilizerKg: current.baselineFertilizerKg + item.baselineFertilizerKg,
+      currentFertilizerKg: current.currentFertilizerKg + item.currentFertilizerKg,
+      baselineFuelLiter: current.baselineFuelLiter + item.baselineFuelLiter,
+      currentFuelLiter: current.currentFuelLiter + item.currentFuelLiter,
+    });
+  });
+  return Array.from(grouped.values());
+}
+
+function aggregateProcessBreakdown(fields: CampFieldCarbonDetail[]) {
+  const grouped = new Map<string, number>();
+  fields.forEach((field) => {
+    field.processBreakdown.forEach((item) => grouped.set(item.name, (grouped.get(item.name) ?? 0) + item.emission));
+  });
+  return Array.from(grouped.entries()).map(([name, emission]) => ({ name, emission }));
+}
 
 function filtersFromNode(nodes: SpatialSummaryNode[], nodeId: string, rootId: string) {
   const next: Record<Exclude<SpatialLevel, "country">, string> = {
@@ -81,6 +99,10 @@ function formatNumber(value: number, digits = 2) {
   return value.toLocaleString(undefined, { maximumFractionDigits: digits });
 }
 
+function rowsForSheet<T extends object>(rows: T[]): Record<string, unknown>[] {
+  return rows.length ? rows.map((row) => ({ ...row }) as Record<string, unknown>) : [{}];
+}
+
 function creditSummary(baseline: number, current: number) {
   const diff = baseline - current;
   const credit = Math.max(diff, 0);
@@ -89,6 +111,109 @@ function creditSummary(baseline: number, current: number) {
     credit,
     direction: diff >= 0 ? "ลดลง" : "เพิ่มขึ้น",
   };
+}
+
+function caneTypeForField(field: CampFieldCarbonDetail) {
+  const record = field as CampFieldCarbonDetail & { caneType?: string; cane_type?: string; caneName?: string; cane_name?: string };
+  return record.caneType ?? record.cane_type ?? record.caneName ?? record.cane_name ?? "-";
+}
+
+function buildSpatialExcelRows(fieldsForExport: CampFieldCarbonDetail[], campsForScope: CampCarbonSummary[]): SpatialExcelRows {
+  const campsForExport = campsForScope.filter((camp) => fieldsForExport.some((field) => field.campId === camp.campId));
+  const campRows = campsForExport.map((camp) => {
+    const campFields = fieldsForExport.filter((field) => field.campId === camp.campId);
+    const province = Array.from(new Set(campFields.map((field) => field.province).filter(Boolean))).join(", ") || "-";
+    const farmerCount = new Set(campFields.map((field) => field.farmerName).filter(Boolean)).size;
+    const campBaseline = campFields.reduce((sum, field) => sum + field.baselineEmission, 0) || camp.baselineCo2eTotal;
+    const campCurrent = campFields.reduce((sum, field) => sum + field.currentEmission, 0) || camp.currentCo2eTotal;
+    return {
+      "Camp Code": camp.campId,
+      "Camp Name": camp.campName,
+      Province: province,
+      "Number of Plots": campFields.length || camp.fieldCount,
+      "Number of Farmers": farmerCount,
+      "Area (Rai)": Number((campFields.reduce((sum, field) => sum + field.areaRai, 0) || camp.areaRai).toFixed(2)),
+      "Carbon Footprint (tCO2e)": Number(campCurrent.toFixed(2)),
+      "Carbon Credit (tCO2e)": Number(Math.max(campBaseline - campCurrent, 0).toFixed(2)),
+    };
+  });
+
+  const provinceMap = new Map<string, CampFieldCarbonDetail[]>();
+  fieldsForExport.forEach((field) => {
+    const province = field.province || "-";
+    provinceMap.set(province, [...(provinceMap.get(province) ?? []), field]);
+  });
+  const provinceRows = Array.from(provinceMap.entries()).map(([province, fields]) => {
+    const campIds = new Set(fields.map((field) => field.campId));
+    const farmers = new Set(fields.map((field) => field.farmerName).filter(Boolean));
+    const baseline = fields.reduce((sum, field) => sum + field.baselineEmission, 0);
+    const current = fields.reduce((sum, field) => sum + field.currentEmission, 0);
+    return {
+      Province: province,
+      "Number of Camps": campIds.size,
+      "Number of Plots": fields.length,
+      "Number of Farmers": farmers.size,
+      "Area (Rai)": Number(fields.reduce((sum, field) => sum + field.areaRai, 0).toFixed(2)),
+      "Carbon Footprint (tCO2e)": Number(current.toFixed(2)),
+      "Carbon Credit (tCO2e)": Number(Math.max(baseline - current, 0).toFixed(2)),
+    };
+  });
+
+  const plotRows = fieldsForExport.map((field) => {
+    const reduction = field.baselineEmission - field.currentEmission;
+    return {
+      "Plot ID": field.fieldCode || field.id,
+      Camp: field.campName,
+      Province: field.province,
+      Farmer: field.farmerName,
+      "Area (Rai)": Number(field.areaRai.toFixed(2)),
+      "Cane Type": caneTypeForField(field),
+      "Baseline Emission (tCO2e)": Number(field.baselineEmission.toFixed(2)),
+      "Project Emission (tCO2e)": Number(field.currentEmission.toFixed(2)),
+      "Emission Reduction (tCO2e)": Number(reduction.toFixed(2)),
+      "Carbon Credit (tCO2e)": Number(Math.max(reduction, 0).toFixed(2)),
+    };
+  });
+
+  return { campRows, provinceRows, plotRows };
+}
+
+function SpatialExcelPreview({ rows }: { rows: SpatialExcelRows }) {
+  const sheets = [
+    ["Camp Summary", rows.campRows],
+    ["Province Summary", rows.provinceRows],
+    ["Plot Detail", rows.plotRows],
+  ] as const;
+
+  return (
+    <div className="excel-sheet-grid">
+      {sheets.map(([title, sheetRows]) => {
+        const previewRows = sheetRows.slice(0, 6);
+        const columns = Object.keys(sheetRows[0] ?? {});
+        return (
+          <div key={title}>
+            <h3>{title}</h3>
+            <table className="report-table">
+              <thead>
+                <tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr>
+              </thead>
+              <tbody>
+                {previewRows.map((row, index) => (
+                  <tr key={`${title}-${index}`}>
+                    {columns.map((column) => <td key={`${title}-${index}-${column}`}>{String(row[column] ?? "-")}</td>)}
+                  </tr>
+                ))}
+                {!previewRows.length && (
+                  <tr><td colSpan={Math.max(columns.length, 1)}>No data for current filters</td></tr>
+                )}
+              </tbody>
+            </table>
+            {sheetRows.length > previewRows.length && <p className="muted export-preview-note">Showing first {previewRows.length} of {sheetRows.length} rows. Export Excel includes all filtered rows.</p>}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function fieldThumbnail(field: CampFieldCarbonDetail, index: number) {
@@ -184,6 +309,12 @@ export function CfSpatialPage() {
   const [campFieldResult, setCampFieldResult] = useState<DataResult<CampFieldCarbonDetail[]>>({ data: [], source: "mock" });
   const [selectedCampId, setSelectedCampId] = useState<number | "all">("all");
   const [selectedBoundaryFieldId, setSelectedBoundaryFieldId] = useState("");
+  const [showAllCampRows, setShowAllCampRows] = useState(false);
+  const [generatedDocument, setGeneratedDocument] = useState<{ title: string; fields: CampFieldCarbonDetail[]; camps: CampCarbonSummary[] } | null>(null);
+  const [activePreviewTab, setActivePreviewTab] = useState<SpatialPreviewTab>("pdf");
+  const [documentRenderId, setDocumentRenderId] = useState(0);
+  const [generatingDocument, setGeneratingDocument] = useState(false);
+  const [documentNotice, setDocumentNotice] = useState("");
   const [filters, setFilters] = useState<Record<Exclude<SpatialLevel, "country">, string>>({
     region: "",
     province: "",
@@ -229,10 +360,10 @@ export function CfSpatialPage() {
   );
   const selectedCamp = selectedCampId === "all"
     ? undefined
-    : scopedCamps.find((camp) => camp.campId === selectedCampId) ?? campResult.data.find((camp) => camp.campId === selectedCampId);
+    : scopedCamps.find((camp) => camp.campId === selectedCampId);
   const selectedCampFields = useMemo(
-    () => selectedCamp ? campFieldResult.data.filter((field) => field.campId === selectedCamp.campId) : [],
-    [campFieldResult.data, selectedCamp],
+    () => selectedCamp ? scopedCampFields.filter((field) => field.campId === selectedCamp.campId) : [],
+    [scopedCampFields, selectedCamp],
   );
   const displayCampFields = useMemo(
     () => selectedCamp ? selectedCampFields : scopedCampFields,
@@ -244,6 +375,8 @@ export function CfSpatialPage() {
   const selectedCampNode = useMemo<SpatialSummaryNode | undefined>(() => {
     if (!selectedCamp) return undefined;
     const anchor = selectedCampFields[0] ?? selected;
+    const campInputs = aggregateInputs(selectedCampFields.map((field) => field.processInputComparisons ?? []));
+    const campBreakdown = selectedCampFields.length ? aggregateProcessBreakdown(selectedCampFields) : selectedCamp.currentActivityBreakdown;
     return {
       id: `camp-${selectedCamp.campId}`,
       parentId: anchor?.parentId,
@@ -257,21 +390,35 @@ export function CfSpatialPage() {
       areaRai: selectedCamp.areaRai,
       baselineEmission: selectedCamp.baselineCo2eTotal,
       currentEmission: selectedCamp.currentCo2eTotal,
-      processBreakdown: selectedCamp.currentActivityBreakdown,
-      processInputComparisons: selectedCamp.processInputComparisons,
+      processBreakdown: campBreakdown,
+      processInputComparisons: campInputs.length ? campInputs : selectedCamp.processInputComparisons,
       childrenIds: [],
     };
   }, [selected, selectedCamp, selectedCampFields]);
-  const focusNode = selectedBoundaryField ?? selectedCampNode ?? selected;
+  const scopedNode = useMemo<SpatialSummaryNode | undefined>(() => {
+    if (!selected || selectedCamp || selectedBoundaryField) return undefined;
+    if (!scopedCampFields.length) return selected;
+    const inputRows = aggregateInputs(scopedCampFields.map((field) => field.processInputComparisons ?? []));
+    return {
+      ...selected,
+      fields: scopedCampFields.reduce((sum, field) => sum + field.fields, 0),
+      farmers: scopedCampFields.reduce((sum, field) => sum + field.farmers, 0),
+      areaRai: scopedCampFields.reduce((sum, field) => sum + field.areaRai, 0),
+      baselineEmission: scopedCampFields.reduce((sum, field) => sum + field.baselineEmission, 0),
+      currentEmission: scopedCampFields.reduce((sum, field) => sum + field.currentEmission, 0),
+      processBreakdown: aggregateProcessBreakdown(scopedCampFields),
+      processInputComparisons: inputRows,
+    };
+  }, [scopedCampFields, selected, selectedBoundaryField, selectedCamp]);
+  const focusNode = selectedBoundaryField ?? selectedCampNode ?? scopedNode ?? selected;
   const diff = focusNode ? focusNode.baselineEmission - focusNode.currentEmission : 0;
   const carbonCredit = focusNode ? creditSummary(focusNode.baselineEmission, focusNode.currentEmission) : creditSummary(0, 0);
-  const compare = focusNode ? nodeCompare(focusNode) : { baseline: [], current: [] };
-  const spatialInputs = sortProcessLabels(focusNode?.processInputComparisons?.map((item) => item.process) ?? [])
-    .map((process) => focusNode?.processInputComparisons?.find((item) => item.process === process))
-    .filter((item): item is ProcessInputComparison => Boolean(item));
+  const spatialInputs = focusNode?.processInputComparisons ?? [];
   const inputTotals = sumInputs(spatialInputs);
   const fertilizerDiff = inputTotals.baselineFertilizerKg - inputTotals.currentFertilizerKg;
   const fuelDiff = inputTotals.baselineFuelLiter - inputTotals.currentFuelLiter;
+  const socRemoval = focusNode ? Math.max(focusNode.baselineEmission - focusNode.currentEmission, 0) * 0.35 : 0;
+  const socIndex = focusNode?.areaRai ? (socRemoval / focusNode.areaRai) * 100 : 0;
   const campOverview = useMemo(() => {
     const totalAreaRai = scopedCamps.reduce((sum, camp) => sum + camp.areaRai, 0);
     const totalCo2e = scopedCamps.reduce((sum, camp) => sum + camp.co2eTotal, 0);
@@ -282,12 +429,26 @@ export function CfSpatialPage() {
       co2ePerRai: totalAreaRai ? totalCo2e / totalAreaRai : 0,
     };
   }, [scopedCamps]);
+  const visibleCampFields = showAllCampRows ? displayCampFields : displayCampFields.slice(0, 10);
+  const hiddenCampFieldCount = Math.max(displayCampFields.length - visibleCampFields.length, 0);
   const mapBoundaryFields = selectedCamp ? selectedCampFields : displayCampFields.length ? displayCampFields : isField(selected) ? [selected] : [];
   const activeBoundaryFieldId = selectedBoundaryFieldId || (isField(selected) ? selected.id : undefined);
   const documentFields = displayCampFields;
   const documentTitle = selectedCamp
     ? `รายละเอียดรายแปลง ${selectedCamp.campName}`
     : `รายละเอียดรายแปลง ${selected?.name ?? "ภาพรวมทุกแคมป์"}`;
+
+  const documentCamps = selectedCamp ? [selectedCamp] : scopedCamps;
+  const documentIsCurrent = Boolean(
+    generatedDocument
+      && generatedDocument.title === documentTitle
+      && generatedDocument.fields.map((field) => field.id).join("|") === documentFields.map((field) => field.id).join("|")
+      && generatedDocument.camps.map((camp) => camp.campId).join("|") === documentCamps.map((camp) => camp.campId).join("|"),
+  );
+  const generatedExcelRows = useMemo(
+    () => generatedDocument ? buildSpatialExcelRows(generatedDocument.fields, generatedDocument.camps) : undefined,
+    [generatedDocument],
+  );
 
   useEffect(() => {
     if (selectedBoundaryFieldId && !displayCampFields.some((field) => field.id === selectedBoundaryFieldId)) {
@@ -296,8 +457,9 @@ export function CfSpatialPage() {
   }, [displayCampFields, selectedBoundaryFieldId]);
 
   useEffect(() => {
-    if (!spatialDocRef.current) return;
+    if (!generatedDocument || !spatialDocRef.current) return;
     let revoked = "";
+    setGeneratingDocument(true);
     const timer = window.setTimeout(() => {
       if (!spatialDocRef.current) return;
       html2canvas(spatialDocRef.current, { scale: 1.8, backgroundColor: "#ffffff" }).then((canvas) => {
@@ -325,17 +487,32 @@ export function CfSpatialPage() {
           return url;
         });
         revoked = url;
-      });
+        setDocumentNotice("อัปเดต Preview เอกสารเรียบร้อยแล้ว");
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "สร้าง PDF preview ไม่สำเร็จ"))
+      .finally(() => setGeneratingDocument(false));
     }, 250);
 
     return () => {
       window.clearTimeout(timer);
       if (revoked) URL.revokeObjectURL(revoked);
     };
-  }, [documentFields, documentTitle]);
+  }, [generatedDocument, documentRenderId]);
+
+  const generateSpatialDocument = () => {
+    setDocumentNotice("กำลังสร้าง Preview เอกสารตามฟิลเตอร์ปัจจุบัน...");
+    setGeneratedDocument({ title: documentTitle, fields: documentFields, camps: documentCamps });
+    setDocumentRenderId((value) => value + 1);
+    setActivePreviewTab("pdf");
+  };
+
+  const markSpatialFilterChanged = () => {
+    setShowAllCampRows(false);
+    setDocumentNotice("ตัวกรองเปลี่ยนแล้ว ข้อมูลหน้าเว็บและแผนที่อัปเดตทันที กดสร้างเอกสารเมื่อพร้อม");
+  };
 
   const downloadPdf = () => {
-    if (!pdfUrl) return;
+    if (!pdfUrl || !documentIsCurrent) return;
     const a = document.createElement("a");
     a.href = pdfUrl;
     a.download = "mitrphol-spatial-fields.pdf";
@@ -343,7 +520,7 @@ export function CfSpatialPage() {
   };
 
   const downloadWordDraft = () => {
-    if (!spatialDocRef.current) return;
+    if (!spatialDocRef.current || !documentIsCurrent) return;
     const html = `<!doctype html><html><head><meta charset="utf-8"><style>${documentCss}</style></head><body>${spatialDocRef.current.outerHTML}</body></html>`;
     const blob = new Blob([html], { type: "application/msword;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -352,6 +529,15 @@ export function CfSpatialPage() {
     a.download = "mitrphol-spatial-fields.doc";
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const exportExcel = () => {
+    if (!generatedExcelRows || !documentIsCurrent) return;
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(generatedExcelRows.campRows)), "Camp Summary");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(generatedExcelRows.provinceRows)), "Province Summary");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(generatedExcelRows.plotRows)), "Plot Detail");
+    XLSX.writeFile(wb, "mitrphol-spatial-carbon-export.xlsx");
   };
 
   const breadcrumbs = useMemo(() => {
@@ -373,6 +559,7 @@ export function CfSpatialPage() {
     setFilters(filtersFromNode(nodes, nextId, rootId));
     setSelectedCampId("all");
     setSelectedBoundaryFieldId("");
+    markSpatialFilterChanged();
   };
 
   const selectArea = (level: keyof typeof filters, id: string) => {
@@ -385,6 +572,12 @@ export function CfSpatialPage() {
     setSelectedId(id || next.subdistrict || next.district || next.province || next.region || rootId);
     setSelectedCampId("all");
     setSelectedBoundaryFieldId("");
+    markSpatialFilterChanged();
+  };
+
+  const selectBoundaryField = (id: string) => {
+    setSelectedBoundaryFieldId(id);
+    markSpatialFilterChanged();
   };
 
   if (!selected) {
@@ -466,6 +659,7 @@ export function CfSpatialPage() {
                   const value = event.target.value;
                   setSelectedCampId(value === "all" ? "all" : Number(value));
                   setSelectedBoundaryFieldId("");
+                  markSpatialFilterChanged();
                 }}
               >
                 <option value="all">ภาพรวมทุกแคมป์</option>
@@ -479,7 +673,7 @@ export function CfSpatialPage() {
                 เลือกแปลงบนแผนที่
                 <select
                   value={selectedBoundaryFieldId}
-                  onChange={(event) => setSelectedBoundaryFieldId(event.target.value)}
+                  onChange={(event) => selectBoundaryField(event.target.value)}
                   disabled={!selectedCampFields.length}
                 >
                   <option value="">{selectedCampFields.length ? "แสดงทุกแปลงในแคมป์" : "ยังไม่มี mock รายแปลง"}</option>
@@ -513,11 +707,11 @@ export function CfSpatialPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {displayCampFields.map((field) => (
+                    {visibleCampFields.map((field) => (
                       <tr
                         key={field.id}
                         className={selectedBoundaryFieldId === field.id ? "active-row" : ""}
-                        onClick={() => setSelectedBoundaryFieldId(field.id)}
+                        onClick={() => selectBoundaryField(field.id)}
                       >
                         <td>{field.fieldCode}</td>
                         <td>{field.fieldName}</td>
@@ -530,7 +724,10 @@ export function CfSpatialPage() {
                           <button
                             type="button"
                             className="map-zoom-btn"
-                            onClick={() => setSelectedBoundaryFieldId(field.id)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              selectBoundaryField(field.id);
+                            }}
                             title="ซูมไปที่ขอบเขตแปลง"
                           >
                             <MapPinned size={14} />
@@ -567,11 +764,11 @@ export function CfSpatialPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {displayCampFields.map((field) => (
+                    {visibleCampFields.map((field) => (
                       <tr
                         key={`scope-${field.id}`}
                         className={selectedBoundaryFieldId === field.id ? "active-row" : ""}
-                        onClick={() => setSelectedBoundaryFieldId(field.id)}
+                        onClick={() => selectBoundaryField(field.id)}
                       >
                         <td>{field.campName}</td>
                         <td>{field.fieldCode}</td>
@@ -583,7 +780,10 @@ export function CfSpatialPage() {
                           <button
                             type="button"
                             className="map-zoom-btn"
-                            onClick={() => setSelectedBoundaryFieldId(field.id)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              selectBoundaryField(field.id);
+                            }}
                             title="ซูมไปที่ขอบเขตแปลง"
                           >
                             <MapPinned size={14} />
@@ -599,6 +799,13 @@ export function CfSpatialPage() {
               </div>
             </>
           )}
+          {hiddenCampFieldCount > 0 && (
+            <div className="table-more-row">
+              <button type="button" className="run-btn" onClick={() => setShowAllCampRows(true)}>
+                ดูข้อมูลทั้งหมดอีก {hiddenCampFieldCount.toLocaleString()} รายการ
+              </button>
+            </div>
+          )}
         </section>
 
         <section className="card map-card wide-map">
@@ -608,26 +815,58 @@ export function CfSpatialPage() {
             onSelect={selectSpatialNode}
             boundaryFields={mapBoundaryFields}
             selectedBoundaryFieldId={activeBoundaryFieldId}
-            onSelectBoundaryField={setSelectedBoundaryFieldId}
+            onSelectBoundaryField={selectBoundaryField}
           />
         </section>
 
         <section className="card report-toolbar spatial-export-toolbar">
           <div>
             <div className="card-title">เอกสารรายละเอียดรายแปลง</div>
-            <p className="muted">Preview เดียวกันนี้ใช้สร้างทั้ง PDF และ Word ตามขอบเขตพื้นที่หรือแคมป์ที่เลือก</p>
+            <p className="muted">Preview PDF ใช้ตรวจรูปแบบเอกสารรายแปลง ส่วน Excel จะ Export เป็น 3 Sheet: Camp Summary, Province Summary และ Plot Detail</p>
+            <p className="muted export-preview-note">หมายเหตุ: Word ไม่มี preview แยก เพราะเนื้อหาภายในเหมือน PDF และเตรียมไว้ให้ดาวน์โหลดไปแก้ไขต่อใน Word ได้เอง</p>
           </div>
-          <button className="run-btn pdf-download-btn" type="button" onClick={downloadPdf} disabled={!pdfUrl}>Download PDF</button>
-          <button className="run-btn word-download-btn" type="button" onClick={downloadWordDraft} disabled={!documentFields.length}>Download Word</button>
+          <button className="run-all-btn report-generate-btn" type="button" onClick={generateSpatialDocument} disabled={!documentFields.length || generatingDocument}>
+            สร้างเอกสารใหม่ (Generate Report)
+          </button>
+          <button className="run-btn pdf-download-btn" type="button" onClick={downloadPdf} disabled={!pdfUrl || generatingDocument || !documentIsCurrent}>Download PDF</button>
+          <button className="run-btn word-download-btn" type="button" onClick={downloadWordDraft} disabled={!generatedDocument || !documentIsCurrent}>Download Word</button>
+          <button className="run-all-btn excel-download-btn" type="button" onClick={exportExcel} disabled={!generatedExcelRows || !documentIsCurrent}>Export Excel</button>
         </section>
 
-        <section className="card spatial-doc-preview-card">
+        {documentNotice && <div className="report-generate-notice">{documentNotice}</div>}
+
+        <section className="card report-preview-panel spatial-doc-preview-card">
+          <div className="report-preview-tabs spatial-preview-tabs" role="tablist" aria-label="Spatial report preview tabs">
+            {[
+              ["pdf", "PDF"],
+              ["excel", "Excel"],
+            ].map(([tab, label]) => (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={activePreviewTab === tab}
+                className={activePreviewTab === tab ? "active" : ""}
+                onClick={() => setActivePreviewTab(tab as SpatialPreviewTab)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <div className="card-title">Preview เอกสารรายแปลง</div>
-          <div className="spatial-doc-preview">
+          <p className="muted export-preview-note">Preview ไม่ได้มีการแสดงข้อมูลของ Word เนื่องจากใช้เนื้อหาเดียวกันกับ PDF</p>
+          {!generatedDocument && <div className="empty-state">เลือกฟิลเตอร์ให้เรียบร้อย แล้วกดสร้างเอกสารใหม่เพื่อ Render preview</div>}
+          <div className="spatial-doc-preview" style={{ display: generatedDocument && activePreviewTab === "pdf" ? undefined : "none" }}>
+            {generatingDocument && <div className="empty-state">กำลัง Render PDF preview...</div>}
             <div ref={spatialDocRef}>
-              <SpatialDocument title={documentTitle} fields={documentFields} />
+              <SpatialDocument title={generatedDocument?.title ?? documentTitle} fields={generatedDocument?.fields ?? []} />
             </div>
           </div>
+          {generatedDocument && activePreviewTab === "excel" && generatedExcelRows && (
+            <div className="excel-preview">
+              <SpatialExcelPreview rows={generatedExcelRows} />
+            </div>
+          )}
         </section>
 
         <section className="grid2">
@@ -649,6 +888,9 @@ export function CfSpatialPage() {
               <div><span>Carbon Credit ปีฐาน</span><strong>0 tCO2e</strong></div>
               <div><span>Carbon Credit ปีดำเนินการ</span><strong>{formatNumber(carbonCredit.credit, 2)} tCO2e</strong></div>
               <div><span>เครดิตที่ได้</span><strong className={carbonCredit.credit > 0 ? "green-text" : "red-text"}>{formatNumber(carbonCredit.credit, 2)} tCO2e</strong></div>
+              <div><span>การสะสมคาร์บอนในดิน (SOC)</span><strong className="green-text">{formatNumber(socRemoval, 2)} tCO2e</strong></div>
+              <div><span>SOC index ต่อพื้นที่</span><strong>{formatNumber(socIndex, 2)}</strong></div>
+              <div><span>เครดิตรวมหลังรวม SOC</span><strong className="green-text">{formatNumber(carbonCredit.credit + socRemoval, 2)} tCO2e</strong></div>
             </div>
             {isField(focusNode) && (
               <div className="field-detail">
@@ -661,6 +903,12 @@ export function CfSpatialPage() {
                   <span>ตำบล: {focusNode.subdistrict}</span>
                   <span>โทร: {focusNode.phone}</span>
                 </div>
+                <div className="chanot-list">
+                  {focusNode.chanots.map((chanot) => (
+                    <span key={chanot.chanotNo}>{chanot.chanotNo} · {formatNumber(chanot.areaRai, 2)} ไร่</span>
+                  ))}
+                  {!focusNode.chanots.length && <span>ยังไม่มีข้อมูลโฉนดที่ดิน</span>}
+                </div>
               </div>
             )}
           </article>
@@ -671,8 +919,7 @@ export function CfSpatialPage() {
           </article>
         </section>
 
-        <section className="grid2">
-          <article className="card">
+        <section className="card">
             <div className="card-title">สรุปการใช้ปุ๋ยและน้ำมันในพื้นที่ · {focusNode.name}</div>
             <div className="mini-stat-grid wide">
               <div>
@@ -708,63 +955,6 @@ export function CfSpatialPage() {
                 <small>{Math.abs(inputPct(inputTotals.baselineFuelLiter, inputTotals.currentFuelLiter)).toFixed(1)}%</small>
               </div>
             </div>
-          </article>
-
-          <article className="card">
-            <div className="card-title">กราฟเทียบปุ๋ยและน้ำมันรวม · ปีฐาน vs ปีดำเนินการ</div>
-            <ProcessInputComparisonBar data={spatialInputs} mode="total" />
-          </article>
-        </section>
-
-        <section className="card">
-          <div className="card-title">เจาะรายกระบวนการ · ปุ๋ยและน้ำมันในพื้นที่</div>
-          <div className="input-table-wrap">
-            <table className="input-table">
-              <thead>
-                <tr>
-                  <th>กระบวนการ</th>
-                  <th>ปุ๋ยปีฐาน (kg)</th>
-                  <th>ปุ๋ยปีดำเนินการ (kg)</th>
-                  <th>ผลต่างปุ๋ย</th>
-                  <th>น้ำมันปีฐาน (L)</th>
-                  <th>น้ำมันปีดำเนินการ (L)</th>
-                  <th>ผลต่างน้ำมัน</th>
-                </tr>
-              </thead>
-              <tbody>
-                {spatialInputs.map((item) => {
-                  const processFertilizerDiff = item.baselineFertilizerKg - item.currentFertilizerKg;
-                  const processFuelDiff = item.baselineFuelLiter - item.currentFuelLiter;
-                  return (
-                    <tr key={item.process}>
-                      <td>{item.process}</td>
-                      <td>{item.baselineFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
-                      <td>{item.currentFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
-                      <td className={processFertilizerDiff >= 0 ? "green-text" : "red-text"}>
-                        {processFertilizerDiff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(processFertilizerDiff).toLocaleString(undefined, { maximumFractionDigits: 1 })}
-                      </td>
-                      <td>{item.baselineFuelLiter.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
-                      <td>{item.currentFuelLiter.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
-                      <td className={processFuelDiff >= 0 ? "green-text" : "red-text"}>
-                        {processFuelDiff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(processFuelDiff).toLocaleString(undefined, { maximumFractionDigits: 1 })}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {!spatialInputs.length && <div className="empty-state">ยังไม่มีข้อมูลปุ๋ยและน้ำมันสำหรับพื้นที่นี้</div>}
-          </div>
-        </section>
-
-        <section className="card">
-          <div className="card-title">กราฟรายกระบวนการ · ปุ๋ยและน้ำมัน ปีฐาน vs ปีดำเนินการ</div>
-          <ProcessInputComparisonBar data={spatialInputs} />
-        </section>
-
-        <section className="card">
-          <div className="card-title">แผนภูมิแท่ง · เปรียบเทียบปีฐานและปีดำเนินการ</div>
-          <ActivityGroupedBar baseline={compare.baseline} current={compare.current} />
         </section>
       </div>
     </div>

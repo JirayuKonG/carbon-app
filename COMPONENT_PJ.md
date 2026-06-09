@@ -1,6 +1,6 @@
 # Project Component Map
 
-Last updated: 2026-06-04
+Last updated: 2026-06-09
 
 Use this file to quickly find where a page, component, layout element, or related API code lives.
 
@@ -27,7 +27,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Group | Items | Notes |
 | --- | --- | --- |
 | `CARBON ANALYTICS` | `ภาพรวม Carbon`, `แผนที่พื้นที่` | `ภาพรวม Carbon` expands to `ข้อมูลสรุป`, `กระบวนการเพาะปลูก`, and `รายงาน Premium T-VER`. |
-| `CARBON` | `บันทึกกิจกรรม`, `คำนวณ Carbon` | `บันทึกกิจกรรม` expands to `จัดการกิจกรรม` and `รายการบันทึกกิจกรรม`; `คำนวณ Carbon` expands to `Carbon Footprint` and `Carbon Credit`. |
+| `CARBON` | `บันทึกกิจกรรม`, `คำนวณ Carbon` | `บันทึกกิจกรรม` expands to `จัดการกิจกรรม` and `รายการบันทึกกิจกรรม`; `คำนวณ Carbon` expands to `เตรียมข้อมูล Carbon`, `Carbon Footprint`, and `Carbon Credit`. |
 | `ข้อมูลเกษตรกร` | `จัดการเกษตรกร`, `พื้นที่เพาะปลูก`, `ข้อมูลสภาพอากาศ` | Farmer and land-related operational pages. |
 | `ตั้งค่าระบบ` | `พื้นที่ในประเทศไทย`, `โรงงาน / บริการ`, `จัดการผู้ใช้`, `EF / GWP / หน่วย`, `ปุ๋ย / น้ำมัน` | System reference data and supporting setup pages. |
 
@@ -61,8 +61,9 @@ Use this file to quickly find where a page, component, layout element, or relate
 | `/process` | `frontend/src/features/cf-dashboard/pages/ProcessPage.tsx` | Cultivation-process analytics focused on process breakdowns and comparisons. |
 | `/spatial` | `frontend/src/features/cf-dashboard/pages/SpatialPage.tsx` | Area map, drill-down, and spatial detail summaries. |
 | `/report` | `frontend/src/features/cf-dashboard/pages/ReportPage.tsx` | Premium T-VER summary, preview, and export/download flow. |
-| `/calculate` | `frontend/src/App.tsx` | Redirects to `/calculate/footprint`. |
-| `/calculate/footprint` | `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` | Carbon Footprint calculation workflow page with status management and standard/CFP actions. |
+| `/calculate` | `frontend/src/App.tsx` | Redirects to `/calculate/prepare`. |
+| `/calculate/prepare` | `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` | Carbon data preparation page that moves imported activity details into `carbon_process_queue`. |
+| `/calculate/footprint` | `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` | Carbon Footprint queue page for unit/volume preparation, fertilizer/fuel conversions, soil/SOC inputs, ready status, and calculation actions. |
 | `/calculate/credit` | `frontend/src/features/cf-dashboard/pages/CarbonCreditPage.tsx` | Read-only Carbon Credit analysis page with 4 baseline years, 1 project year, and plot-level fertilizer/fuel comparison. |
 | `/dashboard` | `frontend/src/features/dashboard/DashboardPage.tsx` | GHG dashboard, charts, summaries. |
 | `/geo` | `frontend/src/features/geo/GeoPage.tsx` | Geographies, provinces, districts, subdistricts. |
@@ -75,7 +76,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | `/activities/resources` | `frontend/src/features/activities/ActivityResourcesPage.tsx` | Read-only activity resource reference lists for fertilizers, chemicals, and equipments. |
 | `/activities` | `frontend/src/App.tsx` | Redirects to `/activities/logs`. |
 | `/activities/logs` | `frontend/src/features/activities/ActivityLogListPage.tsx` | Simpler daily-use list for `log_activities_detail` with filters and add/edit/delete. |
-| `/activities/manage` | `frontend/src/features/activities/ActivitiesPage.tsx` | Advanced activity management page with headers, import, and full workflow tools. |
+| `/activities/manage` | `frontend/src/features/activities/ActivitiesPage.tsx` | Advanced activity management page with headers, import, full workflow tools, and imported-file history from `activities_fileNameUse`. |
 | `/activities/logs/new` | `frontend/src/App.tsx` | Redirect helper that preserves query string and sends users to `/activities/manage`. |
 
 ## Route Notes
@@ -103,7 +104,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Lands | `backend/src/modules/lands/*` | `/api/lands` |
 | Weather | `backend/src/modules/weather/*` | `/api/lands/weather` |
 | Emission factors | `backend/src/modules/emission-factors/*` | `/api/emission-factors` |
-| Activities | `backend/src/modules/activities/*` | `/api/activities` |
+| Activities | `backend/src/modules/activities/*` | `/api/activities` including activity headers/details, CSV import, imported-file history endpoints such as `/api/activities/import-files`, and carbon queue endpoints such as `/api/activities/carbon-process-queue`. |
 | Prisma database access | `backend/src/modules/prisma/*` | Used by all backend services. |
 
 ## Database And Schema

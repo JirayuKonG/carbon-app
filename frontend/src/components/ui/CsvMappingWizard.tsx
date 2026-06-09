@@ -31,6 +31,13 @@ export type CsvImportProgress = {
 
 export type CsvImportProgressReporter = (progress: CsvImportProgress) => void
 
+export type CsvImportHelpers = {
+  onProgress?: CsvImportProgressReporter
+  fileName?: string
+  rowCount?: number
+  columnCount?: number
+}
+
 interface CsvMappingWizardProps {
   title: string
   subtitle?: string
@@ -38,7 +45,7 @@ interface CsvMappingWizardProps {
   onComplete: (
     mappings: ColumnMapping[],
     rows: Record<string, string>[],
-    helpers?: { onProgress?: CsvImportProgressReporter },
+    helpers?: CsvImportHelpers,
   ) => Promise<any>
   onCancel: () => void
   onFinish?: () => void
@@ -46,7 +53,7 @@ interface CsvMappingWizardProps {
 }
 
 type Step = 'upload' | 'preview' | 'map' | 'validate' | 'done'
-type ResourceItemCategory = 'fertilizer' | 'equipment' | 'chemical' | ''
+type ResourceItemCategory = 'fertilizer' | 'equipment' | 'chemical' | 'other' | ''
 type DetailTypeResolution = {
   mode: 'existing' | 'new'
   selectedId: string
@@ -80,6 +87,11 @@ interface ExistingChemical {
   resource_used_type_id?: number | null
 }
 
+interface ExistingResourceOther {
+  act_resourceOther_name?: string | null
+  resource_used_type_id?: number | null
+}
+
 function normalizeCsvCell(value: unknown) {
   return String(value ?? '')
     .replace(/^\uFEFF/, '')
@@ -108,6 +120,7 @@ const RESOURCE_CATEGORY_LABELS: Record<Exclude<ResourceItemCategory, ''>, string
   fertilizer: 'ปุ๋ย',
   equipment: 'อุปกรณ์',
   chemical: 'สารเคมี',
+  other: 'อื่น ๆ',
 }
 
 const AUTO_MAP_ALIASES: Record<string, string[]> = {
@@ -212,7 +225,7 @@ function classifyImportError(message: string) {
     return { key: 'unit-issue', label: 'unit สร้างหรือหาไม่สำเร็จ' }
   }
 
-  if (/resource/.test(normalized) || /ปัจจัย/.test(normalized) || /fertilizer|equipment|chemical/.test(normalized)) {
+  if (/resource/.test(normalized) || /ปัจจัย/.test(normalized) || /fertilizer|equipment|chemical|other/.test(normalized)) {
     return { key: 'resource-issue', label: 'resource สร้างหรือหาไม่สำเร็จ' }
   }
 
@@ -274,6 +287,7 @@ export function CsvMappingWizard({
   const [existingFertilizers, setExistingFertilizers] = useState<ExistingFertilizer[]>([])
   const [existingEquipments, setExistingEquipments] = useState<ExistingEquipment[]>([])
   const [existingChemicals, setExistingChemicals] = useState<ExistingChemical[]>([])
+  const [existingResourceOthers, setExistingResourceOthers] = useState<ExistingResourceOther[]>([])
   const [showImportConfirm, setShowImportConfirm] = useState(false)
 
   const STEPS: Step[] = ['upload', 'preview', 'map', 'validate', 'done']
@@ -291,6 +305,7 @@ export function CsvMappingWizard({
     if (/อุปกรณ์|equipment/.test(normalized)) return 'equipment'
     if (/เคมี|chemical/.test(normalized)) return 'chemical'
     if (/ปุ๋ย|fertilizer/.test(normalized)) return 'fertilizer'
+    if (/อื่น|other|resourceother|resource_other|พันธุ์|variety|sugarcane|อ้อย/.test(normalized)) return 'other'
     return ''
   }
 
@@ -304,7 +319,9 @@ export function CsvMappingWizard({
         ? 'equipment'
         : existingChemicals.some((item) => item.resource_used_type_id === parsedId)
           ? 'chemical'
-          : ''
+          : existingResourceOthers.some((item) => item.resource_used_type_id === parsedId)
+            ? 'other'
+            : ''
 
     if (matchedByMaster) return matchedByMaster
 
@@ -527,6 +544,7 @@ export function CsvMappingWizard({
       get<ExistingFertilizer[]>('/activities/fertilizers'),
       get<ExistingEquipment[]>('/activities/equipments'),
       get<ExistingChemical[]>('/activities/chemicals'),
+      get<ExistingResourceOther[]>('/activities/resource-others'),
     ]).then((results) => {
       if (!active) return
 
@@ -535,6 +553,7 @@ export function CsvMappingWizard({
       setExistingFertilizers(results[2].status === 'fulfilled' ? results[2].value : [])
       setExistingEquipments(results[3].status === 'fulfilled' ? results[3].value : [])
       setExistingChemicals(results[4].status === 'fulfilled' ? results[4].value : [])
+      setExistingResourceOthers(results[5].status === 'fulfilled' ? results[5].value : [])
     })
 
     return () => {
@@ -565,8 +584,10 @@ export function CsvMappingWizard({
             ? 'fertilizer'
             : existingEquipments.find((row) => normalizeLookupKey(row.act_equipment_name) === normalizedItem)
               ? 'equipment'
-              : existingChemicals.find((row) => normalizeLookupKey(row.act_chemiscal_name) === normalizedItem)
-                ? 'chemical'
+            : existingChemicals.find((row) => normalizeLookupKey(row.act_chemiscal_name) === normalizedItem)
+              ? 'chemical'
+              : existingResourceOthers.find((row) => normalizeLookupKey(row.act_resourceOther_name) === normalizedItem)
+                ? 'other'
                 : ''
 
         const inferredFromCsv = resourceTypeValuesByItem[item]
@@ -605,6 +626,7 @@ export function CsvMappingWizard({
           existingFertilizers.find((row) => normalizeLookupKey(row.act_fertilizer_name) === normalizedItem)?.resource_used_type_id
           ?? existingEquipments.find((row) => normalizeLookupKey(row.act_equipment_name) === normalizedItem)?.resource_used_type_id
           ?? existingChemicals.find((row) => normalizeLookupKey(row.act_chemiscal_name) === normalizedItem)?.resource_used_type_id
+          ?? existingResourceOthers.find((row) => normalizeLookupKey(row.act_resourceOther_name) === normalizedItem)?.resource_used_type_id
 
         const inferredFromCsv = resourceTypeValuesByItem[item]
           ?.map((value) => resourceTypeNameToId[normalizeLookupKey(value)])
@@ -625,6 +647,7 @@ export function CsvMappingWizard({
     existingChemicals,
     existingEquipments,
     existingFertilizers,
+    existingResourceOthers,
     resourceItemNameKey,
     resourceItemResourceTypes,
     resourceTypeNameToId,
@@ -816,6 +839,9 @@ export function CsvMappingWizard({
 
       const res = await onComplete(mappings, enhancedRows, {
         onProgress: (progress) => setImportProgress(progress),
+        fileName,
+        rowCount: allRows.length,
+        columnCount: sourceHeaders.length,
       })
       if (res) setImportResult(res as any)
       setImportProgress((prev) => (
@@ -1119,6 +1145,7 @@ export function CsvMappingWizard({
                                 <option value="fertilizer">ปุ๋ย</option>
                                 <option value="equipment">อุปกรณ์</option>
                                 <option value="chemical">สารเคมี</option>
+                                <option value="other">อื่น ๆ</option>
                               </select>
                             </div>
 

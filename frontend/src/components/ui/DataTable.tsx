@@ -1,9 +1,9 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, type ReactNode } from 'react'
 import { ArrowUpDown, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronUp, Search } from 'lucide-react'
 
 export interface Column<T> {
   key: keyof T | string
-  header: string
+  header: ReactNode
   render?: (row: T) => React.ReactNode
   sortable?: boolean
   sortValue?: (row: T) => unknown
@@ -24,7 +24,7 @@ interface DataTableProps<T> {
   emptyMessage?: string
 }
 
-const PAGE_SIZES = [10, 25, 50, 100]
+const PAGE_SIZES = [5, 10, 25, 50, 100]
 
 export function DataTable<T>({
   data,

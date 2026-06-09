@@ -37,6 +37,7 @@ type ActivityDetailPayload = {
   act_equipment_id?: number | string | null
   act_fertilizer_id?: number | string | null
   act_chemiscal_id?: number | string | null
+  act_resourceOther_id?: number | string | null
   resource_used_type_id?: number | string | null
   unit_prefix_id?: number | string | null
   unit_id?: number | string | null
@@ -61,9 +62,57 @@ type EquipmentPayload = {
   resource_used_type_id?: number | string | null
 }
 
+type ResourceOtherPayload = {
+  act_resourceOther_name?: string | null
+  act_resourceOther_info?: string | null
+  resource_used_type_id?: number | string | null
+  act_resourceOther_update_uid?: number | string | null
+}
+
 type ResourceTypePayload = {
   resc_used_type_name?: string | null
   resc_used_type_info?: string | null
+}
+
+type ImportFilePayload = {
+  activities_fileNameUse_name?: string | null
+  activities_fileNameUse_rowCount?: number | string | null
+  activities_fileNameUse_columnCount?: number | string | null
+  activities_fileNameUse_update_uid?: number | string | null
+}
+
+type CarbonPreparationPayload = {
+  preparedUnitId?: number | string | null
+  preparedUnitName?: string | null
+  preparedUnitInitial?: string | null
+  preparedUnitPrefixId?: number | string | null
+  preparedVolumeAll?: number | string | null
+  preparedVolumePerUnit?: number | string | null
+  conversionFactor?: number | string | null
+  fertilizerBagWeightKg?: number | string | null
+  fertilizerPrepareType?: string | null
+  soilSampleDate?: Date | string | null
+  soilN?: number | string | null
+  soilSocBaseline?: number | string | null
+  soilSocProject?: number | string | null
+  note?: string | null
+}
+
+type CarbonPreparationNormalized = {
+  preparedUnitId?: number
+  preparedUnitName?: string
+  preparedUnitInitial?: string
+  preparedUnitPrefixId?: number
+  preparedVolumeAll?: number
+  preparedVolumePerUnit?: number
+  conversionFactor?: number
+  fertilizerBagWeightKg?: number
+  fertilizerPrepareType?: string
+  soilSampleDate?: Date
+  soilN?: number
+  soilSocBaseline?: number
+  soilSocProject?: number
+  note?: string
 }
 
 @Injectable()
@@ -144,6 +193,7 @@ export class ActivitiesService {
       act_equipment_id:                  this.toOptionalNumber(data.act_equipment_id),
       act_fertilizer_id:                 this.toOptionalNumber(data.act_fertilizer_id),
       act_chemiscal_id:                  this.toOptionalNumber(data.act_chemiscal_id),
+      act_resourceOther_id:              this.toOptionalNumber(data.act_resourceOther_id),
       resource_used_type_id:             this.toOptionalNumber(data.resource_used_type_id),
       unit_prefix_id:                    this.toOptionalNumber(data.unit_prefix_id),
       unit_id:                           this.toOptionalNumber(data.unit_id),
@@ -160,6 +210,78 @@ export class ActivitiesService {
     return Object.fromEntries(
       Object.entries(data).filter(([, value]) => value !== undefined && value !== ''),
     )
+  }
+
+  private normalizeImportFilePayload(data: ImportFilePayload) {
+    return {
+      activities_fileNameUse_name: this.toRequiredText(
+        data.activities_fileNameUse_name,
+        'activities_fileNameUse_name',
+      ),
+      activities_fileNameUse_rowCount: this.toOptionalNumber(data.activities_fileNameUse_rowCount),
+      activities_fileNameUse_columnCount: this.toOptionalNumber(data.activities_fileNameUse_columnCount),
+      activities_fileNameUse_update_uid: this.toOptionalNumber(data.activities_fileNameUse_update_uid),
+    }
+  }
+
+  private normalizeCarbonPreparationPayload(data: CarbonPreparationPayload): CarbonPreparationNormalized {
+    return {
+      preparedUnitId: this.toOptionalNumber(data.preparedUnitId),
+      preparedUnitName: this.toOptionalText(data.preparedUnitName),
+      preparedUnitInitial: this.toOptionalText(data.preparedUnitInitial),
+      preparedUnitPrefixId: this.toOptionalNumber(data.preparedUnitPrefixId),
+      preparedVolumeAll: this.toOptionalNumber(data.preparedVolumeAll),
+      preparedVolumePerUnit: this.toOptionalNumber(data.preparedVolumePerUnit),
+      conversionFactor: this.toOptionalNumber(data.conversionFactor),
+      fertilizerBagWeightKg: this.toOptionalNumber(data.fertilizerBagWeightKg),
+      fertilizerPrepareType: this.toOptionalText(data.fertilizerPrepareType),
+      soilSampleDate: this.toOptionalDate(data.soilSampleDate),
+      soilN: this.toOptionalNumber(data.soilN),
+      soilSocBaseline: this.toOptionalNumber(data.soilSocBaseline),
+      soilSocProject: this.toOptionalNumber(data.soilSocProject),
+      note: this.toOptionalText(data.note),
+    }
+  }
+
+  private parseCarbonPreparationInfo(value?: string | null): Record<string, unknown> {
+    if (!value) return {}
+    try {
+      const parsed: unknown = JSON.parse(value)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : {}
+    } catch {
+      return {}
+    }
+  }
+
+  private buildCarbonPreparationInfo(
+    data: CarbonPreparationNormalized,
+    sourceDetail: {
+      unit_id?: number | null
+      unit_prefix_id?: number | null
+      log_act_detail_volumePerUnit?: number | null
+      log_act_detail_volumeAll?: number | null
+    },
+    previousInfo: Record<string, unknown> = {},
+  ) {
+    const info = this.cleanData({
+      sourceUnitId: previousInfo.sourceUnitId ?? sourceDetail.unit_id,
+      sourceUnitPrefixId: previousInfo.sourceUnitPrefixId ?? sourceDetail.unit_prefix_id,
+      sourceVolumePerUnit: previousInfo.sourceVolumePerUnit ?? sourceDetail.log_act_detail_volumePerUnit,
+      sourceVolumeAll: previousInfo.sourceVolumeAll ?? sourceDetail.log_act_detail_volumeAll,
+      conversionFactor: data.conversionFactor,
+      fertilizerBagWeightKg: data.fertilizerBagWeightKg,
+      fertilizerPrepareType: data.fertilizerPrepareType,
+      soilSampleDate: data.soilSampleDate?.toISOString(),
+      soilN: data.soilN,
+      soilSocBaseline: data.soilSocBaseline,
+      soilSocProject: data.soilSocProject,
+      note: data.note,
+      preparedAt: new Date().toISOString(),
+    })
+
+    return JSON.stringify(info)
   }
 
   private normalizeCalStatusName(value: string | null | undefined) {
@@ -241,6 +363,17 @@ export class ActivitiesService {
       where: { log_act_detail_id: id },
       include: {
         log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
+        activities_header: {
+          select: {
+            activities_header_startDate: true,
+            land_id: true,
+            lands: {
+              select: {
+                land_camp_id: true,
+              },
+            },
+          },
+        },
       },
     })
 
@@ -282,6 +415,135 @@ export class ActivitiesService {
     }
 
     return false
+  }
+
+  private async syncCarbonProcessQueueStatus(detailId: number, statusId: number, tx: any = this.prisma) {
+    const existing = await tx.carbon_process_queue.findUnique({
+      where: { log_act_detail_id: detailId },
+      select: { carbon_process_queue_id: true },
+    })
+
+    if (!existing) return null
+
+    return tx.carbon_process_queue.update({
+      where: { carbon_process_queue_id: existing.carbon_process_queue_id },
+      data: {
+        log_act_detail_calStatus_id: statusId,
+        carbon_process_queue_updated_at: new Date(),
+      },
+    })
+  }
+
+  private async ensureCarbonProcessQueueForDetail(detail: any, statusId: number, tx: any = this.prisma) {
+    const existing = await tx.carbon_process_queue.findUnique({
+      where: { log_act_detail_id: detail.log_act_detail_id },
+      select: { carbon_process_queue_id: true },
+    })
+
+    const now = new Date()
+    const landId = detail.activities_header?.land_id ?? undefined
+    const landCampId = detail.activities_header?.lands?.land_camp_id ?? undefined
+    const dateWork = detail.log_act_detail_create_at ?? detail.activities_header?.activities_header_startDate ?? undefined
+
+    if (existing) {
+      return tx.carbon_process_queue.update({
+        where: { carbon_process_queue_id: existing.carbon_process_queue_id },
+        data: this.cleanData({
+          log_act_detail_calStatus_id: statusId,
+          land_id: landId,
+          land_camp_id: landCampId,
+          carbon_process_queue_dateWork: dateWork,
+          carbon_process_queue_updated_at: now,
+        }),
+      })
+    }
+
+    const last = await tx.carbon_process_queue.aggregate({
+      _max: { carbon_process_queue_id: true },
+    })
+
+    const createData = () => this.cleanData({
+      carbon_process_queue_id: (last._max.carbon_process_queue_id ?? 0) + 1,
+      log_act_detail_id: detail.log_act_detail_id,
+      log_act_detail_calStatus_id: statusId,
+      land_id: landId,
+      land_camp_id: landCampId,
+      carbon_process_queue_dateWork: dateWork,
+      carbon_process_queue_create_at: now,
+      carbon_process_queue_updated_at: now,
+    })
+
+    try {
+      return await tx.carbon_process_queue.create({
+        data: createData(),
+      })
+    } catch {
+      const createdForDetail = await tx.carbon_process_queue.findUnique({
+        where: { log_act_detail_id: detail.log_act_detail_id },
+        select: { carbon_process_queue_id: true },
+      })
+
+      if (createdForDetail) {
+        return tx.carbon_process_queue.update({
+          where: { carbon_process_queue_id: createdForDetail.carbon_process_queue_id },
+          data: this.cleanData({
+            log_act_detail_calStatus_id: statusId,
+            land_id: landId,
+            land_camp_id: landCampId,
+            carbon_process_queue_dateWork: dateWork,
+            carbon_process_queue_updated_at: now,
+          }),
+        })
+      }
+
+      const retryLast = await tx.carbon_process_queue.aggregate({
+        _max: { carbon_process_queue_id: true },
+      })
+
+      return tx.carbon_process_queue.create({
+        data: this.cleanData({
+          ...createData(),
+          carbon_process_queue_id: (retryLast._max.carbon_process_queue_id ?? 0) + 1,
+        }),
+      })
+    }
+  }
+
+  private async syncCarbonProcessQueueForTransition(
+    detail: any,
+    currentStatusName: string,
+    nextStatusName: CalStatusName,
+    statusId: number,
+    tx: any = this.prisma,
+  ) {
+    if (currentStatusName === CAL_STATUS_NAMES.imported && nextStatusName === CAL_STATUS_NAMES.preparing) {
+      return this.ensureCarbonProcessQueueForDetail(detail, statusId, tx)
+    }
+
+    return this.syncCarbonProcessQueueStatus(detail.log_act_detail_id, statusId, tx)
+  }
+
+  private async handleUnchangedWorkflowStatus(
+    detail: any,
+    statusName:
+      | typeof CAL_STATUS_NAMES.preparing
+      | typeof CAL_STATUS_NAMES.ready
+      | typeof CAL_STATUS_NAMES.standardDone,
+    statusId: number,
+    tx: any = this.prisma,
+  ) {
+    if (statusName === CAL_STATUS_NAMES.preparing) {
+      await this.ensureCarbonProcessQueueForDetail(detail, statusId, tx)
+    } else {
+      await this.syncCarbonProcessQueueStatus(detail.log_act_detail_id, statusId, tx)
+    }
+
+    return tx.log_activities_detail.findUnique({
+      where: { log_act_detail_id: detail.log_act_detail_id },
+      include: {
+        log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
+      },
+    })
   }
 
   async createHeader(data: ActivityHeaderPayload) {
@@ -356,8 +618,11 @@ export class ActivitiesService {
         activities_fertilizers: { select: { act_fertilizer_name: true } },
         activities_equipments:  { select: { act_equipment_name: true } },
         activities_chemiscals:  { select: { act_chemiscal_name: true } },
+        activities_resourceOther: { select: { act_resourceOther_name: true } },
         resource_used_type:     { select: { resc_used_type_name: true } },
         log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
+        units: { select: { unit_name: true, unit_initial: true } },
+        units_prefixs: { select: { unit_prefix_name: true, unit_prefix_initial: true, unit_prefix_value: true } },
       },
       orderBy: { log_act_detail_id: 'asc' },
     })
@@ -402,17 +667,60 @@ export class ActivitiesService {
         : CAL_STATUS_NAMES.imported
     const nextStatusId = await this.getCalStatusId(nextStatusName)
 
-    return this.prisma.log_activities_detail.update({
+    const updated = await this.prisma.log_activities_detail.update({
       where: { log_act_detail_id: id },
       data: {
         ...this.cleanData(normalized),
         log_act_detail_calStatus_id: nextStatusId,
       },
     })
+    await this.syncCarbonProcessQueueStatus(id, nextStatusId)
+    return updated
   }
 
   deleteDetail(id: number) {
     return this.prisma.log_activities_detail.delete({ where: { log_act_detail_id: id } })
+  }
+
+  // ── Imported file history ─────────────────────────────────
+  getImportFiles() {
+    return this.prisma.activities_fileNameUse.findMany({
+      include: {
+        users: {
+          select: {
+            user_id: true,
+            username: true,
+            first_name: true,
+            last_name: true,
+          },
+        },
+      },
+      orderBy: [
+        { activities_fileNameUse_create_at: 'desc' },
+        { activities_fileNameUse_id: 'desc' },
+      ],
+    })
+  }
+
+  async createImportFile(data: ImportFilePayload) {
+    const normalized = this.normalizeImportFilePayload(data)
+    const now = new Date()
+
+    return this.prisma.$transaction(async (tx) => {
+      const last = await tx.activities_fileNameUse.aggregate({
+        _max: { activities_fileNameUse_id: true },
+      })
+      const nextId = (last._max.activities_fileNameUse_id ?? 0) + 1
+
+      return tx.activities_fileNameUse.create({
+        data: {
+          activities_fileNameUse_id: nextId,
+          ...this.cleanData(normalized),
+          activities_fileNameUse_create_at: now,
+          activities_fileNameUse_update_at: now,
+        },
+      })
+    })
   }
 
   async moveDetailToWorkflowStatus(
@@ -421,18 +729,28 @@ export class ActivitiesService {
   ) {
     const detail = await this.getDetailForWorkflow(id)
     const currentStatusName = this.getDetailStatusName(detail)
+    const statusId = await this.getCalStatusId(statusName)
+
+    if (currentStatusName === statusName) {
+      return this.prisma.$transaction((tx) =>
+        this.handleUnchangedWorkflowStatus(detail, statusName, statusId, tx),
+      )
+    }
 
     if (!this.canTransitionWorkflowStatus(currentStatusName, statusName)) {
       throw new BadRequestException(`Cannot move detail ${id} from "${currentStatusName || '—'}" to "${statusName}"`)
     }
 
-    const statusId = await this.getCalStatusId(statusName)
-    return this.prisma.log_activities_detail.update({
-      where: { log_act_detail_id: id },
-      data: { log_act_detail_calStatus_id: statusId },
-      include: {
-        log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.log_activities_detail.update({
+        where: { log_act_detail_id: id },
+        data: { log_act_detail_calStatus_id: statusId },
+        include: {
+          log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
+        },
+      })
+      await this.syncCarbonProcessQueueForTransition(detail, currentStatusName, statusName, statusId, tx)
+      return updated
     })
   }
 
@@ -442,7 +760,11 @@ export class ActivitiesService {
   ) {
     if (!ids.length) throw new BadRequestException('No detail IDs provided')
 
-    const updated = await Promise.all(ids.map((id) => this.moveDetailToWorkflowStatus(id, statusName)))
+    const updated = []
+    for (const id of ids) {
+      updated.push(await this.moveDetailToWorkflowStatus(id, statusName))
+    }
+
     return {
       updated: updated.length,
       ids: updated.map((item) => item.log_act_detail_id),
@@ -458,18 +780,28 @@ export class ActivitiesService {
   ) {
     const detail = await this.getDetailForWorkflow(id)
     const currentStatusName = this.getDetailStatusName(detail)
+    const statusId = await this.getCalStatusId(statusName)
+
+    if (currentStatusName === statusName) {
+      return this.prisma.$transaction((tx) =>
+        this.handleUnchangedWorkflowStatus(detail, statusName, statusId, tx),
+      )
+    }
 
     if (!this.canTransitionManualStatus(currentStatusName, statusName)) {
       throw new BadRequestException(`Cannot move detail ${id} from "${currentStatusName || '—'}" to "${statusName}"`)
     }
 
-    const statusId = await this.getCalStatusId(statusName)
-    return this.prisma.log_activities_detail.update({
-      where: { log_act_detail_id: id },
-      data: { log_act_detail_calStatus_id: statusId },
-      include: {
-        log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.log_activities_detail.update({
+        where: { log_act_detail_id: id },
+        data: { log_act_detail_calStatus_id: statusId },
+        include: {
+          log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
+        },
+      })
+      await this.syncCarbonProcessQueueForTransition(detail, currentStatusName, statusName, statusId, tx)
+      return updated
     })
   }
 
@@ -482,7 +814,11 @@ export class ActivitiesService {
   ) {
     if (!ids.length) throw new BadRequestException('No detail IDs provided')
 
-    const updated = await Promise.all(ids.map((id) => this.moveDetailToManualStatus(id, statusName)))
+    const updated = []
+    for (const id of ids) {
+      updated.push(await this.moveDetailToManualStatus(id, statusName))
+    }
+
     return {
       updated: updated.length,
       ids: updated.map((item) => item.log_act_detail_id),
@@ -548,18 +884,156 @@ export class ActivitiesService {
           log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
         },
       })
+      await this.syncCarbonProcessQueueStatus(detailId, nextStatusId)
       this.logger.log(`Detail #${detailId} CO2e=${result.co2e_total} kgCO2e`)
       return updated
     } catch {
       const errorStatusId = await this.getCalStatusId(CAL_STATUS_NAMES.error)
-      return this.prisma.log_activities_detail.update({
+      const updated = await this.prisma.log_activities_detail.update({
         where: { log_act_detail_id: detailId },
         data:  { log_act_detail_calStatus_id: errorStatusId },
         include: {
           log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
         },
       })
+      await this.syncCarbonProcessQueueStatus(detailId, errorStatusId)
+      return updated
     }
+  }
+
+  private getCarbonProcessQueueInclude() {
+    return {
+      log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
+      lands: { select: { land_code: true, name: true } },
+      lands_camps: { select: { land_camp_name: true } },
+      units: { select: { unit_name: true, unit_initial: true } },
+      units_prefixs: { select: { unit_prefix_name: true, unit_prefix_initial: true, unit_prefix_value: true } },
+      log_activities_detail: {
+        include: {
+          activities_header: {
+            select: {
+              activities_header_id: true,
+              activities_header_idCode: true,
+              activities_header_startDate: true,
+              land_id: true,
+              lands: {
+                select: {
+                  land_code: true,
+                  name: true,
+                  land_camp_id: true,
+                  lands_camps: {
+                    select: {
+                      land_camp_name: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          activities_fertilizers: { select: { act_fertilizer_name: true } },
+          activities_equipments: { select: { act_equipment_name: true } },
+          activities_chemiscals: { select: { act_chemiscal_name: true } },
+          activities_resourceOther: { select: { act_resourceOther_name: true } },
+          resource_used_type: { select: { resc_used_type_name: true } },
+          log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
+          units: { select: { unit_name: true, unit_initial: true } },
+          units_prefixs: { select: { unit_prefix_name: true, unit_prefix_initial: true, unit_prefix_value: true } },
+        },
+      },
+    }
+  }
+
+  getCarbonProcessQueue() {
+    return this.prisma.carbon_process_queue.findMany({
+      include: this.getCarbonProcessQueueInclude(),
+      orderBy: [
+        { carbon_process_queue_updated_at: 'desc' },
+        { carbon_process_queue_id: 'desc' },
+      ],
+    })
+  }
+
+  async updateCarbonProcessQueuePreparation(id: number, data: CarbonPreparationPayload) {
+    const normalized = this.normalizeCarbonPreparationPayload(data)
+    const now = new Date()
+
+    return this.prisma.$transaction(async (tx) => {
+      const queue = await tx.carbon_process_queue.findUnique({
+        where: { carbon_process_queue_id: id },
+        include: { log_activities_detail: true },
+      })
+
+      if (!queue || !queue.log_activities_detail) {
+        throw new BadRequestException(`Carbon process queue ${id} not found`)
+      }
+
+      const detail = queue.log_activities_detail
+      const resolvePreparedUnitId = async () => {
+        if (normalized.preparedUnitId != null) return normalized.preparedUnitId
+
+        const unitName = normalized.preparedUnitName?.trim()
+        const unitInitial = normalized.preparedUnitInitial?.trim()
+        const lookupValues = [unitName, unitInitial].filter((value): value is string => Boolean(value))
+        if (!lookupValues.length) return undefined
+
+        const existingUnit = await tx.units.findFirst({
+          where: {
+            OR: lookupValues.flatMap((value) => [
+              { unit_name: { equals: value } },
+              { unit_initial: { equals: value } },
+            ]),
+          },
+          orderBy: { unit_id: 'asc' },
+        })
+
+        if (existingUnit) return existingUnit.unit_id
+
+        const last = await tx.units.aggregate({ _max: { unit_id: true } })
+        const created = await tx.units.create({
+          data: {
+            unit_id: (last._max.unit_id ?? 0) + 1,
+            unit_name: unitName ?? unitInitial,
+            unit_initial: unitInitial ?? unitName,
+            unit_updated_at: now,
+          },
+        })
+
+        return created.unit_id
+      }
+
+      const preparedUnitId = await resolvePreparedUnitId()
+      const resolvedPreparation = {
+        ...normalized,
+        preparedUnitId,
+      }
+      const preparationInfo = this.buildCarbonPreparationInfo(
+        resolvedPreparation,
+        detail,
+        this.parseCarbonPreparationInfo(queue.carbon_process_queue_info),
+      )
+
+      await tx.log_activities_detail.update({
+        where: { log_act_detail_id: detail.log_act_detail_id },
+        data: this.cleanData({
+          unit_id: preparedUnitId,
+          unit_prefix_id: normalized.preparedUnitPrefixId,
+          log_act_detail_volumePerUnit: normalized.preparedVolumePerUnit,
+          log_act_detail_volumeAll: normalized.preparedVolumeAll,
+        }),
+      })
+
+      return tx.carbon_process_queue.update({
+        where: { carbon_process_queue_id: id },
+        data: this.cleanData({
+          N: normalized.soilN,
+          carbon_process_queue_info: preparationInfo,
+          unit_id_resultValue: null,
+          unit_prefix_id_resultValue: null,
+          carbon_process_queue_updated_at: now,
+        }),
+        include: this.getCarbonProcessQueueInclude(),
+      })
+    })
   }
 
   // ── Reference lists ────────────────────────────────────────
@@ -600,6 +1074,14 @@ export class ActivitiesService {
     })
   }
   getChemicals()     { return this.prisma.activities_chemiscals.findMany({ orderBy: { act_chemiscal_id: 'asc' } }) }
+  getResourceOthers() {
+    return this.prisma.activities_resourceOther.findMany({
+      include: {
+        resource_used_type: { select: { resc_used_type_name: true } },
+      },
+      orderBy: { act_resourceOther_id: 'asc' },
+    })
+  }
   getSugarCaneTypes(){ return this.prisma.activities_header_typeSugarCane.findMany() }
   getLandTypes()     { return this.prisma.activities_header_typeLand.findMany() }
   async getCalStatuses() {
@@ -667,6 +1149,11 @@ export class ActivitiesService {
       })
 
       await tx.activities_chemiscals.updateMany({
+        where: { resource_used_type_id: id },
+        data: { resource_used_type_id: null },
+      })
+
+      await tx.activities_resourceOther.updateMany({
         where: { resource_used_type_id: id },
         data: { resource_used_type_id: null },
       })
@@ -780,6 +1267,63 @@ export class ActivitiesService {
     })
   }
 
+  createResourceOther(data: ResourceOtherPayload) {
+    const act_resourceOther_name = this.toRequiredText(data.act_resourceOther_name, 'act_resourceOther_name')
+    const act_resourceOther_info = this.toOptionalText(data.act_resourceOther_info)
+    const resource_used_type_id = this.toOptionalNumber(data.resource_used_type_id)
+    const act_resourceOther_update_uid = this.toOptionalNumber(data.act_resourceOther_update_uid)
+    const now = new Date()
+
+    return this.prisma.$transaction(async (tx) => {
+      const last = await tx.activities_resourceOther.aggregate({ _max: { act_resourceOther_id: true } })
+      const actResourceOtherId = (last._max.act_resourceOther_id ?? 0) + 1
+
+      return tx.activities_resourceOther.create({
+        data: {
+          act_resourceOther_id: actResourceOtherId,
+          act_resourceOther_name,
+          act_resourceOther_info,
+          resource_used_type_id,
+          act_resourceOther_update_uid,
+          act_resourceOther_create_at: now,
+          act_resourceOther_update_at: now,
+        },
+        include: {
+          resource_used_type: { select: { resc_used_type_name: true } },
+        },
+      })
+    })
+  }
+
+  updateResourceOther(id: number, data: ResourceOtherPayload) {
+    return this.prisma.activities_resourceOther.update({
+      where: { act_resourceOther_id: id },
+      data: {
+        act_resourceOther_name: this.toRequiredText(data.act_resourceOther_name, 'act_resourceOther_name'),
+        act_resourceOther_info: this.toOptionalText(data.act_resourceOther_info),
+        resource_used_type_id: this.toOptionalNumber(data.resource_used_type_id),
+        act_resourceOther_update_uid: this.toOptionalNumber(data.act_resourceOther_update_uid),
+        act_resourceOther_update_at: new Date(),
+      },
+      include: {
+        resource_used_type: { select: { resc_used_type_name: true } },
+      },
+    })
+  }
+
+  deleteResourceOther(id: number) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.log_activities_detail.updateMany({
+        where: { act_resourceOther_id: id },
+        data: { act_resourceOther_id: null },
+      })
+
+      return tx.activities_resourceOther.delete({
+        where: { act_resourceOther_id: id },
+      })
+    })
+  }
+
   private normalizeImportedYear(year: number) {
     return year >= 2400 ? year - 543 : year
   }
@@ -864,6 +1408,7 @@ export class ActivitiesService {
       fertilizers,
       equipments,
       chemicals,
+      resourceOthers,
       headerTypes,
       detailTypes,
       units,
@@ -877,6 +1422,7 @@ export class ActivitiesService {
       this.prisma.activities_fertilizers.findMany({ select: { act_fertilizer_id: true, act_fertilizer_name: true } }),
       this.prisma.activities_equipments.findMany({ select: { act_equipment_id: true, act_equipment_name: true } }),
       this.prisma.activities_chemiscals.findMany({ select: { act_chemiscal_id: true, act_chemiscal_name: true } }),
+      this.prisma.activities_resourceOther.findMany({ select: { act_resourceOther_id: true, act_resourceOther_name: true } }),
       this.prisma.activities_header_type.findMany({ select: { act_header_type_id: true, act_header_type_name_th: true } }),
       this.prisma.activities_header_detail_type.findMany({ select: { act_header_detail_type_id: true, act_header_detail_type_name_th: true } }),
       this.prisma.units.findMany({ select: { unit_id: true, unit_name: true, unit_initial: true } }),
@@ -912,6 +1458,7 @@ export class ActivitiesService {
       fertilizer:   Object.fromEntries(fertilizers.map(f => [f.act_fertilizer_name?.toLowerCase() ?? '', f.act_fertilizer_id])),
       equipment:    Object.fromEntries(equipments.map(e => [e.act_equipment_name?.toLowerCase() ?? '', e.act_equipment_id])),
       chemical:     Object.fromEntries(chemicals.map(c => [c.act_chemiscal_name?.toLowerCase() ?? '', c.act_chemiscal_id])),
+      resourceOther: Object.fromEntries(resourceOthers.map(r => [r.act_resourceOther_name?.toLowerCase() ?? '', r.act_resourceOther_id])),
       headerType:   Object.fromEntries(headerTypes.map(t => [t.act_header_type_name_th?.toLowerCase() ?? '', t.act_header_type_id])),
       landType:     Object.fromEntries(landTypes.flatMap(t => [
         [String(t.act_header_typeLand_id), t.act_header_typeLand_id],
@@ -981,12 +1528,20 @@ export class ActivitiesService {
       return (current._max.unit_id ?? 0) + 1
     }
 
+    const nextHeaderTypeId = async () => {
+      const current = await this.prisma.activities_header_type.aggregate({ _max: { act_header_type_id: true } })
+      return (current._max.act_header_type_id ?? 0) + 1
+    }
+
     const ensureHeaderTypeId = async (name?: string) => {
       const key = normalizeKey(name)
       if (!key) return undefined
       if (byName.headerType[key]) return byName.headerType[key]
       const created = await this.prisma.activities_header_type.create({
-        data: { act_header_type_name_th: name },
+        data: {
+          act_header_type_id: await nextHeaderTypeId(),
+          act_header_type_name_th: name,
+        },
       })
       byName.headerType[key] = created.act_header_type_id
       return created.act_header_type_id
@@ -1059,8 +1614,14 @@ export class ActivitiesService {
         return Number(trimmedValue)
       }
 
+      const current = await this.prisma.activities_header_typeSugarCane.aggregate({
+        _max: { act_header_typeSugarCane_id: true },
+      })
+
       const created = await this.prisma.activities_header_typeSugarCane.create({
         data: {
+          act_header_typeSugarCane_id:
+            (current._max.act_header_typeSugarCane_id ?? 0) + 1,
           act_header_typeSugarCane_name: trimmedValue,
         },
       })
@@ -1085,6 +1646,11 @@ export class ActivitiesService {
       return (current._max.act_chemiscal_id ?? 0) + 1
     }
 
+    const nextResourceOtherId = async () => {
+      const current = await this.prisma.activities_resourceOther.aggregate({ _max: { act_resourceOther_id: true } })
+      return (current._max.act_resourceOther_id ?? 0) + 1
+    }
+
     const ensureResourceItemIds = async (
       name: string,
       resourceTypeId?: number,
@@ -1092,17 +1658,35 @@ export class ActivitiesService {
       itemCategory?: string,
     ) => {
       const key = normalizeKey(name)
-      if (!key) return { fertilizerId: undefined, equipmentId: undefined, chemicalId: undefined }
+      if (!key) return { fertilizerId: undefined, equipmentId: undefined, chemicalId: undefined, resourceOtherId: undefined }
 
+      const explicitCategory = normalizeKey(itemCategory)
       let fertilizerId = byName.fertilizer[key]
       let equipmentId = byName.equipment[key]
       let chemicalId = byName.chemical[key]
-      if (fertilizerId || equipmentId || chemicalId) return { fertilizerId, equipmentId, chemicalId }
+      let resourceOtherId = byName.resourceOther[key]
+
+      // When CSV wizard explicitly assigns the item group, honor that choice
+      // instead of reusing a name match from a different resource table.
+      if (explicitCategory) {
+        if (/ปุ๋ย|fertilizer/.test(explicitCategory)) {
+          if (fertilizerId) return { fertilizerId, equipmentId: undefined, chemicalId: undefined, resourceOtherId: undefined }
+        } else if (/อุปกรณ์|equipment/.test(explicitCategory)) {
+          if (equipmentId) return { fertilizerId: undefined, equipmentId, chemicalId: undefined, resourceOtherId: undefined }
+        } else if (/เคมี|chemical/.test(explicitCategory)) {
+          if (chemicalId) return { fertilizerId: undefined, equipmentId: undefined, chemicalId, resourceOtherId: undefined }
+        } else if (/อื่น|other|resourceother|resource_other|พันธุ์|variety|sugarcane|อ้อย/.test(explicitCategory)) {
+          if (resourceOtherId) return { fertilizerId: undefined, equipmentId: undefined, chemicalId: undefined, resourceOtherId }
+        }
+      } else if (fertilizerId || equipmentId || chemicalId || resourceOtherId) {
+        return { fertilizerId, equipmentId, chemicalId, resourceOtherId }
+      }
 
       const categoryText = normalizeKey(itemCategory ?? resourceTypeName ?? name)
       const isEquipment = /อุปกรณ์|equipment/.test(categoryText)
       const isChemical = /เคมี|chemical/.test(categoryText)
       const isFertilizer = /ปุ๋ย|fertilizer/.test(categoryText)
+      const isResourceOther = /อื่น|other|resourceother|resource_other|พันธุ์|variety|sugarcane|อ้อย/.test(categoryText)
 
       if (isEquipment) {
         const created = await this.prisma.activities_equipments.create({
@@ -1126,6 +1710,18 @@ export class ActivitiesService {
         })
         chemicalId = created.act_chemiscal_id
         byName.chemical[key] = chemicalId
+      } else if (isResourceOther) {
+        const created = await this.prisma.activities_resourceOther.create({
+          data: {
+            act_resourceOther_id: await nextResourceOtherId(),
+            act_resourceOther_name: name,
+            act_resourceOther_create_at: new Date(),
+            act_resourceOther_update_at: new Date(),
+            resource_used_type_id: resourceTypeId,
+          },
+        })
+        resourceOtherId = created.act_resourceOther_id
+        byName.resourceOther[key] = resourceOtherId
       } else {
         const created = await this.prisma.activities_fertilizers.create({
           data: {
@@ -1139,7 +1735,7 @@ export class ActivitiesService {
         byName.fertilizer[key] = fertilizerId
       }
 
-      return { fertilizerId, equipmentId, chemicalId }
+      return { fertilizerId, equipmentId, chemicalId, resourceOtherId }
     }
 
     const nextCampId = async () => {
@@ -1312,7 +1908,7 @@ export class ActivitiesService {
         const resTypeId    = resolvedResourceTypeId ?? await ensureResourceTypeId(resTypeName)
         const resourceName = get('resource_item_name')
         const itemCategory = row['resource_item_category']?.trim() ?? ''
-        const { fertilizerId, equipmentId, chemicalId } = await ensureResourceItemIds(
+        const { fertilizerId, equipmentId, chemicalId, resourceOtherId } = await ensureResourceItemIds(
           resourceName,
           resTypeId,
           resTypeName,
@@ -1356,6 +1952,7 @@ export class ActivitiesService {
           act_fertilizer_id:         fertilizerId,
           act_equipment_id:          equipmentId,
           act_chemiscal_id:          chemicalId,
+          act_resourceOther_id:      resourceOtherId,
           unit_id:                   unitId,
           log_act_detail_quatity:    quantity,
           log_act_detail_volumePerUnit: volumePerUnit,
