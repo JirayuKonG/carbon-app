@@ -1205,7 +1205,7 @@ export function ActivitiesPage() {
           isLoading={importFilesLoading}
           rowKey={(row) => row.activities_fileNameUse_id}
           searchPlaceholder="ค้นหาชื่อไฟล์นำเข้า..."
-          defaultPageSize={10}
+          defaultPageSize={5}
           emptyMessage="ยังไม่มีประวัติไฟล์นำเข้า"
         />
       </div>

@@ -1,6 +1,6 @@
 # Project Context Memory
 
-Last updated: 2026-06-08
+Last updated: 2026-06-09
 
 This file is a working memory for the project. It summarizes the current repo state, important decisions, active risks, and where future work should start. Update it when major behavior, routes, architecture, or project status changes.
 
@@ -70,17 +70,19 @@ Useful docs already in the repo:
 - Verification after the sync:
   - `npx prisma generate --schema src/prisma/schema.prisma`
   - `npm run build --workspace=backend`
+- On 2026-06-09, Carbon preparation was adjusted to avoid database-structure changes. No new `carbon_process_queue` columns are required; preparation metadata is stored in existing `carbon_process_queue_info`, result unit ids use existing `unit_id_resultValue` / `unit_prefix_id_resultValue`, and canonical unit/volume values stay on `log_activities_detail`.
 
 ## Current App Routing Snapshot
 
-Verified from `frontend/src/App.tsx` on 2026-06-03:
+Verified from `frontend/src/App.tsx` on 2026-06-09:
 
 - `/overview`: Carbon overview summary
 - `/process`: cultivation process analytics
 - `/spatial`: area map and drill-down
 - `/report`: Premium T-VER report
-- `/calculate`: redirect to Carbon Footprint page
-- `/calculate/footprint`: carbon footprint calculation workflow page
+- `/calculate`: redirect to Carbon preparation page
+- `/calculate/prepare`: carbon data preparation page for moving imported activity details into `carbon_process_queue`
+- `/calculate/footprint`: carbon process queue page for unit/volume/soil/SOC preparation and calculation actions
 - `/calculate/credit`: carbon credit analysis page
 - `/dashboard`: older GHG dashboard
 - `/geo`, `/infra`, `/users`, `/farmers`, `/lands`, `/lands/weather`
@@ -114,26 +116,30 @@ Current product direction from the docs:
 - Pipeline proof was removed from the user-facing flow
 - Transport was removed from the main Carbon Analytics scope
 
-Recent UI workflow note:
+Recent Carbon calculation workflow note:
 
-- `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` now separates manual status changes from actual calculation actions.
-- Users can manually move selected activity-detail rows to `กำลังเตรียมข้อมูล`, `พร้อมคำนวณมาตรฐาน`, and `คำนวณแล้ว(มาตรฐาน)`.
-- Real calculation actions for `คำนวณมาตรฐาน` and `คำนวณ CFP` remain separate buttons so status management and calculation are easier to understand.
+- On 2026-06-09, `คำนวณ Carbon` was split into three child pages:
+  - `เตรียมข้อมูล Carbon` at `/calculate/prepare`
+  - `Carbon Footprint` at `/calculate/footprint`
+  - `Carbon Credit` at `/calculate/credit`
+- `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` now focuses on moving only `นำเข้าข้อมูลแล้ว` activity-detail rows into `กำลังเตรียมข้อมูล`.
+- Moving a detail from `นำเข้าข้อมูลแล้ว` to `กำลังเตรียมข้อมูล` now creates or syncs one `carbon_process_queue` row by `log_act_detail_id`.
+- `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` is the new queue table for preparing units, total volume, fertilizer bag weights, fuel L/m3 conversion, soil test fields, and SOC fields before calculation.
+- New backend endpoints are `GET /activities/carbon-process-queue` and `PUT /activities/carbon-process-queue/:id/preparation`.
+- This workflow intentionally uses the existing database schema only; it does not add a new migration or new preparation columns.
 
 Recent navigation note:
 
 - On 2026-06-04, the sidebar group order was updated to:
   - `CARBON ANALYTICS`: `ภาพรวม Carbon`, `แผนที่พื้นที่`
-  - `CARBON`: `บันทึกกิจกรรม` (`จัดการกิจกรรม`, `รายการบันทึกกิจกรรม`), `คำนวณ Carbon` (`Carbon Footprint`, `Carbon Credit`)
+  - `CARBON`: `บันทึกกิจกรรม` (`จัดการกิจกรรม`, `รายการบันทึกกิจกรรม`), `คำนวณ Carbon` (`เตรียมข้อมูล Carbon`, `Carbon Footprint`, `Carbon Credit`)
   - `ข้อมูลเกษตรกร`: `จัดการเกษตรกร`, `พื้นที่เพาะปลูก`, `ข้อมูลสภาพอากาศ`
   - `ตั้งค่าระบบ`: `พื้นที่ในประเทศไทย`, `โรงงาน / บริการ`, `จัดการผู้ใช้`, `EF / GWP / หน่วย`, `ปุ๋ย / น้ำมัน`
 - The older `/dashboard` page remains routable, but it is no longer listed in the main sidebar navigation.
 
 Recent Carbon Credit note:
 
-- On 2026-06-04, `คำนวณ Carbon` was split into two child pages:
-  - `Carbon Footprint`: the existing workflow/status calculation page
-  - `Carbon Credit`: a new read-only comparison page
+- On 2026-06-04, `คำนวณ Carbon` was split into Carbon Footprint and Carbon Credit, then on 2026-06-09 it was split further into `เตรียมข้อมูล Carbon`, `Carbon Footprint`, and `Carbon Credit`.
 - `Carbon Credit` reuses `GET /activities/details`, lets users choose 4 baseline years plus 1 project year, groups results by plot, uses `log_act_detail_areawork` as the operated-area source, and compares fertilizer vs fuel between baseline average and project year.
 - The new `Carbon Credit` page does not persist results or add a new workflow/status system.
 - On 2026-06-04, `Carbon Footprint` got its dashboard-card visibility control back via `DashboardVisibilityMenu`, and both `Carbon Footprint` and `Carbon Credit` were adjusted to use a more compact header style closer to the rest of the app.
@@ -258,6 +264,7 @@ Docs say these commands have passed recently:
 - `npm run build --workspace=backend`
 - `npm run build --workspace=frontend`
 - `npm run build`
+- On 2026-06-09, `npm run prisma:generate --workspace=backend`, `npm run build --workspace=backend`, and `npm run build --workspace=frontend` passed after the Carbon preparation / Carbon Footprint queue split.
 
 Known non-blocking warning:
 

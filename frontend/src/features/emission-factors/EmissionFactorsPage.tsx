@@ -123,6 +123,18 @@ function toDateInputValue(value?: string | null) {
   return date.toISOString().slice(0, 10)
 }
 
+function efHeaderChip(label: string, className: string) {
+  return (
+    <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold tracking-[0.01em] ${className}`}>
+      {label}
+    </span>
+  )
+}
+
+function efText(value: React.ReactNode, className: string) {
+  return <span className={className}>{value}</span>
+}
+
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return <label className="label">{children}</label>
 }
@@ -497,27 +509,127 @@ export function EmissionFactorsPage() {
 
   const efCols: Column<Ef>[] = [
     { key: 'coef_em_factor_idCode', header: 'รหัส EF', sortable: true, render: (row) => formatText(row.coef_em_factor_idCode) },
-    { key: 'carbonfootprint_type_id', header: 'CF Type', sortable: true, render: (row) => row.carbonfootprint_type_id ? (cfTypeMap[row.carbonfootprint_type_id] ?? `#${row.carbonfootprint_type_id}`) : '—' },
-    { key: 'group_emission_factor_id', header: 'กลุ่ม EF', sortable: true, render: (row) => row.group_emission_factor_id ? (groupMap[row.group_emission_factor_id] ?? `#${row.group_emission_factor_id}`) : '—' },
-    { key: 'coef_em_factor_name', header: 'ชื่อ EF', sortable: true, render: (row) => formatText(row.coef_em_factor_name) },
+    {
+      key: 'carbonfootprint_type_id',
+      header: efHeaderChip('CF Type', 'bg-sky-100 text-sky-800 ring-1 ring-sky-200'),
+      sortable: true,
+      render: (row) => efText(row.carbonfootprint_type_id ? (cfTypeMap[row.carbonfootprint_type_id] ?? `#${row.carbonfootprint_type_id}`) : '—', 'font-medium text-sky-800'),
+    },
+    {
+      key: 'group_emission_factor_id',
+      header: efHeaderChip('กลุ่ม EF', 'bg-indigo-100 text-indigo-800 ring-1 ring-indigo-200'),
+      sortable: true,
+      render: (row) => efText(row.group_emission_factor_id ? (groupMap[row.group_emission_factor_id] ?? `#${row.group_emission_factor_id}`) : '—', 'font-medium text-indigo-800'),
+    },
+    {
+      key: 'coef_em_factor_name',
+      header: efHeaderChip('ชื่อ EF', 'bg-fuchsia-100 text-fuchsia-800 ring-1 ring-fuchsia-200'),
+      sortable: true,
+      render: (row) => efText(formatText(row.coef_em_factor_name), 'font-medium text-fuchsia-800'),
+    },
     { key: 'coef_em_factor_info', header: 'รายละเอียด', sortable: true, render: (row) => formatText(row.coef_em_factor_info) },
-    { key: 'unit_prefix_id', header: 'Prefix ตั้งต้น', sortable: true, render: (row) => row.unit_prefix_id ? (unitPrefixMap[row.unit_prefix_id] ?? `#${row.unit_prefix_id}`) : '—' },
-    { key: 'unit_id', header: 'หน่วยตั้งต้น', sortable: true, render: (row) => row.unit_id ? (unitMap[row.unit_id] ?? `#${row.unit_id}`) : '—' },
-    { key: 'coef_em_factor_value_co2', header: 'CO2', sortable: true, render: (row) => <span className="font-mono text-xs">{formatNumber(row.coef_em_factor_value_co2)}</span> },
-    { key: 'unit_prefix_id_co2', header: 'Prefix CO2', sortable: true, render: (row) => row.unit_prefix_id_co2 ? (unitPrefixMap[row.unit_prefix_id_co2] ?? `#${row.unit_prefix_id_co2}`) : '—' },
-    { key: 'unit_id_co2', header: 'หน่วย CO2', sortable: true, render: (row) => row.unit_id_co2 ? (unitMap[row.unit_id_co2] ?? `#${row.unit_id_co2}`) : '—' },
-    { key: 'coef_em_factor_value_ch4foss', header: 'CH4 Fossil', sortable: true, render: (row) => <span className="font-mono text-xs">{formatNumber(row.coef_em_factor_value_ch4foss)}</span> },
-    { key: 'unit_prefix_id_ch4foss', header: 'Prefix CH4 Fossil', sortable: true, render: (row) => row.unit_prefix_id_ch4foss ? (unitPrefixMap[row.unit_prefix_id_ch4foss] ?? `#${row.unit_prefix_id_ch4foss}`) : '—' },
-    { key: 'unit_id_ch4foss', header: 'หน่วย CH4 Fossil', sortable: true, render: (row) => row.unit_id_ch4foss ? (unitMap[row.unit_id_ch4foss] ?? `#${row.unit_id_ch4foss}`) : '—' },
-    { key: 'coef_em_factor_value_ch4', header: 'CH4', sortable: true, render: (row) => <span className="font-mono text-xs">{formatNumber(row.coef_em_factor_value_ch4)}</span> },
-    { key: 'unit_prefix_id_ch4', header: 'Prefix CH4', sortable: true, render: (row) => row.unit_prefix_id_ch4 ? (unitPrefixMap[row.unit_prefix_id_ch4] ?? `#${row.unit_prefix_id_ch4}`) : '—' },
-    { key: 'unit_id_ch4', header: 'หน่วย CH4', sortable: true, render: (row) => row.unit_id_ch4 ? (unitMap[row.unit_id_ch4] ?? `#${row.unit_id_ch4}`) : '—' },
-    { key: 'coef_em_factor_value_n2o', header: 'N2O', sortable: true, render: (row) => <span className="font-mono text-xs">{formatNumber(row.coef_em_factor_value_n2o)}</span> },
-    { key: 'unit_prefix_id_n2o', header: 'Prefix N2O', sortable: true, render: (row) => row.unit_prefix_id_n2o ? (unitPrefixMap[row.unit_prefix_id_n2o] ?? `#${row.unit_prefix_id_n2o}`) : '—' },
-    { key: 'unit_id_n2o', header: 'หน่วย N2O', sortable: true, render: (row) => row.unit_id_n2o ? (unitMap[row.unit_id_n2o] ?? `#${row.unit_id_n2o}`) : '—' },
-    { key: 'coef_em_factor_value_total', header: 'Total', sortable: true, render: (row) => <span className="font-mono text-xs font-semibold text-primary-700">{formatNumber(row.coef_em_factor_value_total)}</span> },
-    { key: 'unit_prefix_id_total', header: 'Prefix Total', sortable: true, render: (row) => row.unit_prefix_id_total ? (unitPrefixMap[row.unit_prefix_id_total] ?? `#${row.unit_prefix_id_total}`) : '—' },
-    { key: 'unit_id_total', header: 'หน่วย Total', sortable: true, render: (row) => row.unit_id_total ? (unitMap[row.unit_id_total] ?? `#${row.unit_id_total}`) : '—' },
+    {
+      key: 'unit_prefix_id',
+      header: efHeaderChip('Prefix ตั้งต้น', 'bg-amber-100 text-amber-800 ring-1 ring-amber-200'),
+      sortable: true,
+      render: (row) => efText(row.unit_prefix_id ? (unitPrefixMap[row.unit_prefix_id] ?? `#${row.unit_prefix_id}`) : '—', 'font-medium text-amber-800'),
+    },
+    {
+      key: 'unit_id',
+      header: efHeaderChip('หน่วยตั้งต้น', 'bg-amber-100 text-amber-800 ring-1 ring-amber-200'),
+      sortable: true,
+      render: (row) => efText(row.unit_id ? (unitMap[row.unit_id] ?? `#${row.unit_id}`) : '—', 'font-medium text-amber-800'),
+    },
+    {
+      key: 'coef_em_factor_value_co2',
+      header: efHeaderChip('CO2', 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200'),
+      sortable: true,
+      render: (row) => <span className="font-mono text-xs font-semibold text-emerald-700">{formatNumber(row.coef_em_factor_value_co2)}</span>,
+    },
+    {
+      key: 'unit_prefix_id_co2',
+      header: efHeaderChip('Prefix CO2', 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200'),
+      sortable: true,
+      render: (row) => efText(row.unit_prefix_id_co2 ? (unitPrefixMap[row.unit_prefix_id_co2] ?? `#${row.unit_prefix_id_co2}`) : '—', 'font-medium text-emerald-800'),
+    },
+    {
+      key: 'unit_id_co2',
+      header: efHeaderChip('หน่วย CO2', 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200'),
+      sortable: true,
+      render: (row) => efText(row.unit_id_co2 ? (unitMap[row.unit_id_co2] ?? `#${row.unit_id_co2}`) : '—', 'font-medium text-emerald-800'),
+    },
+    {
+      key: 'coef_em_factor_value_ch4foss',
+      header: efHeaderChip('CH4 Fossil', 'bg-orange-100 text-orange-800 ring-1 ring-orange-200'),
+      sortable: true,
+      render: (row) => <span className="font-mono text-xs font-semibold text-orange-700">{formatNumber(row.coef_em_factor_value_ch4foss)}</span>,
+    },
+    {
+      key: 'unit_prefix_id_ch4foss',
+      header: efHeaderChip('Prefix CH4 Fossil', 'bg-orange-100 text-orange-800 ring-1 ring-orange-200'),
+      sortable: true,
+      render: (row) => efText(row.unit_prefix_id_ch4foss ? (unitPrefixMap[row.unit_prefix_id_ch4foss] ?? `#${row.unit_prefix_id_ch4foss}`) : '—', 'font-medium text-orange-800'),
+    },
+    {
+      key: 'unit_id_ch4foss',
+      header: efHeaderChip('หน่วย CH4 Fossil', 'bg-orange-100 text-orange-800 ring-1 ring-orange-200'),
+      sortable: true,
+      render: (row) => efText(row.unit_id_ch4foss ? (unitMap[row.unit_id_ch4foss] ?? `#${row.unit_id_ch4foss}`) : '—', 'font-medium text-orange-800'),
+    },
+    {
+      key: 'coef_em_factor_value_ch4',
+      header: efHeaderChip('CH4', 'bg-cyan-100 text-cyan-800 ring-1 ring-cyan-200'),
+      sortable: true,
+      render: (row) => <span className="font-mono text-xs font-semibold text-cyan-700">{formatNumber(row.coef_em_factor_value_ch4)}</span>,
+    },
+    {
+      key: 'unit_prefix_id_ch4',
+      header: efHeaderChip('Prefix CH4', 'bg-cyan-100 text-cyan-800 ring-1 ring-cyan-200'),
+      sortable: true,
+      render: (row) => efText(row.unit_prefix_id_ch4 ? (unitPrefixMap[row.unit_prefix_id_ch4] ?? `#${row.unit_prefix_id_ch4}`) : '—', 'font-medium text-cyan-800'),
+    },
+    {
+      key: 'unit_id_ch4',
+      header: efHeaderChip('หน่วย CH4', 'bg-cyan-100 text-cyan-800 ring-1 ring-cyan-200'),
+      sortable: true,
+      render: (row) => efText(row.unit_id_ch4 ? (unitMap[row.unit_id_ch4] ?? `#${row.unit_id_ch4}`) : '—', 'font-medium text-cyan-800'),
+    },
+    {
+      key: 'coef_em_factor_value_n2o',
+      header: efHeaderChip('N2O', 'bg-rose-100 text-rose-800 ring-1 ring-rose-200'),
+      sortable: true,
+      render: (row) => <span className="font-mono text-xs font-semibold text-rose-700">{formatNumber(row.coef_em_factor_value_n2o)}</span>,
+    },
+    {
+      key: 'unit_prefix_id_n2o',
+      header: efHeaderChip('Prefix N2O', 'bg-rose-100 text-rose-800 ring-1 ring-rose-200'),
+      sortable: true,
+      render: (row) => efText(row.unit_prefix_id_n2o ? (unitPrefixMap[row.unit_prefix_id_n2o] ?? `#${row.unit_prefix_id_n2o}`) : '—', 'font-medium text-rose-800'),
+    },
+    {
+      key: 'unit_id_n2o',
+      header: efHeaderChip('หน่วย N2O', 'bg-rose-100 text-rose-800 ring-1 ring-rose-200'),
+      sortable: true,
+      render: (row) => efText(row.unit_id_n2o ? (unitMap[row.unit_id_n2o] ?? `#${row.unit_id_n2o}`) : '—', 'font-medium text-rose-800'),
+    },
+    {
+      key: 'coef_em_factor_value_total',
+      header: efHeaderChip('Total', 'bg-violet-100 text-violet-800 ring-1 ring-violet-200'),
+      sortable: true,
+      render: (row) => <span className="font-mono text-xs font-semibold text-violet-700">{formatNumber(row.coef_em_factor_value_total)}</span>,
+    },
+    {
+      key: 'unit_prefix_id_total',
+      header: efHeaderChip('Prefix Total', 'bg-violet-100 text-violet-800 ring-1 ring-violet-200'),
+      sortable: true,
+      render: (row) => efText(row.unit_prefix_id_total ? (unitPrefixMap[row.unit_prefix_id_total] ?? `#${row.unit_prefix_id_total}`) : '—', 'font-medium text-violet-800'),
+    },
+    {
+      key: 'unit_id_total',
+      header: efHeaderChip('หน่วย Total', 'bg-violet-100 text-violet-800 ring-1 ring-violet-200'),
+      sortable: true,
+      render: (row) => efText(row.unit_id_total ? (unitMap[row.unit_id_total] ?? `#${row.unit_id_total}`) : '—', 'font-medium text-violet-800'),
+    },
     { key: 'coef_em_factor_ref', header: 'Ref', sortable: true, render: (row) => row.coef_em_factor_ref ?? '—' },
     { key: 'coef_em_factor_updatePostDateRef', header: 'วันที่อ้างอิง', sortable: true, render: (row) => formatBangkokDateTime(row.coef_em_factor_updatePostDateRef) },
     { key: 'update_uid', header: 'ผู้แก้ไขล่าสุด', sortable: true, render: (row) => row.update_uid ?? '—' },
@@ -755,23 +867,43 @@ export function EmissionFactorsPage() {
         </div>
 
         {tab === 'ef' && (
-          <DataTable
-            data={efs}
-            columns={efCols}
-            isLoading={efLoad}
-            rowKey={(row) => row.coefficient_emission_factor_id}
-            defaultPageSize={10}
-            searchPlaceholder="ค้นหา EF, กลุ่ม EF, CF Type หรือค่า factor..."
-            actions={actionButtons<Ef>(
-              (row) => {
-                setEditingEf(row)
-                setEfFormCfTypeId(row.carbonfootprint_type_id ? String(row.carbonfootprint_type_id) : '')
-                setEfFormGroupId(row.group_emission_factor_id ? String(row.group_emission_factor_id) : '')
-                setShowEfModal(true)
-              },
-              (row) => setDeleteTarget({ type: 'ef', id: row.coefficient_emission_factor_id, name: row.coef_em_factor_name?.trim() || row.coef_em_factor_idCode?.trim() || `EF #${row.coefficient_emission_factor_id}` }),
-            )}
-          />
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-surface-200 bg-[linear-gradient(180deg,#fbfdff,#f5f9fd)] p-4">
+              <div className="mb-3">
+                <h3 className="text-sm font-semibold text-surface-900">กลุ่มสีในตาราง EF</h3>
+                <p className="mt-1 text-xs text-surface-500">ใช้สีแยกหมวด CF Type, กลุ่ม EF, หน่วยตั้งต้น และ gas แต่ละกลุ่มเพื่อให้อ่านตารางยาวได้ง่ายขึ้น</p>
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs">
+                {efHeaderChip('CF Type', 'bg-sky-100 text-sky-800 ring-1 ring-sky-200')}
+                {efHeaderChip('กลุ่ม EF', 'bg-indigo-100 text-indigo-800 ring-1 ring-indigo-200')}
+                {efHeaderChip('ชื่อ EF', 'bg-fuchsia-100 text-fuchsia-800 ring-1 ring-fuchsia-200')}
+                {efHeaderChip('หน่วยตั้งต้น', 'bg-amber-100 text-amber-800 ring-1 ring-amber-200')}
+                {efHeaderChip('CO2', 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200')}
+                {efHeaderChip('CH4 Fossil', 'bg-orange-100 text-orange-800 ring-1 ring-orange-200')}
+                {efHeaderChip('CH4', 'bg-cyan-100 text-cyan-800 ring-1 ring-cyan-200')}
+                {efHeaderChip('N2O', 'bg-rose-100 text-rose-800 ring-1 ring-rose-200')}
+                {efHeaderChip('Total', 'bg-violet-100 text-violet-800 ring-1 ring-violet-200')}
+              </div>
+            </div>
+
+            <DataTable
+              data={efs}
+              columns={efCols}
+              isLoading={efLoad}
+              rowKey={(row) => row.coefficient_emission_factor_id}
+              defaultPageSize={10}
+              searchPlaceholder="ค้นหา EF, กลุ่ม EF, CF Type หรือค่า factor..."
+              actions={actionButtons<Ef>(
+                (row) => {
+                  setEditingEf(row)
+                  setEfFormCfTypeId(row.carbonfootprint_type_id ? String(row.carbonfootprint_type_id) : '')
+                  setEfFormGroupId(row.group_emission_factor_id ? String(row.group_emission_factor_id) : '')
+                  setShowEfModal(true)
+                },
+                (row) => setDeleteTarget({ type: 'ef', id: row.coefficient_emission_factor_id, name: row.coef_em_factor_name?.trim() || row.coef_em_factor_idCode?.trim() || `EF #${row.coefficient_emission_factor_id}` }),
+              )}
+            />
+          </div>
         )}
 
         {tab === 'gwp' && (

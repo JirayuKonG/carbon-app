@@ -75,6 +75,17 @@ export class ActivitiesController {
   @Put('details/:id') updateDetail(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateDetail(id, b) }
   @Delete('details/:id') deleteDetail(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteDetail(id) }
 
+  // Carbon process queue
+  @Get('carbon-process-queue')
+  getCarbonProcessQueue() {
+    return this.svc.getCarbonProcessQueue()
+  }
+
+  @Put('carbon-process-queue/:id/preparation')
+  updateCarbonProcessQueuePreparation(@Param('id', ParseIntPipe) id: number, @Body() b: any) {
+    return this.svc.updateCarbonProcessQueuePreparation(id, b)
+  }
+
   // Imported file history
   @Get('import-files') getImportFiles() { return this.svc.getImportFiles() }
   @Post('import-files') createImportFile(@Body() b: any) { return this.svc.createImportFile(b) }

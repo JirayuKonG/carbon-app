@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ActivitySquare, Calculator, CheckCircle2, CircleAlert, Clock3, Edit3, Leaf } from 'lucide-react'
+import { ActivitySquare, ArrowRight, Calculator, CheckCircle2, ChevronDown, ChevronUp, CircleAlert, Clock3, Edit3, Leaf, LoaderCircle, X } from 'lucide-react'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { DashboardVisibilityMenu, useDashboardVisibility } from '@/components/ui/DashboardVisibilityMenu'
+import { CarbonFootprintQueuePage } from '@/features/cf-dashboard/pages/CarbonFootprintQueuePage'
 import {
   ACTIVITY_CAL_STATUS_NAMES,
   getActivityCalStatusBadgeClass,
@@ -11,13 +12,22 @@ import {
   getActivityCalStatusLabel,
 } from '@/features/activities/cal-status'
 import { get, post } from '@/lib/api'
-import { formatBangkokDateTime } from '@/lib/datetime'
+import { formatBangkokDate } from '@/lib/datetime'
 import '../cf-dashboard.css'
 
 interface DetailHeaderLocation {
   activities_header_id: number
   activities_header_idCode?: string
   activities_header_startDate?: string
+  land_id?: number
+  lands?: {
+    land_code?: string
+    name?: string
+    land_camp_id?: number
+    lands_camps?: {
+      land_camp_name?: string
+    }
+  }
 }
 
 interface LogDetail {
@@ -41,6 +51,8 @@ interface LogDetail {
   activities_chemiscals?: { act_chemiscal_name?: string }
   resource_used_type?: { resc_used_type_name?: string }
   log_act_detail_calStatus?: { log_act_detail_calStatus_name?: string }
+  units?: { unit_name?: string; unit_initial?: string }
+  units_prefixs?: { unit_prefix_name?: string; unit_prefix_initial?: string; unit_prefix_value?: number }
   activities_header?: DetailHeaderLocation
 }
 
@@ -49,8 +61,12 @@ interface DetailType { act_header_detail_type_id: number; act_header_detail_type
 interface ResourceType { resource_used_type_id: number; resc_used_type_name: string }
 interface CalStatus { log_act_detail_calStatus_id: number; log_act_detail_calStatus_name: string }
 
-type ManualStatusName = 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' | 'คำนวณแล้ว(มาตรฐาน)'
-type CalcMode = 'standard' | 'tver'
+type ManualStatusName = 'กำลังเตรียมข้อมูล'
+
+type StatusPopupState =
+  | { kind: 'hidden' }
+  | { kind: 'loading'; itemCount: number }
+  | { kind: 'success'; itemCount: number; countdown: number }
 
 type CalculateRow = {
   id: number
@@ -61,11 +77,19 @@ type CalculateRow = {
   detailTypeName: string
   resourceTypeName: string
   resourceItemName: string
+  unitLabel: string
   quantityLabel: string
   totalVolumeLabel: string
   statusLabel: string
   statusRawName: string
   original: LogDetail
+}
+
+const CAMP_ONLY_LAND_LABEL = 'เบิกเข้าไร่'
+
+function isPlaceholderLand(landCode?: string, landName?: string) {
+  return landCode?.trim().toUpperCase().startsWith('AUTO-CAMP-')
+    || landName?.trim().toUpperCase().startsWith('[AUTO-CAMP]')
 }
 
 function formatNumber(value?: number, digits = 0) {
@@ -85,12 +109,21 @@ function formatQuantityValue(value?: number | null) {
   })
 }
 
+function getDetailUnitLabel(detail: LogDetail) {
+  const prefix = detail.units_prefixs?.unit_prefix_initial || detail.units_prefixs?.unit_prefix_name || ''
+  const unit = detail.units?.unit_initial || detail.units?.unit_name || '—'
+  return [prefix, unit].filter(Boolean).join(' ')
+}
+
 export function CfCalculatePage() {
   const qc = useQueryClient()
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [statusFilter, setStatusFilter] = useState('')
   const [activityTypeFilter, setActivityTypeFilter] = useState('')
-  const [resourceTypeFilter, setResourceTypeFilter] = useState('')
+  const [resourceTypeFilters, setResourceTypeFilters] = useState<string[]>([])
+  const [resourceTypeFilterExpanded, setResourceTypeFilterExpanded] = useState(false)
+  const [landScopeFilter, setLandScopeFilter] = useState<'actual' | 'all' | 'camp-only'>('actual')
+  const [statusPopup, setStatusPopup] = useState<StatusPopupState>({ kind: 'hidden' })
 
   const { data: details = [], isLoading, error: detailsError } = useQuery({
     queryKey: ['activity-details-calculate'],
@@ -124,6 +157,9 @@ export function CfCalculatePage() {
   const headerTypeMap = Object.fromEntries(headerTypes.map((item) => [item.act_header_type_id, item.act_header_type_name_th]))
   const detailTypeMap = Object.fromEntries(detailTypes.map((item) => [item.act_header_detail_type_id, item.act_header_detail_type_name_th]))
   const resourceTypeMap = Object.fromEntries(resourceTypes.map((item) => [item.resource_used_type_id, item.resc_used_type_name]))
+  const selectedResourceTypeLabels = resourceTypes
+    .filter((type) => resourceTypeFilters.includes(String(type.resource_used_type_id)))
+    .map((type) => type.resc_used_type_name)
 
   const getStatusRawName = (detail: LogDetail) =>
     detail.log_act_detail_calStatus?.log_act_detail_calStatus_name
@@ -141,12 +177,13 @@ export function CfCalculatePage() {
     return {
       id: detail.log_act_detail_id,
       checked: selectedIds.includes(detail.log_act_detail_id),
-      dateLabel: formatBangkokDateTime(detail.log_act_detail_create_at ?? detail.activities_header?.activities_header_startDate),
+      dateLabel: formatBangkokDate(detail.log_act_detail_create_at ?? detail.activities_header?.activities_header_startDate),
       headerLabel: detail.activities_header?.activities_header_idCode ?? (detail.activities_header_id != null ? `#${detail.activities_header_id}` : '—'),
       activityTypeName: headerTypeMap[detail.act_header_type_id] ?? String(detail.act_header_type_id ?? '—'),
       detailTypeName: detailTypeMap[detail.act_header_detail_type_id ?? 0] ?? (detail.act_header_detail_type_id != null ? String(detail.act_header_detail_type_id) : '—'),
       resourceTypeName: detail.resource_used_type?.resc_used_type_name ?? resourceTypeMap[detail.resource_used_type_id] ?? '—',
       resourceItemName: getResourceItemName(detail),
+      unitLabel: getDetailUnitLabel(detail),
       quantityLabel: formatQuantityValue(detail.log_act_detail_quatity),
       totalVolumeLabel: formatNumber(detail.log_act_detail_volumeAll, 3),
       statusLabel: getActivityCalStatusLabel(statusRawName, detail.log_act_detail_calStatus_id),
@@ -158,7 +195,16 @@ export function CfCalculatePage() {
   const filteredRows = rows.filter((row) =>
     (!statusFilter || row.original.log_act_detail_calStatus_id === Number(statusFilter))
     && (!activityTypeFilter || row.original.act_header_type_id === Number(activityTypeFilter))
-    && (!resourceTypeFilter || row.original.resource_used_type_id === Number(resourceTypeFilter)),
+    && (!resourceTypeFilters.length || resourceTypeFilters.includes(String(row.original.resource_used_type_id)))
+    && (
+      landScopeFilter === 'all'
+        ? true
+        : (() => {
+            const land = row.original.activities_header?.lands
+            const isCampOnly = isPlaceholderLand(land?.land_code, land?.name)
+            return landScopeFilter === 'camp-only' ? isCampOnly : !isCampOnly
+          })()
+    ),
   )
 
   const toggleSelected = (id: number, checked: boolean) => {
@@ -177,8 +223,32 @@ export function CfCalculatePage() {
   const clearFilters = () => {
     setStatusFilter('')
     setActivityTypeFilter('')
-    setResourceTypeFilter('')
+    setResourceTypeFilters([])
+    setResourceTypeFilterExpanded(false)
+    setLandScopeFilter('actual')
   }
+
+  const toggleResourceTypeFilter = (value: string, checked: boolean) => {
+    setResourceTypeFilters((prev) => (
+      checked
+        ? Array.from(new Set([...prev, value]))
+        : prev.filter((item) => item !== value)
+    ))
+  }
+
+  useEffect(() => {
+    if (statusPopup.kind !== 'success') return undefined
+
+    const timer = window.setTimeout(() => {
+      setStatusPopup((prev) => {
+        if (prev.kind !== 'success') return prev
+        if (prev.countdown <= 1) return { kind: 'hidden' }
+        return { ...prev, countdown: prev.countdown - 1 }
+      })
+    }, 1000)
+
+    return () => window.clearTimeout(timer)
+  }, [statusPopup])
 
   const statusMut = useMutation({
     mutationFn: ({ ids, statusName }: { ids: number[]; statusName: ManualStatusName }) => (
@@ -186,33 +256,35 @@ export function CfCalculatePage() {
         ? post(`/activities/details/${ids[0]}/manual-status`, { statusName })
         : post('/activities/details/manual-status/bulk', { ids, statusName })
     ),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['activity-details-calculate'] })
-      void qc.invalidateQueries({ queryKey: ['activity-details'] })
+    onMutate: ({ ids }) => {
+      setStatusPopup({ kind: 'loading', itemCount: ids.length })
+    },
+    onSuccess: async (_data, variables) => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['activity-details-calculate'] }),
+        qc.invalidateQueries({ queryKey: ['activity-details'] }),
+        qc.invalidateQueries({ queryKey: ['carbon-process-queue'] }),
+      ])
       setSelectedIds([])
+      setStatusPopup({
+        kind: 'success',
+        itemCount: variables.ids.length,
+        countdown: 4,
+      })
+    },
+    onError: () => {
+      setStatusPopup({ kind: 'hidden' })
     },
   })
 
-  const calculateMut = useMutation({
-    mutationFn: ({ ids, calcMode }: { ids: number[]; calcMode: CalcMode }) => (
-      ids.length === 1
-        ? post(`/activities/details/${ids[0]}/calculate`, { calcMode })
-        : post('/activities/details/calculate/bulk', { ids, calcMode })
-    ),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['activity-details-calculate'] })
-      void qc.invalidateQueries({ queryKey: ['activity-details'] })
-      setSelectedIds([])
-    },
-  })
+  const submitPreparingStatus = (ids: number[]) => {
+    if (!ids.length || statusMut.isPending) return
+    statusMut.mutate({ ids, statusName: ACTIVITY_CAL_STATUS_NAMES.preparing })
+  }
 
   const getKind = (row: CalculateRow) => getActivityCalStatusKind(row.statusRawName, row.original.log_act_detail_calStatus_id)
   const selectedRows = filteredRows.filter((row) => selectedIds.includes(row.id))
-  const preparingEligibleIds = selectedRows.filter((row) => ['imported', 'ready', 'standardDone', 'cfpDone', 'error'].includes(getKind(row))).map((row) => row.id)
-  const readyEligibleIds = selectedRows.filter((row) => getKind(row) === 'preparing').map((row) => row.id)
-  const standardStatusEligibleIds = selectedRows.filter((row) => ['ready', 'cfpDone'].includes(getKind(row))).map((row) => row.id)
-  const standardEligibleIds = selectedRows.filter((row) => getKind(row) === 'ready').map((row) => row.id)
-  const cfpEligibleIds = selectedRows.filter((row) => ['standardDone', 'cfpDone'].includes(getKind(row))).map((row) => row.id)
+  const preparingEligibleIds = selectedRows.filter((row) => getKind(row) === 'imported').map((row) => row.id)
   const importedCount = rows.filter((row) => getKind(row) === 'imported').length
   const preparingCount = rows.filter((row) => getKind(row) === 'preparing').length
   const readyCount = rows.filter((row) => getKind(row) === 'ready').length
@@ -326,8 +398,9 @@ export function CfCalculatePage() {
     { key: 'detailTypeName', header: 'รายละเอียด', sortable: true },
     { key: 'resourceTypeName', header: 'ประเภทปัจจัย', sortable: true },
     { key: 'resourceItemName', header: 'รายการปัจจัย', sortable: true },
+    { key: 'unitLabel', header: 'หน่วยปัจจุบัน', sortable: true },
     { key: 'quantityLabel', header: 'จำนวน', sortable: true },
-    { key: 'totalVolumeLabel', header: 'ปริมาณรวม', sortable: true, render: (row) => <span className="font-mono">{row.totalVolumeLabel}</span> },
+    { key: 'totalVolumeLabel', header: 'ปริมาณรวมปัจจุบัน', sortable: true, render: (row) => <span className="font-mono">{row.totalVolumeLabel}</span> },
     {
       key: 'statusLabel',
       header: 'สถานะ',
@@ -342,21 +415,13 @@ export function CfCalculatePage() {
         <div className="card">
           <div className="page-header mb-0">
             <div>
-              <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold text-surface-900"><Calculator size={20} className="text-primary-600 shrink-0" /> Carbon Footprint</h1>
-              <p className="page-subtitle">หน้าจัดการสถานะก่อนคำนวณ พร้อมสั่งคำนวณมาตรฐานและ CFP แบบรายรายการหรือหลายรายการ</p>
+              <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold text-surface-900"><Calculator size={20} className="text-primary-600 shrink-0" /> เตรียมข้อมูล Carbon</h1>
+              <p className="page-subtitle">เลือกข้อมูลที่นำเข้าแล้วเพื่อส่งเข้าสู่คิวเตรียมข้อมูล Carbon Footprint</p>
             </div>
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
               <div className="source-badge w-full justify-start md:w-auto md:justify-end">
-                <span>Workflow</span>
-                <span>{filteredRows.length.toLocaleString('th-TH')} รายการพร้อมดูแล</span>
-              </div>
-              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                <button type="button" className="btn-secondary w-full justify-center sm:w-auto" onClick={selectVisibleRows}>
-                  เลือกทั้งหมดที่กรอง
-                </button>
-                <button type="button" className="btn-ghost w-full justify-center sm:w-auto" onClick={clearSelectedRows}>
-                  ล้างรายการที่เลือก
-                </button>
+                <span>Preparation</span>
+                <span>{filteredRows.length.toLocaleString('th-TH')} รายการในตาราง</span>
               </div>
             </div>
           </div>
@@ -369,6 +434,54 @@ export function CfCalculatePage() {
         />
 
         <div className="mb-1">
+          <div className="mb-5 space-y-4">
+            <div className="card min-w-0 transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_18px_40px_rgba(91,164,255,0.16)]">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-semibold">ลำดับการทำงาน</h2>
+              </div>
+              <div className="flex flex-wrap items-center gap-3 text-xs text-surface-700">
+                <div className="flex min-w-[220px] items-center gap-2 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-3 py-2">
+                  <span className="font-medium">1.</span>
+                  <span>นำเข้าข้อมูล แล้วระบบจะตั้งเป็น <span className="font-medium">นำเข้าข้อมูลแล้ว</span></span>
+                </div>
+                <ArrowRight size={16} className="text-surface-400" />
+                <div className="flex min-w-[220px] items-center gap-2 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-3 py-2">
+                  <span className="font-medium">2.</span>
+                  <span>เลือกรายการที่ต้องเตรียม แล้วกดส่งเป็น <span className="font-medium">กำลังเตรียมข้อมูล</span></span>
+                </div>
+                <ArrowRight size={16} className="text-surface-400" />
+                <div className="flex min-w-[220px] items-center gap-2 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-3 py-2">
+                  <span className="font-medium">3.</span>
+                  <span>ระบบสร้างรายการใน <span className="font-medium">carbon_process_queue</span> อัตโนมัติแบบไม่ซ้ำ</span>
+                </div>
+                <ArrowRight size={16} className="text-surface-400" />
+                <div className="flex min-w-[220px] items-center gap-2 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-3 py-2">
+                  <span className="font-medium">4.</span>
+                  <span>ไปหน้า <span className="font-medium">Carbon Footprint</span> เพื่อปรับหน่วย ปริมาณ และข้อมูลตรวจดิน/SOC</span>
+                </div>
+              </div>
+            </div>
+            <div className="card min-w-0 transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_18px_40px_rgba(91,164,255,0.16)]">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-semibold">สรุปรายการที่เลือก</h2>
+              </div>
+              <div className="grid grid-cols-1 gap-2 text-xs text-surface-700 sm:grid-cols-3">
+                <div className="flex flex-col gap-1 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-3 py-2">
+                  <span>เลือกอยู่</span>
+                  <strong className="text-sm">{selectedIds.length} รายการ</strong>
+                </div>
+                <div className="flex flex-col gap-1 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-3 py-2">
+                  <span>ส่งเข้า queue ได้</span>
+                  <strong className="text-sm">{preparingEligibleIds.length} รายการ</strong>
+                </div>
+                <div className="flex flex-col gap-1 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-3 py-2">
+                  <span>ที่เลือกแต่ไม่ใช่สถานะนำเข้า</span>
+                  <strong className="text-sm">{Math.max(selectedIds.length - preparingEligibleIds.length, 0)} รายการ</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="text-sm font-semibold">Dashboard</h2>
@@ -402,16 +515,25 @@ export function CfCalculatePage() {
         <div className="card min-w-0 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_40px_rgba(91,164,255,0.14)]">
           <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
-              <h2 className="text-sm font-semibold">ตารางรายการสำหรับคำนวณ</h2>
-              <p className="mt-1 text-xs text-surface-500">เลือกตัวกรอง เลือกรายการ และใช้ปุ่มด้านล่างเพื่อขยับสถานะหรือคำนวณตามขั้นตอน</p>
+              <h2 className="text-sm font-semibold">ตารางรายการเตรียมข้อมูล</h2>
+              <p className="mt-1 text-xs text-surface-500">เลือกเฉพาะรายการสถานะนำเข้าข้อมูลแล้วเพื่อส่งเข้า queue สำหรับเตรียมหน่วยและปริมาณ โดยค่าเริ่มต้นจะซ่อนรายการ {CAMP_ONLY_LAND_LABEL}</p>
             </div>
             <button type="button" className="btn-ghost btn-sm w-full justify-center sm:w-auto" onClick={clearFilters}>
               ล้างตัวกรอง
             </button>
           </div>
 
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+            <button type="button" className="btn-secondary w-full justify-center sm:w-auto" onClick={selectVisibleRows}>
+              เลือกทั้งหมดที่กรอง
+            </button>
+            <button type="button" className="btn-ghost w-full justify-center sm:w-auto" onClick={clearSelectedRows}>
+              ล้างรายการที่เลือก
+            </button>
+          </div>
+
           <div className="mb-4 rounded-[20px] border border-[#d9e7f2] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(243,247,251,0.96))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
               <div>
                 <label className="label">สถานะ</label>
                 <select className="select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
@@ -435,14 +557,62 @@ export function CfCalculatePage() {
                 </select>
               </div>
               <div>
-                <label className="label">ประเภทปัจจัย</label>
-                <select className="select" value={resourceTypeFilter} onChange={(event) => setResourceTypeFilter(event.target.value)}>
-                  <option value="">ทั้งหมด</option>
-                  {resourceTypes.map((type) => (
-                    <option key={type.resource_used_type_id} value={type.resource_used_type_id}>
-                      {type.resc_used_type_name}
-                    </option>
-                  ))}
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <label className="label mb-0">ประเภทปัจจัย</label>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-full border border-[#d9e7f2] bg-white/80 px-2.5 py-1 text-xs text-surface-600 shadow-sm transition hover:border-[#c5dbeb] hover:text-surface-800"
+                    onClick={() => setResourceTypeFilterExpanded((prev) => !prev)}
+                  >
+                    {resourceTypeFilterExpanded ? 'ย่อ' : 'ขยาย'}
+                    {resourceTypeFilterExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
+                </div>
+                <div className="rounded-xl border border-[#d9e7f2] bg-white/85 p-3 shadow-sm">
+                  <div className="flex items-center justify-between gap-2 text-xs text-surface-500">
+                    <span>{resourceTypeFilters.length ? `เลือกแล้ว ${resourceTypeFilters.length} รายการ` : 'ยังไม่ได้เลือก = ทั้งหมด'}</span>
+                    <button
+                      type="button"
+                      className="text-primary-700 transition hover:text-primary-800 disabled:text-surface-300"
+                      disabled={!resourceTypeFilters.length}
+                      onClick={() => setResourceTypeFilters([])}
+                    >
+                      ล้าง
+                    </button>
+                  </div>
+                  {!!selectedResourceTypeLabels.length && (
+                    <p className="mt-2 line-clamp-2 text-xs text-surface-600">
+                      {selectedResourceTypeLabels.join(', ')}
+                    </p>
+                  )}
+                  {resourceTypeFilterExpanded && (
+                    <div className="mt-3 max-h-40 space-y-2 overflow-y-auto border-t border-[#e5eef5] pt-3 pr-1">
+                      {resourceTypes.map((type) => {
+                        const value = String(type.resource_used_type_id)
+                        const checked = resourceTypeFilters.includes(value)
+
+                        return (
+                          <label key={type.resource_used_type_id} className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 text-sm transition hover:bg-[#f3f7fb]">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(event) => toggleResourceTypeFilter(value, event.target.checked)}
+                              className="mt-0.5"
+                            />
+                            <span>{type.resc_used_type_name}</span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div>
+                <label className="label">ขอบเขตพื้นที่</label>
+                <select className="select" value={landScopeFilter} onChange={(event) => setLandScopeFilter(event.target.value as 'actual' | 'all' | 'camp-only')}>
+                  <option value="actual">เฉพาะแปลงจริง</option>
+                  <option value="all">ทั้งหมด</option>
+                  <option value="camp-only">{CAMP_ONLY_LAND_LABEL}</option>
                 </select>
               </div>
               <div>
@@ -459,66 +629,25 @@ export function CfCalculatePage() {
               <div>
                 <div className="mb-2 flex items-center gap-2">
                   <Edit3 size={14} className="text-primary-600" />
-                  <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-surface-600">เปลี่ยนสถานะ</h3>
+                  <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-surface-600">ส่งเข้า Queue</h3>
                 </div>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                <div className="grid grid-cols-1 gap-2 xl:max-w-[24rem]">
                   <button
                     type="button"
                     className="btn-secondary btn-sm w-full justify-center"
                     disabled={!preparingEligibleIds.length || statusMut.isPending}
-                    onClick={() => statusMut.mutate({ ids: preparingEligibleIds, statusName: ACTIVITY_CAL_STATUS_NAMES.preparing })}
+                    onClick={() => submitPreparingStatus(preparingEligibleIds)}
                   >
                     <Edit3 size={14} /> ย้ายเป็นกำลังเตรียมข้อมูล
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-secondary btn-sm w-full justify-center"
-                    disabled={!readyEligibleIds.length || statusMut.isPending}
-                    onClick={() => statusMut.mutate({ ids: readyEligibleIds, statusName: ACTIVITY_CAL_STATUS_NAMES.ready })}
-                  >
-                    <Clock3 size={14} /> ย้ายเป็นพร้อมคำนวณมาตรฐาน
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-secondary btn-sm w-full justify-center"
-                    disabled={!standardStatusEligibleIds.length || statusMut.isPending}
-                    onClick={() => statusMut.mutate({ ids: standardStatusEligibleIds, statusName: ACTIVITY_CAL_STATUS_NAMES.standardDone })}
-                  >
-                    <CheckCircle2 size={14} /> ย้ายเป็นคำนวณแล้ว(มาตรฐาน)
-                  </button>
-                </div>
-              </div>
-
-              <div className="border-t border-[#d9e7f2] pt-3">
-                <div className="mb-2 flex items-center gap-2">
-                  <Calculator size={14} className="text-primary-600" />
-                  <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-surface-600">คำนวณ</h3>
-                </div>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:max-w-[32rem]">
-                  <button
-                    type="button"
-                    className="btn-primary btn-sm w-full justify-center"
-                    disabled={!standardEligibleIds.length || calculateMut.isPending}
-                    onClick={() => calculateMut.mutate({ ids: standardEligibleIds, calcMode: 'standard' })}
-                  >
-                    <Calculator size={14} /> คำนวณมาตรฐาน
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-primary btn-sm w-full justify-center"
-                    disabled={!cfpEligibleIds.length || calculateMut.isPending}
-                    onClick={() => calculateMut.mutate({ ids: cfpEligibleIds, calcMode: 'tver' })}
-                  >
-                    <Leaf size={14} /> คำนวณ CFP
                   </button>
                 </div>
               </div>
             </div>
           </div>
 
-          {(statusMut.isError || calculateMut.isError) && (
+          {statusMut.isError && (
             <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">
-              {statusMut.error?.message ?? calculateMut.error?.message}
+              {statusMut.error?.message}
             </div>
           )}
 
@@ -528,91 +657,80 @@ export function CfCalculatePage() {
             isLoading={isLoading}
             rowKey={(row) => row.id}
             searchPlaceholder="ค้นหาหัวข้อกิจกรรม รายการปัจจัย หรือรายละเอียด..."
-            emptyMessage="ไม่พบรายการสำหรับการคำนวณ"
+            emptyMessage="ไม่พบรายการสำหรับเตรียมข้อมูล"
             actions={(row) => {
               const kind = getKind(row)
 
               return (
                 <div className="flex justify-end gap-1">
-                  {['imported', 'ready', 'standardDone', 'cfpDone', 'error'].includes(kind) && (
+                  {kind === 'imported' && (
                     <button
                       type="button"
                       className="btn-ghost btn-sm"
-                      onClick={() => statusMut.mutate({ ids: [row.id], statusName: ACTIVITY_CAL_STATUS_NAMES.preparing })}
+                      onClick={() => submitPreparingStatus([row.id])}
                     >
-                      เตรียม
+                      เข้า Queue
                     </button>
                   )}
-                  {kind === 'preparing' && (
-                    <button
-                      type="button"
-                      className="btn-ghost btn-sm"
-                      onClick={() => statusMut.mutate({ ids: [row.id], statusName: ACTIVITY_CAL_STATUS_NAMES.ready })}
-                    >
-                      พร้อมคำนวณ
-                    </button>
-                  )}
-                  {['ready', 'cfpDone'].includes(kind) && (
-                    <button
-                      type="button"
-                      className="btn-ghost btn-sm"
-                      onClick={() => statusMut.mutate({ ids: [row.id], statusName: ACTIVITY_CAL_STATUS_NAMES.standardDone })}
-                    >
-                      มาตรฐานแล้ว
-                    </button>
-                  )}
-                  {kind === 'ready' && (
-                    <button
-                      type="button"
-                      className="btn-ghost btn-sm"
-                      onClick={() => calculateMut.mutate({ ids: [row.id], calcMode: 'standard' })}
-                    >
-                      มาตรฐาน
-                    </button>
-                  )}
-                  {['standardDone', 'cfpDone'].includes(kind) && (
-                    <button
-                      type="button"
-                      className="btn-ghost btn-sm"
-                      onClick={() => calculateMut.mutate({ ids: [row.id], calcMode: 'tver' })}
-                    >
-                      CFP
-                    </button>
-                  )}
+                  {kind !== 'imported' && <span className="text-xs text-surface-400">ส่งแล้ว</span>}
                 </div>
               )
             }}
           />
         </div>
 
-        <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
-          <div className="card min-w-0 transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_18px_40px_rgba(91,164,255,0.16)]">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold">ลำดับการทำงาน</h2>
-            </div>
-            <div className="space-y-3 text-sm text-surface-700">
-              <div className="rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)]"><span className="font-medium">1.</span> นำเข้าข้อมูล แล้วระบบจะตั้งเป็น <span className="font-medium">นำเข้าข้อมูลแล้ว</span></div>
-              <div className="rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)]"><span className="font-medium">2.</span> ตรวจสอบและปรับข้อมูลก่อนคำนวณเป็น <span className="font-medium">กำลังเตรียมข้อมูล</span></div>
-              <div className="rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)]"><span className="font-medium">3.</span> ยืนยันความพร้อมก่อนคำนวณเป็น <span className="font-medium">พร้อมคำนวณมาตรฐาน</span></div>
-              <div className="rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)]"><span className="font-medium">4.</span> คำนวณมาตรฐาน แล้วได้สถานะ <span className="font-medium">คำนวณแล้ว(มาตรฐาน)</span></div>
-              <div className="rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)]"><span className="font-medium">5.</span> คำนวณ CFP ต่อเมื่อจำเป็น แล้วได้สถานะ <span className="font-medium">คำนวณแล้ว(มาตรฐาน,CFP)</span></div>
-            </div>
-          </div>
+        <CarbonFootprintQueuePage mode="preparation" embedded />
 
-          <div className="card min-w-0 transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_18px_40px_rgba(91,164,255,0.16)]">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold">สรุปรายการที่เลือก</h2>
-            </div>
-            <div className="space-y-3 text-sm text-surface-700">
-              <div className="flex flex-col gap-1 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)] sm:flex-row sm:items-center sm:justify-between sm:gap-3"><span>เลือกอยู่</span><strong>{selectedIds.length} รายการ</strong></div>
-              <div className="flex flex-col gap-1 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)] sm:flex-row sm:items-center sm:justify-between sm:gap-3"><span>ย้ายเป็นกำลังเตรียมข้อมูลได้</span><strong>{preparingEligibleIds.length} รายการ</strong></div>
-              <div className="flex flex-col gap-1 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)] sm:flex-row sm:items-center sm:justify-between sm:gap-3"><span>ย้ายเป็นพร้อมคำนวณมาตรฐานได้</span><strong>{readyEligibleIds.length} รายการ</strong></div>
-              <div className="flex flex-col gap-1 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)] sm:flex-row sm:items-center sm:justify-between sm:gap-3"><span>ย้ายเป็นคำนวณแล้ว(มาตรฐาน)ได้</span><strong>{standardStatusEligibleIds.length} รายการ</strong></div>
-              <div className="flex flex-col gap-1 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)] sm:flex-row sm:items-center sm:justify-between sm:gap-3"><span>คำนวณมาตรฐานได้</span><strong>{standardEligibleIds.length} รายการ</strong></div>
-              <div className="flex flex-col gap-1 rounded-xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f3f7fb)] px-4 py-3 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_24px_rgba(91,164,255,0.12)] sm:flex-row sm:items-center sm:justify-between sm:gap-3"><span>คำนวณ CFP ได้</span><strong>{cfpEligibleIds.length} รายการ</strong></div>
+        {statusPopup.kind !== 'hidden' && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-slate-950/45 backdrop-blur-[2px]" />
+            <div className="relative w-full max-w-md overflow-hidden rounded-[28px] border border-[#d9e7f2] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(242,248,253,0.98))] p-6 shadow-[0_28px_80px_rgba(35,49,66,0.24)] animate-slide-up">
+              {statusPopup.kind === 'loading' ? (
+                <div className="flex flex-col items-center text-center">
+                  <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-[radial-gradient(circle_at_30%_30%,rgba(91,164,255,0.22),rgba(91,164,255,0.08),transparent_72%)]">
+                    <LoaderCircle size={40} className="animate-spin text-primary-600" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-surface-900">กำลังเปลี่ยนสถานะข้อมูล</h3>
+                  <p className="mt-2 text-sm text-surface-600">
+                    ระบบกำลังย้าย {statusPopup.itemCount.toLocaleString('th-TH')} รายการ จาก
+                    {' '}<span className="font-medium">นำเข้าข้อมูลแล้ว</span>{' '}เป็น{' '}
+                    <span className="font-medium">กำลังเตรียมข้อมูล</span>
+                  </p>
+                  <div className="mt-4 flex items-center gap-2 rounded-full border border-[#d9e7f2] bg-white/85 px-4 py-2 text-xs text-surface-500 shadow-sm">
+                    <span className="loading-dot" />
+                    <span className="loading-dot" />
+                    <span className="loading-dot" />
+                    <span className="ml-1">กรุณารอสักครู่</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center text-center">
+                  <button
+                    type="button"
+                    className="absolute right-3 top-3 rounded-full p-2 text-surface-400 transition hover:bg-white/70 hover:text-surface-700"
+                    onClick={() => setStatusPopup({ kind: 'hidden' })}
+                  >
+                    <X size={16} />
+                  </button>
+                  <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-[radial-gradient(circle_at_30%_30%,rgba(78,143,106,0.24),rgba(78,143,106,0.08),transparent_72%)]">
+                    <CheckCircle2 size={40} className="text-green-600" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-surface-900">เปลี่ยนสถานะสำเร็จแล้ว</h3>
+                  <p className="mt-2 text-sm text-surface-600">
+                    ย้ายข้อมูล {statusPopup.itemCount.toLocaleString('th-TH')} รายการ ไปที่
+                    {' '}<span className="font-medium">กำลังเตรียมข้อมูล</span>{' '}เรียบร้อยแล้ว
+                  </p>
+                  <div className="mt-4 rounded-2xl border border-[#d9e7f2] bg-white/90 px-4 py-3 shadow-sm">
+                    <span className="text-xs text-surface-500">หน้าต่างนี้จะปิดอัตโนมัติใน </span>
+                    <span className="countdown text-sm">{statusPopup.countdown}</span>
+                    <span className="text-xs text-surface-500"> วินาที</span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-        </div>
+        )}
+
       </div>
     </div>
   )
