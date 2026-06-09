@@ -952,3 +952,16 @@ Backend API:
 
 - `npm run build --workspace=frontend` ผ่าน
 - ยังมี Vite warning เรื่อง bundle chunk ใหญ่ ซึ่งเป็น warning ด้าน optimization
+
+## อัปเดตหน้า Footprint Report Export ล่าสุด
+
+- Word preview/download
+  - เพิ่ม `SOC Section` พร้อมค่า SOC Baseline, SOC Project, SOC Increase และ practice contribution: Vinasse, Filter Cake, Green Manure, Trash Retention
+  - เพิ่ม `Net Result Section` พร้อม Gross Emission, SOC Offset และ Net Emission
+  - เพิ่ม `Metadata` และ `Data Source`
+  - เอา section `ลำดับหัวข้อที่ควรมีในรายงาน` ออกจากเอกสาร Word
+- Excel preview/download
+  - เพิ่ม Section 4: `Emission Reduction Analysis`
+  - เพิ่ม Section 5: `Cane Type Analysis` แบบสรุปย่อ พร้อมคอลัมน์ Cane Type, Area, Baseline, Project, Reduction
+  - เพิ่ม Section 6: `SOC Summary` พร้อมคอลัมน์ SOC Baseline, SOC Project, SOC Increase และ practice columns Vinasse, Filter Cake, Green Manure, Trash Retention
+  - เพิ่ม Section 7: `Net Carbon Result` พร้อมคอลัมน์ Gross Emission, SOC Offset, Net Emission
