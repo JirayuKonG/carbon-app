@@ -632,8 +632,6 @@ export function CfFootprintReportPage() {
   const reduction = diffLabel(baselineTotal, currentTotal);
   const processOrder = new Map(sortProcessLabels(currentRows.map((item) => item.process)).map((process, index) => [process, index]));
   const orderedCurrentRows = [...currentRows].sort((a, b) => (processOrder.get(a.process) ?? 0) - (processOrder.get(b.process) ?? 0));
-  const topProcess = [...currentRows].sort((a, b) => b.totalEmission - a.totalEmission)[0];
-  const lowProcess = [...currentRows].sort((a, b) => a.totalEmission - b.totalEmission)[0];
   const selectedAreaNode = selectedAreaId ? spatialNodes.find((node) => node.id === selectedAreaId) : undefined;
   const selectedScopeLabel = selectedField?.fieldName ?? selectedCamp?.campName ?? selectedAreaNode?.name ?? "ภาพรวมทั้งระบบ";
   const scopedKpi: OverviewKpi = selectedField
@@ -761,6 +759,7 @@ export function CfFootprintReportPage() {
   const hiddenFootprintScopeRows = Math.max(footprintScopeRows.length - visibleFootprintScopeRows.length, 0);
 
   const selectedCaneLabel = caneFilter === "all" ? "รวมทุกประเภทอ้อย" : selectedCaneTypes.map((item) => item.name).join(", ") || "-";
+  const baselineYearLabel = scopedKpi.baselineYears?.length ? scopedKpi.baselineYears.join(", ") : "Baseline avg";
   const currentReport = useMemo<FootprintReportSnapshot>(() => ({
     id: `${areaPath.region}|${areaPath.province}|${areaPath.district}|${areaPath.subdistrict}|${areaPath.field}|${scope}|${selectedFieldId}|${caneFilter}|${currentYear}|${baselineTotal}|${currentTotal}`,
     scopeLabel: selectedScopeLabel,
@@ -1206,47 +1205,64 @@ export function CfFootprintReportPage() {
           )}
         </section>
 
-        <section className="process-summary-grid footprint-exec-grid">
+        <section className="process-summary-grid footprint-kpi-row footprint-context-grid" style={{ order: 5, gridTemplateColumns: "repeat(5, minmax(0,1fr))" }}>
           <article>
-            <span>ขอบเขตรายงาน</span>
+            <span>Scope</span>
             <strong>{selectedScopeLabel}</strong>
-            <small>{selectedCanePercent.toFixed(1)}% ของสัดส่วนประเภทอ้อยที่เลือก</small>
+            <small>{selectedCanePercent.toFixed(1)}% selected cane type share</small>
           </article>
           <article>
-            <span>ปีฐานรวม</span>
-            <strong>{formatNumber(baselineTotal)}</strong>
-            <small>tCO2e</small>
+            <span>Project Year</span>
+            <strong>{currentYear || "-"}</strong>
+            <small>Current reporting period</small>
           </article>
           <article>
-            <span>ปีรายงาน {currentYear}</span>
-            <strong>{formatNumber(currentTotal)}</strong>
-            <small>tCO2e</small>
+            <span>Baseline Year</span>
+            <strong>{baselineYearLabel}</strong>
+            <small>Baseline comparison period</small>
           </article>
           <article>
-            <span>{reduction.diff >= 0 ? "ลดลงจากปีฐาน" : "เพิ่มขึ้นจากปีฐาน"}</span>
-            <strong className={reduction.diff >= 0 ? "green-text" : "red-text"}>{formatNumber(Math.abs(reduction.diff))}</strong>
-            <small>{Math.abs(reduction.pct).toFixed(1)}% · tCO2e</small>
+            <span>Area</span>
+            <strong>{formatNumber(scopedKpi.areaRai, 0)}</strong>
+            <small>rai</small>
           </article>
           <article>
             <span>Intensity</span>
             <strong>{formatNumber(scopedKpi.co2ePerTon, 3)}</strong>
-            <small>tCO2e/ตันอ้อย</small>
+            <small>tCO2e/ton cane</small>
+          </article>
+        </section>
+
+        <section className="process-summary-grid footprint-kpi-row footprint-headline-grid" style={{ order: 6, gridTemplateColumns: "repeat(4, minmax(0,1fr))" }}>
+          <article>
+            <span>Gross Emission</span>
+            <strong>{formatNumber(currentTotal)}</strong>
+            <small>tCO2e</small>
           </article>
           <article>
-            <span>พื้นที่ / ผลผลิต</span>
-            <strong>{formatNumber(scopedKpi.areaRai, 0)}</strong>
-            <small>ไร่ · {formatNumber(scopedKpi.yieldTon, 0)} ตัน</small>
+            <span>SOC Offset</span>
+            <strong className="green-text">{formatNumber(socIncrease)}</strong>
+            <small>tCO2e</small>
           </article>
           <article>
-            <span>Hotspot สูงสุด</span>
-            <strong>{topProcess?.process ?? "-"}</strong>
-            <small>{formatNumber(topProcess?.totalEmission ?? 0)} tCO2e</small>
+            <span>Net Emission</span>
+            <strong className={netEmission <= currentTotal ? "green-text" : "red-text"}>{formatNumber(netEmission)}</strong>
+            <small>tCO2e</small>
           </article>
           <article>
-            <span>กระบวนการต่ำสุด</span>
-            <strong>{lowProcess?.process ?? "-"}</strong>
-            <small>{formatNumber(lowProcess?.totalEmission ?? 0)} tCO2e</small>
+            <span>Reduction</span>
+            <strong className={reduction.diff >= 0 ? "green-text" : "red-text"}>{formatNumber(Math.abs(reduction.diff))}</strong>
+            <small>{Math.abs(reduction.pct).toFixed(1)}% · tCO2e</small>
           </article>
+        </section>
+
+        <section className="card full-span footprint-kpi-row footprint-soc-summary-block" style={{ order: 7 }}>
+          <div className="card-title">Carbon Sequestration Summary</div>
+          <div className="mini-stat-grid wide">
+            <div><strong>{formatNumber(socBaseline)}</strong><span>SOC Baseline · tCO2e</span></div>
+            <div><strong>{formatNumber(socProject)}</strong><span>SOC Project · tCO2e</span></div>
+            <div><strong className="green-text">{formatNumber(socIncrease)}</strong><span>SOC Increase · tCO2e</span></div>
+          </div>
         </section>
 
         <section className="card full-span">
@@ -1314,7 +1330,7 @@ export function CfFootprintReportPage() {
           </div>
         </section>
 
-        <section className="card report-preview-panel full-span footprint-preview-layout">
+        <section className="card report-preview-panel full-span footprint-preview-layout" style={{ order: 8 }}>
           <div className="report-preview-header">
             <div>
               <div className="card-title">Preview & Download</div>
@@ -1436,33 +1452,6 @@ export function CfFootprintReportPage() {
               </div>
             </div>
           )}
-        </section>
-
-        <section className="card full-span footprint-soc-summary-block">
-          <div className="card-title">Carbon Sequestration Summary</div>
-          <div className="mini-stat-grid wide">
-            <div><strong>{formatNumber(socBaseline)}</strong><span>SOC Baseline · tCO2e</span></div>
-            <div><strong>{formatNumber(socProject)}</strong><span>SOC Project · tCO2e</span></div>
-            <div><strong className="green-text">{formatNumber(socIncrease)}</strong><span>SOC Increase · tCO2e</span></div>
-          </div>
-        </section>
-
-        <section className="process-summary-grid full-span footprint-net-result-block">
-          <article>
-            <span>Gross Emission</span>
-            <strong>{formatNumber(currentTotal)}</strong>
-            <small>tCO2e</small>
-          </article>
-          <article>
-            <span>SOC Offset</span>
-            <strong className="green-text">{formatNumber(socIncrease)}</strong>
-            <small>tCO2e</small>
-          </article>
-          <article>
-            <span>Net Emission</span>
-            <strong className={netEmission <= currentTotal ? "green-text" : "red-text"}>{formatNumber(netEmission)}</strong>
-            <small>tCO2e</small>
-          </article>
         </section>
 
         <section className="card full-span footprint-soc-contribution-block">

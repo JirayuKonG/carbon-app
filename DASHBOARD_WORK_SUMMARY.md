@@ -965,3 +965,11 @@ Backend API:
   - เพิ่ม `Cane Type Analysis` แบบสรุปย่อ พร้อมคอลัมน์ Cane Type, Area, Baseline, Project, Reduction
   - เพิ่ม `SOC Summary` พร้อมคอลัมน์ SOC Baseline, SOC Project, SOC Increase และ practice columns Vinasse, Filter Cake, Green Manure, Trash Retention
   - เพิ่ม `Net Carbon Result` พร้อมคอลัมน์ Gross Emission, SOC Offset, Net Emission
+
+## อัปเดต KPI หน้า Footprint Report ล่าสุด
+
+- จัด KPI หน้า `รายงานคาร์บอนฟุตพริ้นท์ ไร่บริษัทกลุ่มมิตรผล` ใหม่เป็น 3 แถว
+- Row 1 `Project Context`: Scope, Project Year, Baseline Year, Area, Intensity
+- Row 2 `Headline KPI`: Gross Emission, SOC Offset, Net Emission, Reduction
+- Row 3 `SOC Summary`: Carbon Sequestration Summary, SOC Baseline, SOC Project, SOC Increase
+- ค่า Scope ยังคงเปลี่ยนตามตัวกรองพื้นที่/แคมป์/รายแปลงของหน้า report
