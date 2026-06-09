@@ -17,16 +17,19 @@ export class EmissionFactorsController {
   @Get('gwp')      getGwp()                                            { return this.svc.getGwp() }
   @Post('gwp')     createGwp(@Body() b: any)                          { return this.svc.createGwp(b) }
   @Put('gwp/:id')  updateGwp(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateGwp(id, b) }
+  @Delete('gwp/:id') deleteGwp(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteGwp(id) }
 
   // CF types
   @Get('cf-types')      getCfTypes()            { return this.svc.getCfTypes() }
   @Post('cf-types')     createCfType(@Body() b: any) { return this.svc.createCfType(b) }
   @Put('cf-types/:id')  updateCfType(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateCfType(id, b) }
+  @Delete('cf-types/:id') deleteCfType(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteCfType(id) }
 
   // Groups
   @Get('groups')      getGroups(@Query('cf_type_id') ctid?: string)  { return this.svc.getGroups(ctid ? +ctid : undefined) }
   @Post('groups')     createGroup(@Body() b: any)                    { return this.svc.createGroup(b) }
   @Put('groups/:id')  updateGroup(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateGroup(id, b) }
+  @Delete('groups/:id') deleteGroup(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteGroup(id) }
 
   // --------------------Units
   @Get('units') getUnits() { return this.svc.getUnits() }

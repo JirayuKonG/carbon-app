@@ -1,6 +1,6 @@
 # Project Context Memory
 
-Last updated: 2026-06-05
+Last updated: 2026-06-09
 
 This file is a working memory for the project. It summarizes the current repo state, important decisions, active risks, and where future work should start. Update it when major behavior, routes, architecture, or project status changes.
 
@@ -53,16 +53,36 @@ Useful docs already in the repo:
 - `SECURITY.md`: security handling guidance
 - `DASHBOARD_WORK_SUMMARY.md`: Carbon Analytics work history and dashboard-specific decisions
 
+## Recent Database / Prisma Sync
+
+- On 2026-06-08, `backend/src/prisma/schema.prisma` was re-introspected from the live Aiven PostgreSQL database configured by `backend/.env`.
+- The live database currently contains 39 Prisma models and is ahead of the older SQL dump in the repo.
+- Newly surfaced live-database models now represented in Prisma are:
+  - `activities_fileNameUse`
+  - `activities_resourceOther`
+  - `carbon_process_queue`
+  - `carbon_roundCal`
+  - `carbon_typeCal`
+- The live database introspection also removed old Prisma `autoincrement()` assumptions from many primary keys, which means backend create flows must keep supplying explicit IDs where the database has no default/identity.
+- After the sync, backend compatibility fixes were applied in:
+  - `backend/src/modules/activities/activities.service.ts`
+  - `backend/src/modules/lands/lands.service.ts`
+- Verification after the sync:
+  - `npx prisma generate --schema src/prisma/schema.prisma`
+  - `npm run build --workspace=backend`
+- On 2026-06-09, Carbon preparation was adjusted to avoid database-structure changes. No new `carbon_process_queue` columns are required; preparation metadata is stored in existing `carbon_process_queue_info`, result unit ids use existing `unit_id_resultValue` / `unit_prefix_id_resultValue`, and canonical unit/volume values stay on `log_activities_detail`.
+
 ## Current App Routing Snapshot
 
-Verified from `frontend/src/App.tsx` on 2026-06-03:
+Verified from `frontend/src/App.tsx` on 2026-06-09:
 
 - `/overview`: Carbon overview summary
 - `/process`: cultivation process analytics
 - `/spatial`: area map and drill-down
 - `/report`: Premium T-VER report
-- `/calculate`: redirect to Carbon Footprint page
-- `/calculate/footprint`: carbon footprint calculation workflow page
+- `/calculate`: redirect to Carbon preparation page
+- `/calculate/prepare`: carbon data preparation page for moving imported activity details into `carbon_process_queue`
+- `/calculate/footprint`: carbon process queue page for unit/volume/soil/SOC preparation and calculation actions
 - `/calculate/credit`: carbon credit analysis page
 - `/dashboard`: older GHG dashboard
 - `/geo`, `/infra`, `/users`, `/farmers`, `/lands`, `/lands/weather`
@@ -96,26 +116,30 @@ Current product direction from the docs:
 - Pipeline proof was removed from the user-facing flow
 - Transport was removed from the main Carbon Analytics scope
 
-Recent UI workflow note:
+Recent Carbon calculation workflow note:
 
-- `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` now separates manual status changes from actual calculation actions.
-- Users can manually move selected activity-detail rows to `กำลังเตรียมข้อมูล`, `พร้อมคำนวณมาตรฐาน`, and `คำนวณแล้ว(มาตรฐาน)`.
-- Real calculation actions for `คำนวณมาตรฐาน` and `คำนวณ CFP` remain separate buttons so status management and calculation are easier to understand.
+- On 2026-06-09, `คำนวณ Carbon` was split into three child pages:
+  - `เตรียมข้อมูล Carbon` at `/calculate/prepare`
+  - `Carbon Footprint` at `/calculate/footprint`
+  - `Carbon Credit` at `/calculate/credit`
+- `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` now focuses on moving only `นำเข้าข้อมูลแล้ว` activity-detail rows into `กำลังเตรียมข้อมูล`.
+- Moving a detail from `นำเข้าข้อมูลแล้ว` to `กำลังเตรียมข้อมูล` now creates or syncs one `carbon_process_queue` row by `log_act_detail_id`.
+- `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` is the new queue table for preparing units, total volume, fertilizer bag weights, fuel L/m3 conversion, soil test fields, and SOC fields before calculation.
+- New backend endpoints are `GET /activities/carbon-process-queue` and `PUT /activities/carbon-process-queue/:id/preparation`.
+- This workflow intentionally uses the existing database schema only; it does not add a new migration or new preparation columns.
 
 Recent navigation note:
 
 - On 2026-06-04, the sidebar group order was updated to:
   - `CARBON ANALYTICS`: `ภาพรวม Carbon`, `แผนที่พื้นที่`
-  - `CARBON`: `บันทึกกิจกรรม` (`จัดการกิจกรรม`, `รายการบันทึกกิจกรรม`), `คำนวณ Carbon` (`Carbon Footprint`, `Carbon Credit`)
+  - `CARBON`: `บันทึกกิจกรรม` (`จัดการกิจกรรม`, `รายการบันทึกกิจกรรม`), `คำนวณ Carbon` (`เตรียมข้อมูล Carbon`, `Carbon Footprint`, `Carbon Credit`)
   - `ข้อมูลเกษตรกร`: `จัดการเกษตรกร`, `พื้นที่เพาะปลูก`, `ข้อมูลสภาพอากาศ`
   - `ตั้งค่าระบบ`: `พื้นที่ในประเทศไทย`, `โรงงาน / บริการ`, `จัดการผู้ใช้`, `EF / GWP / หน่วย`, `ปุ๋ย / น้ำมัน`
 - The older `/dashboard` page remains routable, but it is no longer listed in the main sidebar navigation.
 
 Recent Carbon Credit note:
 
-- On 2026-06-04, `คำนวณ Carbon` was split into two child pages:
-  - `Carbon Footprint`: the existing workflow/status calculation page
-  - `Carbon Credit`: a new read-only comparison page
+- On 2026-06-04, `คำนวณ Carbon` was split into Carbon Footprint and Carbon Credit, then on 2026-06-09 it was split further into `เตรียมข้อมูล Carbon`, `Carbon Footprint`, and `Carbon Credit`.
 - `Carbon Credit` reuses `GET /activities/details`, lets users choose 4 baseline years plus 1 project year, groups results by plot, uses `log_act_detail_areawork` as the operated-area source, and compares fertilizer vs fuel between baseline average and project year.
 - The new `Carbon Credit` page does not persist results or add a new workflow/status system.
 - On 2026-06-04, `Carbon Footprint` got its dashboard-card visibility control back via `DashboardVisibilityMenu`, and both `Carbon Footprint` and `Carbon Credit` were adjusted to use a more compact header style closer to the rest of the app.
@@ -125,6 +149,9 @@ Recent activity-page UI note:
 - On 2026-06-04, both `จัดการกิจกรรม` and `รายการบันทึกกิจกรรม` got a small header control for dashboard-card visibility.
 - The control is implemented by `frontend/src/components/ui/DashboardVisibilityMenu.tsx`.
 - Users can choose which summary stat cards are shown on each page, and the selection is stored locally in the browser.
+- On 2026-06-08, `frontend/src/features/activities/ActivitiesPage.tsx` added an import-history table backed by the new `activities_fileNameUse` table.
+- Successful CSV imports from the activities wizard now create one `activities_fileNameUse` record with filename, row count, column count, and timestamps through new backend endpoints in `backend/src/modules/activities/activities.controller.ts` and `activities.service.ts`.
+- The `จัดการกิจกรรม` dashboard now also shows a `ไฟล์ที่นำเข้าแล้ว` summary card sourced from that import-history list.
 
 Recent CSV import note:
 
@@ -191,8 +218,8 @@ Backend:
 
 ## Database And Data Rules
 
-- The SQL dump `managementDataSystem_forCalculate_1.3_05192026_postgres.sql` is treated as the database source of truth
-- Prisma schema lives at `backend/src/prisma/schema.prisma`
+- `backend/src/prisma/schema.prisma` is the current schema reference because it was synced from the live Aiven PostgreSQL database on 2026-06-08
+- The SQL dump `managementDataSystem_forCalculate_1.3_05192026_postgres.sql` is now best treated as a historical/bootstrap artifact unless it is re-exported from the live database
 - Some tables do not have database-generated primary keys, so create flows must be checked carefully before assuming `autoincrement()`
 - For analytics, the docs say important source tables include:
   - `log_activities_detail`
@@ -237,6 +264,7 @@ Docs say these commands have passed recently:
 - `npm run build --workspace=backend`
 - `npm run build --workspace=frontend`
 - `npm run build`
+- On 2026-06-09, `npm run prisma:generate --workspace=backend`, `npm run build --workspace=backend`, and `npm run build --workspace=frontend` passed after the Carbon preparation / Carbon Footprint queue split.
 
 Known non-blocking warning:
 

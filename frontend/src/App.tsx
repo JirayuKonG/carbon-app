@@ -18,6 +18,7 @@ import { CfReportPage }         from '@/features/cf-dashboard/pages/ReportPage'
 import { CfFootprintReportPage } from '@/features/cf-dashboard/pages/FootprintReportPage'
 import { CfCalculatePage }      from '@/features/cf-dashboard/pages/CalculatePage' // KONGJIRAYU05JUNE2026
 import { CfPipelinePage }       from '@/features/cf-dashboard/pages/PipelinePage'  // KONGJIRAYU05JUNE2026
+import { CarbonFootprintQueuePage } from '@/features/cf-dashboard/pages/CarbonFootprintQueuePage'
 import { CarbonCreditPage }     from '@/features/cf-dashboard/pages/CarbonCreditPage'
 
 function RedirectWithSearch({ to }: { to: string }) {
@@ -36,8 +37,9 @@ export default function App() {
         <Route path="report"            element={<CfReportPage />} />
         <Route path="footprint-report"  element={<CfFootprintReportPage />} />
         <Route path="pipeline"          element={<CfPipelinePage />} />
-        <Route path="calculate"         element={<RedirectWithSearch to="/calculate/footprint" />} />
-        <Route path="calculate/footprint" element={<CfCalculatePage />} />
+        <Route path="calculate"         element={<RedirectWithSearch to="/calculate/prepare" />} />
+        <Route path="calculate/prepare" element={<CfCalculatePage />} />
+        <Route path="calculate/footprint" element={<CarbonFootprintQueuePage />} />
         <Route path="calculate/credit"  element={<CarbonCreditPage />} />
         <Route path="dashboard"         element={<DashboardPage />} />
         <Route path="geo"               element={<GeoPage />} />

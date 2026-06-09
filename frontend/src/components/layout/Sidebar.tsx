@@ -10,7 +10,7 @@ import {
   Coins, BadgeCheck, FileCheck2, Footprints, ClipboardList,
   
   // main form
-//   Leaf, ChevronDown, ChevronRight, X, BarChart3, Sprout, MapPin, FileText, Calculator,
+  // Leaf, ChevronDown, ChevronRight, X, BarChart3, Sprout, MapPin, FileText, Calculator,
   
 } from 'lucide-react'
 
@@ -73,6 +73,7 @@ const NAV_GROUPS: NavGroup[] = [
         labelEn: 'Calculate',
         icon: <Calculator size={17} />,
         children: [
+          { path: '/calculate/prepare', label: 'เตรียมข้อมูล Carbon', labelEn: 'Prepare Carbon', icon: <ClipboardList size={15} /> },
           { path: '/calculate/footprint', label: 'Carbon Footprint', labelEn: 'Carbon Footprint', icon: <Calculator size={15} /> },
           { path: '/calculate/credit', label: 'Carbon Credit', labelEn: 'Carbon Credit', icon: <Leaf size={15} /> },
         ],
