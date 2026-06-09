@@ -4,7 +4,131 @@
 
 Branch ที่ทำงาน: `idea`
 
-Commit ล่าสุดที่อัปขึ้น Git: `Refine footprint report generation and charts`
+Commit ล่าสุดที่อัปขึ้น Git: `Add footprint emissions and sequestration tabs`
+
+## อัปเดตล่าสุด วันที่ 8 มิถุนายน 2569 - แยกหน้า Carbon Footprint เป็นแท็บการปล่อยและการกักเก็บ
+
+รอบนี้ปรับหน้า `Carbon Footprint ไร่บริษัทกลุ่มมิตรผล` ให้แยกเรื่องหลักเป็น 2 มุมมองผ่าน Segmented Tabs เพื่อให้ผู้ใช้ดูข้อมูลได้ชัดขึ้น ไม่ต้องเลื่อนหน้ายาว และไม่สับสนระหว่างข้อมูล “การปล่อยคาร์บอน” กับ “การกักเก็บ / SOC & Credits”
+
+### สิ่งที่ปรับเพิ่ม
+
+- เพิ่ม Segmented Tabs 2 โหมด:
+  - `การปล่อยคาร์บอน`
+  - `การกักเก็บ / SOC & Credits`
+- คง KPI และตัวกรองหลักไว้ด้านบนเหมือนเดิม เพื่อให้ทั้ง 2 แท็บใช้ filter ชุดเดียวกัน:
+  - ปีดำเนินการ
+  - ภาค/โซน
+  - ศูนย์ส่งเสริมฯ หรือแคมป์
+- แท็บ `การปล่อยคาร์บอน` แสดงข้อมูลเดิมของหน้า Carbon Footprint:
+  - Carbon Footprint รวม
+  - CO2e ตามกลุ่ม
+  - กราฟเปรียบเทียบปีฐาน vs ปีดำเนินการ
+  - รายการกิจกรรมย่อยในแต่ละขั้นตอน
+  - Leaderboard และ Bottom 5
+  - ตารางสรุปรายแคมป์
+- แท็บ `การกักเก็บ / SOC & Credits` แสดงข้อมูลใหม่:
+  - SOC เพิ่มขึ้นโดยประมาณ
+  - Carbon Credits ประมาณการ
+  - Net Emissions หลังหักเครดิต
+  - Net Zero Progress Bar แสดง Emissions เทียบกับ Credits
+  - Correlation Chart ระหว่างปุ๋ยเคมีกับ SOC
+  - SOC by Camp
+  - แคมป์ที่ควรขยายผล และแคมป์ที่ควรติดตามต่อ
+- เพิ่ม Delta/Growth % ในกราฟวงกลมกิจกรรมย่อย:
+  - แสดงใน tooltip
+  - แสดงเป็น badge ใน legend
+- เอา block กราฟ `ปุ๋ยและน้ำมันรายขั้นตอน · ค่าเฉลี่ยปีฐาน vs ปีดำเนินโครงการ` ออกจากหน้า Carbon Footprint ตามที่ขอ
+
+### เหตุผลของการปรับ
+
+- ทำให้หน้า Carbon Footprint อ่านง่ายขึ้น แยก narrative ชัดเจน:
+  - แท็บแรกตอบว่า “เราปล่อยเท่าไหร่ ปล่อยจากอะไร และเทียบปีฐานดีขึ้นหรือแย่ลง”
+  - แท็บสองตอบว่า “เรากักเก็บ/ชดเชยคืนได้เท่าไหร่ หลังหักเครดิตแล้วสุทธิเป็นอย่างไร และแคมป์ไหนควรขยายผลหรือติดตาม”
+- ลดความยาวของหน้า และลดการแสดงกราฟหลายชุดพร้อมกัน
+- เหมาะกับการใช้งานแบบผู้บริหารหรือการนำเสนอ เพราะสามารถเลือกเล่าเรื่องทีละด้านได้
+
+### ไฟล์ที่แก้ในรอบนี้
+
+- `frontend/src/features/cf-dashboard/pages/ProcessPage.tsx`
+- `frontend/src/features/cf-dashboard/components/charts/ProcessDoughnut.tsx`
+- `frontend/src/features/cf-dashboard/cf-dashboard.css`
+
+### การตรวจสอบ
+
+- รัน `npm run build` ใน `frontend` ผ่านแล้ว
+- เหลือเฉพาะ Vite warning เรื่อง chunk size ใหญ่จาก bundle เดิม ไม่ใช่ error จากงานรอบนี้
+
+### สรุปสั้นสำหรับจดโน๊ต
+
+- ปรับหน้า Carbon Footprint ให้มีแท็บ `การปล่อยคาร์บอน` และ `การกักเก็บ / SOC & Credits`
+- ย้ายข้อมูล SOC/Credits ไปอยู่ในแท็บเฉพาะ ไม่ต้องเลื่อนลงยาว
+- เพิ่ม KPI, Net Zero Progress, SOC by Camp, Correlation ปุ๋ยเคมี vs SOC และแคมป์ที่ควรขยายผล/ติดตาม
+- เพิ่ม Delta/Growth % ในกราฟวงกลมกิจกรรมย่อย
+- ลบกราฟปุ๋ยและน้ำมันรายขั้นตอนออกจากหน้า Carbon Footprint
+
+## อัปเดตล่าสุด วันที่ 8 มิถุนายน 2569 - ปรับ Spatial, Carbon Footprint และ Footprint Report Filter
+
+รอบนี้ทำงานต่อบน branch `idea` หลังดึงข้อมูลล่าสุดจาก `main` แล้ว โดยเน้นแก้หน้าที่เกี่ยวกับแผนที่, Carbon Footprint ภาพรวม และรายงานคาร์บอนฟุตพริ้นท์ให้ข้อมูลสอดคล้องกับตัวกรองมากขึ้น รวมถึงแยกจังหวะการดูข้อมูลหน้าเว็บออกจากการสร้างเอกสาร Preview/Download
+
+### 1. หน้าแผนที่ประเทศไทยและรายละเอียดรายพื้นที่
+
+- แก้ปัญหาหน้า `/spatial` ขาวหลังเปิดหน้าแผนที่ โดยปรับ logic ที่คำนวณข้อมูล SOC ให้รองรับกรณีที่ยังไม่มีพื้นที่ focus
+- ปรับ filter พื้นที่ให้สอดคล้องกันระหว่าง block แผนที่และ block รายละเอียดรายพื้นที่
+- ให้ข้อมูลที่แสดงในแผนที่, marker, polygon และข้อมูลสรุปด้านล่างเปลี่ยนตาม filter เดียวกัน
+- เพิ่มการ zoom-in แผนที่ตามระดับพื้นที่ที่เลือก และเน้น polygon ของพื้นที่/แปลงให้เห็นชัดขึ้น
+- เพิ่มปุ่มสร้างเอกสารสีเขียว `#10A345` เพื่อให้ผู้ใช้เลือก filter ก่อน แล้วค่อยสร้าง Preview
+- เพิ่มการแสดงข้อมูลโฉนดที่ดินในรายละเอียดแคมป์/พื้นที่
+- เพิ่มข้อมูล SOC ใน block สรุปและกราฟที่เกี่ยวข้อง
+- เพิ่มกราฟ Net Zero Progress สำหรับ Carbon Credit โดยแยก Emissions สีแดง และ Credits สีเขียว
+- เพิ่มกราฟ Correlation ระหว่างการใช้ปุ๋ยเคมีกับค่า SOC เพื่อดูความสัมพันธ์กับศักยภาพคาร์บอนเครดิต
+
+### 2. หน้า Carbon Footprint ไร่บริษัทกลุ่มมิตรผล
+
+- ปรับ filter ให้เหลือเฉพาะระดับภาพรวมที่เหมาะกับหน้าผู้บริหาร:
+  - ปีดำเนินการ
+  - ภาค/โซน
+  - ศูนย์ส่งเสริมฯ หรือแคมป์
+- เก็บกราฟเปรียบเทียบภาพรวมไว้ทั้งหมด และปรับให้แสดงผลตามรายภาค/รายแคมป์
+- เพิ่ม Leaderboard แบบ Top 5 / Bottom 5 เพื่อดูแคมป์ที่ปล่อยคาร์บอนสูง และแคมป์ที่ลดคาร์บอนหรือกักเก็บ SOC ได้ดีที่สุด
+- เพิ่มปุ่ม `ดูรายงานละเอียด` สำหรับ drill-down จากแคมป์ในหน้านี้ไปยังหน้า Footprint Report พร้อมส่ง filter แคมป์ไปให้อัตโนมัติ
+
+### 3. หน้า รายงานคาร์บอนฟุตพริ้นท์ ไร่บริษัทกลุ่มมิตรผล
+
+- ปรับ filter ให้เป็น Cascading Filter 6 ระดับตามลำดับ:
+  - ภาค
+  - จังหวัด
+  - อำเภอ
+  - ตำบล
+  - แปลง
+  - รายแปลงในแคมป์
+- ตัด filter ประเภทอ้อยออกจากแถบตัวกรองหน้านี้ เพื่อไม่ให้ซ้ำซ้อนกับหน้าภาพรวม
+- เพิ่มตาราง `ข้อมูลตามตัวกรอง` ให้ข้อมูลหน้าเว็บเปลี่ยนตาม filter ทันที
+- เพิ่ม Lazy Loading ในกรณีเลือก `ทั้งหมด` ตั้งแต่ระดับแรก โดยแสดงแคมป์ 10 รายการแรกก่อน และมีปุ่ม `ดูเพิ่มเติม`
+- คงพฤติกรรมเดิมของเอกสาร Preview/Download คือข้อมูลเอกสารจะอัปเดตเฉพาะตอนกด `สร้างเอกสารใหม่ (Generate Report)` เท่านั้น
+- ปุ่มสร้างเอกสารใช้สีเขียว `#10A345`
+
+### 4. ไฟล์ที่แก้ในรอบนี้
+
+- `frontend/src/features/cf-dashboard/pages/SpatialPage.tsx`
+- `frontend/src/features/cf-dashboard/pages/ProcessPage.tsx`
+- `frontend/src/features/cf-dashboard/pages/FootprintReportPage.tsx`
+- `frontend/src/features/cf-dashboard/cf-dashboard.css`
+- `frontend/src/features/cf-dashboard/components/charts/NetZeroProgressBar.tsx`
+- `frontend/src/features/cf-dashboard/components/charts/SocCorrelationChart.tsx`
+
+### 5. การตรวจสอบ
+
+- รัน `npm run build` ใน `frontend` ผ่านแล้ว
+- เหลือเฉพาะ Vite warning เรื่อง chunk size ใหญ่จาก bundle เดิม ไม่ใช่ error จากงานรอบนี้
+
+### สรุปสั้นสำหรับจดโน๊ต
+
+- ดึง main ล่าสุดเข้า branch `idea` แล้ว
+- แก้หน้าแผนที่ขาว และทำให้ filter แผนที่/รายละเอียดพื้นที่สอดคล้องกัน
+- เพิ่ม SOC, โฉนดที่ดิน, Net Zero Progress และ SOC Correlation ในหน้าแผนที่
+- ปรับหน้า Carbon Footprint ให้เป็นหน้าภาพรวมผู้บริหาร มี filter ปี/ภาค/แคมป์, Leaderboard และปุ่ม drill-down
+- ปรับหน้า Footprint Report ให้มี filter 6 ระดับแบบ cascading พร้อม lazy loading 10 รายการแรก
+- Preview/Download ของรายงานยังรอให้ผู้ใช้กด Generate ก่อนเหมือนเดิม
 
 ## อัปเดตล่าสุด วันที่ 6 มิถุนายน 2569 - ปรับ Carbon Footprint Charts และ Footprint Report Generate Flow
 
