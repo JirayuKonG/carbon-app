@@ -13,8 +13,8 @@ import "../cf-dashboard.css";
 type PeriodMode = "baseline_avg" | "project";
 type ScopeValue = "all" | `camp-${number}`;
 type DonutMode = "camp" | "activity" | "field";
-type CaneScope = "all" | "new" | "ratoon";
-type FootprintView = "emissions" | "sequestration";
+type CaneScope = "all" | "new" | "ratoon" | "fallow";
+type FootprintView = "emissions" | "sequestration" | "net";
 
 interface ScopeComparisonRow {
   id: string;
@@ -96,8 +96,8 @@ function fieldProcessRows(field: CampFieldCarbonDetail, year: string, totalEmiss
 
 function caneScopeInfo(data: CaneTypeSummary[], scope: CaneScope) {
   if (scope === "all") return { label: "รวมทั้งหมด", factor: 1, detail: "รวมข้อมูลทุกประเภทอ้อยตามมุมมองปัจจุบัน" };
-  const keyword = scope === "new" ? "ปลูก" : "ตอ";
-  const fallbackLabel = scope === "new" ? "อ้อยปลูกใหม่" : "อ้อยตอ";
+  const keyword = scope === "new" ? "ปลูก" : scope === "ratoon" ? "ตอ" : "พักดิน";
+  const fallbackLabel = scope === "new" ? "อ้อยปลูกใหม่" : scope === "ratoon" ? "อ้อยตอ" : "พื้นที่พักดิน";
   const cane = data.find((item) => item.name.includes(keyword));
   return {
     label: scope === "new" ? "อ้อยปลูกใหม่" : cane?.name ?? fallbackLabel,
@@ -252,7 +252,7 @@ export function CfProcessPage() {
     : activities.filter((item) => item.year === selectedYear);
   const chartBaselineRaw = selectedField ? fieldBaseline : selectedCamp ? selectedCamp.baselineProcessActivities : scopedCamps.length ? aggregateCampActivities(scopedCamps, "baselineProcessActivities") : baseline;
   const chartCurrentRaw = selectedField ? fieldCurrent : selectedCamp ? selectedCamp.currentProcessActivities : scopedCamps.length ? aggregateCampActivities(scopedCamps, "currentProcessActivities") : current;
-  const caneMeta = caneScopeInfo(caneTypeResult.data, "all");
+  const caneMeta = caneScopeInfo(caneTypeResult.data, caneScope);
   const selectedByCane = scaleProcessRows(selected, caneMeta.factor);
   const chartBaseline = scaleProcessRows(chartBaselineRaw, caneMeta.factor);
   const chartCurrent = scaleProcessRows(chartCurrentRaw, caneMeta.factor);
@@ -307,9 +307,6 @@ export function CfProcessPage() {
   const comparisonRows = selectedCamp ? campComparisonRows : regionId === "all" ? regionComparisonRows : campComparisonRows;
   const comparisonBaseline = comparisonRowsToActivities(comparisonRows, "baseline_avg", "baseline");
   const comparisonCurrent = comparisonRowsToActivities(comparisonRows, currentYear || "project", "current");
-  const topEmitters = [...campComparisonRows].sort((a, b) => b.current - a.current).slice(0, 5);
-  const bestReducers = [...campComparisonRows].sort((a, b) => (b.baseline - b.current) - (a.baseline - a.current)).slice(0, 5);
-  const bottomReducers = [...campComparisonRows].sort((a, b) => (a.baseline - a.current) - (b.baseline - b.current)).slice(0, 5);
   const sequestrationRows = campComparisonRows.map((row) => {
     const reduction = Math.max(row.baseline - row.current, 0);
     const fertilizerKg = row.camp?.processInputComparisons.reduce((sum, item) => sum + item.currentFertilizerKg, 0) ?? 0;
@@ -329,9 +326,40 @@ export function CfProcessPage() {
   const totalCredits = sequestrationRows.reduce((sum, row) => sum + row.credits, 0);
   const netEmissions = Math.max(currentTotal - totalCredits, 0);
   const netOffsetPct = currentTotal ? (totalCredits / currentTotal) * 100 : 0;
+  const socBaselineTotal = Math.max(summaryAreaRai * caneMeta.factor * 0.02, 0);
+  const socTotal = socBaselineTotal + totalSocIncrease;
+  const socCredit = totalSocIncrease;
+  const socContributionData: ActivityValue[] = [
+    { name: "Vinasse", emission: Number((totalSocIncrease * 0.34).toFixed(2)) },
+    { name: "Filter Cake", emission: Number((totalSocIncrease * 0.28).toFixed(2)) },
+    { name: "Green Manure", emission: Number((totalSocIncrease * 0.22).toFixed(2)) },
+    { name: "Trash Retention", emission: Number((totalSocIncrease * 0.16).toFixed(2)) },
+  ];
+  const socTrendRows = [
+    { label: "Baseline", value: socBaselineTotal },
+    { label: currentYear || "Project", value: socTotal },
+  ];
+  const socTrendBaseline: ProcessActivityBreakdown[] = [{
+    year: "baseline_avg",
+    process: "SOC",
+    totalEmission: socBaselineTotal,
+    activities: [{ name: "SOC", emission: socBaselineTotal }],
+  }];
+  const socTrendCurrent: ProcessActivityBreakdown[] = [{
+    year: currentYear || "project",
+    process: "SOC",
+    totalEmission: socTotal,
+    activities: [{ name: "SOC", emission: socTotal }],
+  }];
+  const waterfallRows = [
+    { label: "Gross Emission", value: currentTotal, type: "gross" },
+    { label: "SOC Offset", value: -socCredit, type: "offset" },
+    { label: "Carbon Credits", value: -(totalCredits - socCredit), type: "offset" },
+    { label: "Net Emission", value: netEmissions, type: "net" },
+  ];
+  const waterfallMax = Math.max(currentTotal, totalCredits, netEmissions, 1);
   const bestSocCamps = [...sequestrationRows].sort((a, b) => b.socIncrease - a.socIncrease).slice(0, 5);
   const followUpSocCamps = [...sequestrationRows].sort((a, b) => b.netEmission - a.netEmission).slice(0, 5);
-  const socChartMax = Math.max(...sequestrationRows.map((row) => row.socIncrease), 1);
   const socCorrelationData: ProcessInputComparison[] = sequestrationRows.map((row) => ({
     process: row.name,
     baselineFertilizerKg: 0,
@@ -340,7 +368,6 @@ export function CfProcessPage() {
     currentFuelLiter: 0,
   }));
   const socCorrelationValues = sequestrationRows.map((row) => row.socIndex);
-  const bestSocInsight = bestSocCamps[0];
   const fertilizerInsight = [...sequestrationRows].filter((row) => row.socIncrease > 0).sort((a, b) => a.fertilizerKg - b.fertilizerKg)[0];
 
   return (
@@ -354,31 +381,127 @@ export function CfProcessPage() {
 
         {error && <div className="error-panel">{error}</div>}
 
+        <section className="card footprint-view-tabs-card footprint-view-tabs-top">
+          <div>
+            <div className="card-title">มุมมอง Carbon Footprint</div>
+            <p className="muted">เลือกดูการปล่อยคาร์บอน การกักเก็บคาร์บอน หรือผลลัพธ์สุทธิของโครงการ</p>
+          </div>
+          <div className="footprint-view-tabs" role="tablist" aria-label="Carbon Footprint view tabs">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeView === "emissions"}
+              className={activeView === "emissions" ? "active" : ""}
+              onClick={() => setActiveView("emissions")}
+            >
+              การปล่อยคาร์บอน
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeView === "sequestration"}
+              className={activeView === "sequestration" ? "active" : ""}
+              onClick={() => setActiveView("sequestration")}
+            >
+              การกักเก็บคาร์บอน
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeView === "net"}
+              className={activeView === "net" ? "active" : ""}
+              onClick={() => setActiveView("net")}
+            >
+              ผลลัพธ์สุทธิ
+            </button>
+          </div>
+        </section>
+
         <section className="premium-summary-grid footprint-process-summary" aria-label="สรุป Carbon Footprint">
-          <article>
-            <span>พื้นที่โครงการ</span>
-            <strong>{summaryAreaRai.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
-            <small>ไร่</small>
-            <em>{summaryFieldCount.toLocaleString(undefined, { maximumFractionDigits: 0 })} แปลง</em>
-          </article>
-          <article>
-            <span>Carbon Footprint รวม</span>
-            <strong>{currentTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
-            <small>tCO2e</small>
-            <em>รวม N2O + น้ำมัน + SOC</em>
-          </article>
-          <article>
-            <span>ปีที่ดำเนินโครงการ</span>
-            <strong>{currentYear || overviewKpi?.currentYear || "-"}</strong>
-            <small>Project year</small>
-            <em>{currentTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })} tCO2e</em>
-          </article>
-          <article>
-            <span>ปีฐาน Baseline</span>
-            <strong>{summaryBaselineYears}</strong>
-            <small>Baseline years</small>
-            <em>เฉลี่ย {baselineTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })} tCO2e</em>
-          </article>
+          {activeView === "emissions" && (
+            <>
+              <article>
+                <span>Total Emission</span>
+                <strong>{currentTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
+                <small>tCO2e</small>
+                <em>{summaryFieldCount.toLocaleString(undefined, { maximumFractionDigits: 0 })} แปลง · {summaryAreaRai.toLocaleString(undefined, { maximumFractionDigits: 0 })} ไร่</em>
+              </article>
+              <article>
+                <span>Baseline</span>
+                <strong>{baselineTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
+                <small>tCO2e</small>
+                <em>{summaryBaselineYears}</em>
+              </article>
+              <article>
+                <span>Project</span>
+                <strong>{currentTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
+                <small>tCO2e</small>
+                <em>{currentYear || overviewKpi?.currentYear || "-"}</em>
+              </article>
+              <article>
+                <span>Reduction %</span>
+                <strong className={totalDiff >= 0 ? "green-text" : "red-text"}>{totalDiffPct.toFixed(1)}%</strong>
+                <small>{Math.abs(totalDiff).toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</small>
+                <em>{totalDiff >= 0 ? "ลดลงจากปีฐาน" : "เพิ่มขึ้นจากปีฐาน"}</em>
+              </article>
+            </>
+          )}
+          {activeView === "sequestration" && (
+            <>
+              <article>
+                <span>SOC รวม</span>
+                <strong>{socTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+                <small>tCO2e</small>
+                <em>Baseline SOC + SOC เพิ่มขึ้น</em>
+              </article>
+              <article>
+                <span>SOC เพิ่มขึ้น</span>
+                <strong className="green-text">{totalSocIncrease.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+                <small>tCO2e</small>
+                <em>จากกิจกรรมกักเก็บคาร์บอน</em>
+              </article>
+              <article>
+                <span>Credit จาก SOC</span>
+                <strong className="green-text">{socCredit.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+                <small>tCO2e</small>
+                <em>ใช้เป็น SOC offset</em>
+              </article>
+              <article>
+                <span>Top Camp SOC</span>
+                <strong>{bestSocCamps[0]?.name ?? "-"}</strong>
+                <small>{bestSocCamps[0] ? `${bestSocCamps[0].socIncrease.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e` : "-"}</small>
+                <em>อันดับสูงสุดตามตัวกรอง</em>
+              </article>
+            </>
+          )}
+          {activeView === "net" && (
+            <>
+              <article>
+                <span>Gross Emission</span>
+                <strong>{currentTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+                <small>tCO2e</small>
+                <em>การปล่อยก่อนหักเครดิต</em>
+              </article>
+              <article>
+                <span>SOC Offset</span>
+                <strong className="green-text">{socCredit.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+                <small>tCO2e</small>
+                <em>เครดิตจากการกักเก็บในดิน</em>
+              </article>
+              <article>
+                <span>Net Emission</span>
+                <strong className={netEmissions <= currentTotal ? "green-text" : "red-text"}>{netEmissions.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+                <small>tCO2e</small>
+                <em>Gross - Carbon Credits</em>
+              </article>
+              <article>
+                <span>Carbon Credits</span>
+                <strong>{totalCredits.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+                <small>tCO2e</small>
+                <em>{netOffsetPct.toFixed(1)}% ของ Gross Emission</em>
+              </article>
+            </>
+          )}
         </section>
 
         <section className="card process-scope-panel process-executive-filter">
@@ -424,6 +547,15 @@ export function CfProcessPage() {
               ))}
             </select>
           </label>
+          <label>
+            ประเภทอ้อย
+            <select value={caneScope} onChange={(event) => setCaneScope(event.target.value as CaneScope)}>
+              <option value="all">อ้อยปลูก + อ้อยตอ + พื้นที่พักดิน</option>
+              <option value="new">อ้อยปลูกใหม่</option>
+              <option value="ratoon">อ้อยตอ</option>
+              <option value="fallow">พื้นที่พักดิน</option>
+            </select>
+          </label>
         </section>
 
         <section className="card process-scope-panel" style={{ display: "none" }}>
@@ -457,58 +589,18 @@ export function CfProcessPage() {
           </label>
         </section>
 
-        <section className="card cane-scope-card" style={{ display: "none" }}>
-          <div>
-            <div className="card-title">ประเภทอ้อยที่ใช้วิเคราะห์</div>
-            <p className="muted">{caneMeta.detail}</p>
-          </div>
-          <div className="cane-scope-switch" role="group" aria-label="เลือกประเภทอ้อย">
-            {[
-              ["all", "รวมทั้งหมด"],
-              ["new", "อ้อยปลูกใหม่"],
-              ["ratoon", "อ้อยตอ"],
-            ].map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                className={caneScope === value ? "active" : ""}
-                onClick={() => setCaneScope(value as CaneScope)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className="card footprint-view-tabs-card">
-          <div>
-            <div className="card-title">เลือกมุมมองข้อมูล</div>
-            <p className="muted">สลับระหว่างภาพรวมการปล่อยคาร์บอน และภาพรวมการกักเก็บ/ชดเชยด้วย SOC & Credits</p>
-          </div>
-          <div className="footprint-view-tabs" role="tablist" aria-label="Carbon Footprint view tabs">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeView === "emissions"}
-              className={activeView === "emissions" ? "active" : ""}
-              onClick={() => setActiveView("emissions")}
-            >
-              การปล่อยคาร์บอน
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeView === "sequestration"}
-              className={activeView === "sequestration" ? "active" : ""}
-              onClick={() => setActiveView("sequestration")}
-            >
-              การกักเก็บ / SOC & Credits
-            </button>
-          </div>
-        </section>
-
         {activeView === "emissions" && (
           <>
+        <section className="carbon-sequestration-section">
+          <div className="section-head">
+            <div>
+              <span className="section-kicker">Carbon Emissions</span>
+              <h2>การปล่อยคาร์บอนและแหล่งที่ทำให้ Emission เปลี่ยนแปลง</h2>
+              <p className="muted">ดู Total Emission, Baseline, Project, Reduction และกราฟเปรียบเทียบเพื่อเห็นแหล่งปล่อยหลักของพื้นที่ที่เลือก</p>
+            </div>
+          </div>
+        </section>
+
         <CaneTypeSummaryPanel result={caneTypeResult} showSource={false} mode="footprint" />
 
         <section className="process-summary-grid">
@@ -612,67 +704,6 @@ export function CfProcessPage() {
           </div>
         </section>
 
-        <section className="grid2 process-leaderboard-grid">
-          <article className="card">
-            <div className="card-title">Leaderboard · Top 5 แคมป์ปล่อยคาร์บอนสูงสุด</div>
-            <div className="leaderboard-list">
-              {topEmitters.map((row, index) => (
-                <div key={`top-${row.id}`} className="leaderboard-row">
-                  <span className="rank-pill">#{index + 1}</span>
-                  <div>
-                    <strong>{row.name}</strong>
-                    <small>{row.fieldCount.toLocaleString()} แปลง · {row.areaRai.toLocaleString()} ไร่</small>
-                  </div>
-                  <b className="red-text">{row.current.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</b>
-                  {row.camp && <Link className="run-btn drilldown-link" to={`/footprint-report?campId=${row.camp.campId}`}>ดูรายงานละเอียด</Link>}
-                </div>
-              ))}
-              {!topEmitters.length && <div className="empty-state">ยังไม่มีข้อมูลแคมป์ในเงื่อนไขนี้</div>}
-            </div>
-          </article>
-          <article className="card">
-            <div className="card-title">Leaderboard · Top 5 ลดคาร์บอน / SOC ดีที่สุด</div>
-            <div className="leaderboard-list">
-              {bestReducers.map((row, index) => {
-                const reduction = row.baseline - row.current;
-                const soc = Math.max(reduction, 0) * 0.35;
-                return (
-                  <div key={`best-${row.id}`} className="leaderboard-row">
-                    <span className="rank-pill">#{index + 1}</span>
-                    <div>
-                      <strong>{row.name}</strong>
-                      <small>SOC โดยประมาณ {soc.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</small>
-                    </div>
-                    <b className={reduction >= 0 ? "green-text" : "red-text"}>{reduction.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</b>
-                    {row.camp && <Link className="run-btn drilldown-link" to={`/footprint-report?campId=${row.camp.campId}`}>ดูรายงานละเอียด</Link>}
-                  </div>
-                );
-              })}
-              {!bestReducers.length && <div className="empty-state">ยังไม่มีข้อมูลแคมป์ในเงื่อนไขนี้</div>}
-            </div>
-          </article>
-        </section>
-
-        <section className="card full-span">
-          <div className="card-title">Bottom 5 · แคมป์ที่ควรติดตามเพิ่มเติม</div>
-          <div className="leaderboard-list compact">
-            {bottomReducers.map((row, index) => {
-              const reduction = row.baseline - row.current;
-              return (
-                <div key={`bottom-${row.id}`} className="leaderboard-row">
-                  <span className="rank-pill">#{index + 1}</span>
-                  <div>
-                    <strong>{row.name}</strong>
-                    <small>Baseline {row.baseline.toLocaleString(undefined, { maximumFractionDigits: 2 })} · Project {row.current.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</small>
-                  </div>
-                  <b className={reduction >= 0 ? "green-text" : "red-text"}>{reduction.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</b>
-                  {row.camp && <Link className="run-btn drilldown-link" to={`/footprint-report?campId=${row.camp.campId}`}>ดูรายงานละเอียด</Link>}
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
         <section className="card full-span">
           <div className="card-title">สรุปรายแคมป์</div>
           <div className="input-table-wrap">
@@ -710,53 +741,52 @@ export function CfProcessPage() {
         )}
 
         {activeView === "sequestration" && (
-        <section className="carbon-sequestration-section">
-          <div className="section-head">
-            <div>
-              <span className="section-kicker">Carbon Sequestration / SOC & Credits</span>
-              <h2>กักเก็บคืนได้เท่าไหร่ และหลังหักเครดิตแล้วสุทธิเป็นอย่างไร</h2>
-              <p className="muted">โซนนี้คำนวณจากแคมป์ที่อยู่ในตัวกรองปัจจุบัน เพื่อดู SOC, Carbon Credits และแคมป์ที่ควรขยายผลหรือติดตามต่อ</p>
-            </div>
-          </div>
-
-          <section className="process-summary-grid sequestration-kpi-grid">
-            <article>
-              <span>SOC เพิ่มขึ้นโดยประมาณ</span>
-              <strong>{totalSocIncrease.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
-              <small>tCO2e</small>
-              <em>จากการลดการปล่อยและพื้นที่แคมป์</em>
-            </article>
-            <article>
-              <span>Carbon Credits ประมาณการ</span>
-              <strong>{totalCredits.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
-              <small>tCO2e</small>
-              <em>{netOffsetPct.toFixed(1)}% ของ emissions ปัจจุบัน</em>
-            </article>
-            <article>
-              <span>Net Emissions หลังหักเครดิต</span>
-              <strong className={netEmissions <= currentTotal ? "green-text" : "red-text"}>{netEmissions.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
-              <small>tCO2e</small>
-              <em>Emissions - Credits/SOC</em>
-            </article>
-            <article>
-              <span>แคมป์ SOC ดีที่สุด</span>
-              <strong>{bestSocInsight?.name ?? "-"}</strong>
-              <small>{bestSocInsight ? `${bestSocInsight.socIncrease.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e` : "-"}</small>
-              <em>เหมาะสำหรับขยายผลเป็นแนวทาง</em>
-            </article>
-          </section>
-
-          <section className="grid2">
-            <article className="card">
-              <div className="card-title">Net Zero Progress · Emissions vs Credits</div>
-              <NetZeroProgressBar emissions={currentTotal} credits={totalCredits} />
-              <div className="summary-list">
-                <div><span>ปล่อยคาร์บอน</span><strong className="red-text">{currentTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
-                <div><span>ชดเชย/กักเก็บคืน</span><strong className="green-text">{totalCredits.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
-                <div><span>คงเหลือสุทธิ</span><strong>{netEmissions.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
+          <section className="carbon-sequestration-section">
+            <div className="section-head">
+              <div>
+                <span className="section-kicker">Carbon Sequestration</span>
+                <h2>การกักเก็บคาร์บอนและแหล่งที่ทำให้ SOC เพิ่มขึ้น</h2>
+                <p className="muted">ดู SOC รวม แหล่ง contribution, แคมป์/ภูมิภาคที่เด่น และความสัมพันธ์ระหว่างปุ๋ยเคมีกับ SOC</p>
               </div>
-            </article>
-            <article className="card">
+            </div>
+
+            <section className="grid2">
+              <article className="card">
+                <div className="card-title">Contribution · SOC Practices</div>
+                <ProcessDoughnut data={socContributionData} />
+              </article>
+              <article className="card">
+                <div className="card-title">SOC Before vs After · ปีฐาน vs ปีดำเนินการ</div>
+                <ActivityGroupedBar baseline={socTrendBaseline} current={socTrendCurrent} />
+                <div className="summary-list">
+                  {socTrendRows.map((row) => (
+                    <div key={row.label}>
+                      <span>{row.label}</span>
+                      <strong>{row.value.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            </section>
+
+            <section className="card full-span">
+                <div className="card-title">Ranking · Top Camp SOC</div>
+                <div className="soc-camp-bars">
+                  {bestSocCamps.map((row, index) => (
+                    <div className="soc-camp-row" key={`soc-${row.id}`}>
+                      <span className="rank-pill">#{index + 1}</span>
+                      <div>
+                        <strong>{row.name}</strong>
+                        <small>{row.areaRai.toLocaleString()} ไร่ · SOC index {row.socIndex.toFixed(2)}</small>
+                      </div>
+                      <b>{row.socIncrease.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</b>
+                    </div>
+                  ))}
+                  {!bestSocCamps.length && <div className="empty-state">ยังไม่มีข้อมูล SOC ตามตัวกรองนี้</div>}
+                </div>
+            </section>
+
+            <section className="card full-span">
               <div className="card-title">Correlation · ปุ๋ยเคมี vs SOC</div>
               <SocCorrelationChart data={socCorrelationData} socValues={socCorrelationValues} />
               <p className="muted insight-copy">
@@ -764,57 +794,70 @@ export function CfProcessPage() {
                   ? `Insight: ${fertilizerInsight.name} มีค่า SOC เพิ่มขึ้น ${fertilizerInsight.socIncrease.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e ในกลุ่มที่ใช้ปุ๋ยเคมีต่ำกว่าแคมป์อื่น ควรใช้เป็นตัวอย่างสำหรับปรับแนวทางลดปุ๋ยเคมีและเพิ่มอินทรียวัตถุ`
                   : "Insight: ยังไม่มีข้อมูลเพียงพอสำหรับวิเคราะห์ความสัมพันธ์ระหว่างปุ๋ยเคมีกับ SOC"}
               </p>
-            </article>
+            </section>
           </section>
+        )}
 
-          <section className="grid2">
-            <article className="card">
-              <div className="card-title">SOC by Camp · แคมป์ที่กักเก็บได้ดี</div>
-              <div className="soc-camp-bars">
-                {bestSocCamps.map((row) => (
-                  <div className="soc-camp-row" key={`soc-${row.id}`}>
-                    <div>
-                      <strong>{row.name}</strong>
-                      <small>{row.areaRai.toLocaleString()} ไร่ · SOC index {row.socIndex.toFixed(2)}</small>
-                    </div>
-                    <div className="soc-bar-track" aria-label={`${row.name} SOC ${row.socIncrease} tCO2e`}>
-                      <span style={{ width: `${Math.max((row.socIncrease / socChartMax) * 100, 4)}%` }} />
-                    </div>
-                    <b>{row.socIncrease.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</b>
-                  </div>
-                ))}
-                {!bestSocCamps.length && <div className="empty-state">ยังไม่มีข้อมูล SOC ตามตัวกรองนี้</div>}
+        {activeView === "net" && (
+          <section className="carbon-sequestration-section">
+            <div className="section-head">
+              <div>
+                <span className="section-kicker">Net Carbon Result</span>
+                <h2>สุดท้ายแล้วคาร์บอนของโครงการเหลือสุทธิเท่าไหร่</h2>
+                <p className="muted">สรุป Gross Emission, SOC Offset, Carbon Credits และ Net Emission หลังหักเครดิตทั้งหมด</p>
               </div>
-            </article>
-            <article className="card">
-              <div className="card-title">แคมป์ที่ควรขยายผล / ติดตามต่อ</div>
-              <div className="leaderboard-list compact">
-                {bestSocCamps.map((row, index) => (
-                  <div key={`expand-${row.id}`} className="leaderboard-row">
-                    <span className="rank-pill">#{index + 1}</span>
-                    <div>
-                      <strong>{row.name}</strong>
-                      <small>Credits {row.credits.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e · SOC {row.socIncrease.toLocaleString(undefined, { maximumFractionDigits: 2 })}</small>
+            </div>
+
+            <section className="grid2">
+              <article className="card">
+                <div className="card-title">Net Zero Progress · Emissions vs Credits</div>
+                <NetZeroProgressBar emissions={currentTotal} credits={totalCredits} />
+                <div className="summary-list">
+                  <div><span>Gross Emission</span><strong className="red-text">{currentTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
+                  <div><span>SOC Offset</span><strong className="green-text">{socCredit.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
+                  <div><span>Carbon Credits</span><strong className="green-text">{totalCredits.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
+                  <div><span>Net Emission</span><strong>{netEmissions.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
+                </div>
+              </article>
+              <article className="card">
+                <div className="card-title">Carbon Balance Waterfall</div>
+                <div className="carbon-waterfall">
+                  {waterfallRows.map((row) => (
+                    <div className={`waterfall-row ${row.type}`} key={row.label}>
+                      <span>{row.label}</span>
+                      <div className="waterfall-track">
+                        <i style={{ width: `${Math.max((Math.abs(row.value) / waterfallMax) * 100, 4)}%` }} />
+                      </div>
+                      <strong>{row.value < 0 ? "-" : ""}{Math.abs(row.value).toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong>
                     </div>
-                    <b className="green-text">ขยายผล</b>
-                    {row.camp && <Link className="run-btn drilldown-link" to={`/footprint-report?campId=${row.camp.campId}`}>ดูรายงานละเอียด</Link>}
-                  </div>
-                ))}
+                  ))}
+                </div>
+                <div className="net-result-callout">
+                  <span>ผลลัพธ์สุทธิ</span>
+                  <strong>{netEmissions.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong>
+                  <small>หลังหัก Carbon Credits {totalCredits.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</small>
+                </div>
+              </article>
+            </section>
+
+            <section className="card full-span">
+              <div className="card-title">แคมป์ที่ควรติดตามหลังดูผลลัพธ์สุทธิ</div>
+              <div className="leaderboard-list compact">
                 {followUpSocCamps.map((row, index) => (
-                  <div key={`follow-${row.id}`} className="leaderboard-row">
+                  <div key={`net-follow-${row.id}`} className="leaderboard-row">
                     <span className="rank-pill">!{index + 1}</span>
                     <div>
                       <strong>{row.name}</strong>
-                      <small>Net emissions {row.netEmission.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e หลังหักเครดิต</small>
+                      <small>Gross {row.current.toLocaleString(undefined, { maximumFractionDigits: 2 })} · Credits {row.credits.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</small>
                     </div>
-                    <b className="red-text">ติดตาม</b>
+                    <b className="red-text">{row.netEmission.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</b>
                     {row.camp && <Link className="run-btn drilldown-link" to={`/footprint-report?campId=${row.camp.campId}`}>ดูรายงานละเอียด</Link>}
                   </div>
                 ))}
+                {!followUpSocCamps.length && <div className="empty-state">ยังไม่มีข้อมูลผลลัพธ์สุทธิรายแคมป์</div>}
               </div>
-            </article>
+            </section>
           </section>
-        </section>
         )}
 
       </div>

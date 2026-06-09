@@ -1,37 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-import { ActivityGroupedBar } from "../components/charts/ActivityGroupedBar";
-import { NetZeroProgressBar } from "../components/charts/NetZeroProgressBar";
 import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
-import { ProcessInputComparisonBar } from "../components/charts/ProcessInputComparisonBar";
-import { SocCorrelationChart } from "../components/charts/SocCorrelationChart";
-import { sortProcessLabels } from "../components/charts/ChartRegistry";
 import { ThailandMap } from "../components/map/ThailandMap";
 import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCfSpatialNodes } from "../services/dashboardApi";
-import type { CampCarbonSummary, CampFieldCarbonDetail, DataResult, FieldCarbonDetail, ProcessActivityBreakdown, ProcessInputComparison, SpatialLevel, SpatialSummaryNode } from "../types/dashboard";
+import type { CampCarbonSummary, CampFieldCarbonDetail, DataResult, FieldCarbonDetail, ProcessInputComparison, SpatialLevel, SpatialSummaryNode } from "../types/dashboard";
 import { MapPinned } from "lucide-react";
 import "../cf-dashboard.css";
 
 function isField(node?: SpatialSummaryNode): node is FieldCarbonDetail {
   return node?.level === "field";
-}
-
-function nodeCompare(selected: SpatialSummaryNode): { baseline: ProcessActivityBreakdown[]; current: ProcessActivityBreakdown[] } {
-  return {
-    baseline: [{
-      year: "baseline_avg",
-      process: selected.name,
-      totalEmission: selected.baselineEmission,
-      activities: [{ name: "Baseline avg", emission: selected.baselineEmission }],
-    }],
-    current: [{
-      year: "project",
-      process: selected.name,
-      totalEmission: selected.currentEmission,
-      activities: [{ name: "Project year", emission: selected.currentEmission }],
-    }],
-  };
 }
 
 function sumInputs(inputs: ProcessInputComparison[]) {
@@ -318,20 +296,12 @@ export function CfSpatialPage() {
   const focusNode = selectedBoundaryField ?? selectedCampNode ?? scopedNode ?? selected;
   const diff = focusNode ? focusNode.baselineEmission - focusNode.currentEmission : 0;
   const carbonCredit = focusNode ? creditSummary(focusNode.baselineEmission, focusNode.currentEmission) : creditSummary(0, 0);
-  const compare = focusNode ? nodeCompare(focusNode) : { baseline: [], current: [] };
-  const spatialInputs = sortProcessLabels(focusNode?.processInputComparisons?.map((item) => item.process) ?? [])
-    .map((process) => focusNode?.processInputComparisons?.find((item) => item.process === process))
-    .filter((item): item is ProcessInputComparison => Boolean(item));
+  const spatialInputs = focusNode?.processInputComparisons ?? [];
   const inputTotals = sumInputs(spatialInputs);
   const fertilizerDiff = inputTotals.baselineFertilizerKg - inputTotals.currentFertilizerKg;
   const fuelDiff = inputTotals.baselineFuelLiter - inputTotals.currentFuelLiter;
   const socRemoval = focusNode ? Math.max(focusNode.baselineEmission - focusNode.currentEmission, 0) * 0.35 : 0;
   const socIndex = focusNode?.areaRai ? (socRemoval / focusNode.areaRai) * 100 : 0;
-  const socByProcess = spatialInputs.map((item, index) => {
-    const baseline = item.baselineFertilizerKg || 1;
-    const fertilizerReduction = Math.max(item.baselineFertilizerKg - item.currentFertilizerKg, 0) / baseline;
-    return Number((socIndex * (1 + fertilizerReduction) * (1 + index * 0.08)).toFixed(2));
-  });
   const campOverview = useMemo(() => {
     const totalAreaRai = scopedCamps.reduce((sum, camp) => sum + camp.areaRai, 0);
     const totalCo2e = scopedCamps.reduce((sum, camp) => sum + camp.co2eTotal, 0);
@@ -787,8 +757,7 @@ export function CfSpatialPage() {
           </article>
         </section>
 
-        <section className="grid2">
-          <article className="card">
+        <section className="card">
             <div className="card-title">สรุปการใช้ปุ๋ยและน้ำมันในพื้นที่ · {focusNode.name}</div>
             <div className="mini-stat-grid wide">
               <div>
@@ -824,74 +793,6 @@ export function CfSpatialPage() {
                 <small>{Math.abs(inputPct(inputTotals.baselineFuelLiter, inputTotals.currentFuelLiter)).toFixed(1)}%</small>
               </div>
             </div>
-          </article>
-
-          <article className="card">
-            <div className="card-title">กราฟเทียบปุ๋ยและน้ำมันรวม · ปีฐาน vs ปีดำเนินการ</div>
-            <ProcessInputComparisonBar data={spatialInputs} mode="total" />
-          </article>
-        </section>
-
-        <section className="card">
-          <div className="card-title">เจาะรายกระบวนการ · ปุ๋ยและน้ำมันในพื้นที่</div>
-          <div className="input-table-wrap">
-            <table className="input-table">
-              <thead>
-                <tr>
-                  <th>กระบวนการ</th>
-                  <th>ปุ๋ยปีฐาน (kg)</th>
-                  <th>ปุ๋ยปีดำเนินการ (kg)</th>
-                  <th>ผลต่างปุ๋ย</th>
-                  <th>น้ำมันปีฐาน (L)</th>
-                  <th>น้ำมันปีดำเนินการ (L)</th>
-                  <th>ผลต่างน้ำมัน</th>
-                </tr>
-              </thead>
-              <tbody>
-                {spatialInputs.map((item) => {
-                  const processFertilizerDiff = item.baselineFertilizerKg - item.currentFertilizerKg;
-                  const processFuelDiff = item.baselineFuelLiter - item.currentFuelLiter;
-                  return (
-                    <tr key={item.process}>
-                      <td>{item.process}</td>
-                      <td>{item.baselineFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
-                      <td>{item.currentFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
-                      <td className={processFertilizerDiff >= 0 ? "green-text" : "red-text"}>
-                        {processFertilizerDiff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(processFertilizerDiff).toLocaleString(undefined, { maximumFractionDigits: 1 })}
-                      </td>
-                      <td>{item.baselineFuelLiter.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
-                      <td>{item.currentFuelLiter.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
-                      <td className={processFuelDiff >= 0 ? "green-text" : "red-text"}>
-                        {processFuelDiff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(processFuelDiff).toLocaleString(undefined, { maximumFractionDigits: 1 })}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {!spatialInputs.length && <div className="empty-state">ยังไม่มีข้อมูลปุ๋ยและน้ำมันสำหรับพื้นที่นี้</div>}
-          </div>
-        </section>
-
-        <section className="card">
-          <div className="card-title">กราฟรายกระบวนการ · ปุ๋ยและน้ำมัน ปีฐาน vs ปีดำเนินการ</div>
-          <ProcessInputComparisonBar data={spatialInputs} />
-        </section>
-
-        <section className="card">
-          <div className="card-title">แผนภูมิแท่ง · เปรียบเทียบปีฐานและปีดำเนินการ</div>
-          <ActivityGroupedBar baseline={compare.baseline} current={compare.current} />
-        </section>
-
-        <section className="grid2">
-          <article className="card">
-            <div className="card-title">Carbon Credit · Net Zero Progress</div>
-            <NetZeroProgressBar emissions={focusNode.currentEmission} credits={carbonCredit.credit + socRemoval} />
-          </article>
-          <article className="card">
-            <div className="card-title">SOC Correlation · ปุ๋ยเคมีกับคาร์บอนในดิน</div>
-            <SocCorrelationChart data={spatialInputs} socValues={socByProcess} />
-          </article>
         </section>
       </div>
     </div>

@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { CaneTypeSummaryPanel } from "../components/common/CaneTypeSummaryPanel";
 import { TrendLineChart } from "../components/charts/TrendLineChart";
 import { useAsyncData } from "../hooks/useAsyncData";
@@ -34,6 +35,10 @@ function sumInputs(data: ProcessInputComparison[]) {
   );
 }
 
+function formatNumber(value: number, maximumFractionDigits = 2) {
+  return value.toLocaleString(undefined, { maximumFractionDigits });
+}
+
 export function CfOverviewPage() {
   const kpi = useAsyncData<OverviewKpi>(getOverviewKpi, emptyKpi);
   const trend = useAsyncData<TrendPoint[]>(getTrend, []);
@@ -53,6 +58,33 @@ export function CfOverviewPage() {
   const socProject = socBaseline + socRemoval;
   const socDiff = socProject - socBaseline;
   const creditTotal = n2oReduction + fuelReduction + socRemoval;
+  const creditSources = [
+    {
+      key: "n2o",
+      label: "N2O Reduction",
+      description: "เครดิตจากการลดการปล่อยไนตรัสออกไซด์จากปุ๋ย",
+      value: n2oReduction,
+      color: "#22C55E",
+      basis: `ปุ๋ยลดลง ${formatNumber(Math.max(fertilizerDiff, 0), 1)} kg`,
+    },
+    {
+      key: "fuel",
+      label: "Fuel Reduction",
+      description: "เครดิตจากการลดการใช้น้ำมัน/เครื่องจักร",
+      value: fuelReduction,
+      color: "#5BA4FF",
+      basis: `น้ำมันลดลง ${formatNumber(Math.max(fuelDiff, 0), 1)} L`,
+    },
+    {
+      key: "soc",
+      label: "SOC Removal",
+      description: "เครดิตจากคาร์บอนที่สะสมเพิ่มในดิน",
+      value: socRemoval,
+      color: "#A855F7",
+      basis: `SOC เพิ่มขึ้น ${formatNumber(socDiff)} tCO2e`,
+    },
+  ];
+  const creditSourceTotal = creditSources.reduce((sum, item) => sum + item.value, 0);
   
   const baselineYears = trend.data.filter((item) => item.isBaseline).map((item) => item.year);
   const lastBaselineYear = baselineYears[baselineYears.length - 1];
@@ -110,20 +142,53 @@ export function CfOverviewPage() {
         <section className="card full-span credit-source-card">
           <div className="card-title">แหล่งที่มา Credit</div>
           <div className="credit-source-grid">
-            <div>
-              <span>การลดไนตรัสออกไซด์ (N2O)</span>
-              <strong>{n2oReduction.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
-              <small>tCO2e</small>
+            {creditSources.map((source) => {
+              const percent = creditSourceTotal ? (source.value / creditSourceTotal) * 100 : 0;
+              return (
+                <div key={source.key} style={{ "--credit-source-color": source.color } as CSSProperties}>
+                  <span>{source.label}</span>
+                  <strong>{formatNumber(source.value)}</strong>
+                  <small>tCO2e · {percent.toFixed(1)}% ของเครดิตรวม</small>
+                  <em>{source.description}</em>
+                  <b>{source.basis}</b>
+                </div>
+              );
+            })}
+          </div>
+          <div className="credit-contribution-breakdown">
+            <div className="credit-breakdown-head">
+              <span>Contribution Breakdown</span>
             </div>
-            <div>
-              <span>การใช้น้ำมัน</span>
-              <strong>{fuelReduction.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
-              <small>tCO2e</small>
+            <div className="credit-stack-bar" aria-label={`Credit contribution total ${creditSourceTotal.toFixed(2)} tCO2e`}>
+              {creditSources.map((source) => {
+                const percent = creditSourceTotal ? (source.value / creditSourceTotal) * 100 : 0;
+                return (
+                  <i
+                    key={source.key}
+                    title={`${source.label} ${percent.toFixed(1)}%`}
+                    style={{
+                      "--credit-source-color": source.color,
+                      width: `${Math.max(percent, source.value > 0 ? 4 : 0)}%`,
+                    } as CSSProperties}
+                  />
+                );
+              })}
             </div>
-            <div>
-              <span>การสะสมคาร์บอนในดิน (SOC)</span>
-              <strong>{socRemoval.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
-              <small>tCO2e</small>
+            <div className="credit-breakdown-list">
+              {creditSources.map((source) => {
+                const percent = creditSourceTotal ? (source.value / creditSourceTotal) * 100 : 0;
+                return (
+                  <div key={`row-${source.key}`}>
+                    <span><i style={{ "--credit-source-color": source.color } as CSSProperties} />{source.label}</span>
+                    <strong>{formatNumber(source.value)} tCO2e</strong>
+                    <small>{percent.toFixed(1)}%</small>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="credit-total-check">
+              <span>รวมแหล่งที่มา Credit</span>
+              <strong>{formatNumber(creditSourceTotal)} tCO2e</strong>
             </div>
           </div>
         </section>
