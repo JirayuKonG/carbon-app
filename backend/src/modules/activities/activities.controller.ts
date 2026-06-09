@@ -75,6 +75,10 @@ export class ActivitiesController {
   @Put('details/:id') updateDetail(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateDetail(id, b) }
   @Delete('details/:id') deleteDetail(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteDetail(id) }
 
+  // Imported file history
+  @Get('import-files') getImportFiles() { return this.svc.getImportFiles() }
+  @Post('import-files') createImportFile(@Body() b: any) { return this.svc.createImportFile(b) }
+
   // Reference lists
   @Get('header-types')    getHeaderTypes()   { return this.svc.getHeaderTypes() }
   @Get('detail-types')    getDetailTypes(@Query('header_type_id') htid?: string) { return this.svc.getDetailTypes(htid ? +htid : undefined) }
@@ -91,6 +95,10 @@ export class ActivitiesController {
   @Put('equipments/:id')  updateEquipment(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateEquipment(id, b) }
   @Delete('equipments/:id') deleteEquipment(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteEquipment(id) }
   @Get('chemicals')       getChemicals()     { return this.svc.getChemicals() }
+  @Get('resource-others') getResourceOthers(){ return this.svc.getResourceOthers() }
+  @Post('resource-others') createResourceOther(@Body() b: any) { return this.svc.createResourceOther(b) }
+  @Put('resource-others/:id') updateResourceOther(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateResourceOther(id, b) }
+  @Delete('resource-others/:id') deleteResourceOther(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteResourceOther(id) }
   @Get('sugarcane-types') getSugarCaneTypes(){ return this.svc.getSugarCaneTypes() }
   @Get('land-types')      getLandTypes()     { return this.svc.getLandTypes() }
   @Get('cal-statuses')    getCalStatuses()   { return this.svc.getCalStatuses() }

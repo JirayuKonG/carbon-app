@@ -37,6 +37,7 @@ type ActivityDetailPayload = {
   act_equipment_id?: number | string | null
   act_fertilizer_id?: number | string | null
   act_chemiscal_id?: number | string | null
+  act_resourceOther_id?: number | string | null
   resource_used_type_id?: number | string | null
   unit_prefix_id?: number | string | null
   unit_id?: number | string | null
@@ -61,9 +62,23 @@ type EquipmentPayload = {
   resource_used_type_id?: number | string | null
 }
 
+type ResourceOtherPayload = {
+  act_resourceOther_name?: string | null
+  act_resourceOther_info?: string | null
+  resource_used_type_id?: number | string | null
+  act_resourceOther_update_uid?: number | string | null
+}
+
 type ResourceTypePayload = {
   resc_used_type_name?: string | null
   resc_used_type_info?: string | null
+}
+
+type ImportFilePayload = {
+  activities_fileNameUse_name?: string | null
+  activities_fileNameUse_rowCount?: number | string | null
+  activities_fileNameUse_columnCount?: number | string | null
+  activities_fileNameUse_update_uid?: number | string | null
 }
 
 @Injectable()
@@ -144,6 +159,7 @@ export class ActivitiesService {
       act_equipment_id:                  this.toOptionalNumber(data.act_equipment_id),
       act_fertilizer_id:                 this.toOptionalNumber(data.act_fertilizer_id),
       act_chemiscal_id:                  this.toOptionalNumber(data.act_chemiscal_id),
+      act_resourceOther_id:              this.toOptionalNumber(data.act_resourceOther_id),
       resource_used_type_id:             this.toOptionalNumber(data.resource_used_type_id),
       unit_prefix_id:                    this.toOptionalNumber(data.unit_prefix_id),
       unit_id:                           this.toOptionalNumber(data.unit_id),
@@ -160,6 +176,18 @@ export class ActivitiesService {
     return Object.fromEntries(
       Object.entries(data).filter(([, value]) => value !== undefined && value !== ''),
     )
+  }
+
+  private normalizeImportFilePayload(data: ImportFilePayload) {
+    return {
+      activities_fileNameUse_name: this.toRequiredText(
+        data.activities_fileNameUse_name,
+        'activities_fileNameUse_name',
+      ),
+      activities_fileNameUse_rowCount: this.toOptionalNumber(data.activities_fileNameUse_rowCount),
+      activities_fileNameUse_columnCount: this.toOptionalNumber(data.activities_fileNameUse_columnCount),
+      activities_fileNameUse_update_uid: this.toOptionalNumber(data.activities_fileNameUse_update_uid),
+    }
   }
 
   private normalizeCalStatusName(value: string | null | undefined) {
@@ -356,6 +384,7 @@ export class ActivitiesService {
         activities_fertilizers: { select: { act_fertilizer_name: true } },
         activities_equipments:  { select: { act_equipment_name: true } },
         activities_chemiscals:  { select: { act_chemiscal_name: true } },
+        activities_resourceOther: { select: { act_resourceOther_name: true } },
         resource_used_type:     { select: { resc_used_type_name: true } },
         log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
       },
@@ -413,6 +442,47 @@ export class ActivitiesService {
 
   deleteDetail(id: number) {
     return this.prisma.log_activities_detail.delete({ where: { log_act_detail_id: id } })
+  }
+
+  // ── Imported file history ─────────────────────────────────
+  getImportFiles() {
+    return this.prisma.activities_fileNameUse.findMany({
+      include: {
+        users: {
+          select: {
+            user_id: true,
+            username: true,
+            first_name: true,
+            last_name: true,
+          },
+        },
+      },
+      orderBy: [
+        { activities_fileNameUse_create_at: 'desc' },
+        { activities_fileNameUse_id: 'desc' },
+      ],
+    })
+  }
+
+  async createImportFile(data: ImportFilePayload) {
+    const normalized = this.normalizeImportFilePayload(data)
+    const now = new Date()
+
+    return this.prisma.$transaction(async (tx) => {
+      const last = await tx.activities_fileNameUse.aggregate({
+        _max: { activities_fileNameUse_id: true },
+      })
+      const nextId = (last._max.activities_fileNameUse_id ?? 0) + 1
+
+      return tx.activities_fileNameUse.create({
+        data: {
+          activities_fileNameUse_id: nextId,
+          ...this.cleanData(normalized),
+          activities_fileNameUse_create_at: now,
+          activities_fileNameUse_update_at: now,
+        },
+      })
+    })
   }
 
   async moveDetailToWorkflowStatus(
@@ -600,6 +670,14 @@ export class ActivitiesService {
     })
   }
   getChemicals()     { return this.prisma.activities_chemiscals.findMany({ orderBy: { act_chemiscal_id: 'asc' } }) }
+  getResourceOthers() {
+    return this.prisma.activities_resourceOther.findMany({
+      include: {
+        resource_used_type: { select: { resc_used_type_name: true } },
+      },
+      orderBy: { act_resourceOther_id: 'asc' },
+    })
+  }
   getSugarCaneTypes(){ return this.prisma.activities_header_typeSugarCane.findMany() }
   getLandTypes()     { return this.prisma.activities_header_typeLand.findMany() }
   async getCalStatuses() {
@@ -667,6 +745,11 @@ export class ActivitiesService {
       })
 
       await tx.activities_chemiscals.updateMany({
+        where: { resource_used_type_id: id },
+        data: { resource_used_type_id: null },
+      })
+
+      await tx.activities_resourceOther.updateMany({
         where: { resource_used_type_id: id },
         data: { resource_used_type_id: null },
       })
@@ -780,6 +863,63 @@ export class ActivitiesService {
     })
   }
 
+  createResourceOther(data: ResourceOtherPayload) {
+    const act_resourceOther_name = this.toRequiredText(data.act_resourceOther_name, 'act_resourceOther_name')
+    const act_resourceOther_info = this.toOptionalText(data.act_resourceOther_info)
+    const resource_used_type_id = this.toOptionalNumber(data.resource_used_type_id)
+    const act_resourceOther_update_uid = this.toOptionalNumber(data.act_resourceOther_update_uid)
+    const now = new Date()
+
+    return this.prisma.$transaction(async (tx) => {
+      const last = await tx.activities_resourceOther.aggregate({ _max: { act_resourceOther_id: true } })
+      const actResourceOtherId = (last._max.act_resourceOther_id ?? 0) + 1
+
+      return tx.activities_resourceOther.create({
+        data: {
+          act_resourceOther_id: actResourceOtherId,
+          act_resourceOther_name,
+          act_resourceOther_info,
+          resource_used_type_id,
+          act_resourceOther_update_uid,
+          act_resourceOther_create_at: now,
+          act_resourceOther_update_at: now,
+        },
+        include: {
+          resource_used_type: { select: { resc_used_type_name: true } },
+        },
+      })
+    })
+  }
+
+  updateResourceOther(id: number, data: ResourceOtherPayload) {
+    return this.prisma.activities_resourceOther.update({
+      where: { act_resourceOther_id: id },
+      data: {
+        act_resourceOther_name: this.toRequiredText(data.act_resourceOther_name, 'act_resourceOther_name'),
+        act_resourceOther_info: this.toOptionalText(data.act_resourceOther_info),
+        resource_used_type_id: this.toOptionalNumber(data.resource_used_type_id),
+        act_resourceOther_update_uid: this.toOptionalNumber(data.act_resourceOther_update_uid),
+        act_resourceOther_update_at: new Date(),
+      },
+      include: {
+        resource_used_type: { select: { resc_used_type_name: true } },
+      },
+    })
+  }
+
+  deleteResourceOther(id: number) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.log_activities_detail.updateMany({
+        where: { act_resourceOther_id: id },
+        data: { act_resourceOther_id: null },
+      })
+
+      return tx.activities_resourceOther.delete({
+        where: { act_resourceOther_id: id },
+      })
+    })
+  }
+
   private normalizeImportedYear(year: number) {
     return year >= 2400 ? year - 543 : year
   }
@@ -864,6 +1004,7 @@ export class ActivitiesService {
       fertilizers,
       equipments,
       chemicals,
+      resourceOthers,
       headerTypes,
       detailTypes,
       units,
@@ -877,6 +1018,7 @@ export class ActivitiesService {
       this.prisma.activities_fertilizers.findMany({ select: { act_fertilizer_id: true, act_fertilizer_name: true } }),
       this.prisma.activities_equipments.findMany({ select: { act_equipment_id: true, act_equipment_name: true } }),
       this.prisma.activities_chemiscals.findMany({ select: { act_chemiscal_id: true, act_chemiscal_name: true } }),
+      this.prisma.activities_resourceOther.findMany({ select: { act_resourceOther_id: true, act_resourceOther_name: true } }),
       this.prisma.activities_header_type.findMany({ select: { act_header_type_id: true, act_header_type_name_th: true } }),
       this.prisma.activities_header_detail_type.findMany({ select: { act_header_detail_type_id: true, act_header_detail_type_name_th: true } }),
       this.prisma.units.findMany({ select: { unit_id: true, unit_name: true, unit_initial: true } }),
@@ -912,6 +1054,7 @@ export class ActivitiesService {
       fertilizer:   Object.fromEntries(fertilizers.map(f => [f.act_fertilizer_name?.toLowerCase() ?? '', f.act_fertilizer_id])),
       equipment:    Object.fromEntries(equipments.map(e => [e.act_equipment_name?.toLowerCase() ?? '', e.act_equipment_id])),
       chemical:     Object.fromEntries(chemicals.map(c => [c.act_chemiscal_name?.toLowerCase() ?? '', c.act_chemiscal_id])),
+      resourceOther: Object.fromEntries(resourceOthers.map(r => [r.act_resourceOther_name?.toLowerCase() ?? '', r.act_resourceOther_id])),
       headerType:   Object.fromEntries(headerTypes.map(t => [t.act_header_type_name_th?.toLowerCase() ?? '', t.act_header_type_id])),
       landType:     Object.fromEntries(landTypes.flatMap(t => [
         [String(t.act_header_typeLand_id), t.act_header_typeLand_id],
@@ -981,12 +1124,20 @@ export class ActivitiesService {
       return (current._max.unit_id ?? 0) + 1
     }
 
+    const nextHeaderTypeId = async () => {
+      const current = await this.prisma.activities_header_type.aggregate({ _max: { act_header_type_id: true } })
+      return (current._max.act_header_type_id ?? 0) + 1
+    }
+
     const ensureHeaderTypeId = async (name?: string) => {
       const key = normalizeKey(name)
       if (!key) return undefined
       if (byName.headerType[key]) return byName.headerType[key]
       const created = await this.prisma.activities_header_type.create({
-        data: { act_header_type_name_th: name },
+        data: {
+          act_header_type_id: await nextHeaderTypeId(),
+          act_header_type_name_th: name,
+        },
       })
       byName.headerType[key] = created.act_header_type_id
       return created.act_header_type_id
@@ -1059,8 +1210,14 @@ export class ActivitiesService {
         return Number(trimmedValue)
       }
 
+      const current = await this.prisma.activities_header_typeSugarCane.aggregate({
+        _max: { act_header_typeSugarCane_id: true },
+      })
+
       const created = await this.prisma.activities_header_typeSugarCane.create({
         data: {
+          act_header_typeSugarCane_id:
+            (current._max.act_header_typeSugarCane_id ?? 0) + 1,
           act_header_typeSugarCane_name: trimmedValue,
         },
       })
@@ -1085,6 +1242,11 @@ export class ActivitiesService {
       return (current._max.act_chemiscal_id ?? 0) + 1
     }
 
+    const nextResourceOtherId = async () => {
+      const current = await this.prisma.activities_resourceOther.aggregate({ _max: { act_resourceOther_id: true } })
+      return (current._max.act_resourceOther_id ?? 0) + 1
+    }
+
     const ensureResourceItemIds = async (
       name: string,
       resourceTypeId?: number,
@@ -1092,17 +1254,35 @@ export class ActivitiesService {
       itemCategory?: string,
     ) => {
       const key = normalizeKey(name)
-      if (!key) return { fertilizerId: undefined, equipmentId: undefined, chemicalId: undefined }
+      if (!key) return { fertilizerId: undefined, equipmentId: undefined, chemicalId: undefined, resourceOtherId: undefined }
 
+      const explicitCategory = normalizeKey(itemCategory)
       let fertilizerId = byName.fertilizer[key]
       let equipmentId = byName.equipment[key]
       let chemicalId = byName.chemical[key]
-      if (fertilizerId || equipmentId || chemicalId) return { fertilizerId, equipmentId, chemicalId }
+      let resourceOtherId = byName.resourceOther[key]
+
+      // When CSV wizard explicitly assigns the item group, honor that choice
+      // instead of reusing a name match from a different resource table.
+      if (explicitCategory) {
+        if (/ปุ๋ย|fertilizer/.test(explicitCategory)) {
+          if (fertilizerId) return { fertilizerId, equipmentId: undefined, chemicalId: undefined, resourceOtherId: undefined }
+        } else if (/อุปกรณ์|equipment/.test(explicitCategory)) {
+          if (equipmentId) return { fertilizerId: undefined, equipmentId, chemicalId: undefined, resourceOtherId: undefined }
+        } else if (/เคมี|chemical/.test(explicitCategory)) {
+          if (chemicalId) return { fertilizerId: undefined, equipmentId: undefined, chemicalId, resourceOtherId: undefined }
+        } else if (/อื่น|other|resourceother|resource_other|พันธุ์|variety|sugarcane|อ้อย/.test(explicitCategory)) {
+          if (resourceOtherId) return { fertilizerId: undefined, equipmentId: undefined, chemicalId: undefined, resourceOtherId }
+        }
+      } else if (fertilizerId || equipmentId || chemicalId || resourceOtherId) {
+        return { fertilizerId, equipmentId, chemicalId, resourceOtherId }
+      }
 
       const categoryText = normalizeKey(itemCategory ?? resourceTypeName ?? name)
       const isEquipment = /อุปกรณ์|equipment/.test(categoryText)
       const isChemical = /เคมี|chemical/.test(categoryText)
       const isFertilizer = /ปุ๋ย|fertilizer/.test(categoryText)
+      const isResourceOther = /อื่น|other|resourceother|resource_other|พันธุ์|variety|sugarcane|อ้อย/.test(categoryText)
 
       if (isEquipment) {
         const created = await this.prisma.activities_equipments.create({
@@ -1126,6 +1306,18 @@ export class ActivitiesService {
         })
         chemicalId = created.act_chemiscal_id
         byName.chemical[key] = chemicalId
+      } else if (isResourceOther) {
+        const created = await this.prisma.activities_resourceOther.create({
+          data: {
+            act_resourceOther_id: await nextResourceOtherId(),
+            act_resourceOther_name: name,
+            act_resourceOther_create_at: new Date(),
+            act_resourceOther_update_at: new Date(),
+            resource_used_type_id: resourceTypeId,
+          },
+        })
+        resourceOtherId = created.act_resourceOther_id
+        byName.resourceOther[key] = resourceOtherId
       } else {
         const created = await this.prisma.activities_fertilizers.create({
           data: {
@@ -1139,7 +1331,7 @@ export class ActivitiesService {
         byName.fertilizer[key] = fertilizerId
       }
 
-      return { fertilizerId, equipmentId, chemicalId }
+      return { fertilizerId, equipmentId, chemicalId, resourceOtherId }
     }
 
     const nextCampId = async () => {
@@ -1312,7 +1504,7 @@ export class ActivitiesService {
         const resTypeId    = resolvedResourceTypeId ?? await ensureResourceTypeId(resTypeName)
         const resourceName = get('resource_item_name')
         const itemCategory = row['resource_item_category']?.trim() ?? ''
-        const { fertilizerId, equipmentId, chemicalId } = await ensureResourceItemIds(
+        const { fertilizerId, equipmentId, chemicalId, resourceOtherId } = await ensureResourceItemIds(
           resourceName,
           resTypeId,
           resTypeName,
@@ -1356,6 +1548,7 @@ export class ActivitiesService {
           act_fertilizer_id:         fertilizerId,
           act_equipment_id:          equipmentId,
           act_chemiscal_id:          chemicalId,
+          act_resourceOther_id:      resourceOtherId,
           unit_id:                   unitId,
           log_act_detail_quatity:    quantity,
           log_act_detail_volumePerUnit: volumePerUnit,

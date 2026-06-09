@@ -75,7 +75,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | `/activities/resources` | `frontend/src/features/activities/ActivityResourcesPage.tsx` | Read-only activity resource reference lists for fertilizers, chemicals, and equipments. |
 | `/activities` | `frontend/src/App.tsx` | Redirects to `/activities/logs`. |
 | `/activities/logs` | `frontend/src/features/activities/ActivityLogListPage.tsx` | Simpler daily-use list for `log_activities_detail` with filters and add/edit/delete. |
-| `/activities/manage` | `frontend/src/features/activities/ActivitiesPage.tsx` | Advanced activity management page with headers, import, and full workflow tools. |
+| `/activities/manage` | `frontend/src/features/activities/ActivitiesPage.tsx` | Advanced activity management page with headers, import, full workflow tools, and imported-file history from `activities_fileNameUse`. |
 | `/activities/logs/new` | `frontend/src/App.tsx` | Redirect helper that preserves query string and sends users to `/activities/manage`. |
 
 ## Route Notes
@@ -103,7 +103,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Lands | `backend/src/modules/lands/*` | `/api/lands` |
 | Weather | `backend/src/modules/weather/*` | `/api/lands/weather` |
 | Emission factors | `backend/src/modules/emission-factors/*` | `/api/emission-factors` |
-| Activities | `backend/src/modules/activities/*` | `/api/activities` |
+| Activities | `backend/src/modules/activities/*` | `/api/activities` including activity headers/details, CSV import, and imported-file history endpoints such as `/api/activities/import-files`. |
 | Prisma database access | `backend/src/modules/prisma/*` | Used by all backend services. |
 
 ## Database And Schema

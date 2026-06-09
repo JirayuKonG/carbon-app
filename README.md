@@ -136,8 +136,9 @@ Important:
 
 ## Data And Schema Notes
 
-- The SQL dump `managementDataSystem_forCalculate_1.3_05192026_postgres.sql` is the database source of truth.
-- Prisma schema lives at `backend/src/prisma/schema.prisma`.
+- `backend/src/prisma/schema.prisma` was re-introspected from the live Aiven PostgreSQL database on 2026-06-08 and should be treated as the current schema reference.
+- The older SQL dump `managementDataSystem_forCalculate_1.3_05192026_postgres.sql` is still useful for bootstrap/history, but it does not include every table now present in the live database.
+- Live-only tables confirmed during the 2026-06-08 sync include `activities_fileNameUse`, `activities_resourceOther`, `carbon_process_queue`, `carbon_roundCal`, and `carbon_typeCal`.
 - Swagger is configured in `backend/src/main.ts`.
 - Some tables do not have database-generated primary keys; see [BUG_LOG.md](BUG_LOG.md) before changing create flows.
 

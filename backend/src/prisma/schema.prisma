@@ -1,6 +1,3 @@
-// Prisma schema — Carbon Footprint System — schema v1.3
-// Generated from managementDataSystem_forCalculate_1.3_05192026_postgres.sql
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,27 +8,27 @@ datasource db {
 }
 
 model geographies {
-  geographies_id Int        @id
-  name           String?    @db.VarChar
+  geographies_id Int         @id
+  name           String?     @db.VarChar
   provinces      provinces[]
 }
 
 model provinces {
-  provinces_id    Int          @id
-  geography_id    Int?
-  name_th         String?      @db.VarChar
-  name_th_short   String?      @db.VarChar
-  name_en         String?      @db.VarChar
-  geographies     geographies? @relation(fields: [geography_id], references: [geographies_id], onDelete: NoAction, onUpdate: NoAction)
-  districts       districts[]
+  provinces_id  Int          @id
+  geography_id  Int?
+  name_th       String?      @db.VarChar
+  name_th_short String?      @db.VarChar
+  name_en       String?      @db.VarChar
+  districts     districts[]
+  geographies   geographies? @relation(fields: [geography_id], references: [geographies_id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model districts {
-  districts_id  Int           @id
+  districts_id  Int            @id
   province_code Int?
-  name_th       String?       @db.VarChar
-  name_en       String?       @db.VarChar
-  provinces     provinces?    @relation(fields: [province_code], references: [provinces_id], onDelete: NoAction, onUpdate: NoAction)
+  name_th       String?        @db.VarChar
+  name_en       String?        @db.VarChar
+  provinces     provinces?     @relation(fields: [province_code], references: [provinces_id], onDelete: NoAction, onUpdate: NoAction)
   subdistricts  subdistricts[]
 }
 
@@ -43,12 +40,12 @@ model subdistricts {
   name_en         String?    @db.VarChar
   latitude        Decimal?   @db.Decimal(10, 8)
   longitude       Decimal?   @db.Decimal(11, 8)
-  districts       districts? @relation(fields: [district_code], references: [districts_id], onDelete: NoAction, onUpdate: NoAction)
   lands           lands[]
+  districts       districts? @relation(fields: [district_code], references: [districts_id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model departments {
-  departments_id Int       @id @default(autoincrement())
+  departments_id Int       @id
   name           String?   @db.VarChar
   created_at     DateTime? @db.Timestamp(6)
   updated_at     DateTime? @db.Timestamp(6)
@@ -56,48 +53,49 @@ model departments {
 }
 
 model role {
-  role_id       Int     @id @default(autoincrement())
+  role_id       Int     @id
   role_name     String? @db.VarChar
   role_name_eng String? @db.VarChar
   users         users[]
 }
 
 model users {
-  user_id            Int          @id @default(autoincrement())
-  department_id      Int?
-  update_uid         Int?
-  username           String?      @db.VarChar
-  first_name         String?      @db.VarChar
-  last_name          String?      @db.VarChar
-  email              String?      @db.VarChar
-  role_id            Int?
-  updated_at         DateTime?    @db.Timestamp(6)
-  departments        departments? @relation(fields: [department_id], references: [departments_id], onDelete: NoAction, onUpdate: NoAction)
-  role               role?        @relation(fields: [role_id], references: [role_id], onDelete: NoAction, onUpdate: NoAction)
-  // self-ref for updated_by
-  users_updated_by   users?       @relation("users_update_uid", fields: [update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
-  users_updater_of   users[]      @relation("users_update_uid")
-  // reverse refs
-  factories          factories[]
-  service_areas      service_areas[]
-  farmers            farmers[]
-  lands              lands[]
-  lands_camps        lands_camps[]
-  landmaps_owner     landmaps_owner[]
-  lands_landmaps_mapping lands_landmaps_mapping[]
-  units_prefixs      units_prefixs[]
-  units              units[]
-  activities_fertilizers activities_fertilizers[]
-  activities_chemiscals  activities_chemiscals[]
-  activities_header_type activities_header_type[]
-  activities_header      activities_header[]
-  log_activities_detail  log_activities_detail[]
-  coefficients_emissions_factors coefficients_emissions_factors[]
+  user_id                            Int                                  @id
+  department_id                      Int?
+  update_uid                         Int?
+  username                           String?                              @db.VarChar
+  first_name                         String?                              @db.VarChar
+  last_name                          String?                              @db.VarChar
+  email                              String?                              @db.VarChar
+  role_id                            Int?
+  updated_at                         DateTime?                            @db.Timestamp(6)
+  activities_chemiscals              activities_chemiscals[]
+  activities_fertilizers             activities_fertilizers[]
+  activities_fileNameUse             activities_fileNameUse[]
+  activities_header                  activities_header[]
+  activities_header_type             activities_header_type[]
+  activities_resourceOther           activities_resourceOther[]
+  carbon_roundCal                    carbon_roundCal[]
+  carbon_typeCal                     carbon_typeCal[]
   coefficients_emissions_factors_gwp coefficients_emissions_factors_gwp[]
+  factories                          factories[]
+  farmers                            farmers[]
+  landmaps_owner                     landmaps_owner[]
+  lands                              lands[]
+  lands_camps                        lands_camps[]
+  lands_landmaps_mapping             lands_landmaps_mapping[]
+  log_activities_detail              log_activities_detail[]
+  service_areas                      service_areas[]
+  units                              units[]
+  units_prefixs                      units_prefixs[]
+  departments                        departments?                         @relation(fields: [department_id], references: [departments_id], onDelete: NoAction, onUpdate: NoAction)
+  role                               role?                                @relation(fields: [role_id], references: [role_id], onDelete: NoAction, onUpdate: NoAction)
+  users_updated_by                   users?                               @relation("users_update_uid", fields: [update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+  users_updater_of                   users[]                              @relation("users_update_uid")
 }
 
 model factories {
-  factory_id    Int             @id @default(autoincrement())
+  factory_id    Int             @id
   updated_uid   Int?
   name          String?         @db.VarChar
   initial       String?         @db.VarChar
@@ -109,419 +107,509 @@ model factories {
 }
 
 model service_areas {
-  service_area_id Int        @id @default(autoincrement())
+  service_area_id Int        @id
   factory_id      Int?
   updated_uid     Int?
   code            String?    @db.VarChar
   name            String?    @db.VarChar
   note            String?
   update_at       DateTime?  @db.Timestamp(6)
+  farmers         farmers[]
   factories       factories? @relation(fields: [factory_id], references: [factory_id], onDelete: NoAction, onUpdate: NoAction)
   users           users?     @relation(fields: [updated_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
-  farmers         farmers[]
 }
 
 model farmers {
-  farmer_id       Int            @id @default(autoincrement())
-  factory_id      Int?
-  service_area_id Int?
-  updated_uid     Int?
-  thai_national_id String?       @db.VarChar
-  thai_farmer_id  String?        @db.VarChar
-  phone           String?        @db.VarChar
-  first_name      String?        @db.VarChar
-  last_name       String?        @db.VarChar
-  line_user_id    String?        @db.VarChar
-  update_at       DateTime?      @db.Timestamp(6)
-  factories       factories?     @relation(fields: [factory_id], references: [factory_id], onDelete: NoAction, onUpdate: NoAction)
-  service_areas   service_areas? @relation(fields: [service_area_id], references: [service_area_id], onDelete: NoAction, onUpdate: NoAction)
-  users           users?         @relation(fields: [updated_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
-  lands                   lands[]
-  landmaps_owner          landmaps_owner[]
-  lands_landmaps_mapping  lands_landmaps_mapping[]
-  activities_header       activities_header[]
+  farmer_id              Int                      @id
+  factory_id             Int?
+  service_area_id        Int?
+  updated_uid            Int?
+  thai_national_id       String?                  @db.VarChar
+  thai_farmer_id         String?                  @db.VarChar
+  phone                  String?                  @db.VarChar
+  first_name             String?                  @db.VarChar
+  last_name              String?                  @db.VarChar
+  line_user_id           String?                  @db.VarChar
+  update_at              DateTime?                @db.Timestamp(6)
+  activities_header      activities_header[]
+  factories              factories?               @relation(fields: [factory_id], references: [factory_id], onDelete: NoAction, onUpdate: NoAction)
+  service_areas          service_areas?           @relation(fields: [service_area_id], references: [service_area_id], onDelete: NoAction, onUpdate: NoAction)
+  users                  users?                   @relation(fields: [updated_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+  landmaps_owner         landmaps_owner[]
+  lands                  lands[]
+  lands_landmaps_mapping lands_landmaps_mapping[]
 }
 
 model lands_camps {
-  land_camp_id        Int        @id @default(autoincrement())
-  land_camp_idCode    String?    @db.VarChar
-  land_camp_name      String?    @db.VarChar
-  land_camp_latitude  Decimal?   @db.Decimal(10, 8)
-  land_camp_longitude Decimal?   @db.Decimal(11, 8)
-  land_camp_info      String?
-  land_camp_update_at DateTime?  @db.Timestamp(6)
-  land_camp_uid       Int?
-  users               users?     @relation(fields: [land_camp_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
-  lands               lands[]
-  lands_landmaps_mapping lands_landmaps_mapping[]
+  land_camp_id            Int                       @id
+  land_camp_idCode        String?                   @db.VarChar
+  land_camp_name          String?                   @db.VarChar
+  land_camp_latitude      Decimal?                  @db.Decimal(10, 8)
+  land_camp_longitude     Decimal?                  @db.Decimal(11, 8)
+  land_camp_info          String?
+  land_camp_update_at     DateTime?                 @db.Timestamp(6)
+  land_camp_uid           Int?
+  carbon_process_queue    carbon_process_queue[]
+  lands                   lands[]
+  users                   users?                    @relation(fields: [land_camp_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+  lands_landmaps_mapping  lands_landmaps_mapping[]
   lands_weatherStationRec lands_weatherStationRec[]
 }
 
 model lands {
-  land_id             Int           @id @default(autoincrement())
-  farmer_id           Int?
-  subdistrict_code    Int?
-  updated_uid         Int?
-  land_camp_id        Int?
-  land_code           String?       @db.VarChar
-  name                String?       @db.VarChar
-  quota_code          String?       @db.VarChar
-  area_size           Float?
-  land_unit_prefix_id Int?
-  land_unit_id        Int?
-  land_size           Float?
-  land_planSize       Float?
-  latitude            Decimal?      @db.Decimal(10, 8)
-  longitude           Decimal?      @db.Decimal(11, 8)
-  zip_code            String?       @db.VarChar
-  village             String?       @db.VarChar
-  update_at           DateTime?     @db.Timestamp(6)
-  farmers             farmers?      @relation(fields: [farmer_id], references: [farmer_id], onDelete: NoAction, onUpdate: NoAction)
-  subdistricts        subdistricts? @relation(fields: [subdistrict_code], references: [subdistricts_id], onDelete: NoAction, onUpdate: NoAction)
-  users               users?        @relation(fields: [updated_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
-  lands_camps         lands_camps?  @relation(fields: [land_camp_id], references: [land_camp_id], onDelete: NoAction, onUpdate: NoAction)
-  units_prefixs       units_prefixs? @relation(fields: [land_unit_prefix_id], references: [unit_prefix_id], onDelete: NoAction, onUpdate: NoAction)
-  units               units?        @relation(fields: [land_unit_id], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
+  land_id                Int                      @id
+  farmer_id              Int?
+  subdistrict_code       Int?
+  updated_uid            Int?
+  land_camp_id           Int?
+  land_code              String?                  @db.VarChar
+  name                   String?                  @db.VarChar
+  quota_code             String?                  @db.VarChar
+  area_size              Float?
+  land_unit_prefix_id    Int?
+  land_unit_id           Int?
+  land_size              Float?
+  land_planSize          Float?
+  latitude               Decimal?                 @db.Decimal(10, 8)
+  longitude              Decimal?                 @db.Decimal(11, 8)
+  zip_code               String?                  @db.VarChar
+  village                String?                  @db.VarChar
+  update_at              DateTime?                @db.Timestamp(6)
+  activities_header      activities_header[]
+  carbon_process_queue   carbon_process_queue[]
+  farmers                farmers?                 @relation(fields: [farmer_id], references: [farmer_id], onDelete: NoAction, onUpdate: NoAction)
+  lands_camps            lands_camps?             @relation(fields: [land_camp_id], references: [land_camp_id], onDelete: NoAction, onUpdate: NoAction)
+  units                  units?                   @relation(fields: [land_unit_id], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
+  units_prefixs          units_prefixs?           @relation(fields: [land_unit_prefix_id], references: [unit_prefix_id], onDelete: NoAction, onUpdate: NoAction)
+  subdistricts           subdistricts?            @relation(fields: [subdistrict_code], references: [subdistricts_id], onDelete: NoAction, onUpdate: NoAction)
+  users                  users?                   @relation(fields: [updated_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
   lands_landmaps_mapping lands_landmaps_mapping[]
-  activities_header   activities_header[]
 }
 
 model landmaps {
-  landmap_id          Int        @id @default(autoincrement())
-  landmap_idCode      String?    @db.VarChar
-  landmap_area_size   Float?
+  landmap_id             Int                      @id
+  landmap_idCode         String?                  @db.VarChar
+  landmap_area_size      Float?
   landmap_unit_prefix_id Int?
-  landmap_unit_id     Int?
-  landmap_latitude    Decimal?   @db.Decimal(10, 8)
-  landmap_longitude   Decimal?   @db.Decimal(11, 8)
-  landmap_info        String?
-  landmap_create_at   DateTime?  @db.Timestamp(6)
-  landmap_update_at   DateTime?  @db.Timestamp(6)
-  units_prefixs       units_prefixs? @relation(fields: [landmap_unit_prefix_id], references: [unit_prefix_id], onDelete: NoAction, onUpdate: NoAction)
-  units               units?     @relation(fields: [landmap_unit_id], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
-  landmaps_owner      landmaps_owner[]
+  landmap_unit_id        Int?
+  landmap_latitude       Decimal?                 @db.Decimal(10, 8)
+  landmap_longitude      Decimal?                 @db.Decimal(11, 8)
+  landmap_info           String?
+  landmap_create_at      DateTime?                @db.Timestamp(6)
+  landmap_update_at      DateTime?                @db.Timestamp(6)
+  units                  units?                   @relation(fields: [landmap_unit_id], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
+  units_prefixs          units_prefixs?           @relation(fields: [landmap_unit_prefix_id], references: [unit_prefix_id], onDelete: NoAction, onUpdate: NoAction)
+  landmaps_owner         landmaps_owner[]
   lands_landmaps_mapping lands_landmaps_mapping[]
 }
 
 model landmaps_owner {
-  landmap_owner_id         Int        @id @default(autoincrement())
-  landmap_owner_uid        Int?
-  landmap_owner_fid        Int?
-  landmap_id               Int?
-  landmap_owner_create_at  DateTime?  @db.Timestamp(6)
-  landmap_owner_update_at  DateTime?  @db.Timestamp(6)
-  landmap_owner_info       String?
-  users                    users?     @relation(fields: [landmap_owner_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
-  farmers                  farmers?   @relation(fields: [landmap_owner_fid], references: [farmer_id], onDelete: NoAction, onUpdate: NoAction)
-  landmaps                 landmaps?  @relation(fields: [landmap_id], references: [landmap_id], onDelete: NoAction, onUpdate: NoAction)
+  landmap_owner_id        Int       @id
+  landmap_owner_uid       Int?
+  landmap_owner_fid       Int?
+  landmap_id              Int?
+  landmap_owner_create_at DateTime? @db.Timestamp(6)
+  landmap_owner_update_at DateTime? @db.Timestamp(6)
+  landmap_owner_info      String?
+  landmaps                landmaps? @relation(fields: [landmap_id], references: [landmap_id], onDelete: NoAction, onUpdate: NoAction)
+  farmers                 farmers?  @relation(fields: [landmap_owner_fid], references: [farmer_id], onDelete: NoAction, onUpdate: NoAction)
+  users                   users?    @relation(fields: [landmap_owner_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model lands_landmaps_mapping_exStatus {
-  land_landmap_mapping_exStatus_id   Int    @id
-  land_landmap_mapping_exStatus_name String? @db.VarChar
-  lands_landmaps_mapping lands_landmaps_mapping[]
+  land_landmap_mapping_exStatus_id   Int                      @id
+  land_landmap_mapping_exStatus_name String?                  @db.VarChar
+  lands_landmaps_mapping             lands_landmaps_mapping[]
 }
 
 model lands_landmaps_mapping {
-  land_landmap_mapping_id          Int        @id @default(autoincrement())
-  farmer_id                        Int?
-  landmap_id                       Int?
-  land_id                          Int?
-  land_camp_id                     Int?
-  land_landmap_mapping_update_at   DateTime?  @db.Timestamp(6)
-  land_landmap_mapping_create_at   DateTime?  @db.Timestamp(6)
-  land_landmap_mapping_update_uid  Int?
-  land_landmap_mapping_exStatus    Int?
-  farmers                          farmers?   @relation(fields: [farmer_id], references: [farmer_id], onDelete: NoAction, onUpdate: NoAction)
-  landmaps                         landmaps?  @relation(fields: [landmap_id], references: [landmap_id], onDelete: NoAction, onUpdate: NoAction)
-  lands                            lands?     @relation(fields: [land_id], references: [land_id], onDelete: NoAction, onUpdate: NoAction)
-  lands_camps                      lands_camps? @relation(fields: [land_camp_id], references: [land_camp_id], onDelete: NoAction, onUpdate: NoAction)
-  users                            users?     @relation(fields: [land_landmap_mapping_update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+  land_landmap_mapping_id             Int                              @id
+  farmer_id                           Int?
+  landmap_id                          Int?
+  land_id                             Int?
+  land_camp_id                        Int?
+  land_landmap_mapping_update_at      DateTime?                        @db.Timestamp(6)
+  land_landmap_mapping_create_at      DateTime?                        @db.Timestamp(6)
+  land_landmap_mapping_update_uid     Int?
+  land_landmap_mapping_exStatus       Int?
+  farmers                             farmers?                         @relation(fields: [farmer_id], references: [farmer_id], onDelete: NoAction, onUpdate: NoAction)
+  lands_camps                         lands_camps?                     @relation(fields: [land_camp_id], references: [land_camp_id], onDelete: NoAction, onUpdate: NoAction)
+  lands                               lands?                           @relation(fields: [land_id], references: [land_id], onDelete: NoAction, onUpdate: NoAction)
   lands_landmaps_mapping_exStatus_rel lands_landmaps_mapping_exStatus? @relation(fields: [land_landmap_mapping_exStatus], references: [land_landmap_mapping_exStatus_id], onDelete: NoAction, onUpdate: NoAction)
+  users                               users?                           @relation(fields: [land_landmap_mapping_update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+  landmaps                            landmaps?                        @relation(fields: [landmap_id], references: [landmap_id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model lands_weatherStationRec {
-  land_weatherStationRec_id             Int         @id @default(autoincrement())
-  land_camp_id                          Int?
-  land_weatherStationRec_latitude       Decimal?    @db.Decimal(10, 8)
-  land_weatherStationRec_longitude      Decimal?    @db.Decimal(11, 8)
-  land_weatherStationRec_airTemperature             Float?
-  land_weatherStationRec_relativeHumidity           Float?
-  land_weatherStationRec_barometricPressure         Float?
-  land_weatherStationRec_windSP                     Float?
-  land_weatherStationRec_rainfall                   Float?
-  land_weatherStationRec_solarRadiation_UV          Float?
-  land_weatherStationRec_soilMoisture_soilTemp      Float?
-  land_weatherStationRec_dewPoint                   Float?
-  land_weatherStationRec_evapotranspiration         Float?
-  lands_camps                           lands_camps? @relation(fields: [land_camp_id], references: [land_camp_id], onDelete: NoAction, onUpdate: NoAction)
+  land_weatherStationRec_id                    Int          @id
+  land_camp_id                                 Int?
+  land_weatherStationRec_latitude              Decimal?     @db.Decimal(10, 8)
+  land_weatherStationRec_longitude             Decimal?     @db.Decimal(11, 8)
+  land_weatherStationRec_create_at             DateTime?    @db.Timestamp(6)
+  land_weatherStationRec_airTemperature        Float?
+  land_weatherStationRec_relativeHumidity      Float?
+  land_weatherStationRec_barometricPressure    Float?
+  land_weatherStationRec_windSP                Float?
+  land_weatherStationRec_rainfall              Float?
+  land_weatherStationRec_solarRadiation_UV     Float?
+  land_weatherStationRec_soilMoisture_soilTemp Float?
+  land_weatherStationRec_dewPoint              Float?
+  land_weatherStationRec_evapotranspiration    Float?
+  lands_camps                                  lands_camps? @relation(fields: [land_camp_id], references: [land_camp_id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model units_prefixs {
-  unit_prefix_id          Int        @id @default(autoincrement())
-  unit_prefix_name        String?    @db.VarChar
-  unit_prefix_initial     String?    @db.VarChar
-  unit_prefix_updated_uid Int?
-  unit_prefix_updated_at  DateTime?  @db.Timestamp(6)
-  unit_prefix_value       Float?
-  users                   users?     @relation(fields: [unit_prefix_updated_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
-  lands                   lands[]
-  landmaps                landmaps[]
-  coefficients_emissions_factors_input      coefficients_emissions_factors[] @relation("coef_input_prefix")
-  coefficients_emissions_factors_co2        coefficients_emissions_factors[] @relation("coef_co2_prefix")
-  coefficients_emissions_factors_ch4foss    coefficients_emissions_factors[] @relation("coef_ch4foss_prefix")
-  coefficients_emissions_factors_ch4        coefficients_emissions_factors[] @relation("coef_ch4_prefix")
-  coefficients_emissions_factors_n2o        coefficients_emissions_factors[] @relation("coef_n2o_prefix")
-  coefficients_emissions_factors_total      coefficients_emissions_factors[] @relation("coef_total_prefix")
-  log_activities_detail   log_activities_detail[]
+  unit_prefix_id                         Int                              @id
+  unit_prefix_name                       String?                          @db.VarChar
+  unit_prefix_initial                    String?                          @db.VarChar
+  unit_prefix_updated_uid                Int?
+  unit_prefix_updated_at                 DateTime?                        @db.Timestamp(6)
+  unit_prefix_value                      Float?
+  carbon_process_queue                   carbon_process_queue[]
+  coefficients_emissions_factors_ch4     coefficients_emissions_factors[] @relation("coef_ch4_prefix")
+  coefficients_emissions_factors_ch4foss coefficients_emissions_factors[] @relation("coef_ch4foss_prefix")
+  coefficients_emissions_factors_co2     coefficients_emissions_factors[] @relation("coef_co2_prefix")
+  coefficients_emissions_factors_input   coefficients_emissions_factors[] @relation("coef_input_prefix")
+  coefficients_emissions_factors_n2o     coefficients_emissions_factors[] @relation("coef_n2o_prefix")
+  coefficients_emissions_factors_total   coefficients_emissions_factors[] @relation("coef_total_prefix")
+  landmaps                               landmaps[]
+  lands                                  lands[]
+  log_activities_detail                  log_activities_detail[]
+  users                                  users?                           @relation(fields: [unit_prefix_updated_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model units {
-  unit_id         Int        @id @default(autoincrement())
-  unit_name       String?    @db.VarChar
-  unit_initial    String?    @db.VarChar
-  unit_updated_uid Int?
-  unit_updated_at DateTime?  @db.Timestamp(6)
-  users           users?     @relation(fields: [unit_updated_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
-  lands           lands[]
-  landmaps        landmaps[]
-  coefficients_emissions_factors_input   coefficients_emissions_factors[] @relation("coef_input_unit")
-  coefficients_emissions_factors_co2     coefficients_emissions_factors[] @relation("coef_co2_unit")
-  coefficients_emissions_factors_ch4foss coefficients_emissions_factors[] @relation("coef_ch4foss_unit")
+  unit_id                                Int                              @id
+  unit_name                              String?                          @db.VarChar
+  unit_initial                           String?                          @db.VarChar
+  unit_updated_uid                       Int?
+  unit_updated_at                        DateTime?                        @db.Timestamp(6)
+  carbon_process_queue                   carbon_process_queue[]
   coefficients_emissions_factors_ch4     coefficients_emissions_factors[] @relation("coef_ch4_unit")
+  coefficients_emissions_factors_ch4foss coefficients_emissions_factors[] @relation("coef_ch4foss_unit")
+  coefficients_emissions_factors_co2     coefficients_emissions_factors[] @relation("coef_co2_unit")
+  coefficients_emissions_factors_input   coefficients_emissions_factors[] @relation("coef_input_unit")
   coefficients_emissions_factors_n2o     coefficients_emissions_factors[] @relation("coef_n2o_unit")
   coefficients_emissions_factors_total   coefficients_emissions_factors[] @relation("coef_total_unit")
-  log_activities_detail log_activities_detail[]
+  landmaps                               landmaps[]
+  lands                                  lands[]
+  log_activities_detail                  log_activities_detail[]
+  users                                  users?                           @relation(fields: [unit_updated_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model carbonfootprints_types {
-  carbonfootprint_type_id Int        @id @default(autoincrement())
-  cf_type_name_short      String?    @db.VarChar
-  cf_type_name_th         String?    @db.VarChar
-  cf_type_name_en         String?    @db.VarChar
-  cf_type_create_at       DateTime?  @db.Timestamp(6)
-  cf_type_update_at       DateTime?  @db.Timestamp(6)
-  groups_emissions_factors       groups_emissions_factors[]
+  carbonfootprint_type_id        Int                              @id
+  cf_type_name_short             String?                          @db.VarChar
+  cf_type_name_th                String?                          @db.VarChar
+  cf_type_name_en                String?                          @db.VarChar
+  cf_type_create_at              DateTime?                        @db.Timestamp(6)
+  cf_type_update_at              DateTime?                        @db.Timestamp(6)
   coefficients_emissions_factors coefficients_emissions_factors[]
+  groups_emissions_factors       groups_emissions_factors[]
 }
 
 model groups_emissions_factors {
-  group_emission_factor_id       Int        @id @default(autoincrement())
-  group_emission_factor_idCode   String?    @db.VarChar
-  group_emission_factor_name_short String?  @db.VarChar
-  group_emission_factor_name     String?    @db.VarChar
-  group_emission_factor_info     String?    @db.VarChar
-  carbonfootprint_type_id        Int?
-  carbonfootprints_types         carbonfootprints_types? @relation(fields: [carbonfootprint_type_id], references: [carbonfootprint_type_id], onDelete: NoAction, onUpdate: NoAction)
-  coefficients_emissions_factors coefficients_emissions_factors[]
+  group_emission_factor_id         Int                              @id
+  group_emission_factor_idCode     String?                          @db.VarChar
+  group_emission_factor_name_short String?                          @db.VarChar
+  group_emission_factor_name       String?                          @db.VarChar
+  group_emission_factor_info       String?                          @db.VarChar
+  carbonfootprint_type_id          Int?
+  coefficients_emissions_factors   coefficients_emissions_factors[]
+  carbonfootprints_types           carbonfootprints_types?          @relation(fields: [carbonfootprint_type_id], references: [carbonfootprint_type_id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model coefficients_emissions_factors {
-  coefficient_emission_factor_id  Int        @id @default(autoincrement())
-  coef_em_factor_idCode           String?    @db.VarChar
-  carbonfootprint_type_id         Int?
-  group_emission_factor_id        Int?
-  coef_em_factor_name             String?    @db.VarChar
-  coef_em_factor_info             String?
-  unit_prefix_id                  Int?
-  unit_id                         Int?
-  coef_em_factor_value_co2        Float?
-  unit_prefix_id_co2              Int?
-  unit_id_co2                     Int?
-  coef_em_factor_value_ch4foss    Float?
-  unit_prefix_id_ch4foss          Int?
-  unit_id_ch4foss                 Int?
-  coef_em_factor_value_ch4        Float?
-  unit_prefix_id_ch4              Int?
-  unit_id_ch4                     Int?
-  coef_em_factor_value_n2o        Float?
-  unit_prefix_id_n2o              Int?
-  unit_id_n2o                     Int?
-  coef_em_factor_value_total      Float?
-  unit_prefix_id_total            Int?
-  unit_id_total                   Int?
-  coef_em_factor_ref              Int?
-  coef_em_factor_updatePostDateRef DateTime? @db.Timestamp(6)
-  create_at                       DateTime?  @db.Timestamp(6)
-  update_at                       DateTime?  @db.Timestamp(6)
-  update_uid                      Int?
-  carbonfootprints_types          carbonfootprints_types?    @relation(fields: [carbonfootprint_type_id], references: [carbonfootprint_type_id], onDelete: NoAction, onUpdate: NoAction)
-  groups_emissions_factors        groups_emissions_factors?  @relation(fields: [group_emission_factor_id], references: [group_emission_factor_id], onDelete: NoAction, onUpdate: NoAction)
-  users                           users?                     @relation(fields: [update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
-  unit_prefix_input               units_prefixs? @relation("coef_input_prefix",   fields: [unit_prefix_id],       references: [unit_prefix_id], onDelete: NoAction, onUpdate: NoAction)
-  unit_input                      units?         @relation("coef_input_unit",     fields: [unit_id],              references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
-  unit_prefix_co2                 units_prefixs? @relation("coef_co2_prefix",     fields: [unit_prefix_id_co2],   references: [unit_prefix_id], onDelete: NoAction, onUpdate: NoAction)
-  unit_co2                        units?         @relation("coef_co2_unit",       fields: [unit_id_co2],          references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
-  unit_prefix_ch4foss             units_prefixs? @relation("coef_ch4foss_prefix", fields: [unit_prefix_id_ch4foss], references: [unit_prefix_id], onDelete: NoAction, onUpdate: NoAction)
-  unit_ch4foss                    units?         @relation("coef_ch4foss_unit",   fields: [unit_id_ch4foss],      references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
-  unit_prefix_ch4                 units_prefixs? @relation("coef_ch4_prefix",     fields: [unit_prefix_id_ch4],   references: [unit_prefix_id], onDelete: NoAction, onUpdate: NoAction)
-  unit_ch4                        units?         @relation("coef_ch4_unit",       fields: [unit_id_ch4],          references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
-  unit_prefix_n2o                 units_prefixs? @relation("coef_n2o_prefix",     fields: [unit_prefix_id_n2o],   references: [unit_prefix_id], onDelete: NoAction, onUpdate: NoAction)
-  unit_n2o                        units?         @relation("coef_n2o_unit",       fields: [unit_id_n2o],          references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
-  unit_prefix_total               units_prefixs? @relation("coef_total_prefix",   fields: [unit_prefix_id_total], references: [unit_prefix_id], onDelete: NoAction, onUpdate: NoAction)
-  unit_total                      units?         @relation("coef_total_unit",     fields: [unit_id_total],        references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
+  coefficient_emission_factor_id   Int                       @id
+  coef_em_factor_idCode            String?                   @db.VarChar
+  carbonfootprint_type_id          Int?
+  group_emission_factor_id         Int?
+  coef_em_factor_name              String?                   @db.VarChar
+  coef_em_factor_info              String?
+  unit_prefix_id                   Int?
+  unit_id                          Int?
+  coef_em_factor_value_co2         Float?
+  unit_prefix_id_co2               Int?
+  unit_id_co2                      Int?
+  coef_em_factor_value_ch4foss     Float?
+  unit_prefix_id_ch4foss           Int?
+  unit_id_ch4foss                  Int?
+  coef_em_factor_value_ch4         Float?
+  unit_prefix_id_ch4               Int?
+  unit_id_ch4                      Int?
+  coef_em_factor_value_n2o         Float?
+  unit_prefix_id_n2o               Int?
+  unit_id_n2o                      Int?
+  coef_em_factor_value_total       Float?
+  unit_prefix_id_total             Int?
+  unit_id_total                    Int?
+  coef_em_factor_ref               Int?
+  coef_em_factor_updatePostDateRef DateTime?                 @db.Timestamp(6)
+  create_at                        DateTime?                 @db.Timestamp(6)
+  update_at                        DateTime?                 @db.Timestamp(6)
+  update_uid                       Int?
+  carbonfootprints_types           carbonfootprints_types?   @relation(fields: [carbonfootprint_type_id], references: [carbonfootprint_type_id], onDelete: NoAction, onUpdate: NoAction)
+  groups_emissions_factors         groups_emissions_factors? @relation(fields: [group_emission_factor_id], references: [group_emission_factor_id], onDelete: NoAction, onUpdate: NoAction)
+  unit_ch4                         units?                    @relation("coef_ch4_unit", fields: [unit_id_ch4], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
+  unit_ch4foss                     units?                    @relation("coef_ch4foss_unit", fields: [unit_id_ch4foss], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
+  unit_co2                         units?                    @relation("coef_co2_unit", fields: [unit_id_co2], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
+  unit_input                       units?                    @relation("coef_input_unit", fields: [unit_id], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
+  unit_n2o                         units?                    @relation("coef_n2o_unit", fields: [unit_id_n2o], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
+  unit_total                       units?                    @relation("coef_total_unit", fields: [unit_id_total], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
+  unit_prefix_ch4                  units_prefixs?            @relation("coef_ch4_prefix", fields: [unit_prefix_id_ch4], references: [unit_prefix_id], onDelete: NoAction, onUpdate: NoAction)
+  unit_prefix_ch4foss              units_prefixs?            @relation("coef_ch4foss_prefix", fields: [unit_prefix_id_ch4foss], references: [unit_prefix_id], onDelete: NoAction, onUpdate: NoAction)
+  unit_prefix_co2                  units_prefixs?            @relation("coef_co2_prefix", fields: [unit_prefix_id_co2], references: [unit_prefix_id], onDelete: NoAction, onUpdate: NoAction)
+  unit_prefix_input                units_prefixs?            @relation("coef_input_prefix", fields: [unit_prefix_id], references: [unit_prefix_id], onDelete: NoAction, onUpdate: NoAction)
+  unit_prefix_n2o                  units_prefixs?            @relation("coef_n2o_prefix", fields: [unit_prefix_id_n2o], references: [unit_prefix_id], onDelete: NoAction, onUpdate: NoAction)
+  unit_prefix_total                units_prefixs?            @relation("coef_total_prefix", fields: [unit_prefix_id_total], references: [unit_prefix_id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model coefficients_emissions_factors_gwp {
-  coefficients_emissions_factors_gwp_id Int        @id @default(autoincrement())
-  coef_em_factor_gwp_name               String?    @db.VarChar
-  coef_em_factor_gwp_name_en            String?    @db.VarChar
+  coefficients_emissions_factors_gwp_id Int       @id
+  coef_em_factor_gwp_name               String?   @db.VarChar
+  coef_em_factor_gwp_name_en            String?   @db.VarChar
   coef_em_factor_gwp_value              Float?
   coef_em_factor_gwp_info               String?
   coef_em_factor_gwp_update_uid         Int?
-  coef_em_factor_gwp_create_at          DateTime?  @db.Timestamp(6)
-  coef_em_factor_gwp_update_at          DateTime?  @db.Timestamp(6)
+  coef_em_factor_gwp_create_at          DateTime? @db.Timestamp(6)
+  coef_em_factor_gwp_update_at          DateTime? @db.Timestamp(6)
   coef_em_factor_gwp_ref                Int?
-  users                                 users?     @relation(fields: [coef_em_factor_gwp_update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+  users                                 users?    @relation(fields: [coef_em_factor_gwp_update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "coefficients_emissions_factor_coef_em_factor_gwp_update_ui_fkey")
 }
 
 model resource_used_type {
-  resource_used_type_id  Int        @id @default(autoincrement())
-  resc_used_type_name    String?    @db.VarChar
-  resc_used_type_info    String?
-  resc_used_type_create_at DateTime? @db.Timestamp(6)
-  resc_used_type_update_at DateTime? @db.Timestamp(6)
-  activities_equipments  activities_equipments[]
-  activities_fertilizers activities_fertilizers[]
-  activities_chemiscals  activities_chemiscals[]
-  log_activities_detail  log_activities_detail[]
+  resource_used_type_id    Int                        @id
+  resc_used_type_name      String?                    @db.VarChar
+  resc_used_type_info      String?
+  resc_used_type_create_at DateTime?                  @db.Timestamp(6)
+  resc_used_type_update_at DateTime?                  @db.Timestamp(6)
+  activities_chemiscals    activities_chemiscals[]
+  activities_equipments    activities_equipments[]
+  activities_fertilizers   activities_fertilizers[]
+  activities_resourceOther activities_resourceOther[]
+  log_activities_detail    log_activities_detail[]
 }
 
 model activities_equipments {
-  act_equipment_id        Int                  @id @default(autoincrement())
-  act_equipment_name      String?              @db.VarChar
-  act_equipment_date_add  DateTime?            @db.Timestamp(6)
-  act_equipment_price     Float?
-  act_equipment_info      String?
-  resource_used_type_id   Int?
-  resource_used_type      resource_used_type?  @relation(fields: [resource_used_type_id], references: [resource_used_type_id], onDelete: NoAction, onUpdate: NoAction)
-  log_activities_detail   log_activities_detail[]
+  act_equipment_id       Int                     @id
+  act_equipment_name     String?                 @db.VarChar
+  act_equipment_date_add DateTime?               @db.Timestamp(6)
+  act_equipment_price    Float?
+  act_equipment_info     String?
+  resource_used_type_id  Int?
+  resource_used_type     resource_used_type?     @relation(fields: [resource_used_type_id], references: [resource_used_type_id], onDelete: NoAction, onUpdate: NoAction)
+  log_activities_detail  log_activities_detail[]
 }
 
 model activities_fertilizers {
-  act_fertilizer_id         Int                  @id @default(autoincrement())
-  act_fertilizer_name       String?              @db.VarChar
-  act_fertilizer_date_add   DateTime?            @db.Timestamp(6)
-  act_fertilizer_price      Float?
+  act_fertilizer_id            Int                     @id
+  act_fertilizer_name          String?                 @db.VarChar
+  act_fertilizer_date_add      DateTime?               @db.Timestamp(6)
+  act_fertilizer_price         Float?
   act_fertilizer_price_perUnit Float?
-  act_fertilizer_info       String?
-  resource_used_type_id     Int?
-  n_pct                     Int?
-  p_pct                     Int?
-  k_pct                     Int?
-  act_fertilizer_update_uid Int?
-  act_fertilizer_update_at  DateTime?            @db.Timestamp(6)
-  act_fertilizer_type       Int?
-  act_fertilizer_formular   String?              @db.VarChar
-  act_fertilizer_quantity   Int?
-  resource_used_type        resource_used_type?  @relation(fields: [resource_used_type_id], references: [resource_used_type_id], onDelete: NoAction, onUpdate: NoAction)
-  users                     users?               @relation(fields: [act_fertilizer_update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
-  log_activities_detail     log_activities_detail[]
+  act_fertilizer_info          String?
+  resource_used_type_id        Int?
+  n_pct                        Int?
+  p_pct                        Int?
+  k_pct                        Int?
+  act_fertilizer_update_uid    Int?
+  act_fertilizer_update_at     DateTime?               @db.Timestamp(6)
+  act_fertilizer_type          Int?
+  act_fertilizer_formular      String?                 @db.VarChar
+  act_fertilizer_quantity      Int?
+  users                        users?                  @relation(fields: [act_fertilizer_update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+  resource_used_type           resource_used_type?     @relation(fields: [resource_used_type_id], references: [resource_used_type_id], onDelete: NoAction, onUpdate: NoAction)
+  log_activities_detail        log_activities_detail[]
 }
 
 model activities_chemiscals {
-  act_chemiscal_id         Int                  @id @default(autoincrement())
-  act_chemiscal_name       String?              @db.VarChar
-  act_chemiscal_date_add   DateTime?            @db.Timestamp(6)
+  act_chemiscal_id         Int                     @id
+  act_chemiscal_name       String?                 @db.VarChar
+  act_chemiscal_date_add   DateTime?               @db.Timestamp(6)
   resource_used_type_id    Int?
   act_chemiscal_info       String?
   act_chemiscal_update_uid Int?
-  act_chemiscal_update_at  DateTime?            @db.Timestamp(6)
-  resource_used_type       resource_used_type?  @relation(fields: [resource_used_type_id], references: [resource_used_type_id], onDelete: NoAction, onUpdate: NoAction)
-  users                    users?               @relation(fields: [act_chemiscal_update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+  act_chemiscal_update_at  DateTime?               @db.Timestamp(6)
+  users                    users?                  @relation(fields: [act_chemiscal_update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+  resource_used_type       resource_used_type?     @relation(fields: [resource_used_type_id], references: [resource_used_type_id], onDelete: NoAction, onUpdate: NoAction)
   log_activities_detail    log_activities_detail[]
 }
 
 model activities_header_type {
-  act_header_type_id        Int        @id @default(autoincrement())
-  act_header_type_idCode    String?    @db.VarChar
-  act_header_type_name_th   String?    @db.VarChar
-  act_header_type_name_en   String?    @db.VarChar
-  act_header_type_create_at DateTime?  @db.Timestamp(6)
-  act_header_type_update_uid Int?
-  users                     users?     @relation(fields: [act_header_type_update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+  act_header_type_id            Int                             @id
+  act_header_type_idCode        String?                         @db.VarChar
+  act_header_type_name_th       String?                         @db.VarChar
+  act_header_type_name_en       String?                         @db.VarChar
+  act_header_type_create_at     DateTime?                       @db.Timestamp(6)
+  act_header_type_update_uid    Int?
+  activities_header             activities_header[]
   activities_header_detail_type activities_header_detail_type[]
-  activities_header         activities_header[]
-  log_activities_detail     log_activities_detail[]
+  users                         users?                          @relation(fields: [act_header_type_update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+  log_activities_detail         log_activities_detail[]
 }
 
 model activities_header_detail_type {
-  act_header_detail_type_id      Int        @id @default(autoincrement())
+  act_header_detail_type_id      Int                     @id
   act_header_type_id             Int?
-  act_header_detail_type_name_th String?    @db.VarChar
+  act_header_detail_type_name_th String?                 @db.VarChar
   activities_header_type         activities_header_type? @relation(fields: [act_header_type_id], references: [act_header_type_id], onDelete: NoAction, onUpdate: NoAction)
   log_activities_detail          log_activities_detail[]
 }
 
 model activities_header_typeLand {
-  act_header_typeLand_id   Int        @id @default(autoincrement())
-  act_header_typeLand_name String?    @db.VarChar
+  act_header_typeLand_id   Int                 @id
+  act_header_typeLand_name String?             @db.VarChar
   activities_header        activities_header[]
 }
 
 model activities_header_typeSugarCane {
-  act_header_typeSugarCane_id   Int        @id @default(autoincrement())
-  act_header_typeSugarCane_name String?    @db.VarChar
+  act_header_typeSugarCane_id   Int                 @id
+  act_header_typeSugarCane_name String?             @db.VarChar
   activities_header             activities_header[]
 }
 
 model activities_header {
-  activities_header_id          Int        @id @default(autoincrement())
-  land_id                       Int?
-  farmer_id                     Int?
-  activities_header_idCode      String?    @db.VarChar
-  activities_header_curlatitude  Decimal?  @db.Decimal(10, 8)
-  activities_header_curlongitude Decimal?  @db.Decimal(11, 8)
-  activities_header_startDate    DateTime? @db.Timestamp(6)
-  activities_header_create_at    DateTime? @db.Timestamp(6)
-  activities_header_update_uid   Int?
-  act_header_type_id             Int?
-  act_header_typeLand_id         Int?
-  act_header_typeSugarCane_id    Int?
-  activities_header_info         String?
-  lands                          lands?    @relation(fields: [land_id], references: [land_id], onDelete: NoAction, onUpdate: NoAction)
-  farmers                        farmers?  @relation(fields: [farmer_id], references: [farmer_id], onDelete: NoAction, onUpdate: NoAction)
-  users                          users?    @relation(fields: [activities_header_update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
-  activities_header_type         activities_header_type?        @relation(fields: [act_header_type_id], references: [act_header_type_id], onDelete: NoAction, onUpdate: NoAction)
-  activities_header_typeLand     activities_header_typeLand?    @relation(fields: [act_header_typeLand_id], references: [act_header_typeLand_id], onDelete: NoAction, onUpdate: NoAction)
+  activities_header_id            Int                              @id
+  land_id                         Int?
+  farmer_id                       Int?
+  activities_header_idCode        String?                          @db.VarChar
+  activities_header_curlatitude   Decimal?                         @db.Decimal(10, 8)
+  activities_header_curlongitude  Decimal?                         @db.Decimal(11, 8)
+  activities_header_startDate     DateTime?                        @db.Timestamp(6)
+  activities_header_create_at     DateTime?                        @db.Timestamp(6)
+  activities_header_update_uid    Int?
+  act_header_type_id              Int?
+  act_header_typeLand_id          Int?
+  act_header_typeSugarCane_id     Int?
+  activities_header_info          String?
+  activities_header_typeLand      activities_header_typeLand?      @relation(fields: [act_header_typeLand_id], references: [act_header_typeLand_id], onDelete: NoAction, onUpdate: NoAction)
   activities_header_typeSugarCane activities_header_typeSugarCane? @relation(fields: [act_header_typeSugarCane_id], references: [act_header_typeSugarCane_id], onDelete: NoAction, onUpdate: NoAction)
-  log_activities_detail          log_activities_detail[]
+  activities_header_type          activities_header_type?          @relation(fields: [act_header_type_id], references: [act_header_type_id], onDelete: NoAction, onUpdate: NoAction)
+  users                           users?                           @relation(fields: [activities_header_update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+  farmers                         farmers?                         @relation(fields: [farmer_id], references: [farmer_id], onDelete: NoAction, onUpdate: NoAction)
+  lands                           lands?                           @relation(fields: [land_id], references: [land_id], onDelete: NoAction, onUpdate: NoAction)
+  log_activities_detail           log_activities_detail[]
 }
 
 model log_act_detail_calStatus {
-  log_act_detail_calStatus_id   Int        @id @default(autoincrement())
-  log_act_detail_calStatus_name String?    @db.VarChar
-  create_at                     DateTime?  @db.Timestamp(6)
+  log_act_detail_calStatus_id   Int                     @id
+  log_act_detail_calStatus_name String?                 @db.VarChar
+  create_at                     DateTime?               @db.Timestamp(6)
+  carbon_process_queue          carbon_process_queue[]
   log_activities_detail         log_activities_detail[]
 }
 
 model log_activities_detail {
-  log_act_detail_id              Int        @id @default(autoincrement())
-  activities_header_id           Int?
-  act_header_type_id             Int?
-  act_header_detail_type_id      Int?
+  log_act_detail_id                 Int                            @id
+  activities_header_id              Int?
+  act_header_type_id                Int?
+  act_header_detail_type_id         Int?
   act_header_detail_type_update_uid Int?
-  act_equipment_id               Int?
-  act_fertilizer_id              Int?
-  act_chemiscal_id               Int?
-  resource_used_type_id          Int?
-  unit_prefix_id                 Int?
-  unit_id                        Int?
-  log_act_detail_quatity         Float?
-  log_act_detail_volumePerUnit   Float?
-  log_act_detail_volumeAll       Float?
-  log_act_detail_areawork        Float?
-  log_act_detail_create_at       DateTime?  @db.Timestamp(6)
-  log_act_detail_calStatus_id    Int?
-  activities_header              activities_header?              @relation(fields: [activities_header_id], references: [activities_header_id], onDelete: NoAction, onUpdate: NoAction)
-  activities_header_type         activities_header_type?         @relation(fields: [act_header_type_id], references: [act_header_type_id], onDelete: NoAction, onUpdate: NoAction)
-  activities_header_detail_type  activities_header_detail_type?  @relation(fields: [act_header_detail_type_id], references: [act_header_detail_type_id], onDelete: NoAction, onUpdate: NoAction)
-  users                          users?                          @relation(fields: [act_header_detail_type_update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
-  activities_equipments          activities_equipments?          @relation(fields: [act_equipment_id], references: [act_equipment_id], onDelete: NoAction, onUpdate: NoAction)
-  activities_fertilizers         activities_fertilizers?         @relation(fields: [act_fertilizer_id], references: [act_fertilizer_id], onDelete: NoAction, onUpdate: NoAction)
-  activities_chemiscals          activities_chemiscals?          @relation(fields: [act_chemiscal_id], references: [act_chemiscal_id], onDelete: NoAction, onUpdate: NoAction)
-  resource_used_type             resource_used_type?             @relation(fields: [resource_used_type_id], references: [resource_used_type_id], onDelete: NoAction, onUpdate: NoAction)
-  units_prefixs                  units_prefixs?                  @relation(fields: [unit_prefix_id], references: [unit_prefix_id], onDelete: NoAction, onUpdate: NoAction)
-  units                          units?                          @relation(fields: [unit_id], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
-  log_act_detail_calStatus       log_act_detail_calStatus?       @relation(fields: [log_act_detail_calStatus_id], references: [log_act_detail_calStatus_id], onDelete: NoAction, onUpdate: NoAction)
+  act_equipment_id                  Int?
+  act_fertilizer_id                 Int?
+  act_chemiscal_id                  Int?
+  act_resourceOther_id              Int?
+  resource_used_type_id             Int?
+  unit_prefix_id                    Int?
+  unit_id                           Int?
+  log_act_detail_quatity            Float?
+  log_act_detail_volumePerUnit      Float?
+  log_act_detail_volumeAll          Float?
+  log_act_detail_areawork           Float?
+  log_act_detail_create_at          DateTime?                      @db.Timestamp(6)
+  log_act_detail_calStatus_id       Int?
+  carbon_process_queue              carbon_process_queue?
+  activities_chemiscals             activities_chemiscals?         @relation(fields: [act_chemiscal_id], references: [act_chemiscal_id], onDelete: NoAction, onUpdate: NoAction)
+  activities_equipments             activities_equipments?         @relation(fields: [act_equipment_id], references: [act_equipment_id], onDelete: NoAction, onUpdate: NoAction)
+  activities_fertilizers            activities_fertilizers?        @relation(fields: [act_fertilizer_id], references: [act_fertilizer_id], onDelete: NoAction, onUpdate: NoAction)
+  activities_resourceOther          activities_resourceOther?      @relation(fields: [act_resourceOther_id], references: [act_resourceOther_id], onDelete: NoAction, onUpdate: NoAction)
+  activities_header_detail_type     activities_header_detail_type? @relation(fields: [act_header_detail_type_id], references: [act_header_detail_type_id], onDelete: NoAction, onUpdate: NoAction)
+  users                             users?                         @relation(fields: [act_header_detail_type_update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+  activities_header_type            activities_header_type?        @relation(fields: [act_header_type_id], references: [act_header_type_id], onDelete: NoAction, onUpdate: NoAction)
+  activities_header                 activities_header?             @relation(fields: [activities_header_id], references: [activities_header_id], onDelete: NoAction, onUpdate: NoAction)
+  log_act_detail_calStatus          log_act_detail_calStatus?      @relation(fields: [log_act_detail_calStatus_id], references: [log_act_detail_calStatus_id], onDelete: NoAction, onUpdate: NoAction)
+  resource_used_type                resource_used_type?            @relation(fields: [resource_used_type_id], references: [resource_used_type_id], onDelete: NoAction, onUpdate: NoAction)
+  units                             units?                         @relation(fields: [unit_id], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
+  units_prefixs                     units_prefixs?                 @relation(fields: [unit_prefix_id], references: [unit_prefix_id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// This model has constraints using non-default deferring rules and requires additional setup for migrations. Visit https://pris.ly/d/constraint-deferring for more info.
+model activities_fileNameUse {
+  activities_fileNameUse_id          Int       @id
+  activities_fileNameUse_name        String?   @db.VarChar
+  activities_fileNameUse_rowCount    Int?
+  activities_fileNameUse_columnCount Int?
+  activities_fileNameUse_create_at   DateTime? @db.Timestamp(6)
+  activities_fileNameUse_update_at   DateTime? @db.Timestamp(6)
+  activities_fileNameUse_update_uid  Int?
+  users                              users?    @relation(fields: [activities_fileNameUse_update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// This model has constraints using non-default deferring rules and requires additional setup for migrations. Visit https://pris.ly/d/constraint-deferring for more info.
+model activities_resourceOther {
+  act_resourceOther_id         Int                 @id
+  act_resourceOther_name       String?             @db.VarChar
+  act_resourceOther_create_at  DateTime?           @db.Timestamp(6)
+  resource_used_type_id        Int?
+  act_resourceOther_info       String?
+  act_resourceOther_update_uid Int?
+  act_resourceOther_update_at  DateTime?           @db.Timestamp(6)
+  log_activities_detail        log_activities_detail[]
+  users                        users?              @relation(fields: [act_resourceOther_update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+  resource_used_type           resource_used_type? @relation(fields: [resource_used_type_id], references: [resource_used_type_id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model has constraints using non-default deferring rules and requires additional setup for migrations. Visit https://pris.ly/d/constraint-deferring for more info.
+model carbon_process_queue {
+  carbon_process_queue_id            Int                       @id
+  log_act_detail_id                  Int?                      @unique
+  log_act_detail_calStatus_id        Int?
+  land_id                            Int?
+  land_camp_id                       Int?
+  carbon_process_queue_dateWork      DateTime?                 @db.Timestamp(6)
+  carbon_roundCal_id                 Int?
+  N                                  Float?
+  carbon_process_queue_info          String?
+  carbon_process_queue_resultValue   Decimal?                  @db.Decimal(14, 4)
+  unit_prefix_id_resultValue         Int?
+  unit_id_resultValue                Int?
+  carbon_process_queue_retry_count   Int?
+  carbon_process_queue_error_message String?
+  carbon_process_queue_create_at     DateTime?                 @db.Timestamp(6)
+  carbon_process_queue_started_at    DateTime?                 @db.Timestamp(6)
+  carbon_process_queue_ended_at      DateTime?                 @db.Timestamp(6)
+  carbon_process_queue_updated_at    DateTime?                 @db.Timestamp(6)
+  carbon_roundCal                    carbon_roundCal?          @relation(fields: [carbon_roundCal_id], references: [carbon_roundCal_id], onDelete: NoAction, onUpdate: NoAction)
+  lands_camps                        lands_camps?              @relation(fields: [land_camp_id], references: [land_camp_id], onDelete: NoAction, onUpdate: NoAction)
+  lands                              lands?                    @relation(fields: [land_id], references: [land_id], onDelete: NoAction, onUpdate: NoAction)
+  log_act_detail_calStatus           log_act_detail_calStatus? @relation(fields: [log_act_detail_calStatus_id], references: [log_act_detail_calStatus_id], onDelete: NoAction, onUpdate: NoAction)
+  log_activities_detail              log_activities_detail?    @relation(fields: [log_act_detail_id], references: [log_act_detail_id], onDelete: NoAction, onUpdate: NoAction)
+  units                              units?                    @relation(fields: [unit_id_resultValue], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
+  units_prefixs                      units_prefixs?            @relation(fields: [unit_prefix_id_resultValue], references: [unit_prefix_id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// This model has constraints using non-default deferring rules and requires additional setup for migrations. Visit https://pris.ly/d/constraint-deferring for more info.
+model carbon_roundCal {
+  carbon_roundCal_id         Int                    @id
+  carbon_roundCal_idCode     String?                @db.VarChar
+  carbon_typeCal_id          Int?
+  carbon_roundCal_info       String?
+  carbon_roundCal_create_at  DateTime?              @db.Timestamp(6)
+  carbon_roundCal_update_at  DateTime?              @db.Timestamp(6)
+  carbon_roundCal_update_uid Int?
+  carbon_process_queue       carbon_process_queue[]
+  users                      users?                 @relation(fields: [carbon_roundCal_update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+  carbon_typeCal             carbon_typeCal?        @relation(fields: [carbon_typeCal_id], references: [carbon_typeCal_id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// This model has constraints using non-default deferring rules and requires additional setup for migrations. Visit https://pris.ly/d/constraint-deferring for more info.
+model carbon_typeCal {
+  carbon_typeCal_id         Int               @id
+  carbon_typeCal_name       String?           @db.VarChar
+  carbon_typeCal_create_at  DateTime?         @db.Timestamp(6)
+  carbon_typeCal_update_at  DateTime?         @db.Timestamp(6)
+  carbon_typeCal_update_uid Int?
+  carbon_roundCal           carbon_roundCal[]
+  users                     users?            @relation(fields: [carbon_typeCal_update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
 }

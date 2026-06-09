@@ -326,10 +326,11 @@ CREATE TABLE "log_activities_detail" (
   "act_equipment_id" integer,
   "act_fertilizer_id" integer,
   "act_chemiscal_id" integer,
+  "act_resourceOther_id" integer,
   "resource_used_type_id" integer,
   "unit_prefix_id" integer,
   "unit_id" integer,
-  "log_act_detail_quatity" float,
+  "log_act_detail_quatity" int,
   "log_act_detail_volumePerUnit" float,
   "log_act_detail_volumeAll" float,
   "log_act_detail_areawork" float,
@@ -365,11 +366,72 @@ CREATE TABLE "coefficients_emissions_factors_gwp" (
   "coef_em_factor_gwp_ref" integer
 );
 
+CREATE TABLE "carbon_process_queue" (
+  "carbon_process_queue_id" integer PRIMARY KEY,
+  "log_act_detail_id" integer UNIQUE,
+  "log_act_detail_calStatus_id" integer,
+  "land_id" integer,
+  "land_camp_id" integer,
+  "carbon_process_queue_dateWork" timestamp,
+  "carbon_roundCal_id" integer,
+  "N" float,
+  "carbon_process_queue_info" text,
+  "carbon_process_queue_resultValue" decimal(14,4),
+  "unit_prefix_id_resultValue" integer,
+  "unit_id_resultValue" integer,
+  "carbon_process_queue_retry_count" integer,
+  "carbon_process_queue_error_message" text,
+  "carbon_process_queue_create_at" timestamp,
+  "carbon_process_queue_started_at" timestamp,
+  "carbon_process_queue_ended_at" timestamp,
+  "carbon_process_queue_updated_at" timestamp
+);
+
+CREATE TABLE "carbon_typeCal" (
+  "carbon_typeCal_id" integer PRIMARY KEY,
+  "carbon_typeCal_name" varchar,
+  "carbon_typeCal_create_at" timestamp,
+  "carbon_typeCal_update_at" timestamp,
+  "carbon_typeCal_update_uid" integer
+);
+
+CREATE TABLE "carbon_roundCal" (
+  "carbon_roundCal_id" integer PRIMARY KEY,
+  "carbon_roundCal_idCode" varchar,
+  "carbon_typeCal_id" integer,
+  "carbon_roundCal_info" text,
+  "carbon_roundCal_create_at" timestamp,
+  "carbon_roundCal_update_at" timestamp,
+  "carbon_roundCal_update_uid" integer
+);
+
+CREATE TABLE "activities_fileNameUse" (
+  "activities_fileNameUse_id" integer PRIMARY KEY,
+  "activities_fileNameUse_name" varchar,
+  "activities_fileNameUse_rowCount" integer,
+  "activities_fileNameUse_columnCount" integer,
+  "activities_fileNameUse_create_at" timestamp,
+  "activities_fileNameUse_update_at" timestamp,
+  "activities_fileNameUse_update_uid" integer
+);
+
+CREATE TABLE "activities_resourceOther" (
+  "act_resourceOther_id" integer PRIMARY KEY,
+  "act_resourceOther_name" varchar,
+  "act_resourceOther_create_at" timestamp,
+  "resource_used_type_id" integer,
+  "act_resourceOther_info" text,
+  "act_resourceOther_update_uid" integer,
+  "act_resourceOther_update_at" timestamp
+);
+
 COMMENT ON TABLE "users" IS 'role in this not sure to create an table';
 
 COMMENT ON TABLE "landmaps" IS 'ตรงนี้อาจจะเอารูปภาพมาใส่ถ้ามี เป็นของโฉนด';
 
 COMMENT ON TABLE "units_prefixs" IS 'prefix unit is an kilo=1000 mega=100000';
+
+COMMENT ON TABLE "carbon_process_queue" IS 'I want more detail about unique';
 
 ALTER TABLE "provinces" ADD FOREIGN KEY ("geography_id") REFERENCES "geographies" ("geographies_id") DEFERRABLE INITIALLY IMMEDIATE;
 
@@ -507,6 +569,8 @@ ALTER TABLE "log_activities_detail" ADD FOREIGN KEY ("act_fertilizer_id") REFERE
 
 ALTER TABLE "log_activities_detail" ADD FOREIGN KEY ("act_chemiscal_id") REFERENCES "activities_chemiscals" ("act_chemiscal_id") DEFERRABLE INITIALLY IMMEDIATE;
 
+ALTER TABLE "log_activities_detail" ADD FOREIGN KEY ("act_resourceOther_id") REFERENCES "activities_resourceOther" ("act_resourceOther_id") DEFERRABLE INITIALLY IMMEDIATE;
+
 ALTER TABLE "log_activities_detail" ADD FOREIGN KEY ("resource_used_type_id") REFERENCES "resource_used_type" ("resource_used_type_id") DEFERRABLE INITIALLY IMMEDIATE;
 
 ALTER TABLE "log_activities_detail" ADD FOREIGN KEY ("unit_prefix_id") REFERENCES "units_prefixs" ("unit_prefix_id") DEFERRABLE INITIALLY IMMEDIATE;
@@ -516,3 +580,29 @@ ALTER TABLE "log_activities_detail" ADD FOREIGN KEY ("unit_id") REFERENCES "unit
 ALTER TABLE "log_activities_detail" ADD FOREIGN KEY ("log_act_detail_calStatus_id") REFERENCES "log_act_detail_calStatus" ("log_act_detail_calStatus_id") DEFERRABLE INITIALLY IMMEDIATE;
 
 ALTER TABLE "coefficients_emissions_factors_gwp" ADD FOREIGN KEY ("coef_em_factor_gwp_update_uid") REFERENCES "users" ("user_id") DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE "carbon_process_queue" ADD FOREIGN KEY ("log_act_detail_id") REFERENCES "log_activities_detail" ("log_act_detail_id") DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE "carbon_process_queue" ADD FOREIGN KEY ("log_act_detail_calStatus_id") REFERENCES "log_act_detail_calStatus" ("log_act_detail_calStatus_id") DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE "carbon_process_queue" ADD FOREIGN KEY ("land_id") REFERENCES "lands" ("land_id") DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE "carbon_process_queue" ADD FOREIGN KEY ("land_camp_id") REFERENCES "lands_camps" ("land_camp_id") DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE "carbon_process_queue" ADD FOREIGN KEY ("carbon_roundCal_id") REFERENCES "carbon_roundCal" ("carbon_roundCal_id") DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE "carbon_process_queue" ADD FOREIGN KEY ("unit_prefix_id_resultValue") REFERENCES "units_prefixs" ("unit_prefix_id") DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE "carbon_process_queue" ADD FOREIGN KEY ("unit_id_resultValue") REFERENCES "units" ("unit_id") DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE "carbon_typeCal" ADD FOREIGN KEY ("carbon_typeCal_update_uid") REFERENCES "users" ("user_id") DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE "carbon_roundCal" ADD FOREIGN KEY ("carbon_typeCal_id") REFERENCES "carbon_typeCal" ("carbon_typeCal_id") DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE "carbon_roundCal" ADD FOREIGN KEY ("carbon_roundCal_update_uid") REFERENCES "users" ("user_id") DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE "activities_fileNameUse" ADD FOREIGN KEY ("activities_fileNameUse_update_uid") REFERENCES "users" ("user_id") DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE "activities_resourceOther" ADD FOREIGN KEY ("resource_used_type_id") REFERENCES "resource_used_type" ("resource_used_type_id") DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE "activities_resourceOther" ADD FOREIGN KEY ("act_resourceOther_update_uid") REFERENCES "users" ("user_id") DEFERRABLE INITIALLY IMMEDIATE;

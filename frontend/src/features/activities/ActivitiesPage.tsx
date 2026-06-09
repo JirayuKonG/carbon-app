@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DataTable, Column } from '@/components/ui/DataTable'
-import { CsvMappingWizard, TargetColumn, ColumnMapping, type CsvImportProgressReporter } from '@/components/ui/CsvMappingWizard'
+import { CsvMappingWizard, TargetColumn, ColumnMapping, type CsvImportHelpers } from '@/components/ui/CsvMappingWizard'
 import { DashboardVisibilityMenu, useDashboardVisibility } from '@/components/ui/DashboardVisibilityMenu'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
@@ -57,6 +57,7 @@ interface LogDetail {
   act_equipment_id?: number
   act_fertilizer_id?: number
   act_chemiscal_id?: number
+  act_resourceOther_id?: number
   resource_used_type_id: number
   unit_prefix_id?: number
   unit_id?: number
@@ -69,6 +70,7 @@ interface LogDetail {
   activities_fertilizers?: { act_fertilizer_name?: string }
   activities_equipments?: { act_equipment_name?: string }
   activities_chemiscals?: { act_chemiscal_name?: string }
+  activities_resourceOther?: { act_resourceOther_name?: string }
   resource_used_type?: { resc_used_type_name?: string }
   log_act_detail_calStatus?: { log_act_detail_calStatus_name?: string }
   activities_header?: DetailHeaderLocation
@@ -85,8 +87,24 @@ interface CalStatus { log_act_detail_calStatus_id: number; log_act_detail_calSta
 interface Fertilizer { act_fertilizer_id: number; act_fertilizer_name: string }
 interface Equipment  { act_equipment_id: number; act_equipment_name: string }
 interface Chemical   { act_chemiscal_id: number; act_chemiscal_name: string }
+interface ResourceOther { act_resourceOther_id: number; act_resourceOther_name: string }
 interface Unit       { unit_id: number; unit_name?: string; unit_initial?: string }
 interface UnitPrefix { unit_prefix_id: number; unit_prefix_name?: string; unit_prefix_initial?: string }
+interface ActivityImportFile {
+  activities_fileNameUse_id: number
+  activities_fileNameUse_name?: string
+  activities_fileNameUse_rowCount?: number
+  activities_fileNameUse_columnCount?: number
+  activities_fileNameUse_create_at?: string
+  activities_fileNameUse_update_at?: string
+  activities_fileNameUse_update_uid?: number
+  users?: {
+    user_id: number
+    username?: string
+    first_name?: string
+    last_name?: string
+  }
+}
 type ActivityImportPayload = { mappings: ColumnMapping[]; rows: Record<string, string>[] }
 type ActivityImportResult = { inserted: number; skipped: number; errors: string[] }
 type ActivityImportChunk = { rows: Record<string, string>[]; startIndex: number; sizeBytes: number }
@@ -119,6 +137,7 @@ type DetailForm = {
   act_equipment_id: string
   act_fertilizer_id: string
   act_chemiscal_id: string
+  act_resourceOther_id: string
   resource_used_type_id: string
   unit_prefix_id: string
   unit_id: string
@@ -170,6 +189,7 @@ const emptyDetailForm: DetailForm = {
   act_equipment_id: '',
   act_fertilizer_id: '',
   act_chemiscal_id: '',
+  act_resourceOther_id: '',
   resource_used_type_id: '',
   unit_prefix_id: '',
   unit_id: '',
@@ -246,6 +266,13 @@ function formatQuantityValue(value?: number | null) {
   })
 }
 
+function getImportFileUpdaterLabel(file: ActivityImportFile) {
+  const firstName = file.users?.first_name?.trim()
+  const lastName = file.users?.last_name?.trim()
+  const fullName = [firstName, lastName].filter(Boolean).join(' ').trim()
+  return fullName || file.users?.username?.trim() || (file.activities_fileNameUse_update_uid != null ? `#${file.activities_fileNameUse_update_uid}` : '—')
+}
+
 // Columns matching actual xlsx (inactive): กิจกรรม | ไร่(camp) | แปลง | รายการปัจจัย | ปริมาณ | math | ปริมาณใช้ | ไร่(area) | รวมเป็นเงิน | ประเภทปัจจัย | หน่วยนับ Farmpro | ประเภทใหม่
 // columns matching actual CSV (active): วันที่ปฏิบัติ · หมวดหมู่กิจกรรมหลัก · รายละเอียดกิจกรรมย่อย · ไร่(camps) · แปลง(lands) · พื้นที่ตามแปลง · 
                                       // ประเภทแปลง · ประเภทอ้อย · รายการปัจจัยการผลิต(listEM - ปุ๋ย 23-12-12 Control Release) · ประเภทปัจจัย(UsageType - ปุ๋ย) · ปริมาณรวม · 
@@ -281,7 +308,7 @@ const ACTIVITY_TARGET_COLUMNS: TargetColumn[] = [  // new 05272026  ------------
 
   { key: 'act_header_typeLand_id',        label: 'ประเภทแปลง',        required: false, type: 'fk', fkTable: 'activities_land_type' },
   { key: 'act_header_typeSugarCane_id',   label: 'ประเภทอ้อย',         required: false, type: 'fk', fkTable: 'activities_header_typeSugarCane' },
-  { key: 'resource_item_name',            label: 'รายการปัจจัยการผลิต',  required: true, type: 'fk', fkTable: 'activities_fertilizers / equipments' },
+  { key: 'resource_item_name',            label: 'รายการปัจจัยการผลิต',  required: true, type: 'fk', fkTable: 'activities_fertilizers / equipments / resourceOther' },
   { key: 'resource_used_type',            label: 'ประเภทปัจจัย',        required: true, type: 'fk', fkTable: 'resource_used_type' },
   { key: 'log_act_detail_volumeAll',      label: 'ปริมาณรวม',          required: false, type: 'number' },
   { key: 'log_act_detail_quatity',        label: 'จำนวน',             required: false, type: 'number' },
@@ -383,6 +410,8 @@ export function ActivitiesPage() {
   const { data: fertilizers = [], error: fertilizersError }             = useQuery({ queryKey: ['fertilizers'],        queryFn: () => get<Fertilizer[]>('/activities/fertilizers') })
   const { data: equipments = [], error: equipmentsError }               = useQuery({ queryKey: ['equipments'],         queryFn: () => get<Equipment[]>('/activities/equipments') })
   const { data: chemicals = [], error: chemicalsError }                 = useQuery({ queryKey: ['chemicals'],          queryFn: () => get<Chemical[]>('/activities/chemicals') })
+  const { data: resourceOthers = [], error: resourceOthersError }       = useQuery({ queryKey: ['resource-others'],    queryFn: () => get<ResourceOther[]>('/activities/resource-others') })
+  const { data: importFiles = [], isLoading: importFilesLoading, error: importFilesError } = useQuery({ queryKey: ['activity-import-files'], queryFn: () => get<ActivityImportFile[]>('/activities/import-files') })
   const { data: units = [], error: unitsError }                         = useQuery({ queryKey: ['units'],              queryFn: () => get<Unit[]>('/emission-factors/units') })
   const { data: unitPrefixes = [], error: unitPrefixesError }           = useQuery({ queryKey: ['unit-prefixs'],       queryFn: () => get<UnitPrefix[]>('/emission-factors/unit-prefixs') })
 
@@ -401,6 +430,8 @@ export function ActivitiesPage() {
     { label: 'ปุ๋ย', error: fertilizersError },
     { label: 'อุปกรณ์', error: equipmentsError },
     { label: 'สารเคมี', error: chemicalsError },
+    { label: 'รายการอื่น ๆ', error: resourceOthersError },
+    { label: 'ประวัติไฟล์นำเข้า', error: importFilesError },
     { label: 'หน่วยนับ', error: unitsError },
     { label: 'คำนำหน้าหน่วย', error: unitPrefixesError },
   ]
@@ -408,7 +439,7 @@ export function ActivitiesPage() {
   async function importActivityCsvInChunks(
     mappings: ColumnMapping[],
     rows: Record<string, string>[],
-    helpers?: { onProgress?: CsvImportProgressReporter },
+    helpers?: CsvImportHelpers,
   ) {
     const chunks = createActivityImportChunks(mappings, rows)
     const result: ActivityImportResult = { inserted: 0, skipped: 0, errors: [] }
@@ -473,9 +504,22 @@ export function ActivitiesPage() {
       }
     }
 
+    if (helpers?.fileName) {
+      try {
+        await post('/activities/import-files', {
+          activities_fileNameUse_name: helpers.fileName,
+          activities_fileNameUse_rowCount: helpers.rowCount ?? rows.length,
+          activities_fileNameUse_columnCount: helpers.columnCount,
+        })
+      } catch (error: any) {
+        result.errors.push(`บันทึกประวัติไฟล์ไม่สำเร็จ: ${error?.message ?? 'Unknown error'}`)
+      }
+    }
+
     await Promise.all([
       qc.invalidateQueries({ queryKey: ['activity-headers'] }),
       qc.invalidateQueries({ queryKey: ['activity-details'] }),
+      qc.invalidateQueries({ queryKey: ['activity-import-files'] }),
     ])
 
     helpers?.onProgress?.({
@@ -555,6 +599,7 @@ export function ActivitiesPage() {
   const fertilizerMap = Object.fromEntries(fertilizers.map(f => [f.act_fertilizer_id, f.act_fertilizer_name]))
   const equipmentMap = Object.fromEntries(equipments.map(e => [e.act_equipment_id, e.act_equipment_name]))
   const chemicalMap = Object.fromEntries(chemicals.map(c => [c.act_chemiscal_id, c.act_chemiscal_name]))
+  const resourceOtherMap = Object.fromEntries(resourceOthers.map(r => [r.act_resourceOther_id, r.act_resourceOther_name]))
   const unitMap = Object.fromEntries(units.map(u => [u.unit_id, u.unit_name ?? u.unit_initial ?? `#${u.unit_id}`]))
   const unitPrefixMap = Object.fromEntries(unitPrefixes.map(p => [p.unit_prefix_id, p.unit_prefix_name ?? p.unit_prefix_initial ?? `#${p.unit_prefix_id}`]))
 
@@ -588,9 +633,11 @@ export function ActivitiesPage() {
     detail.activities_fertilizers?.act_fertilizer_name
     ?? detail.activities_equipments?.act_equipment_name
     ?? detail.activities_chemiscals?.act_chemiscal_name
+    ?? detail.activities_resourceOther?.act_resourceOther_name
     ?? fertilizerMap[detail.act_fertilizer_id ?? 0]
     ?? equipmentMap[detail.act_equipment_id ?? 0]
     ?? chemicalMap[detail.act_chemiscal_id ?? 0]
+    ?? resourceOtherMap[detail.act_resourceOther_id ?? 0]
     ?? '—'
 
   const getHeaderCampId = (header: ActivityHeader) =>
@@ -631,6 +678,9 @@ export function ActivitiesPage() {
   )
 
   const visibleLands = selectedCampId ? lands.filter(l => l.land_camp_id === selectedCampId) : lands  // If camp selected, only show lands in that camp. Otherwise show all lands.
+  const visibleDetailFilterLands = detailFilters.campId
+    ? lands.filter((land) => land.land_camp_id === Number(detailFilters.campId))
+    : lands
   const visibleHeaderLands = selectedHeaderCampId ? lands.filter(l => l.land_camp_id === selectedHeaderCampId) : lands
   const visibleHeaders = selectedLandId ? headers.filter(h => h.land_id === selectedLandId) : headers
 
@@ -647,7 +697,17 @@ export function ActivitiesPage() {
   }
 
   const setDetailFilterValue = (key: keyof DetailFilters, value: string) => {
-    setDetailFilters(prev => ({ ...prev, [key]: value }))
+    setDetailFilters((prev) => {
+      if (key === 'campId') {
+        return {
+          ...prev,
+          campId: value,
+          landId: '',
+        }
+      }
+
+      return { ...prev, [key]: value }
+    })
   }
 
   const setLandFilter = (landId: number | null) => {
@@ -713,6 +773,7 @@ export function ActivitiesPage() {
       act_equipment_id: detail.act_equipment_id ? String(detail.act_equipment_id) : '',
       act_fertilizer_id: detail.act_fertilizer_id ? String(detail.act_fertilizer_id) : '',
       act_chemiscal_id: detail.act_chemiscal_id ? String(detail.act_chemiscal_id) : '',
+      act_resourceOther_id: detail.act_resourceOther_id ? String(detail.act_resourceOther_id) : '',
       resource_used_type_id: detail.resource_used_type_id ? String(detail.resource_used_type_id) : '',
       unit_prefix_id: detail.unit_prefix_id ? String(detail.unit_prefix_id) : '',
       unit_id: detail.unit_id ? String(detail.unit_id) : '',
@@ -759,6 +820,7 @@ export function ActivitiesPage() {
       act_equipment_id: toNumberOrUndefined(detailForm.act_equipment_id),
       act_fertilizer_id: toNumberOrUndefined(detailForm.act_fertilizer_id),
       act_chemiscal_id: toNumberOrUndefined(detailForm.act_chemiscal_id),
+      act_resourceOther_id: toNumberOrUndefined(detailForm.act_resourceOther_id),
       resource_used_type_id: toNumberOrUndefined(detailForm.resource_used_type_id),
       unit_prefix_id: toNumberOrUndefined(detailForm.unit_prefix_id),
       unit_id: toNumberOrUndefined(detailForm.unit_id),
@@ -796,6 +858,17 @@ export function ActivitiesPage() {
     openDetailForm(header)
     navigate('/activities/manage', { replace: true })
   }, [headers, navigate, searchParams, showForm])
+
+  useEffect(() => {
+    if (!detailFilters.landId) return
+
+    const selectedLand = lands.find((land) => land.land_id === Number(detailFilters.landId))
+    const selectedCamp = detailFilters.campId ? Number(detailFilters.campId) : null
+
+    if (selectedCamp != null && selectedLand?.land_camp_id !== selectedCamp) {
+      setDetailFilters((prev) => ({ ...prev, landId: '' }))
+    }
+  }, [detailFilters.campId, detailFilters.landId, lands])
 
   const getRawCalStatusLabel = (detail: LogDetail) =>
     detail.log_act_detail_calStatus?.log_act_detail_calStatus_name?.trim()
@@ -878,6 +951,41 @@ export function ActivitiesPage() {
     }, 
   ]
 
+  const importFileCols: Column<ActivityImportFile>[] = [
+    { key: 'activities_fileNameUse_id', header: 'ID', width: '70px', sortable: true },
+    {
+      key: 'activities_fileNameUse_name',
+      header: 'ชื่อไฟล์',
+      sortable: true,
+      render: (row) => row.activities_fileNameUse_name ?? '—',
+    },
+    {
+      key: 'activities_fileNameUse_rowCount',
+      header: 'จำนวนแถว',
+      sortable: true,
+      render: (row) => row.activities_fileNameUse_rowCount?.toLocaleString('th-TH') ?? '—',
+    },
+    {
+      key: 'activities_fileNameUse_columnCount',
+      header: 'จำนวนคอลัมน์',
+      sortable: true,
+      render: (row) => row.activities_fileNameUse_columnCount?.toLocaleString('th-TH') ?? '—',
+    },
+    {
+      key: 'activities_fileNameUse_create_at',
+      header: 'เวลานำเข้า',
+      sortable: true,
+      render: (row) => formatBangkokDateTime(row.activities_fileNameUse_create_at),
+    },
+    {
+      key: 'activities_fileNameUse_update_uid',
+      header: 'ผู้บันทึก',
+      sortable: true,
+      sortValue: (row) => getImportFileUpdaterLabel(row),
+      render: (row) => getImportFileUpdaterLabel(row),
+    },
+  ]
+
   const selectedHeaderPanel = showSelectedHeaderPanel && selectedHeader ? (
     <div className="card w-full shrink-0 animate-slide-in xl:w-[30rem]">
       <div className="mb-4 flex items-center justify-between gap-3">
@@ -918,10 +1026,12 @@ export function ActivitiesPage() {
   const standardCfpDoneCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'cfpDone').length
   const errorCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'error').length
   const totalLogRecords = details.length
+  const importedFilesCount = importFiles.length
 
   const dashboardOptions = [
     { key: 'total', label: 'หัวข้อกิจกรรมทั้งหมด' },
     { key: 'totalLogs', label: 'บันทึกกิจกรรมทั้งหมด' },
+    { key: 'importFiles', label: 'ไฟล์ที่นำเข้าแล้ว' },
     { key: 'imported', label: 'นำเข้าข้อมูลแล้ว' },
     { key: 'preparing', label: 'กำลังเตรียมข้อมูล' },
     { key: 'ready', label: 'พร้อมคำนวณมาตรฐาน' },
@@ -962,6 +1072,13 @@ export function ActivitiesPage() {
       icon: <Upload size={14} className="text-surface-500" />,
       value: importedCount,
       valueClassName: 'stat-value text-surface-700',
+    },
+    {
+      key: 'importFiles',
+      label: 'ไฟล์ที่นำเข้าแล้ว',
+      icon: <Upload size={14} className="text-emerald-500" />,
+      value: importedFilesCount,
+      valueClassName: 'stat-value text-emerald-700',
     },
     {
       key: 'preparing',
@@ -1071,6 +1188,26 @@ export function ActivitiesPage() {
               </div>
           ))}
         </div>
+      </div>
+
+      <div className="card mb-5">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold">ประวัติไฟล์ที่นำเข้า</h2>
+            <p className="mt-1 text-xs text-surface-500">
+              เก็บรายชื่อไฟล์ที่ถูกนำเข้าผ่านหน้าจัดการกิจกรรม พร้อมจำนวนแถวและจำนวนคอลัมน์ของไฟล์นั้น
+            </p>
+          </div>
+        </div>
+        <DataTable
+          data={importFiles}
+          columns={importFileCols}
+          isLoading={importFilesLoading}
+          rowKey={(row) => row.activities_fileNameUse_id}
+          searchPlaceholder="ค้นหาชื่อไฟล์นำเข้า..."
+          defaultPageSize={10}
+          emptyMessage="ยังไม่มีประวัติไฟล์นำเข้า"
+        />
       </div>
 
       {/* Split panel: table left, detail right when selected */}
@@ -1242,7 +1379,7 @@ export function ActivitiesPage() {
               <label className="label">แปลง</label>
               <select className="select" value={detailFilters.landId} onChange={(e) => setDetailFilterValue('landId', e.target.value)}>
                 <option value="">ทั้งหมด</option>
-                {lands.map(l => <option key={l.land_id} value={l.land_id}>{getLandDisplayLabel(l.land_code, l.name)}</option>)}
+                {visibleDetailFilterLands.map(l => <option key={l.land_id} value={l.land_id}>{getLandDisplayLabel(l.land_code, l.name)}</option>)}
               </select>
             </div>
             <div>
@@ -1394,14 +1531,19 @@ export function ActivitiesPage() {
                   <input className="input" value={
                     detailForm.act_fertilizer_id ? 'ปุ๋ย' :
                     detailForm.act_equipment_id ? 'อุปกรณ์' :
-                    detailForm.act_chemiscal_id ? 'สารเคมี' : '—'
+                    detailForm.act_chemiscal_id ? 'สารเคมี' :
+                    detailForm.act_resourceOther_id ? 'รายการอื่น ๆ' : '—'
                   } readOnly />
                 </div> */}
                 <div>
                   <label className="label">ปุ๋ย</label>
                   <select className="select" value={detailForm.act_fertilizer_id} onChange={(e) => {
                     setFormValue('act_fertilizer_id', e.target.value)
-                    if (e.target.value) { setFormValue('act_equipment_id', ''); setFormValue('act_chemiscal_id', '') }
+                    if (e.target.value) {
+                      setFormValue('act_equipment_id', '')
+                      setFormValue('act_chemiscal_id', '')
+                      setFormValue('act_resourceOther_id', '')
+                    }
                   }}>
                     <option value="">— ไม่ระบุ —</option>
                     {fertilizers.map(f => <option key={f.act_fertilizer_id} value={f.act_fertilizer_id}>{f.act_fertilizer_name}</option>)}
@@ -1411,7 +1553,11 @@ export function ActivitiesPage() {
                   <label className="label">อุปกรณ์</label>
                   <select className="select" value={detailForm.act_equipment_id} onChange={(e) => {
                     setFormValue('act_equipment_id', e.target.value)
-                    if (e.target.value) { setFormValue('act_fertilizer_id', ''); setFormValue('act_chemiscal_id', '') }
+                    if (e.target.value) {
+                      setFormValue('act_fertilizer_id', '')
+                      setFormValue('act_chemiscal_id', '')
+                      setFormValue('act_resourceOther_id', '')
+                    }
                   }}>
                     <option value="">— ไม่ระบุ —</option>
                     {equipments.map(eq => <option key={eq.act_equipment_id} value={eq.act_equipment_id}>{eq.act_equipment_name}</option>)}
@@ -1421,10 +1567,28 @@ export function ActivitiesPage() {
                   <label className="label">สารเคมี</label>
                   <select className="select" value={detailForm.act_chemiscal_id} onChange={(e) => {
                     setFormValue('act_chemiscal_id', e.target.value)
-                    if (e.target.value) { setFormValue('act_fertilizer_id', ''); setFormValue('act_equipment_id', '') }
+                    if (e.target.value) {
+                      setFormValue('act_fertilizer_id', '')
+                      setFormValue('act_equipment_id', '')
+                      setFormValue('act_resourceOther_id', '')
+                    }
                   }}>
                     <option value="">— ไม่ระบุ —</option>
                     {chemicals.map(c => <option key={c.act_chemiscal_id} value={c.act_chemiscal_id}>{c.act_chemiscal_name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">รายการอื่น ๆ</label>
+                  <select className="select" value={detailForm.act_resourceOther_id} onChange={(e) => {
+                    setFormValue('act_resourceOther_id', e.target.value)
+                    if (e.target.value) {
+                      setFormValue('act_fertilizer_id', '')
+                      setFormValue('act_equipment_id', '')
+                      setFormValue('act_chemiscal_id', '')
+                    }
+                  }}>
+                    <option value="">— ไม่ระบุ —</option>
+                    {resourceOthers.map(r => <option key={r.act_resourceOther_id} value={r.act_resourceOther_id}>{r.act_resourceOther_name}</option>)}
                   </select>
                 </div>
                 {/* <div>
