@@ -1246,67 +1246,33 @@ export function CfFootprintReportPage() {
             {generatedReport && activePreviewTab === "excel" && (
               <div className="excel-preview">
                 <div className="excel-sheet-grid">
-                  <div>
-                    <h3>Summary</h3>
-                    <table className="report-table">
-                      <tbody>
-                        <tr><th>Scope</th><td>{generatedReport.scopeLabel}</td></tr>
-                        <tr><th>Baseline</th><td>{formatNumber(generatedReport.baselineTotal)} tCO2e</td></tr>
-                        <tr><th>Project</th><td>{formatNumber(generatedReport.currentTotal)} tCO2e</td></tr>
-                        <tr><th>Diff</th><td>{generatedReport.reduction.text}</td></tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  <div>
-                    <h3>Process Hotspot</h3>
-                    <table className="report-table">
-                      <thead><tr><th>Process</th><th>Current</th><th>Share</th></tr></thead>
-                      <tbody>
-                        {generatedReport.hotspotRows.slice(0, 6).map((row) => (
-                          <tr key={`excel-preview-${row.process}`}><td>{row.process}</td><td>{formatNumber(row.currentEmission)}</td><td>{row.share.toFixed(1)}%</td></tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div>
-                    <h3>Activity Inputs</h3>
-                    <table className="report-table">
-                      <thead><tr><th>Process</th><th>Fertilizer</th><th>Fuel</th></tr></thead>
-                      <tbody>
-                        {generatedReport.inputs.map((row) => (
-                          <tr key={`input-preview-${row.process}`}><td>{row.process}</td><td>{formatNumber(row.currentFertilizerKg, 1)} kg</td><td>{formatNumber(row.currentFuelLiter, 1)} L</td></tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div>
-                    <h3>Emission Reduction Analysis</h3>
-                    <table className="report-table">
-                      <thead><tr><th>Process</th><th>Baseline</th><th>Project</th><th>Reduction</th></tr></thead>
-                      <tbody>
-                        {generatedReport.hotspotRows.slice(0, 6).map((row) => (
-                          <tr key={`reduction-preview-${row.process}`}><td>{row.process}</td><td>{formatNumber(row.baselineEmission)}</td><td>{formatNumber(row.currentEmission)}</td><td>{formatNumber(row.diff)}</td></tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div>
-                    <h3>Cane Type Analysis</h3>
-                    <table className="report-table">
-                      <thead><tr><th>Cane Type</th><th>Area</th><th>Baseline</th><th>Project</th><th>Reduction</th></tr></thead>
-                      <tbody>
-                        {generatedCaneTypeRows.map((row) => (
-                          <tr key={`cane-type-preview-${row.caneType}`}>
-                            <td>{row.caneType}</td>
-                            <td>{formatNumber(row.area, 1)} ไร่</td>
-                            <td>{formatNumber(row.baseline)}</td>
-                            <td>{formatNumber(row.project)}</td>
-                            <td>{formatNumber(row.reduction)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  {generatedExcelSheets.map((sheet) => {
+                    const columns = Object.keys(sheet.rows[0] ?? {});
+                    return (
+                      <div key={`excel-sheet-${sheet.name}`} className="excel-preview-sheet">
+                        <div className="excel-preview-sheet-head">
+                          <h3>{sheet.name}</h3>
+                          <span>{formatNumber(sheet.rows.length, 0)} rows</span>
+                        </div>
+                        <table className="report-table">
+                          <thead>
+                            <tr>
+                              {columns.map((column) => <th key={`${sheet.name}-${column}`}>{column}</th>)}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sheet.rows.map((row, rowIndex) => (
+                              <tr key={`${sheet.name}-row-${rowIndex}`}>
+                                {columns.map((column) => (
+                                  <td key={`${sheet.name}-${rowIndex}-${column}`}>{excelPreviewCell(row[column])}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
