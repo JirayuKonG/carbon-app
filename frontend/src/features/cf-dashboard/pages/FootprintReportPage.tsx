@@ -244,6 +244,11 @@ function rowsForSheet<T extends object>(rows: T[]): Record<string, unknown>[] {
   return rows.length ? rows.map((row) => ({ ...row }) as Record<string, unknown>) : [{}];
 }
 
+interface ExcelPreviewSheet {
+  name: string;
+  rows: Record<string, unknown>[];
+}
+
 function escapeHtml(value: unknown) {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -263,6 +268,116 @@ function reportSections() {
     "7. ปัจจัยกิจกรรมสำคัญ เช่น ปุ๋ย น้ำมัน และกิจกรรมหลัก",
     "8. ข้อสังเกต แนวทางลดการปล่อย และรายการหลักฐานแนบ",
   ];
+}
+
+function buildFootprintExcelSheets(report: FootprintReportSnapshot): ExcelPreviewSheet[] {
+  const reportSoc = socValues(report.baselineTotal, report.currentTotal, report.kpi.areaRai);
+  const reportPractice = socPracticeValues(reportSoc.socIncrease);
+  const reportCaneTypeRows = caneTypeSummaryRows(report.caneRows);
+
+  return [
+    {
+      name: "Summary",
+      rows: rowsForSheet([{
+        scope: report.scopeLabel,
+        caneType: report.caneLabel,
+        currentYear: report.currentYear,
+        baselineTotal: report.baselineTotal,
+        currentTotal: report.currentTotal,
+        diff: report.reduction.diff,
+        diffPercent: report.reduction.pct,
+        areaRai: report.kpi.areaRai,
+        yieldTon: report.kpi.yieldTon,
+        co2ePerTon: report.kpi.co2ePerTon,
+      }]),
+    },
+    {
+      name: "Process Hotspot",
+      rows: rowsForSheet(report.hotspotRows.map((row) => ({
+        process: row.process,
+        mainActivity: row.activity,
+        baselineEmission: row.baselineEmission,
+        currentEmission: row.currentEmission,
+        diff: row.diff,
+        sharePercent: row.share,
+        baselineFertilizerKg: row.inputRow?.baselineFertilizerKg ?? 0,
+        currentFertilizerKg: row.inputRow?.currentFertilizerKg ?? 0,
+        baselineFuelLiter: row.inputRow?.baselineFuelLiter ?? 0,
+        currentFuelLiter: row.inputRow?.currentFuelLiter ?? 0,
+      }))),
+    },
+    {
+      name: "Cane x Process",
+      rows: rowsForSheet(report.caneRows.map((row) => ({
+        caneType: row.cane.name,
+        caneAreaPercent: row.cane.percent,
+        caneAreaRai: row.cane.areaRai,
+        process: row.process,
+        baselineEmission: row.baselineEmission,
+        currentEmission: row.currentEmission,
+        diff: row.diff,
+        shareInCanePercent: row.shareInCane,
+        shareInScopePercent: row.shareInScope,
+      }))),
+    },
+    {
+      name: "Activity Inputs",
+      rows: rowsForSheet(report.inputs),
+    },
+    {
+      name: "Emission Reduction Analysis",
+      rows: rowsForSheet(report.hotspotRows.map((row) => ({
+        Process: row.process,
+        Baseline: row.baselineEmission,
+        Project: row.currentEmission,
+        Reduction: row.diff,
+        "Share (%)": row.share,
+      }))),
+    },
+    {
+      name: "Cane Type Analysis",
+      rows: rowsForSheet(reportCaneTypeRows.map((row) => ({
+        "Cane Type": row.caneType,
+        Area: row.area,
+        Baseline: row.baseline,
+        Project: row.project,
+        Reduction: row.reduction,
+      }))),
+    },
+    {
+      name: "SOC Summary",
+      rows: rowsForSheet([{
+        "SOC Baseline": reportSoc.socBaseline,
+        "SOC Project": reportSoc.socProject,
+        "SOC Increase": reportSoc.socIncrease,
+        Vinasse: reportPractice.vinasse,
+        "Filter Cake": reportPractice.filterCake,
+        "Green Manure": reportPractice.greenManure,
+        "Trash Retention": reportPractice.trashRetention,
+      }]),
+    },
+    {
+      name: "Net Carbon Result",
+      rows: rowsForSheet([{
+        "Gross Emission": report.currentTotal,
+        "SOC Offset": reportSoc.socIncrease,
+        "Net Emission": reportSoc.netEmission,
+      }]),
+    },
+    {
+      name: "Report Order",
+      rows: rowsForSheet(reportSections().map((section, index) => ({
+        order: index + 1,
+        section,
+      }))),
+    },
+  ];
+}
+
+function excelPreviewCell(value: unknown) {
+  if (value === null || value === undefined || value === "") return "-";
+  if (typeof value === "number") return formatNumber(value, Number.isInteger(value) ? 0 : 2);
+  return String(value);
 }
 
 function footprintWordHtml({
@@ -852,9 +967,7 @@ export function CfFootprintReportPage() {
   }, [generatedReport, reportRenderId]);
 
   const previewIsCurrent = Boolean(generatedReport && generatedReport.id === currentReport.id);
-  const generatedSoc = generatedReport ? socValues(generatedReport.baselineTotal, generatedReport.currentTotal, generatedReport.kpi.areaRai) : undefined;
-  const generatedPractice = generatedSoc ? socPracticeValues(generatedSoc.socIncrease) : undefined;
-  const generatedCaneTypeRows = generatedReport ? caneTypeSummaryRows(generatedReport.caneRows) : [];
+  const generatedExcelSheets = generatedReport ? buildFootprintExcelSheets(generatedReport) : [];
 
   const generateReportPreview = () => {
     if (!currentReport.processRows.length) return;
@@ -890,79 +1003,10 @@ export function CfFootprintReportPage() {
 
   const exportExcel = () => {
     if (!generatedReport || !previewIsCurrent) return;
-    const report = generatedReport;
-    const reportSoc = socValues(report.baselineTotal, report.currentTotal, report.kpi.areaRai);
-    const reportPractice = socPracticeValues(reportSoc.socIncrease);
-    const reportCaneTypeRows = caneTypeSummaryRows(report.caneRows);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet([{
-      scope: report.scopeLabel,
-      caneType: report.caneLabel,
-      currentYear: report.currentYear,
-      baselineTotal: report.baselineTotal,
-      currentTotal: report.currentTotal,
-      diff: report.reduction.diff,
-      diffPercent: report.reduction.pct,
-      areaRai: report.kpi.areaRai,
-      yieldTon: report.kpi.yieldTon,
-      co2ePerTon: report.kpi.co2ePerTon,
-    }])), "Summary");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(report.hotspotRows.map((row) => ({
-      process: row.process,
-      mainActivity: row.activity,
-      baselineEmission: row.baselineEmission,
-      currentEmission: row.currentEmission,
-      diff: row.diff,
-      sharePercent: row.share,
-      baselineFertilizerKg: row.inputRow?.baselineFertilizerKg ?? 0,
-      currentFertilizerKg: row.inputRow?.currentFertilizerKg ?? 0,
-      baselineFuelLiter: row.inputRow?.baselineFuelLiter ?? 0,
-      currentFuelLiter: row.inputRow?.currentFuelLiter ?? 0,
-    })))), "Process Hotspot");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(report.caneRows.map((row) => ({
-      caneType: row.cane.name,
-      caneAreaPercent: row.cane.percent,
-      caneAreaRai: row.cane.areaRai,
-      process: row.process,
-      baselineEmission: row.baselineEmission,
-      currentEmission: row.currentEmission,
-      diff: row.diff,
-      shareInCanePercent: row.shareInCane,
-      shareInScopePercent: row.shareInScope,
-    })))), "Cane x Process");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(report.inputs)), "Activity Inputs");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(report.hotspotRows.map((row) => ({
-      Process: row.process,
-      Baseline: row.baselineEmission,
-      Project: row.currentEmission,
-      Reduction: row.diff,
-      "Share (%)": row.share,
-    })))), "Emission Reduction Analysis");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(reportCaneTypeRows.map((row) => ({
-      "Cane Type": row.caneType,
-      Area: row.area,
-      Baseline: row.baseline,
-      Project: row.project,
-      Reduction: row.reduction,
-    })))), "Cane Type Analysis");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet([{
-      "SOC Baseline": reportSoc.socBaseline,
-      "SOC Project": reportSoc.socProject,
-      "SOC Increase": reportSoc.socIncrease,
-      Vinasse: reportPractice.vinasse,
-      "Filter Cake": reportPractice.filterCake,
-      "Green Manure": reportPractice.greenManure,
-      "Trash Retention": reportPractice.trashRetention,
-    }])), "SOC Summary");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet([{
-      "Gross Emission": report.currentTotal,
-      "SOC Offset": reportSoc.socIncrease,
-      "Net Emission": reportSoc.netEmission,
-    }])), "Net Carbon Result");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(reportSections().map((section, index) => ({
-      order: index + 1,
-      section,
-    })))), "Report Order");
+    buildFootprintExcelSheets(generatedReport).forEach((sheet) => {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheet.rows), sheet.name);
+    });
     XLSX.writeFile(wb, "mitrphol-carbon-footprint-report.xlsx");
   };
 
@@ -1252,7 +1296,13 @@ export function CfFootprintReportPage() {
                       <thead><tr><th>Cane Type</th><th>Area</th><th>Baseline</th><th>Project</th><th>Reduction</th></tr></thead>
                       <tbody>
                         {generatedCaneTypeRows.map((row) => (
-                          <tr key={`cane-type-preview-${row.cane}`}><td>{row.cane}</td><td>{formatNumber(row.areaRai, 1)} ไร่</td><td>{formatNumber(row.baselineEmission)}</td><td>{formatNumber(row.currentEmission)}</td><td>{formatNumber(row.diff)}</td></tr>
+                          <tr key={`cane-type-preview-${row.caneType}`}>
+                            <td>{row.caneType}</td>
+                            <td>{formatNumber(row.area, 1)} ไร่</td>
+                            <td>{formatNumber(row.baseline)}</td>
+                            <td>{formatNumber(row.project)}</td>
+                            <td>{formatNumber(row.reduction)}</td>
+                          </tr>
                         ))}
                       </tbody>
                     </table>
