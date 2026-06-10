@@ -1188,8 +1188,26 @@
   font-weight: 900;
   line-height: 1;
 }
-.map-symbol-legend .legend-arrow.good { background: #16803F; }
-.map-symbol-legend .legend-arrow.bad { background: #C2410C; }
+.map-symbol-legend .legend-arrow.good { background: #16A34A; }
+.map-symbol-legend .legend-arrow.bad { background: #DC2626; }
+.map-symbol-legend .legend-tier-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 4px 10px;
+  padding-left: 6px;
+  border-left: 2px solid var(--border);
+}
+.map-symbol-legend .legend-tier-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+.map-symbol-legend .legend-tier-swatch.green { background: #22C55E; border: 1px solid #16A34A; }
+.map-symbol-legend .legend-tier-swatch.yellow { background: #EAB308; border: 1px solid #CA8A04; }
+.map-symbol-legend .legend-tier-swatch.red { background: #EF4444; border: 1px solid #DC2626; }
 .cf-dash .spatial-picker {
   display: grid;
   grid-template-columns: 260px 1fr;
