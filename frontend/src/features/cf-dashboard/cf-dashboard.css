@@ -546,15 +546,15 @@
 }
 
 .cf-dash .footprint-report-filter {
-  grid-template-columns: minmax(0,1fr) repeat(3, minmax(180px,280px));
+  grid-template-columns: minmax(0,1fr) repeat(3, minmax(160px,280px));
 }
 
 .cf-dash .process-executive-filter {
-  grid-template-columns: minmax(260px,1fr) repeat(3, minmax(180px,260px));
+  grid-template-columns: minmax(0,1fr) repeat(3, minmax(160px,260px));
 }
 
 .cf-dash .footprint-area-filter {
-  grid-template-columns: minmax(240px,1.2fr) repeat(6, minmax(138px,1fr));
+  grid-template-columns: minmax(0,1.2fr) repeat(auto-fit, minmax(130px,1fr));
 }
 
 .cf-dash .period-switch {
@@ -2106,17 +2106,29 @@
 }
 
 .cf-dash .footprint-report-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 12px;
   align-self: start;
 }
 
 .cf-dash .footprint-report-toolbar > div:first-child {
-  min-width: min(100%, 360px);
+  flex: 1 1 260px;
+  min-width: 0;
   margin-right: auto;
 }
 
+.cf-dash .report-download-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
 .cf-dash .footprint-report-page {
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.85fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.85fr);
   grid-auto-flow: row dense;
   align-items: start;
 }
@@ -2124,6 +2136,7 @@
 .cf-dash .footprint-report-page > * {
   grid-column: 1 / -1;
   order: 10;
+  min-width: 0;
 }
 
 .cf-dash .footprint-report-page > .page-title {
@@ -2142,23 +2155,26 @@
 .cf-dash .footprint-report-page > .footprint-report-left-column {
   grid-column: 1;
   order: 3;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .cf-dash .footprint-report-page > .footprint-report-right-column {
   grid-column: 2;
   order: 4;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .cf-dash .footprint-report-right-column .report-preview-panel {
   width: 100%;
+  min-width: 0;
 }
 
 .cf-dash .footprint-report-page > .footprint-net-result-block {
@@ -2173,11 +2189,79 @@
   display: none;
 }
 
+/* KPI section & cards for FootprintReportPage */
+.cf-dash .footprint-kpi-section {
+  display: grid;
+  gap: 16px;
+  border-radius: 16px;
+  border: 1px solid #E5E7EB;
+  background: #FFFFFF;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+  width: 100%;
+}
+
+.cf-dash .footprint-kpi-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+
+.cf-dash .footprint-kpi-card {
+  display: flex;
+  min-height: 110px;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #E5E7EB;
+  border-radius: 14px;
+  background: #FFFFFF;
+  padding: 14px 16px;
+  min-width: 0;
+  box-shadow: none;
+}
+
+.cf-dash .footprint-kpi-card--primary {
+  border-color: #93C5FD;
+  background: #EFF6FF;
+  box-shadow: 0 12px 30px rgba(37, 99, 235, 0.10);
+}
+
+.cf-dash .footprint-kpi-card__label {
+  color: #6B7280;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.cf-dash .footprint-kpi-card__value {
+  display: block;
+  color: #111827;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.15;
+  word-break: break-all;
+}
+
+.cf-dash .footprint-kpi-card--primary .footprint-kpi-card__value {
+  color: #1D4ED8;
+}
+
+.cf-dash .footprint-kpi-card__meta {
+  color: #6B7280;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .cf-dash .footprint-exec-grid {
   grid-template-columns: repeat(4, minmax(0,1fr));
 }
 
 .cf-dash .footprint-net-result-block {
+
   grid-template-columns: repeat(3, minmax(0,1fr));
 }
 
@@ -2472,6 +2556,11 @@
   .cf-dash .footprint-report-page {
     grid-template-columns: 1fr;
   }
+  /* Reset column assignments so left/right columns stack vertically */
+  .cf-dash .footprint-report-page > .footprint-report-left-column,
+  .cf-dash .footprint-report-page > .footprint-report-right-column {
+    grid-column: 1 / -1;
+  }
   .cf-dash .footprint-report-page > .footprint-report-toolbar,
   .cf-dash .footprint-report-page > .report-generate-notice,
   .cf-dash .footprint-report-page > .footprint-context-grid,
@@ -2485,14 +2574,18 @@
   .cf-dash .kpi-grid, .cf-dash .sub-pie-grid, .cf-dash .spatial-select-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .cf-dash .overview-kpi-row.top { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .cf-dash .process-summary-grid,
-  .cf-dash .premium-summary-grid,
-  .cf-dash .footprint-area-filter { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .cf-dash .premium-summary-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .cf-dash .footprint-area-filter { grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); }
   .cf-dash .footprint-exec-grid,
   .cf-dash .footprint-order-grid,
   .cf-dash .footprint-cane-mix-grid,
   .cf-dash .footprint-doc-block-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .cf-dash .cane-scope-card { grid-template-columns: 1fr; }
   .cf-dash .cane-kpi-grid, .cf-dash .cane-legend-grid, .cf-dash .credit-source-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .cf-dash .footprint-report-left-column,
+  .cf-dash .footprint-report-right-column {
+    width: 100%;
+  }
 }
 @media (max-width: 980px) {
   .cf-dash .report-toolbar,
@@ -2585,5 +2678,27 @@
   }
   .cf-dash .report-preview-tabs button {
     flex: 1;
+  }
+  .cf-dash .footprint-report-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .cf-dash .footprint-report-toolbar > div:first-child {
+    flex: 0 0 auto;
+  }
+  .cf-dash .footprint-report-toolbar .run-all-btn,
+  .cf-dash .report-download-actions {
+    width: 100%;
+  }
+  .cf-dash .report-download-actions .run-btn,
+  .cf-dash .report-download-actions .run-all-btn {
+    flex: 1 1 auto;
+    text-align: center;
+  }
+  .cf-dash .footprint-area-filter {
+    grid-template-columns: repeat(2, minmax(0,1fr));
+  }
+  .cf-dash .footprint-report-filter {
+    grid-template-columns: 1fr;
   }
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
@@ -1046,56 +1046,11 @@ export function CfFootprintReportPage() {
   };
 
   const scopeSelectValue = selectedField ? `field:${selectedField.id}` : scope;
-  const kpiSectionStyle: CSSProperties = {
-    display: "grid",
-    gap: 16,
-    order: 3,
-    borderRadius: 16,
-    border: "1px solid #E5E7EB",
-    background: "#FFFFFF",
-    boxShadow: "0 10px 28px rgba(15, 23, 42, 0.06)",
-  };
-  const kpiGridStyle = (minWidth = 170): CSSProperties => ({
-    display: "grid",
-    gridTemplateColumns: `repeat(auto-fit, minmax(${minWidth}px, 1fr))`,
-    gap: 16,
-    alignItems: "stretch",
-  });
-  const kpiCardStyle = (primary = false): CSSProperties => ({
-    display: "flex",
-    minHeight: 118,
-    flexDirection: "column",
-    justifyContent: "space-between",
-    gap: 14,
-    border: `1px solid ${primary ? "#93C5FD" : "#E5E7EB"}`,
-    borderRadius: 16,
-    background: primary ? "#EFF6FF" : "#FFFFFF",
-    padding: "16px 18px",
-    boxShadow: primary ? "0 12px 30px rgba(37, 99, 235, 0.12)" : "none",
-  });
-  const kpiLabelStyle: CSSProperties = {
-    color: "#6B7280",
-    fontSize: 12,
-    fontWeight: 700,
-    letterSpacing: "0.02em",
-    textTransform: "uppercase",
-  };
-  const kpiValueStyle = (primary = false): CSSProperties => ({
-    color: primary ? "#1D4ED8" : "#111827",
-    fontSize: 24,
-    fontWeight: 700,
-    lineHeight: 1.15,
-  });
-  const kpiMetaStyle: CSSProperties = {
-    color: "#6B7280",
-    fontSize: 12,
-    lineHeight: 1.4,
-  };
   const renderKpiCard = (label: string, value: ReactNode, meta: ReactNode, primary = false) => (
-    <article key={label} style={kpiCardStyle(primary)}>
-      <span style={kpiLabelStyle}>{label}</span>
-      <strong style={kpiValueStyle(primary)}>{value}</strong>
-      <small style={kpiMetaStyle}>{meta}</small>
+    <article key={label} className={`footprint-kpi-card${primary ? " footprint-kpi-card--primary" : ""}`}>
+      <span className="footprint-kpi-card__label">{label}</span>
+      <strong className="footprint-kpi-card__value">{value}</strong>
+      <small className="footprint-kpi-card__meta">{meta}</small>
     </article>
   );
 
@@ -1388,12 +1343,12 @@ export function CfFootprintReportPage() {
         </section>
 
         <section className="footprint-report-left-column">
-          <section className="card full-span footprint-kpi-section footprint-context-grid" style={kpiSectionStyle}>
+          <section className="card full-span footprint-kpi-section footprint-context-grid">
             <div>
               <div className="card-title">Project Context</div>
               <p className="muted">ขอบเขตรายงานและข้อมูลปีฐานตามตัวกรองที่เลือกในปัจจุบัน</p>
             </div>
-            <div style={kpiGridStyle(165)}>
+            <div className="footprint-kpi-card-grid">
               {renderKpiCard("ขอบเขตข้อมูล", selectedScopeLabel, `สัดส่วนประเภทอ้อยที่เลือก ${selectedCanePercent.toFixed(1)}%`)}
               {renderKpiCard("ปีโครงการ", currentYear || "-", "ช่วงเวลารายงานปัจจุบัน")}
               {renderKpiCard("ปีฐาน", baselineYearLabel, "ช่วงเวลาเปรียบเทียบปีฐาน")}
@@ -1402,12 +1357,12 @@ export function CfFootprintReportPage() {
             </div>
           </section>
 
-          <section className="card full-span footprint-kpi-section footprint-headline-grid" style={{ ...kpiSectionStyle, order: 4 }}>
+          <section className="card full-span footprint-kpi-section footprint-headline-grid">
             <div>
               <div className="card-title">Emission Summary</div>
               <p className="muted">สรุปผลการปล่อยคาร์บอนหลังหักชดเชย SOC และเปรียบเทียบกับปีฐาน</p>
             </div>
-            <div style={kpiGridStyle(180)}>
+            <div className="footprint-kpi-card-grid">
               {renderKpiCard("การปล่อยรวม", formatNumber(currentTotal), "tCO2e")}
               {renderKpiCard("ชดเชยจาก SOC", formatNumber(socIncrease), "tCO2e")}
               {renderKpiCard("การปล่อยสุทธิ", formatNumber(netEmission), "tCO2e", true)}
@@ -1415,12 +1370,12 @@ export function CfFootprintReportPage() {
             </div>
           </section>
 
-          <section className="card full-span footprint-kpi-section footprint-soc-summary-block" style={{ ...kpiSectionStyle, order: 5 }}>
+          <section className="card full-span footprint-kpi-section footprint-soc-summary-block">
             <div>
               <div className="card-title">Carbon Sequestration Summary</div>
               <p className="muted">สรุปค่า SOC ปีฐาน ค่าโครงการ และปริมาณที่เพิ่มขึ้นซึ่งใช้เป็นค่าชดเชยคาร์บอน</p>
             </div>
-            <div style={kpiGridStyle(220)}>
+            <div className="footprint-kpi-card-grid">
               {renderKpiCard("SOC ปีฐาน", formatNumber(socBaseline), "tCO2e")}
               {renderKpiCard("SOC โครงการ", formatNumber(socProject), "tCO2e")}
               {renderKpiCard("SOC ที่เพิ่มขึ้น", formatNumber(socIncrease), "tCO2e")}
