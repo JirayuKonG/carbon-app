@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
@@ -244,6 +244,11 @@ function rowsForSheet<T extends object>(rows: T[]): Record<string, unknown>[] {
   return rows.length ? rows.map((row) => ({ ...row }) as Record<string, unknown>) : [{}];
 }
 
+interface ExcelPreviewSheet {
+  name: string;
+  rows: Record<string, unknown>[];
+}
+
 function escapeHtml(value: unknown) {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -263,6 +268,116 @@ function reportSections() {
     "7. ปัจจัยกิจกรรมสำคัญ เช่น ปุ๋ย น้ำมัน และกิจกรรมหลัก",
     "8. ข้อสังเกต แนวทางลดการปล่อย และรายการหลักฐานแนบ",
   ];
+}
+
+function buildFootprintExcelSheets(report: FootprintReportSnapshot): ExcelPreviewSheet[] {
+  const reportSoc = socValues(report.baselineTotal, report.currentTotal, report.kpi.areaRai);
+  const reportPractice = socPracticeValues(reportSoc.socIncrease);
+  const reportCaneTypeRows = caneTypeSummaryRows(report.caneRows);
+
+  return [
+    {
+      name: "Summary",
+      rows: rowsForSheet([{
+        scope: report.scopeLabel,
+        caneType: report.caneLabel,
+        currentYear: report.currentYear,
+        baselineTotal: report.baselineTotal,
+        currentTotal: report.currentTotal,
+        diff: report.reduction.diff,
+        diffPercent: report.reduction.pct,
+        areaRai: report.kpi.areaRai,
+        yieldTon: report.kpi.yieldTon,
+        co2ePerTon: report.kpi.co2ePerTon,
+      }]),
+    },
+    {
+      name: "Process Hotspot",
+      rows: rowsForSheet(report.hotspotRows.map((row) => ({
+        process: row.process,
+        mainActivity: row.activity,
+        baselineEmission: row.baselineEmission,
+        currentEmission: row.currentEmission,
+        diff: row.diff,
+        sharePercent: row.share,
+        baselineFertilizerKg: row.inputRow?.baselineFertilizerKg ?? 0,
+        currentFertilizerKg: row.inputRow?.currentFertilizerKg ?? 0,
+        baselineFuelLiter: row.inputRow?.baselineFuelLiter ?? 0,
+        currentFuelLiter: row.inputRow?.currentFuelLiter ?? 0,
+      }))),
+    },
+    {
+      name: "Cane x Process",
+      rows: rowsForSheet(report.caneRows.map((row) => ({
+        caneType: row.cane.name,
+        caneAreaPercent: row.cane.percent,
+        caneAreaRai: row.cane.areaRai,
+        process: row.process,
+        baselineEmission: row.baselineEmission,
+        currentEmission: row.currentEmission,
+        diff: row.diff,
+        shareInCanePercent: row.shareInCane,
+        shareInScopePercent: row.shareInScope,
+      }))),
+    },
+    {
+      name: "Activity Inputs",
+      rows: rowsForSheet(report.inputs),
+    },
+    {
+      name: "Emission Reduction Analysis",
+      rows: rowsForSheet(report.hotspotRows.map((row) => ({
+        Process: row.process,
+        Baseline: row.baselineEmission,
+        Project: row.currentEmission,
+        Reduction: row.diff,
+        "Share (%)": row.share,
+      }))),
+    },
+    {
+      name: "Cane Type Analysis",
+      rows: rowsForSheet(reportCaneTypeRows.map((row) => ({
+        "Cane Type": row.caneType,
+        Area: row.area,
+        Baseline: row.baseline,
+        Project: row.project,
+        Reduction: row.reduction,
+      }))),
+    },
+    {
+      name: "SOC Summary",
+      rows: rowsForSheet([{
+        "SOC Baseline": reportSoc.socBaseline,
+        "SOC Project": reportSoc.socProject,
+        "SOC Increase": reportSoc.socIncrease,
+        Vinasse: reportPractice.vinasse,
+        "Filter Cake": reportPractice.filterCake,
+        "Green Manure": reportPractice.greenManure,
+        "Trash Retention": reportPractice.trashRetention,
+      }]),
+    },
+    {
+      name: "Net Carbon Result",
+      rows: rowsForSheet([{
+        "Gross Emission": report.currentTotal,
+        "SOC Offset": reportSoc.socIncrease,
+        "Net Emission": reportSoc.netEmission,
+      }]),
+    },
+    {
+      name: "Report Order",
+      rows: rowsForSheet(reportSections().map((section, index) => ({
+        order: index + 1,
+        section,
+      }))),
+    },
+  ];
+}
+
+function excelPreviewCell(value: unknown) {
+  if (value === null || value === undefined || value === "") return "-";
+  if (typeof value === "number") return formatNumber(value, Number.isInteger(value) ? 0 : 2);
+  return String(value);
 }
 
 function footprintWordHtml({
@@ -491,15 +606,26 @@ function FootprintReportDocument({
           <tr><th>ประเภทอ้อย</th><th>กระบวนการ</th><th>ปีรายงาน</th><th>สัดส่วนในประเภท</th><th>สัดส่วนเทียบทั้งขอบเขต</th></tr>
         </thead>
         <tbody>
-          {caneRows.slice(0, 16).map((row) => (
-            <tr key={`doc-cane-${row.cane.name}-${row.process}`}>
-              <td>{row.cane.name} ({row.cane.percent.toFixed(1)}%)</td>
-              <td>{row.process}</td>
-              <td>{formatNumber(row.currentEmission)} tCO2e</td>
-              <td>{row.shareInCane.toFixed(1)}%</td>
-              <td>{row.shareInScope.toFixed(1)}%</td>
-            </tr>
-          ))}
+          {(() => {
+            const renderedCaneRows = caneRows.slice(0, 16);
+            return renderedCaneRows.map((row, index) => {
+              const isFirstCaneRow = index === 0 || renderedCaneRows[index - 1].cane.name !== row.cane.name;
+              const rowSpan = renderedCaneRows.filter((item) => item.cane.name === row.cane.name).length;
+              return (
+                <tr key={`doc-cane-${row.cane.name}-${row.process}`}>
+                  {isFirstCaneRow && (
+                    <td rowSpan={rowSpan} className="rowspan-cell cane-rowspan-name">
+                      {row.cane.name} ({row.cane.percent.toFixed(1)}%)
+                    </td>
+                  )}
+                  <td>{row.process}</td>
+                  <td>{formatNumber(row.currentEmission)} tCO2e</td>
+                  <td>{row.shareInCane.toFixed(1)}%</td>
+                  <td>{row.shareInScope.toFixed(1)}%</td>
+                </tr>
+              );
+            });
+          })()}
         </tbody>
       </table>
 
@@ -852,9 +978,7 @@ export function CfFootprintReportPage() {
   }, [generatedReport, reportRenderId]);
 
   const previewIsCurrent = Boolean(generatedReport && generatedReport.id === currentReport.id);
-  const generatedSoc = generatedReport ? socValues(generatedReport.baselineTotal, generatedReport.currentTotal, generatedReport.kpi.areaRai) : undefined;
-  const generatedPractice = generatedSoc ? socPracticeValues(generatedSoc.socIncrease) : undefined;
-  const generatedCaneTypeRows = generatedReport ? caneTypeSummaryRows(generatedReport.caneRows) : [];
+  const generatedExcelSheets = generatedReport ? buildFootprintExcelSheets(generatedReport) : [];
 
   const generateReportPreview = () => {
     if (!currentReport.processRows.length) return;
@@ -890,79 +1014,34 @@ export function CfFootprintReportPage() {
 
   const exportExcel = () => {
     if (!generatedReport || !previewIsCurrent) return;
-    const report = generatedReport;
-    const reportSoc = socValues(report.baselineTotal, report.currentTotal, report.kpi.areaRai);
-    const reportPractice = socPracticeValues(reportSoc.socIncrease);
-    const reportCaneTypeRows = caneTypeSummaryRows(report.caneRows);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet([{
-      scope: report.scopeLabel,
-      caneType: report.caneLabel,
-      currentYear: report.currentYear,
-      baselineTotal: report.baselineTotal,
-      currentTotal: report.currentTotal,
-      diff: report.reduction.diff,
-      diffPercent: report.reduction.pct,
-      areaRai: report.kpi.areaRai,
-      yieldTon: report.kpi.yieldTon,
-      co2ePerTon: report.kpi.co2ePerTon,
-    }])), "Summary");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(report.hotspotRows.map((row) => ({
-      process: row.process,
-      mainActivity: row.activity,
-      baselineEmission: row.baselineEmission,
-      currentEmission: row.currentEmission,
-      diff: row.diff,
-      sharePercent: row.share,
-      baselineFertilizerKg: row.inputRow?.baselineFertilizerKg ?? 0,
-      currentFertilizerKg: row.inputRow?.currentFertilizerKg ?? 0,
-      baselineFuelLiter: row.inputRow?.baselineFuelLiter ?? 0,
-      currentFuelLiter: row.inputRow?.currentFuelLiter ?? 0,
-    })))), "Process Hotspot");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(report.caneRows.map((row) => ({
-      caneType: row.cane.name,
-      caneAreaPercent: row.cane.percent,
-      caneAreaRai: row.cane.areaRai,
-      process: row.process,
-      baselineEmission: row.baselineEmission,
-      currentEmission: row.currentEmission,
-      diff: row.diff,
-      shareInCanePercent: row.shareInCane,
-      shareInScopePercent: row.shareInScope,
-    })))), "Cane x Process");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(report.inputs)), "Activity Inputs");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(report.hotspotRows.map((row) => ({
-      Process: row.process,
-      Baseline: row.baselineEmission,
-      Project: row.currentEmission,
-      Reduction: row.diff,
-      "Share (%)": row.share,
-    })))), "Emission Reduction Analysis");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(reportCaneTypeRows.map((row) => ({
-      "Cane Type": row.caneType,
-      Area: row.area,
-      Baseline: row.baseline,
-      Project: row.project,
-      Reduction: row.reduction,
-    })))), "Cane Type Analysis");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet([{
-      "SOC Baseline": reportSoc.socBaseline,
-      "SOC Project": reportSoc.socProject,
-      "SOC Increase": reportSoc.socIncrease,
-      Vinasse: reportPractice.vinasse,
-      "Filter Cake": reportPractice.filterCake,
-      "Green Manure": reportPractice.greenManure,
-      "Trash Retention": reportPractice.trashRetention,
-    }])), "SOC Summary");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet([{
-      "Gross Emission": report.currentTotal,
-      "SOC Offset": reportSoc.socIncrease,
-      "Net Emission": reportSoc.netEmission,
-    }])), "Net Carbon Result");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(reportSections().map((section, index) => ({
-      order: index + 1,
-      section,
-    })))), "Report Order");
+    buildFootprintExcelSheets(generatedReport).forEach((sheet) => {
+      const ws = XLSX.utils.json_to_sheet(sheet.rows);
+      if (sheet.name === "Cane x Process") {
+        const merges: XLSX.Range[] = [];
+        let rowIndex = 0;
+        while (rowIndex < sheet.rows.length) {
+          const caneType = sheet.rows[rowIndex].caneType;
+          let rowSpan = 0;
+          while (
+            rowIndex + rowSpan < sheet.rows.length &&
+            sheet.rows[rowIndex + rowSpan].caneType === caneType
+          ) {
+            rowSpan++;
+          }
+          if (rowSpan > 1) {
+            const startRow = rowIndex + 1;
+            const endRow = rowIndex + rowSpan;
+            merges.push({ s: { r: startRow, c: 0 }, e: { r: endRow, c: 0 } });
+            merges.push({ s: { r: startRow, c: 1 }, e: { r: endRow, c: 1 } });
+            merges.push({ s: { r: startRow, c: 2 }, e: { r: endRow, c: 2 } });
+          }
+          rowIndex += rowSpan;
+        }
+        ws["!merges"] = merges;
+      }
+      XLSX.utils.book_append_sheet(wb, ws, sheet.name);
+    });
     XLSX.writeFile(wb, "mitrphol-carbon-footprint-report.xlsx");
   };
 
@@ -1002,56 +1081,11 @@ export function CfFootprintReportPage() {
   };
 
   const scopeSelectValue = selectedField ? `field:${selectedField.id}` : scope;
-  const kpiSectionStyle: CSSProperties = {
-    display: "grid",
-    gap: 16,
-    order: 5,
-    borderRadius: 16,
-    border: "1px solid #E5E7EB",
-    background: "#FFFFFF",
-    boxShadow: "0 10px 28px rgba(15, 23, 42, 0.06)",
-  };
-  const kpiGridStyle = (minWidth = 170): CSSProperties => ({
-    display: "grid",
-    gridTemplateColumns: `repeat(auto-fit, minmax(${minWidth}px, 1fr))`,
-    gap: 16,
-    alignItems: "stretch",
-  });
-  const kpiCardStyle = (primary = false): CSSProperties => ({
-    display: "flex",
-    minHeight: 118,
-    flexDirection: "column",
-    justifyContent: "space-between",
-    gap: 14,
-    border: `1px solid ${primary ? "#93C5FD" : "#E5E7EB"}`,
-    borderRadius: 16,
-    background: primary ? "#EFF6FF" : "#FFFFFF",
-    padding: "16px 18px",
-    boxShadow: primary ? "0 12px 30px rgba(37, 99, 235, 0.12)" : "none",
-  });
-  const kpiLabelStyle: CSSProperties = {
-    color: "#6B7280",
-    fontSize: 12,
-    fontWeight: 700,
-    letterSpacing: "0.02em",
-    textTransform: "uppercase",
-  };
-  const kpiValueStyle = (primary = false): CSSProperties => ({
-    color: primary ? "#1D4ED8" : "#111827",
-    fontSize: 24,
-    fontWeight: 700,
-    lineHeight: 1.15,
-  });
-  const kpiMetaStyle: CSSProperties = {
-    color: "#6B7280",
-    fontSize: 12,
-    lineHeight: 1.4,
-  };
   const renderKpiCard = (label: string, value: ReactNode, meta: ReactNode, primary = false) => (
-    <article key={label} style={kpiCardStyle(primary)}>
-      <span style={kpiLabelStyle}>{label}</span>
-      <strong style={kpiValueStyle(primary)}>{value}</strong>
-      <small style={kpiMetaStyle}>{meta}</small>
+    <article key={label} className={`footprint-kpi-card${primary ? " footprint-kpi-card--primary" : ""}`}>
+      <span className="footprint-kpi-card__label">{label}</span>
+      <strong className="footprint-kpi-card__value">{value}</strong>
+      <small className="footprint-kpi-card__meta">{meta}</small>
     </article>
   );
 
@@ -1138,20 +1172,123 @@ export function CfFootprintReportPage() {
           </label>
         </section>
 
-        <section className="card report-toolbar footprint-report-toolbar">
-          <div>
-            <div className="card-title">เอกสารรายงาน</div>
-            <p className="muted">เลือกตัวกรองให้เรียบร้อย แล้วกดสร้างเอกสารใหม่เพื่อ Render PDF, Word และ Excel สำหรับ preview/download</p>
-          </div>
-          <button className="run-all-btn report-generate-btn" type="button" onClick={generateReportPreview} disabled={!processRows.length || generatingPreview}>
-            สร้างเอกสารใหม่ (Generate Report)
-          </button>
-          <button className="run-btn pdf-download-btn" type="button" onClick={downloadPdf} disabled={!pdfUrl || generatingPreview || !previewIsCurrent}>Download PDF</button>
-          <button className="run-btn word-download-btn" type="button" onClick={downloadWordDraft} disabled={!generatedReport || !previewIsCurrent}>Download Word</button>
-          <button className="run-all-btn excel-download-btn" type="button" onClick={exportExcel} disabled={!generatedReport || !previewIsCurrent}>Export Excel</button>
-        </section>
+        <section className="footprint-report-right-column">
+          <section className="card report-toolbar footprint-report-toolbar">
+            <div>
+              <div className="card-title">เอกสารรายงาน</div>
+              <p className="muted">เลือกตัวกรองให้เรียบร้อย แล้วกดสร้างเอกสารใหม่เพื่อ Render PDF, Word และ Excel สำหรับ preview/download</p>
+            </div>
+            <button className="run-all-btn report-generate-btn" type="button" onClick={generateReportPreview} disabled={!processRows.length || generatingPreview}>
+              สร้างเอกสารใหม่ (Generate Report)
+            </button>
+            <div className="report-download-actions">
+              <button className="run-btn pdf-download-btn" type="button" onClick={downloadPdf} disabled={!pdfUrl || generatingPreview || !previewIsCurrent}>Download PDF</button>
+              <button className="run-btn word-download-btn" type="button" onClick={downloadWordDraft} disabled={!generatedReport || !previewIsCurrent}>Download Word</button>
+              <button className="run-all-btn excel-download-btn" type="button" onClick={exportExcel} disabled={!generatedReport || !previewIsCurrent}>Export Excel</button>
+            </div>
+          </section>
 
-        {generateNotice && <div className="report-generate-notice">{generateNotice}</div>}
+          {generateNotice && <div className="report-generate-notice">{generateNotice}</div>}
+
+          <section className="card report-preview-panel full-span footprint-preview-layout">
+            <div className="report-preview-header">
+              <div>
+                <div className="card-title">Preview & Download</div>
+                <p className="muted">
+                  {generatedReport
+                    ? previewIsCurrent
+                      ? `ตัวอย่างล่าสุด: ${generatedReport.scopeLabel} · ${generatedReport.caneLabel}`
+                      : "ตัวอย่างเอกสารยังเป็นชุดเดิม กด Generate Report เพื่ออัปเดตตามตัวกรองปัจจุบัน"
+                    : "ยังไม่มีตัวอย่างเอกสาร กดสร้างเอกสารใหม่เพื่อ Render PDF / Word / Excel"}
+                </p>
+              </div>
+              <div className="report-preview-tabs" role="tablist" aria-label="Carbon Footprint report preview tabs">
+                {[
+                  ["pdf", "PDF"],
+                  ["word", "Word"],
+                  ["excel", "Excel"],
+                ].map(([tab, label]) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    role="tab"
+                    aria-selected={activePreviewTab === tab}
+                    className={activePreviewTab === tab ? "active" : ""}
+                    onClick={() => setActivePreviewTab(tab as FootprintPreviewTab)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {!generatedReport && <div className="empty-state">เลือกตัวกรองด้านบนให้เรียบร้อย แล้วกด “สร้างเอกสารใหม่ (Generate Report)”</div>}
+            {generatedReport && activePreviewTab === "pdf" && (
+              <div className="pdf-preview">
+                {generatingPreview ? <div className="empty-state">กำลัง Render PDF preview...</div> : pdfUrl ? <iframe title="Carbon Footprint PDF Preview" src={pdfUrl} /> : <div className="empty-state">กดสร้างเอกสารใหม่เพื่อเตรียม PDF preview</div>}
+              </div>
+            )}
+            {generatedReport && activePreviewTab === "word" && (
+              <div className="word-preview">
+                <iframe title="Carbon Footprint Word Preview" srcDoc={wordHtml} />
+              </div>
+            )}
+            {generatedReport && activePreviewTab === "excel" && (
+              <div className="excel-preview">
+                <div className="excel-sheet-grid">
+                  {generatedExcelSheets.map((sheet) => {
+                    const columns = Object.keys(sheet.rows[0] ?? {});
+                    return (
+                      <div key={`excel-sheet-${sheet.name}`} className="excel-preview-sheet">
+                        <div className="excel-preview-sheet-head">
+                          <h3>{sheet.name}</h3>
+                          <span>{formatNumber(sheet.rows.length, 0)} rows</span>
+                        </div>
+                        <table className="report-table">
+                          <thead>
+                            <tr>
+                              {columns.map((column) => <th key={`${sheet.name}-${column}`}>{column}</th>)}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sheet.rows.map((row, rowIndex) => (
+                              <tr key={`${sheet.name}-row-${rowIndex}`}>
+                                {columns.map((column) => {
+                                  if (sheet.name === "Cane x Process" && ["caneType", "caneAreaPercent", "caneAreaRai"].includes(column)) {
+                                    const isFirstCaneRow = rowIndex === 0 || sheet.rows[rowIndex - 1].caneType !== row.caneType;
+                                    if (!isFirstCaneRow) return null;
+                                    
+                                    let rowSpan = 1;
+                                    while (
+                                      rowIndex + rowSpan < sheet.rows.length &&
+                                      sheet.rows[rowIndex + rowSpan].caneType === row.caneType
+                                    ) {
+                                      rowSpan++;
+                                    }
+                                    return (
+                                      <td key={`${sheet.name}-${rowIndex}-${column}`} rowSpan={rowSpan} className="rowspan-cell">
+                                        {excelPreviewCell(row[column])}
+                                      </td>
+                                    );
+                                  }
+                                  return (
+                                    <td key={`${sheet.name}-${rowIndex}-${column}`}>
+                                      {excelPreviewCell(row[column])}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </section>
+        </section>
 
         <section className="card process-scope-panel footprint-report-filter" style={{ display: "none" }}>
           <div>
@@ -1261,43 +1398,45 @@ export function CfFootprintReportPage() {
           )}
         </section>
 
-        <section className="card full-span footprint-kpi-section footprint-context-grid" style={kpiSectionStyle}>
-          <div>
-            <div className="card-title">Project Context</div>
-            <p className="muted">Current reporting scope and baseline context from the selected filters.</p>
-          </div>
-          <div style={kpiGridStyle(165)}>
-            {renderKpiCard("Scope", selectedScopeLabel, `${selectedCanePercent.toFixed(1)}% selected cane type share`)}
-            {renderKpiCard("Project Year", currentYear || "-", "Current reporting period")}
-            {renderKpiCard("Baseline Year", baselineYearLabel, "Baseline comparison period")}
-            {renderKpiCard("Area", formatNumber(scopedKpi.areaRai, 0), "rai")}
-            {renderKpiCard("Intensity", formatNumber(scopedKpi.co2ePerTon, 3), "tCO2e/ton cane")}
-          </div>
-        </section>
+        <section className="footprint-report-left-column">
+          <section className="card full-span footprint-kpi-section footprint-context-grid">
+            <div>
+              <div className="card-title">Project Context</div>
+              <p className="muted">ขอบเขตรายงานและข้อมูลปีฐานตามตัวกรองที่เลือกในปัจจุบัน</p>
+            </div>
+            <div className="footprint-kpi-card-grid">
+              {renderKpiCard("ขอบเขตข้อมูล", selectedScopeLabel, `สัดส่วนประเภทอ้อยที่เลือก ${selectedCanePercent.toFixed(1)}%`)}
+              {renderKpiCard("ปีโครงการ", currentYear || "-", "ช่วงเวลารายงานปัจจุบัน")}
+              {renderKpiCard("ปีฐาน", baselineYearLabel, "ช่วงเวลาเปรียบเทียบปีฐาน")}
+              {renderKpiCard("พื้นที่", formatNumber(scopedKpi.areaRai, 0), "ไร่")}
+              {renderKpiCard("ความเข้มการปล่อย", formatNumber(scopedKpi.co2ePerTon, 3), "tCO2e/ตันอ้อย")}
+            </div>
+          </section>
 
-        <section className="card full-span footprint-kpi-section footprint-headline-grid" style={{ ...kpiSectionStyle, order: 6 }}>
-          <div>
-            <div className="card-title">Emission Summary</div>
-            <p className="muted">Executive carbon result after SOC offset and baseline reduction comparison.</p>
-          </div>
-          <div style={kpiGridStyle(180)}>
-            {renderKpiCard("Gross Emission", formatNumber(currentTotal), "tCO2e")}
-            {renderKpiCard("SOC Offset", formatNumber(socIncrease), "tCO2e")}
-            {renderKpiCard("Net Emission", formatNumber(netEmission), "tCO2e", true)}
-            {renderKpiCard("Reduction", formatNumber(Math.abs(reduction.diff)), `${Math.abs(reduction.pct).toFixed(1)}% · tCO2e`)}
-          </div>
-        </section>
+          <section className="card full-span footprint-kpi-section footprint-headline-grid">
+            <div>
+              <div className="card-title">Emission Summary</div>
+              <p className="muted">สรุปผลการปล่อยคาร์บอนหลังหักชดเชย SOC และเปรียบเทียบกับปีฐาน</p>
+            </div>
+            <div className="footprint-kpi-card-grid">
+              {renderKpiCard("การปล่อยรวม", formatNumber(currentTotal), "tCO2e")}
+              {renderKpiCard("ชดเชยจาก SOC", formatNumber(socIncrease), "tCO2e")}
+              {renderKpiCard("การปล่อยสุทธิ", formatNumber(netEmission), "tCO2e", true)}
+              {renderKpiCard("ปริมาณที่ลดลง", formatNumber(Math.abs(reduction.diff)), `${Math.abs(reduction.pct).toFixed(1)}% / tCO2e`)}
+            </div>
+          </section>
 
-        <section className="card full-span footprint-kpi-section footprint-soc-summary-block" style={{ ...kpiSectionStyle, order: 7 }}>
-          <div>
-            <div className="card-title">Carbon Sequestration Summary</div>
-            <p className="muted">SOC baseline, project value, and increase used as the carbon offset summary.</p>
-          </div>
-          <div style={kpiGridStyle(220)}>
-            {renderKpiCard("SOC Baseline", formatNumber(socBaseline), "tCO2e")}
-            {renderKpiCard("SOC Project", formatNumber(socProject), "tCO2e")}
-            {renderKpiCard("SOC Increase", formatNumber(socIncrease), "tCO2e")}
-          </div>
+          <section className="card full-span footprint-kpi-section footprint-soc-summary-block">
+            <div>
+              <div className="card-title">Carbon Sequestration Summary</div>
+              <p className="muted">สรุปค่า SOC ปีฐาน ค่าโครงการ และปริมาณที่เพิ่มขึ้นซึ่งใช้เป็นค่าชดเชยคาร์บอน</p>
+            </div>
+            <div className="footprint-kpi-card-grid">
+              {renderKpiCard("SOC ปีฐาน", formatNumber(socBaseline), "tCO2e")}
+              {renderKpiCard("SOC โครงการ", formatNumber(socProject), "tCO2e")}
+              {renderKpiCard("SOC ที่เพิ่มขึ้น", formatNumber(socIncrease), "tCO2e")}
+            </div>
+          </section>
         </section>
 
         <section className="card full-span">
@@ -1363,130 +1502,6 @@ export function CfFootprintReportPage() {
               </tbody>
             </table>
           </div>
-        </section>
-
-        <section className="card report-preview-panel full-span footprint-preview-layout" style={{ order: 8 }}>
-          <div className="report-preview-header">
-            <div>
-              <div className="card-title">Preview & Download</div>
-              <p className="muted">
-                {generatedReport
-                  ? previewIsCurrent
-                    ? `ตัวอย่างล่าสุด: ${generatedReport.scopeLabel} · ${generatedReport.caneLabel}`
-                    : "ตัวอย่างเอกสารยังเป็นชุดเดิม กด Generate Report เพื่ออัปเดตตามตัวกรองปัจจุบัน"
-                  : "ยังไม่มีตัวอย่างเอกสาร กดสร้างเอกสารใหม่เพื่อ Render PDF / Word / Excel"}
-              </p>
-            </div>
-            <div className="report-preview-tabs" role="tablist" aria-label="Carbon Footprint report preview tabs">
-              {[
-                ["pdf", "PDF"],
-                ["word", "Word"],
-                ["excel", "Excel"],
-              ].map(([tab, label]) => (
-                <button
-                  key={tab}
-                  type="button"
-                  role="tab"
-                  aria-selected={activePreviewTab === tab}
-                  className={activePreviewTab === tab ? "active" : ""}
-                  onClick={() => setActivePreviewTab(tab as FootprintPreviewTab)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {!generatedReport && <div className="empty-state">เลือกตัวกรองด้านบนให้เรียบร้อย แล้วกด “สร้างเอกสารใหม่ (Generate Report)”</div>}
-          {generatedReport && activePreviewTab === "pdf" && (
-            <div className="pdf-preview">
-              {generatingPreview ? <div className="empty-state">กำลัง Render PDF preview...</div> : pdfUrl ? <iframe title="Carbon Footprint PDF Preview" src={pdfUrl} /> : <div className="empty-state">กดสร้างเอกสารใหม่เพื่อเตรียม PDF preview</div>}
-            </div>
-          )}
-          {generatedReport && activePreviewTab === "word" && (
-            <div className="word-preview">
-              <iframe title="Carbon Footprint Word Preview" srcDoc={wordHtml} />
-            </div>
-          )}
-          {generatedReport && activePreviewTab === "excel" && (
-            <div className="excel-preview">
-              <div className="excel-sheet-grid">
-                <div>
-                  <h3>Summary</h3>
-                  <table className="report-table">
-                    <tbody>
-                      <tr><th>Scope</th><td>{generatedReport.scopeLabel}</td></tr>
-                      <tr><th>Baseline</th><td>{formatNumber(generatedReport.baselineTotal)} tCO2e</td></tr>
-                      <tr><th>Project</th><td>{formatNumber(generatedReport.currentTotal)} tCO2e</td></tr>
-                      <tr><th>Diff</th><td>{generatedReport.reduction.text}</td></tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div>
-                  <h3>Process Hotspot</h3>
-                  <table className="report-table">
-                    <thead><tr><th>Process</th><th>Current</th><th>Share</th></tr></thead>
-                    <tbody>
-                      {generatedReport.hotspotRows.slice(0, 6).map((row) => (
-                        <tr key={`excel-preview-${row.process}`}><td>{row.process}</td><td>{formatNumber(row.currentEmission)}</td><td>{row.share.toFixed(1)}%</td></tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div>
-                  <h3>Activity Inputs</h3>
-                  <table className="report-table">
-                    <thead><tr><th>Process</th><th>Fertilizer</th><th>Fuel</th></tr></thead>
-                    <tbody>
-                      {generatedReport.inputs.map((row) => (
-                        <tr key={`input-preview-${row.process}`}><td>{row.process}</td><td>{formatNumber(row.currentFertilizerKg, 1)} kg</td><td>{formatNumber(row.currentFuelLiter, 1)} L</td></tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div>
-                  <h3>Emission Reduction Analysis</h3>
-                  <table className="report-table">
-                    <thead><tr><th>Process</th><th>Baseline</th><th>Project</th><th>Reduction</th></tr></thead>
-                    <tbody>
-                      {generatedReport.hotspotRows.slice(0, 6).map((row) => (
-                        <tr key={`reduction-preview-${row.process}`}><td>{row.process}</td><td>{formatNumber(row.baselineEmission)}</td><td>{formatNumber(row.currentEmission)}</td><td>{formatNumber(row.diff)}</td></tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div>
-                  <h3>Cane Type Analysis</h3>
-                  <table className="report-table">
-                    <thead><tr><th>Cane Type</th><th>Area</th><th>Baseline</th><th>Project</th><th>Reduction</th></tr></thead>
-                    <tbody>
-                      {generatedCaneTypeRows.map((row) => (
-                        <tr key={`cane-summary-${row.caneType}`}><td>{row.caneType}</td><td>{formatNumber(row.area, 1)}</td><td>{formatNumber(row.baseline)}</td><td>{formatNumber(row.project)}</td><td>{formatNumber(row.reduction)}</td></tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div>
-                  <h3>SOC Summary</h3>
-                  <table className="report-table">
-                    <tbody>
-                      <tr><th>SOC Baseline</th><td>{formatNumber(generatedSoc?.socBaseline ?? 0)}</td><th>SOC Project</th><td>{formatNumber(generatedSoc?.socProject ?? 0)}</td><th>SOC Increase</th><td>{formatNumber(generatedSoc?.socIncrease ?? 0)}</td></tr>
-                      <tr><th>Vinasse</th><td>{formatNumber(generatedPractice?.vinasse ?? 0)}</td><th>Filter Cake</th><td>{formatNumber(generatedPractice?.filterCake ?? 0)}</td><th>Green Manure</th><td>{formatNumber(generatedPractice?.greenManure ?? 0)}</td></tr>
-                      <tr><th>Trash Retention</th><td>{formatNumber(generatedPractice?.trashRetention ?? 0)}</td><td colSpan={4}></td></tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div>
-                  <h3>Net Carbon Result</h3>
-                  <table className="report-table">
-                    <tbody>
-                      <tr><th>Gross Emission</th><td>{formatNumber(generatedReport.currentTotal)}</td><th>SOC Offset</th><td>{formatNumber(generatedSoc?.socIncrease ?? 0)}</td><th>Net Emission</th><td>{formatNumber(generatedSoc?.netEmission ?? 0)}</td></tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
         </section>
 
         <section className="card full-span footprint-soc-contribution-block">

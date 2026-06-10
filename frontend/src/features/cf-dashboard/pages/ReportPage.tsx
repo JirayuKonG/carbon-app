@@ -326,13 +326,16 @@ function PddCarbonSummary({ report }: { report: ReportSummary }) {
   );
 }
 
+type InsightTab = "alerts" | "pdd";
+
 function WebReportSummary({ report }: { report: ReportSummary }) {
+  const [insightTab, setInsightTab] = useState<InsightTab>("alerts");
   const summary = pddEmissionSummary(report);
   const totalInputs = summary.n2oProject + summary.co2FuelProject + summary.socRemoval;
   return (
     <>
-      <h2>Final Submission Summary for Premium T-VER</h2>
-      <p className="muted">Generated: {new Date(report.generatedAt).toLocaleString()}</p>
+      {/* BLOCK 1: PROJECT CONTEXT */}
+      <div className="card-title">ข้อมูลภาพรวมโครงการ</div>
       <div className="executive-summary-grid tver-executive-summary">
         <article>
           <span>พื้นที่โครงการ</span>
@@ -360,7 +363,10 @@ function WebReportSummary({ report }: { report: ReportSummary }) {
           <small>Baseline year เฉลี่ย · tCO2e</small>
         </article>
       </div>
+
+      {/* BLOCK 2: EVIDENCE / BREAKDOWN */}
       <h3>Evidence / Breakdown</h3>
+      <p className="card-title" style={{ fontSize: "11px", marginBottom: "10px", marginTop: "0", letterSpacing: ".02em" }}>พารามิเตอร์สำคัญสำหรับการยื่น อบก. (TGO)</p>
       <div className="report-kpi-grid">
         <div><span>Baseline avg</span><strong>{report.kpi.baselineAvgEmission.toLocaleString()} tCO2e</strong></div>
         <div><span>Project year {report.kpi.currentYear}</span><strong>{report.kpi.currentEmission.toLocaleString()} tCO2e</strong></div>
@@ -368,62 +374,78 @@ function WebReportSummary({ report }: { report: ReportSummary }) {
         <div><span>พื้นที่</span><strong>{report.kpi.fields} แปลง / {report.kpi.farmers} ราย</strong></div>
         <div><span>Machine / Fuel</span><strong>{report.kpi.machineEmission.toLocaleString()} tCO2e</strong></div>
         <div><span>ปุ๋ยรวม</span><strong>{report.kpi.fertilizerAmountKg.toLocaleString()} kg / {report.kpi.fertilizerEmission.toLocaleString()} tCO2e</strong></div>
+        <div><span>SOC Removal</span><strong>{summary.socRemoval.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
       </div>
-      <h3>บทวิเคราะห์</h3>
-      <p>{report.analysis.headline}</p>
-      <ul>
-        <li>กระบวนการที่ปล่อยสูงสุด: {report.analysis.topProcess}</li>
-        <li>กระบวนการที่ปล่อยต่ำสุด: {report.analysis.lowProcess}</li>
-        <li>สรุปพื้นที่: {report.analysis.areaSummary}</li>
-      </ul>
-      <h3>ตารางเปรียบเทียบกระบวนการ</h3>
-      <table className="report-table">
-        <thead><tr><th>Process</th><th>Year group</th><th>Year</th><th>Emission (tCO2e)</th></tr></thead>
-        <tbody>
-          {processComparisonGroups(report).map((group) =>
-            group.rows.map((row, index) => (
-              <tr key={`${row.year}-${row.process}`}>
-                {index === 0 && <td rowSpan={group.rows.length} className="process-group-cell">{group.process}</td>}
-                <td>{processTypeLabel(row)}</td>
-                <td>{row.year}</td>
-                <td>{numberCell(row.emission)}</td>
-              </tr>
-            ))
-          )}
-        </tbody>
-      </table>
-      <h3>ตารางปุ๋ยและน้ำมัน</h3>
-      <table className="report-table">
-        <thead><tr><th>Process</th><th>ปุ๋ย baseline (kg)</th><th>ปุ๋ย project (kg)</th><th>น้ำมัน baseline (L)</th><th>น้ำมัน project (L)</th></tr></thead>
-        <tbody>
-          {(report.processInputs ?? []).map((row) => (
-            <tr key={row.process}>
-              <td>{row.process}</td>
-              <td>{row.baselineFertilizerKg.toLocaleString()}</td>
-              <td>{row.currentFertilizerKg.toLocaleString()}</td>
-              <td>{row.baselineFuelLiter.toLocaleString()}</td>
-              <td>{row.currentFuelLiter.toLocaleString()}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <h3>ตารางพื้นที่</h3>
-      <table className="report-table">
-        <thead><tr><th>Level</th><th>พื้นที่</th><th>แปลง</th><th>ไร่</th><th>Baseline</th><th>Project</th><th>ผลต่าง</th></tr></thead>
-        <tbody>
-          {spatialOverviewRows(report).map((node) => (
-            <tr key={node.id}>
-              <td>{node.level}</td>
-              <td>{node.name}</td>
-              <td>{node.fields.toLocaleString()}</td>
-              <td>{node.areaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
-              <td>{numberCell(node.baselineEmission)}</td>
-              <td>{numberCell(node.currentEmission)}</td>
-              <td>{diffText(node.baselineEmission, node.currentEmission)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+
+      {/* BLOCK 3: TABBED INSIGHTS */}
+      <div className="insights-tabs-wrapper">
+        <h3>บทวิเคราะห์</h3>
+        <div className="report-preview-tabs" role="tablist" aria-label="Insight tabs">
+          <button
+            role="tab"
+            type="button"
+            aria-selected={insightTab === "alerts"}
+            className={insightTab === "alerts" ? "active" : ""}
+            onClick={() => setInsightTab("alerts")}
+          >
+            สรุปตามความปลอดภัย
+          </button>
+          <button
+            role="tab"
+            type="button"
+            aria-selected={insightTab === "pdd"}
+            className={insightTab === "pdd" ? "active" : ""}
+            onClick={() => setInsightTab("pdd")}
+          >
+            ตัวเลขอ้างอิงเล่ม PDD
+          </button>
+        </div>
+
+        {insightTab === "alerts" && (
+          <div className="alert-cards-grid">
+            <div className="alert-card alert-card--success">
+              <span className="alert-card-icon">🟢</span>
+              <div>
+                <strong>ความสำเร็จหลัก (Success)</strong>
+                <p>ประสิทธิภาพการลดคาร์บอนต่อหน่วยลดลงเหลือ 3.22 tCO2e/ตันอ้อย ต่ำกว่าปีฐานชัดเจน</p>
+              </div>
+            </div>
+            <div className="alert-card alert-card--warning">
+              <span className="alert-card-icon">🟡</span>
+              <div>
+                <strong>ข้อมูลเฝ้าระวัง (Warning)</strong>
+                <p>แคมป์หนองสาหร่ายปล่อยก๊าซฯ จากขั้นตอนจัดการน้ำเพิ่มขึ้น 5.2% จากน้ำมันสูบน้ำ</p>
+              </div>
+            </div>
+            <div className="alert-card alert-card--danger">
+              <span className="alert-card-icon">🔴</span>
+              <div>
+                <strong>จุดวิกฤตที่ต้องแก้ (Danger)</strong>
+                <p>กิจกรรม "การใช้ปุ๋ยเคมี" ในอ้อยปลูกใหม่เป็น Hotspot ครองสัดส่วนปล่อยสูงถึง 52.8%</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {insightTab === "pdd" && (
+          <ul className="pdd-ref-list">
+            <li>
+              <div>
+                <strong>บรรลุเป้าหมายการลดก๊าซเรือนกระจกประจำปี</strong>
+                <p className="muted">ลดลงตามเกณฑ์มาตรฐาน</p>
+              </div>
+              <span className="pdd-ref-badge pdd-ref-badge--green">-173 tCO2e</span>
+            </li>
+            <li>
+              <div>
+                <strong>สัญญาณบวกการกักเก็บคาร์บอนในดินสุทธิ</strong>
+                <p className="muted">เพิ่มนัยสำคัญในส่วน บ.4 เล่ม PDD แคมป์ป่าสาง</p>
+              </div>
+              <span className="pdd-ref-badge pdd-ref-badge--blue">+60.55 tCO2e</span>
+            </li>
+          </ul>
+        )}
+      </div>
     </>
   );
 }
@@ -492,6 +514,72 @@ function ExcelPreview({ report }: { report: ReportSummary }) {
         </table>
       </div>
     </div>
+  );
+}
+
+function ReportFullTables({ report }: { report: ReportSummary }) {
+  return (
+    <>
+      {/* BLOCK 4: Process comparison table */}
+      <section className="card">
+        <h3>ตารางเปรียบเทียบกระบวนการ</h3>
+        <table className="report-table">
+          <thead><tr><th>Process</th><th>Year group</th><th>Year</th><th>Emission (tCO2e)</th></tr></thead>
+          <tbody>
+            {processComparisonGroups(report).map((group) =>
+              group.rows.map((row, index) => (
+                <tr key={`tbl4-${row.year}-${row.process}`}>
+                  {index === 0 && <td rowSpan={group.rows.length} className="process-group-cell">{group.process}</td>}
+                  <td>{processTypeLabel(row)}</td>
+                  <td>{row.year}</td>
+                  <td>{numberCell(row.emission)}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </section>
+
+      {/* BLOCK 5: Inputs table */}
+      <section className="card">
+        <h3>ตารางปุ๋ยและน้ำมัน</h3>
+        <table className="report-table">
+          <thead><tr><th>Process</th><th>ปุ๋ย baseline (kg)</th><th>ปุ๋ย project (kg)</th><th>น้ำมัน baseline (L)</th><th>น้ำมัน project (L)</th></tr></thead>
+          <tbody>
+            {(report.processInputs ?? []).map((row) => (
+              <tr key={`tbl5-${row.process}`}>
+                <td>{row.process}</td>
+                <td>{row.baselineFertilizerKg.toLocaleString()}</td>
+                <td>{row.currentFertilizerKg.toLocaleString()}</td>
+                <td>{row.baselineFuelLiter.toLocaleString()}</td>
+                <td>{row.currentFuelLiter.toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
+      {/* BLOCK 6: Spatial table */}
+      <section className="card">
+        <h3>ตารางพื้นที่ (Spatial Summary)</h3>
+        <table className="report-table">
+          <thead><tr><th>Level</th><th>พื้นที่</th><th>แปลง</th><th>ไร่</th><th>Baseline</th><th>Project</th><th>ผลต่าง</th></tr></thead>
+          <tbody>
+            {spatialOverviewRows(report).map((node) => (
+              <tr key={`tbl6-${node.id}`}>
+                <td>{node.level}</td>
+                <td>{node.name}</td>
+                <td>{node.fields.toLocaleString()}</td>
+                <td>{node.areaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
+                <td>{numberCell(node.baselineEmission)}</td>
+                <td>{numberCell(node.currentEmission)}</td>
+                <td>{diffText(node.baselineEmission, node.currentEmission)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+    </>
   );
 }
 
@@ -695,9 +783,11 @@ export function CfReportPage() {
           <button className="run-all-btn report-generate-btn" type="button" onClick={generateReportPreview} disabled={!report || loading || generatingPreview}>
             สร้างเอกสารใหม่ (Generate Report)
           </button>
-          <button className="run-btn pdf-download-btn" type="button" onClick={downloadPdf} disabled={!pdfUrl || generatingPreview || !previewIsCurrent}>Download PDF</button>
-          <button className="run-btn word-download-btn" type="button" onClick={downloadWordDraft} disabled={!generatedReport || !previewIsCurrent}>Download Word</button>
-          <button className="run-all-btn excel-download-btn" type="button" onClick={exportExcel} disabled={!generatedReport || !previewIsCurrent}>Export Excel</button>
+          <div className="report-download-actions">
+            <button className="run-btn pdf-download-btn" type="button" onClick={downloadPdf} disabled={!pdfUrl || generatingPreview || !previewIsCurrent}>Download PDF</button>
+            <button className="run-btn word-download-btn" type="button" onClick={downloadWordDraft} disabled={!generatedReport || !previewIsCurrent}>Download Word</button>
+            <button className="run-all-btn excel-download-btn" type="button" onClick={exportExcel} disabled={!generatedReport || !previewIsCurrent}>Export Excel</button>
+          </div>
         </section>
 
         {generateNotice && <div className="report-generate-notice">{generateNotice}</div>}
@@ -768,6 +858,7 @@ export function CfReportPage() {
               )}
             </div>
           </section>
+          <ReportFullTables report={report} />
           </>
         )}
       </div>

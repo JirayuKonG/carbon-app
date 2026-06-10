@@ -68,18 +68,32 @@ function carbonDiff(item: Pick<SpatialSummaryNode, "baselineEmission" | "current
   return item.baselineEmission - item.currentEmission;
 }
 
+function getCarbonTier(baseline: number, current: number): "green" | "yellow" | "red" {
+  if (!baseline) return "yellow";
+  const pctReduction = ((baseline - current) / baseline) * 100;
+  if (pctReduction >= 15) return "green";
+  if (pctReduction < -5) return "red";
+  return "yellow";
+}
+
+const TIER_COLORS = {
+  green: { border: "#16A34A", fill: "#22C55E", soft: "#DCFCE7", text: "#16803F" },
+  yellow: { border: "#CA8A04", fill: "#EAB308", soft: "#FEF9C3", text: "#A16207" },
+  red: { border: "#DC2626", fill: "#EF4444", soft: "#FFEDD5", text: "#C2410C" },
+};
+
 function carbonMarkerIcon(
   item: Pick<SpatialSummaryNode, "baselineEmission" | "currentEmission" | "fields">,
   options: { selected?: boolean; variant?: "area" | "field" } = {},
 ) {
   const diff = carbonDiff(item);
-  const good = diff >= 0;
-  const color = good ? "#16803F" : "#C2410C";
-  const soft = good ? "#DCFCE7" : "#FFEDD5";
-  const arrow = good ? "↓" : "↑";
+  const tier = getCarbonTier(item.baselineEmission, item.currentEmission);
+  const { text: color, soft } = TIER_COLORS[tier];
+  
+  const arrow = diff > 0 ? "↓" : diff < 0 ? "↑" : "→";
   const markerClass = [
     "carbon-location-marker",
-    good ? "is-good" : "is-bad",
+    `is-${tier}`,
     options.selected ? "is-selected" : "",
     options.variant === "field" ? "is-field" : "is-area",
   ].filter(Boolean).join(" ");
@@ -134,15 +148,16 @@ export function ThailandMap({ nodes, selectedId, onSelect, boundaryFields = [], 
       <Recenter node={selected} boundaries={fieldBoundaries.map((item) => item.boundary)} selectedBoundary={selectedBoundary} />
       {fieldBoundaries.map(({ field, boundary }) => {
         const isSelected = field.id === selectedBoundaryFieldId;
+        const tier = getCarbonTier(field.baselineEmission, field.currentEmission);
         return (
           <Fragment key={`boundary-${field.id}`}>
             <Polygon
               positions={boundary}
               pathOptions={{
-                color: isSelected ? "#16A34A" : "#2563EB",
-                fillColor: isSelected ? "#22C55E" : "#60A5FA",
-                fillOpacity: isSelected ? 0.28 : 0.16,
-                weight: isSelected ? 3 : 2,
+                color: TIER_COLORS[tier].border,
+                fillColor: TIER_COLORS[tier].fill,
+                fillOpacity: isSelected ? 0.6 : 0.35,
+                weight: isSelected ? 4 : 2,
               }}
               eventHandlers={{ click: () => onSelectBoundaryField?.(field.id) }}
             />
@@ -192,9 +207,14 @@ export function ThailandMap({ nodes, selectedId, onSelect, boundaryFields = [], 
     </MapContainer>
       <div className="map-symbol-legend" aria-label="คำอธิบายสัญลักษณ์บนแผนที่">
         <strong>สัญลักษณ์พื้นที่</strong>
-        <span><i className="legend-pin" /> ตำแหน่งแปลง/พื้นที่ + จำนวนแปลง</span>
-        <span><i className="legend-arrow good">↓</i> Carbon Footprint ลดลง</span>
-        <span><i className="legend-arrow bad">↑</i> Carbon Footprint เพิ่มขึ้น</span>
+        <span><i className="legend-pin" /> ตำแหน่งแปลง/พื้นที่</span>
+        <div className="legend-tier-group">
+          <span><i className="legend-tier-swatch green" /> ดีเยี่ยม (ลด ≥ 15%)</span>
+          <span><i className="legend-tier-swatch yellow" /> ปานกลาง</span>
+          <span><i className="legend-tier-swatch red" /> ต้องแก้ไข (เพิ่ม &gt; 5%)</span>
+        </div>
+        <span><i className="legend-arrow good">↓</i> Carbon ลดลง</span>
+        <span><i className="legend-arrow bad">↑</i> Carbon เพิ่มขึ้น</span>
       </div>
       {(isLoadingTiles || tileState.failed > 0) && (
         <div className={`map-loading-overlay ${tileState.failed > 0 && !isLoadingTiles ? "warning" : ""}`}>

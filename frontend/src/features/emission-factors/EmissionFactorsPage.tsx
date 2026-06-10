@@ -269,6 +269,9 @@ export function EmissionFactorsPage() {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [efFormCfTypeId, setEfFormCfTypeId] = useState('')
   const [efFormGroupId, setEfFormGroupId] = useState('')
+  const [efFilterCfTypeId, setEfFilterCfTypeId] = useState('')
+  const [efFilterGroupId, setEfFilterGroupId] = useState('')
+  const [efFilterUnitId, setEfFilterUnitId] = useState('')
 
   const { data: efs = [], isLoading: efLoad, error: efsError } = useQuery({
     queryKey: ['efs'],
@@ -350,6 +353,20 @@ export function EmissionFactorsPage() {
     return efGroups.filter((item) => item.carbonfootprint_type_id === selectedCfTypeId)
   }, [efFormCfTypeId, efGroups])
 
+  const filteredEfGroupsForTable = useMemo(() => {
+    if (!efFilterCfTypeId) return efGroups
+    const selectedCfTypeId = Number(efFilterCfTypeId)
+    return efGroups.filter((item) => item.carbonfootprint_type_id === selectedCfTypeId)
+  }, [efFilterCfTypeId, efGroups])
+
+  const filteredEfs = useMemo(() => (
+    efs.filter((item) =>
+      (!efFilterCfTypeId || item.carbonfootprint_type_id === Number(efFilterCfTypeId))
+      && (!efFilterGroupId || item.group_emission_factor_id === Number(efFilterGroupId))
+      && (!efFilterUnitId || item.unit_id === Number(efFilterUnitId))
+    )
+  ), [efs, efFilterCfTypeId, efFilterGroupId, efFilterUnitId])
+
   useEffect(() => {
     if (!showEfModal) return
     setEfFormCfTypeId(editingEf?.carbonfootprint_type_id ? String(editingEf.carbonfootprint_type_id) : '')
@@ -363,6 +380,14 @@ export function EmissionFactorsPage() {
       setEfFormGroupId('')
     }
   }, [efFormGroupId, filteredEfGroups])
+
+  useEffect(() => {
+    if (!efFilterGroupId) return
+    const groupExists = filteredEfGroupsForTable.some((item) => String(item.group_emission_factor_id) === efFilterGroupId)
+    if (!groupExists) {
+      setEfFilterGroupId('')
+    }
+  }, [efFilterGroupId, filteredEfGroupsForTable])
 
   const saveEfMut = useMutation({
     mutationFn: ({ id, payload }: { id?: number; payload: Record<string, unknown> }) =>
@@ -886,8 +911,69 @@ export function EmissionFactorsPage() {
               </div>
             </div>
 
+            <div className="rounded-2xl border border-surface-200 bg-white p-4">
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-surface-900">ตัวกรอง Emission Factors</h3>
+                  <p className="text-xs text-surface-500">กรองข้อมูลตาม CF Type, กลุ่ม EF และหน่วยตั้งต้น</p>
+                </div>
+                <button
+                  type="button"
+                  className="btn-ghost btn-sm"
+                  onClick={() => {
+                    setEfFilterCfTypeId('')
+                    setEfFilterGroupId('')
+                    setEfFilterUnitId('')
+                  }}
+                >
+                  ล้างตัวกรอง
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div>
+                  <FieldLabel>CF Type</FieldLabel>
+                  <select className="select" value={efFilterCfTypeId} onChange={(event) => setEfFilterCfTypeId(event.target.value)}>
+                    <option value="">ทั้งหมด</option>
+                    {cfTypes.map((item) => (
+                      <option key={item.carbonfootprint_type_id} value={item.carbonfootprint_type_id}>
+                        {item.cf_type_name_short?.trim() || item.cf_type_name_th?.trim() || `#${item.carbonfootprint_type_id}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <FieldLabel>กลุ่ม EF</FieldLabel>
+                  <select className="select" value={efFilterGroupId} onChange={(event) => setEfFilterGroupId(event.target.value)}>
+                    <option value="">ทั้งหมด</option>
+                    {filteredEfGroupsForTable.map((item) => (
+                      <option key={item.group_emission_factor_id} value={item.group_emission_factor_id}>
+                        {item.group_emission_factor_name_short?.trim() || item.group_emission_factor_name?.trim() || `#${item.group_emission_factor_id}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <FieldLabel>หน่วยตั้งต้น</FieldLabel>
+                  <select className="select" value={efFilterUnitId} onChange={(event) => setEfFilterUnitId(event.target.value)}>
+                    <option value="">ทั้งหมด</option>
+                    {units.map((item) => (
+                      <option key={item.unit_id} value={item.unit_id}>
+                        {item.unit_name?.trim() || item.unit_initial?.trim() || `#${item.unit_id}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <FieldLabel>จำนวนที่แสดง</FieldLabel>
+                  <div className="rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm text-surface-700">
+                    {filteredEfs.length.toLocaleString('en-US')} รายการ
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <DataTable
-              data={efs}
+              data={filteredEfs}
               columns={efCols}
               isLoading={efLoad}
               rowKey={(row) => row.coefficient_emission_factor_id}
