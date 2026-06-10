@@ -606,15 +606,26 @@ function FootprintReportDocument({
           <tr><th>ประเภทอ้อย</th><th>กระบวนการ</th><th>ปีรายงาน</th><th>สัดส่วนในประเภท</th><th>สัดส่วนเทียบทั้งขอบเขต</th></tr>
         </thead>
         <tbody>
-          {caneRows.slice(0, 16).map((row) => (
-            <tr key={`doc-cane-${row.cane.name}-${row.process}`}>
-              <td>{row.cane.name} ({row.cane.percent.toFixed(1)}%)</td>
-              <td>{row.process}</td>
-              <td>{formatNumber(row.currentEmission)} tCO2e</td>
-              <td>{row.shareInCane.toFixed(1)}%</td>
-              <td>{row.shareInScope.toFixed(1)}%</td>
-            </tr>
-          ))}
+          {(() => {
+            const renderedCaneRows = caneRows.slice(0, 16);
+            return renderedCaneRows.map((row, index) => {
+              const isFirstCaneRow = index === 0 || renderedCaneRows[index - 1].cane.name !== row.cane.name;
+              const rowSpan = renderedCaneRows.filter((item) => item.cane.name === row.cane.name).length;
+              return (
+                <tr key={`doc-cane-${row.cane.name}-${row.process}`}>
+                  {isFirstCaneRow && (
+                    <td rowSpan={rowSpan} className="rowspan-cell cane-rowspan-name">
+                      {row.cane.name} ({row.cane.percent.toFixed(1)}%)
+                    </td>
+                  )}
+                  <td>{row.process}</td>
+                  <td>{formatNumber(row.currentEmission)} tCO2e</td>
+                  <td>{row.shareInCane.toFixed(1)}%</td>
+                  <td>{row.shareInScope.toFixed(1)}%</td>
+                </tr>
+              );
+            });
+          })()}
         </tbody>
       </table>
 
@@ -1005,7 +1016,31 @@ export function CfFootprintReportPage() {
     if (!generatedReport || !previewIsCurrent) return;
     const wb = XLSX.utils.book_new();
     buildFootprintExcelSheets(generatedReport).forEach((sheet) => {
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheet.rows), sheet.name);
+      const ws = XLSX.utils.json_to_sheet(sheet.rows);
+      if (sheet.name === "Cane x Process") {
+        const merges: XLSX.Range[] = [];
+        let rowIndex = 0;
+        while (rowIndex < sheet.rows.length) {
+          const caneType = sheet.rows[rowIndex].caneType;
+          let rowSpan = 0;
+          while (
+            rowIndex + rowSpan < sheet.rows.length &&
+            sheet.rows[rowIndex + rowSpan].caneType === caneType
+          ) {
+            rowSpan++;
+          }
+          if (rowSpan > 1) {
+            const startRow = rowIndex + 1;
+            const endRow = rowIndex + rowSpan;
+            merges.push({ s: { r: startRow, c: 0 }, e: { r: endRow, c: 0 } });
+            merges.push({ s: { r: startRow, c: 1 }, e: { r: endRow, c: 1 } });
+            merges.push({ s: { r: startRow, c: 2 }, e: { r: endRow, c: 2 } });
+          }
+          rowIndex += rowSpan;
+        }
+        ws["!merges"] = merges;
+      }
+      XLSX.utils.book_append_sheet(wb, ws, sheet.name);
     });
     XLSX.writeFile(wb, "mitrphol-carbon-footprint-report.xlsx");
   };
@@ -1218,9 +1253,30 @@ export function CfFootprintReportPage() {
                           <tbody>
                             {sheet.rows.map((row, rowIndex) => (
                               <tr key={`${sheet.name}-row-${rowIndex}`}>
-                                {columns.map((column) => (
-                                  <td key={`${sheet.name}-${rowIndex}-${column}`}>{excelPreviewCell(row[column])}</td>
-                                ))}
+                                {columns.map((column) => {
+                                  if (sheet.name === "Cane x Process" && ["caneType", "caneAreaPercent", "caneAreaRai"].includes(column)) {
+                                    const isFirstCaneRow = rowIndex === 0 || sheet.rows[rowIndex - 1].caneType !== row.caneType;
+                                    if (!isFirstCaneRow) return null;
+                                    
+                                    let rowSpan = 1;
+                                    while (
+                                      rowIndex + rowSpan < sheet.rows.length &&
+                                      sheet.rows[rowIndex + rowSpan].caneType === row.caneType
+                                    ) {
+                                      rowSpan++;
+                                    }
+                                    return (
+                                      <td key={`${sheet.name}-${rowIndex}-${column}`} rowSpan={rowSpan} className="rowspan-cell">
+                                        {excelPreviewCell(row[column])}
+                                      </td>
+                                    );
+                                  }
+                                  return (
+                                    <td key={`${sheet.name}-${rowIndex}-${column}`}>
+                                      {excelPreviewCell(row[column])}
+                                    </td>
+                                  );
+                                })}
                               </tr>
                             ))}
                           </tbody>
