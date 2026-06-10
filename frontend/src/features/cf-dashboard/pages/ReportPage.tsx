@@ -9,8 +9,6 @@ import "../cf-dashboard.css";
 
 type CascadingReportLevel = Exclude<ReportFilterLevel, "all">;
 type PreviewTab = "pdf" | "word" | "excel";
-type InsightsTab = "traffic" | "pdd";
-
 const reportLevelOrder: CascadingReportLevel[] = ["region", "province", "district", "subdistrict", "field"];
 
 function emptyReportPath(): Record<CascadingReportLevel, string> {
@@ -328,6 +326,130 @@ function PddCarbonSummary({ report }: { report: ReportSummary }) {
   );
 }
 
+type InsightTab = "alerts" | "pdd";
+
+function WebReportSummary({ report }: { report: ReportSummary }) {
+  const [insightTab, setInsightTab] = useState<InsightTab>("alerts");
+  const summary = pddEmissionSummary(report);
+  const totalInputs = summary.n2oProject + summary.co2FuelProject + summary.socRemoval;
+  return (
+    <>
+      {/* BLOCK 1: PROJECT CONTEXT */}
+      <div className="card-title">ข้อมูลภาพรวมโครงการ</div>
+      <div className="executive-summary-grid tver-executive-summary">
+        <article>
+          <span>พื้นที่โครงการ</span>
+          <strong>{reportAreaRai(report).toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong>
+          <small>ไร่ · {report.kpi.fields.toLocaleString()} แปลง</small>
+        </article>
+        <article>
+          <span>เครดิตที่คาดว่าจะได้</span>
+          <strong>{summary.totalReduction.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+          <small>tCO2e</small>
+        </article>
+        <article>
+          <span>องค์ประกอบเครดิต N2O + น้ำมัน + SOC</span>
+          <strong>{totalInputs.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+          <small>tCO2e</small>
+        </article>
+        <article>
+          <span>Emission ปีดำเนินโครงการ</span>
+          <strong>{report.kpi.currentEmission.toLocaleString()}</strong>
+          <small>Project year {report.kpi.currentYear} · tCO2e</small>
+        </article>
+        <article>
+          <span>Emission ปีฐาน Baseline</span>
+          <strong>{report.kpi.baselineAvgEmission.toLocaleString()}</strong>
+          <small>Baseline year เฉลี่ย · tCO2e</small>
+        </article>
+      </div>
+
+      {/* BLOCK 2: EVIDENCE / BREAKDOWN */}
+      <h3>Evidence / Breakdown</h3>
+      <p className="card-title" style={{ fontSize: "11px", marginBottom: "10px", marginTop: "0", letterSpacing: ".02em" }}>พารามิเตอร์สำคัญสำหรับการยื่น อบก. (TGO)</p>
+      <div className="report-kpi-grid">
+        <div><span>Baseline avg</span><strong>{report.kpi.baselineAvgEmission.toLocaleString()} tCO2e</strong></div>
+        <div><span>Project year {report.kpi.currentYear}</span><strong>{report.kpi.currentEmission.toLocaleString()} tCO2e</strong></div>
+        <div><span>ผลต่าง</span><strong>{diffText(report.kpi.baselineAvgEmission, report.kpi.currentEmission)}</strong></div>
+        <div><span>พื้นที่</span><strong>{report.kpi.fields} แปลง / {report.kpi.farmers} ราย</strong></div>
+        <div><span>Machine / Fuel</span><strong>{report.kpi.machineEmission.toLocaleString()} tCO2e</strong></div>
+        <div><span>ปุ๋ยรวม</span><strong>{report.kpi.fertilizerAmountKg.toLocaleString()} kg / {report.kpi.fertilizerEmission.toLocaleString()} tCO2e</strong></div>
+        <div><span>SOC Removal</span><strong>{summary.socRemoval.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
+      </div>
+
+      {/* BLOCK 3: TABBED INSIGHTS */}
+      <div className="insights-tabs-wrapper">
+        <h3>บทวิเคราะห์</h3>
+        <div className="report-preview-tabs" role="tablist" aria-label="Insight tabs">
+          <button
+            role="tab"
+            type="button"
+            aria-selected={insightTab === "alerts"}
+            className={insightTab === "alerts" ? "active" : ""}
+            onClick={() => setInsightTab("alerts")}
+          >
+            สรุปตามความปลอดภัย
+          </button>
+          <button
+            role="tab"
+            type="button"
+            aria-selected={insightTab === "pdd"}
+            className={insightTab === "pdd" ? "active" : ""}
+            onClick={() => setInsightTab("pdd")}
+          >
+            ตัวเลขอ้างอิงเล่ม PDD
+          </button>
+        </div>
+
+        {insightTab === "alerts" && (
+          <div className="alert-cards-grid">
+            <div className="alert-card alert-card--success">
+              <span className="alert-card-icon">🟢</span>
+              <div>
+                <strong>ความสำเร็จหลัก (Success)</strong>
+                <p>ประสิทธิภาพการลดคาร์บอนต่อหน่วยลดลงเหลือ 3.22 tCO2e/ตันอ้อย ต่ำกว่าปีฐานชัดเจน</p>
+              </div>
+            </div>
+            <div className="alert-card alert-card--warning">
+              <span className="alert-card-icon">🟡</span>
+              <div>
+                <strong>ข้อมูลเฝ้าระวัง (Warning)</strong>
+                <p>แคมป์หนองสาหร่ายปล่อยก๊าซฯ จากขั้นตอนจัดการน้ำเพิ่มขึ้น 5.2% จากน้ำมันสูบน้ำ</p>
+              </div>
+            </div>
+            <div className="alert-card alert-card--danger">
+              <span className="alert-card-icon">🔴</span>
+              <div>
+                <strong>จุดวิกฤตที่ต้องแก้ (Danger)</strong>
+                <p>กิจกรรม "การใช้ปุ๋ยเคมี" ในอ้อยปลูกใหม่เป็น Hotspot ครองสัดส่วนปล่อยสูงถึง 52.8%</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {insightTab === "pdd" && (
+          <ul className="pdd-ref-list">
+            <li>
+              <div>
+                <strong>บรรลุเป้าหมายการลดก๊าซเรือนกระจกประจำปี</strong>
+                <p className="muted">ลดลงตามเกณฑ์มาตรฐาน</p>
+              </div>
+              <span className="pdd-ref-badge pdd-ref-badge--green">-173 tCO2e</span>
+            </li>
+            <li>
+              <div>
+                <strong>สัญญาณบวกการกักเก็บคาร์บอนในดินสุทธิ</strong>
+                <p className="muted">เพิ่มนัยสำคัญในส่วน บ.4 เล่ม PDD แคมป์ป่าสาง</p>
+              </div>
+              <span className="pdd-ref-badge pdd-ref-badge--blue">+60.55 tCO2e</span>
+            </li>
+          </ul>
+        )}
+      </div>
+    </>
+  );
+}
+
 function ExcelPreview({ report }: { report: ReportSummary }) {
   return (
     <div className="excel-sheet-grid">
@@ -395,488 +517,69 @@ function ExcelPreview({ report }: { report: ReportSummary }) {
   );
 }
 
-// ─── Block 1: PROJECT CONTEXT ─────────────────────────────────────────────────
-function ProjectContextBlock({ report }: { report: ReportSummary }) {
-  const summary = pddEmissionSummary(report);
-  const totalInputs = summary.n2oProject + summary.co2FuelProject + summary.socRemoval;
-  const cards = [
-    {
-      label: "พื้นที่โครงการ",
-      value: reportAreaRai(report).toLocaleString(undefined, { maximumFractionDigits: 1 }),
-      unit: "ไร่",
-      sub: `${report.kpi.fields.toLocaleString()} แปลง · ${report.kpi.farmers.toLocaleString()} ราย`,
-      icon: "🌾",
-      accent: "from-green-500 to-emerald-600",
-      bg: "bg-green-50",
-      border: "border-green-200",
-      text: "text-green-800",
-    },
-    {
-      label: "เครดิตที่คาดว่าจะได้",
-      value: summary.totalReduction.toLocaleString(undefined, { maximumFractionDigits: 2 }),
-      unit: "tCO2e",
-      sub: "คาร์บอนเครดิต Premium T-VER",
-      icon: "🏅",
-      accent: "from-blue-500 to-indigo-600",
-      bg: "bg-blue-50",
-      border: "border-blue-200",
-      text: "text-blue-800",
-    },
-    {
-      label: "องค์ประกอบเครดิต N2O + น้ำมัน + SOC",
-      value: totalInputs.toLocaleString(undefined, { maximumFractionDigits: 2 }),
-      unit: "tCO2e",
-      sub: `N2O: ${numberCell(summary.n2oProject)} · Fuel: ${numberCell(summary.co2FuelProject)} · SOC: ${numberCell(summary.socRemoval)}`,
-      icon: "⚗️",
-      accent: "from-violet-500 to-purple-600",
-      bg: "bg-violet-50",
-      border: "border-violet-200",
-      text: "text-violet-800",
-    },
-    {
-      label: `Emission ปีดำเนินโครงการ`,
-      value: report.kpi.currentEmission.toLocaleString(undefined, { maximumFractionDigits: 2 }),
-      unit: "tCO2e",
-      sub: `Project year ${report.kpi.currentYear}`,
-      icon: "📉",
-      accent: "from-amber-500 to-orange-500",
-      bg: "bg-amber-50",
-      border: "border-amber-200",
-      text: "text-amber-800",
-    },
-    {
-      label: "Emission ปีฐาน Baseline",
-      value: report.kpi.baselineAvgEmission.toLocaleString(undefined, { maximumFractionDigits: 2 }),
-      unit: "tCO2e",
-      sub: "Baseline year · ค่าเฉลี่ย",
-      icon: "📊",
-      accent: "from-slate-400 to-slate-500",
-      bg: "bg-slate-50",
-      border: "border-slate-200",
-      text: "text-slate-700",
-    },
-  ];
+function ReportFullTables({ report }: { report: ReportSummary }) {
   return (
-    <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-      <div className="px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white flex items-center gap-3">
-        <span className="text-xl">🏢</span>
-        <div>
-          <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">Block 1 · Project Context</h2>
-          <p className="text-xs text-slate-500 mt-0.5">ภาพรวมโครงการ Premium T-VER ปี {report.kpi.currentYear}</p>
-        </div>
-      </div>
-      <div className="p-5 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-        {cards.map((card) => (
-          <div key={card.label} className={`${card.bg} ${card.border} border rounded-lg p-4 flex flex-col gap-1`}>
-            <div className="flex items-center gap-2">
-              <span className="text-lg">{card.icon}</span>
-              <span className={`text-xs font-semibold ${card.text} leading-tight`}>{card.label}</span>
-            </div>
-            <div className="flex items-baseline gap-1.5 mt-1">
-              <span className={`text-2xl font-bold ${card.text}`}>{card.value}</span>
-              <span className={`text-xs font-medium ${card.text} opacity-70`}>{card.unit}</span>
-            </div>
-            <p className="text-[11px] text-slate-500 leading-tight">{card.sub}</p>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
+    <>
+      {/* BLOCK 4: Process comparison table */}
+      <section className="card">
+        <h3>ตารางเปรียบเทียบกระบวนการ</h3>
+        <table className="report-table">
+          <thead><tr><th>Process</th><th>Year group</th><th>Year</th><th>Emission (tCO2e)</th></tr></thead>
+          <tbody>
+            {processComparisonGroups(report).map((group) =>
+              group.rows.map((row, index) => (
+                <tr key={`tbl4-${row.year}-${row.process}`}>
+                  {index === 0 && <td rowSpan={group.rows.length} className="process-group-cell">{group.process}</td>}
+                  <td>{processTypeLabel(row)}</td>
+                  <td>{row.year}</td>
+                  <td>{numberCell(row.emission)}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </section>
 
-// ─── Block 2: EVIDENCE / BREAKDOWN ───────────────────────────────────────────
-function EvidenceBreakdownBlock({ report }: { report: ReportSummary }) {
-  const summary = pddEmissionSummary(report);
-  const diff = report.kpi.baselineAvgEmission - report.kpi.currentEmission;
-  const diffPct = report.kpi.baselineAvgEmission ? (diff / report.kpi.baselineAvgEmission) * 100 : 0;
-  const isReduced = diff >= 0;
-
-  const params = [
-    {
-      label: "Baseline avg",
-      value: `${numberCell(report.kpi.baselineAvgEmission)} tCO2e`,
-      hint: "ค่าเฉลี่ยปีฐาน (สำหรับอ้างอิง PDD)",
-      color: "text-slate-700",
-    },
-    {
-      label: `Project year ${report.kpi.currentYear}`,
-      value: `${numberCell(report.kpi.currentEmission)} tCO2e`,
-      hint: "Emission ปีดำเนินการ",
-      color: "text-blue-700",
-    },
-    {
-      label: "ผลต่าง (Reduction)",
-      value: `${isReduced ? "▼" : "▲"} ${numberCell(Math.abs(diff))} tCO2e`,
-      hint: `${Math.abs(diffPct).toFixed(1)}% จากปีฐาน · ${isReduced ? "ลดลง ✓" : "เพิ่มขึ้น ⚠️"}`,
-      color: isReduced ? "text-green-700" : "text-red-600",
-    },
-    {
-      label: "พื้นที่ (แปลง / ราย)",
-      value: `${report.kpi.fields.toLocaleString()} แปลง`,
-      hint: `เกษตรกร ${report.kpi.farmers.toLocaleString()} ราย`,
-      color: "text-slate-700",
-    },
-    {
-      label: "Machine / Fuel Emission",
-      value: `${numberCell(report.kpi.machineEmission)} tCO2e`,
-      hint: "CO₂ จากการเผาไหม้เชื้อเพลิงฟอสซิล",
-      color: "text-orange-700",
-    },
-    {
-      label: "ปุ๋ยรวม (N2O)",
-      value: `${report.kpi.fertilizerAmountKg.toLocaleString()} kg`,
-      hint: `Emission ${numberCell(report.kpi.fertilizerEmission)} tCO2e`,
-      color: "text-amber-700",
-    },
-    {
-      label: "SOC Removal (ประมาณ)",
-      value: `${numberCell(summary.socRemoval)} tCO2e`,
-      hint: "การกักเก็บคาร์บอนในดิน (ค่าประมาณ 35%)",
-      color: "text-emerald-700",
-    },
-  ];
-
-  return (
-    <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-      <div className="px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white flex items-center gap-3">
-        <span className="text-xl">📋</span>
-        <div>
-          <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">Block 2 · Evidence / Breakdown</h2>
-          <p className="text-xs text-slate-500 mt-0.5">พารามิเตอร์สำคัญสำหรับยื่น อบก. (TGO)</p>
-        </div>
-      </div>
-      <div className="p-5">
-        <div className="divide-y divide-slate-100">
-          {params.map((param) => (
-            <div key={param.label} className="flex items-center justify-between py-2.5 gap-4">
-              <div className="min-w-0">
-                <div className="text-xs font-semibold text-slate-600 truncate">{param.label}</div>
-                <div className="text-[11px] text-slate-400 mt-0.5">{param.hint}</div>
-              </div>
-              <div className={`text-sm font-bold ${param.color} whitespace-nowrap text-right`}>{param.value}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── Block 3: TABBED INSIGHTS ─────────────────────────────────────────────────
-function TabbedInsightsBlock() {
-  const [activeTab, setActiveTab] = useState<InsightsTab>("traffic");
-
-  const trafficAlerts = [
-    {
-      level: "success" as const,
-      emoji: "🟢",
-      badge: "ความสำเร็จหลัก",
-      title: "ประสิทธิภาพการลดคาร์บอนต่อหน่วยดีขึ้น",
-      detail:
-        "ประสิทธิภาพการลดคาร์บอนต่อหน่วยลดลงเหลือ 3.22 tCO2e/ตันอ้อย ต่ำกว่าปีฐานชัดเจน สะท้อนว่ากิจกรรมการจัดการที่ดีในภาพรวมดำเนินไปในทิศทางที่ถูกต้อง",
-      bg: "bg-emerald-50",
-      border: "border-emerald-200",
-      badgeBg: "bg-emerald-100 text-emerald-800",
-      titleColor: "text-emerald-900",
-      detailColor: "text-emerald-700",
-    },
-    {
-      level: "warning" as const,
-      emoji: "🟡",
-      badge: "ข้อมูลเฝ้าระวัง",
-      title: "แคมป์หนองสาหร่าย — Emission น้ำเพิ่มขึ้น",
-      detail:
-        "แคมป์หนองสาหร่ายปล่อยก๊าซฯ จากขั้นตอนจัดการน้ำเพิ่มขึ้น 5.2% จากน้ำมันสูบน้ำ ควรติดตามและพิจารณาทางเลือกประหยัดพลังงาน เช่น ระบบน้ำหยดหรือแรงโน้มถ่วง",
-      bg: "bg-amber-50",
-      border: "border-amber-200",
-      badgeBg: "bg-amber-100 text-amber-800",
-      titleColor: "text-amber-900",
-      detailColor: "text-amber-700",
-    },
-    {
-      level: "danger" as const,
-      emoji: "🔴",
-      badge: "จุดวิกฤตที่ต้องแก้",
-      title: "Hotspot: การใช้ปุ๋ยเคมีในอ้อยปลูกใหม่",
-      detail:
-        'กิจกรรม "การใช้ปุ๋ยเคมี" ในอ้อยปลูกใหม่เป็น Hotspot ครองสัดส่วนปล่อยสูงถึง 52.8% ต้องเร่งปรับแผนการใส่ปุ๋ยตามค่าวิเคราะห์ดิน และพิจารณาการใช้ปุ๋ยอินทรีย์ทดแทนบางส่วน',
-      bg: "bg-red-50",
-      border: "border-red-200",
-      badgeBg: "bg-red-100 text-red-800",
-      titleColor: "text-red-900",
-      detailColor: "text-red-700",
-    },
-  ];
-
-  const pddRefs = [
-    {
-      id: "pdd-ref-1",
-      label: "บรรลุเป้าหมายการลดก๊าซเรือนกระจกประจำปี (ลดลงตามเกณฑ์มาตรฐาน)",
-      sub: "บ.3 ผลคำนวณ Emission Reduction · ปีดำเนินการ 2566/67",
-      badge: "-173 tCO2e",
-      badgeStyle: "bg-green-100 text-green-800 border border-green-300",
-    },
-    {
-      id: "pdd-ref-2",
-      label: "สัญญาณบวกการกักเก็บคาร์บอนในดินสุทธิ (เพิ่มนัยสำคัญ)",
-      sub: "บ.4 SOC Removal · แคมป์ป่าสาง · T-VER-P-TOOL-SOC-01",
-      badge: "+60.55 tCO2e",
-      badgeStyle: "bg-blue-100 text-blue-800 border border-blue-300",
-    },
-  ];
-
-  return (
-    <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-      {/* Header */}
-      <div className="px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white flex items-center gap-3">
-        <span className="text-xl">🔍</span>
-        <div>
-          <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">Block 3 · บทวิเคราะห์ (Insights)</h2>
-          <p className="text-xs text-slate-500 mt-0.5">สลับแท็บเพื่อดูมุมมองต่างๆ ของการวิเคราะห์</p>
-        </div>
-      </div>
-
-      {/* Tab Navigation */}
-      <div className="px-5 pt-4 pb-0 border-b border-slate-200 flex gap-1">
-        <button
-          id="insights-tab-traffic"
-          type="button"
-          role="tab"
-          aria-selected={activeTab === "traffic"}
-          onClick={() => setActiveTab("traffic")}
-          className={[
-            "px-4 py-2.5 text-xs font-semibold rounded-t-lg border-b-2 transition-all duration-200 whitespace-nowrap",
-            activeTab === "traffic"
-              ? "border-blue-600 text-blue-700 bg-blue-50"
-              : "border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50",
-          ].join(" ")}
-        >
-          🚦 สรุปตามความปลอดภัย (Traffic-Light Alerts)
-        </button>
-        <button
-          id="insights-tab-pdd"
-          type="button"
-          role="tab"
-          aria-selected={activeTab === "pdd"}
-          onClick={() => setActiveTab("pdd")}
-          className={[
-            "px-4 py-2.5 text-xs font-semibold rounded-t-lg border-b-2 transition-all duration-200 whitespace-nowrap",
-            activeTab === "pdd"
-              ? "border-blue-600 text-blue-700 bg-blue-50"
-              : "border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50",
-          ].join(" ")}
-        >
-          📄 ตัวเลขอ้างอิงเล่ม PDD
-        </button>
-      </div>
-
-      {/* Tab Content */}
-      <div className="p-5">
-        {activeTab === "traffic" && (
-          <div className="flex flex-col gap-3">
-            {trafficAlerts.map((alert) => (
-              <div
-                key={alert.level}
-                className={`${alert.bg} ${alert.border} border rounded-lg p-4`}
-              >
-                <div className="flex items-start gap-3">
-                  <span className="text-2xl mt-0.5 flex-shrink-0">{alert.emoji}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2 mb-1">
-                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${alert.badgeBg}`}>
-                        {alert.badge}
-                      </span>
-                    </div>
-                    <div className={`text-sm font-bold ${alert.titleColor} mb-1`}>{alert.title}</div>
-                    <p className={`text-xs leading-relaxed ${alert.detailColor}`}>{alert.detail}</p>
-                  </div>
-                </div>
-              </div>
+      {/* BLOCK 5: Inputs table */}
+      <section className="card">
+        <h3>ตารางปุ๋ยและน้ำมัน</h3>
+        <table className="report-table">
+          <thead><tr><th>Process</th><th>ปุ๋ย baseline (kg)</th><th>ปุ๋ย project (kg)</th><th>น้ำมัน baseline (L)</th><th>น้ำมัน project (L)</th></tr></thead>
+          <tbody>
+            {(report.processInputs ?? []).map((row) => (
+              <tr key={`tbl5-${row.process}`}>
+                <td>{row.process}</td>
+                <td>{row.baselineFertilizerKg.toLocaleString()}</td>
+                <td>{row.currentFertilizerKg.toLocaleString()}</td>
+                <td>{row.baselineFuelLiter.toLocaleString()}</td>
+                <td>{row.currentFuelLiter.toLocaleString()}</td>
+              </tr>
             ))}
-          </div>
-        )}
+          </tbody>
+        </table>
+      </section>
 
-        {activeTab === "pdd" && (
-          <div className="flex flex-col gap-3">
-            {pddRefs.map((ref) => (
-              <div
-                key={ref.id}
-                id={ref.id}
-                className="flex items-center justify-between gap-4 bg-slate-50 border border-slate-200 rounded-lg p-4"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold text-slate-800 leading-snug">{ref.label}</div>
-                  <div className="text-[11px] text-slate-500 mt-1">{ref.sub}</div>
-                </div>
-                <div className="flex-shrink-0">
-                  <span className={`text-sm font-bold px-3 py-1.5 rounded-lg ${ref.badgeStyle}`}>
-                    {ref.badge}
-                  </span>
-                </div>
-              </div>
+      {/* BLOCK 6: Spatial table */}
+      <section className="card">
+        <h3>ตารางพื้นที่ (Spatial Summary)</h3>
+        <table className="report-table">
+          <thead><tr><th>Level</th><th>พื้นที่</th><th>แปลง</th><th>ไร่</th><th>Baseline</th><th>Project</th><th>ผลต่าง</th></tr></thead>
+          <tbody>
+            {spatialOverviewRows(report).map((node) => (
+              <tr key={`tbl6-${node.id}`}>
+                <td>{node.level}</td>
+                <td>{node.name}</td>
+                <td>{node.fields.toLocaleString()}</td>
+                <td>{node.areaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
+                <td>{numberCell(node.baselineEmission)}</td>
+                <td>{numberCell(node.currentEmission)}</td>
+                <td>{diffText(node.baselineEmission, node.currentEmission)}</td>
+              </tr>
             ))}
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-// ─── Bottom Tables (Blocks 4, 5, 6) ──────────────────────────────────────────
-function BottomTablesSection({ report }: { report: ReportSummary }) {
-  return (
-    <div className="space-y-6 mt-6">
-
-      {/* Block 4: Process Comparison Table */}
-      <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-200 flex items-center gap-3 bg-slate-50">
-          <span className="text-lg">⚖️</span>
-          <div>
-            <h2 className="text-sm font-bold text-slate-800">Block 4 · ตารางเปรียบเทียบกระบวนการ</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Process Comparison — Baseline avg vs. Project year {report.kpi.currentYear}</p>
-          </div>
-        </div>
-        <div className="overflow-x-auto p-4">
-          <table className="w-full text-sm text-left text-slate-600 border border-slate-200 rounded-lg">
-            <thead className="bg-slate-100 text-slate-700 text-xs uppercase font-semibold">
-              <tr>
-                <th className="px-4 py-3 border-b border-slate-200">Process</th>
-                <th className="px-4 py-3 border-b border-slate-200">Year Group</th>
-                <th className="px-4 py-3 border-b border-slate-200">Year</th>
-                <th className="px-4 py-3 border-b border-slate-200 text-right">Emission (tCO2e)</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {processComparisonGroups(report).map((group) =>
-                group.rows.map((row, index) => (
-                  <tr key={`${row.year}-${row.process}`} className="hover:bg-slate-50/50 transition-colors">
-                    {index === 0 && (
-                      <td rowSpan={group.rows.length} className="px-4 py-3 font-semibold text-slate-800 align-top border-r border-slate-100 bg-slate-50/30">
-                        {group.process}
-                      </td>
-                    )}
-                    <td className="px-4 py-3">
-                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${
-                        row.year === "baseline_avg"
-                          ? "bg-slate-200 text-slate-700"
-                          : row.isBaseline
-                          ? "bg-amber-100 text-amber-800"
-                          : "bg-blue-100 text-blue-800"
-                      }`}>
-                        {processTypeLabel(row)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-500">{row.year}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-slate-800">{numberCell(row.emission)}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+          </tbody>
+        </table>
       </section>
-
-      {/* Block 5: Fertilizer & Fuel Table */}
-      <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-200 flex items-center gap-3 bg-slate-50">
-          <span className="text-lg">🧪</span>
-          <div>
-            <h2 className="text-sm font-bold text-slate-800">Block 5 · ตารางปุ๋ยและน้ำมัน</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Fertilizer & Fuel Consumption — Baseline vs. Project</p>
-          </div>
-        </div>
-        <div className="overflow-x-auto p-4">
-          <table className="w-full text-sm text-left text-slate-600 border border-slate-200 rounded-lg">
-            <thead className="bg-slate-100 text-slate-700 text-xs uppercase font-semibold">
-              <tr>
-                <th className="px-4 py-3 border-b border-slate-200">Process</th>
-                <th className="px-4 py-3 border-b border-slate-200 text-right">ปุ๋ย Baseline (kg)</th>
-                <th className="px-4 py-3 border-b border-slate-200 text-right">ปุ๋ย Project (kg)</th>
-                <th className="px-4 py-3 border-b border-slate-200 text-right">น้ำมัน Baseline (L)</th>
-                <th className="px-4 py-3 border-b border-slate-200 text-right">น้ำมัน Project (L)</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {(report.processInputs ?? []).map((row) => {
-                const fertDiff = row.baselineFertilizerKg - row.currentFertilizerKg;
-                const fuelDiff = row.baselineFuelLiter - row.currentFuelLiter;
-                return (
-                  <tr key={row.process} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-4 py-3 font-medium text-slate-800">{row.process}</td>
-                    <td className="px-4 py-3 text-right text-slate-600">{row.baselineFertilizerKg.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right">
-                      <span className="font-semibold text-slate-800">{row.currentFertilizerKg.toLocaleString()}</span>
-                      {fertDiff !== 0 && (
-                        <span className={`ml-1.5 text-[10px] font-medium ${fertDiff >= 0 ? "text-green-600" : "text-red-500"}`}>
-                          {fertDiff >= 0 ? "▼" : "▲"}{Math.abs(fertDiff).toLocaleString()}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right text-slate-600">{row.baselineFuelLiter.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right">
-                      <span className="font-semibold text-slate-800">{row.currentFuelLiter.toLocaleString()}</span>
-                      {fuelDiff !== 0 && (
-                        <span className={`ml-1.5 text-[10px] font-medium ${fuelDiff >= 0 ? "text-green-600" : "text-red-500"}`}>
-                          {fuelDiff >= 0 ? "▼" : "▲"}{Math.abs(fuelDiff).toLocaleString()}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* Block 6: Spatial Summary Table */}
-      <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-2">
-        <div className="px-5 py-4 border-b border-slate-200 flex items-center gap-3 bg-slate-50">
-          <span className="text-lg">🗺️</span>
-          <div>
-            <h2 className="text-sm font-bold text-slate-800">Block 6 · ตารางพื้นที่ภาพรวม (Spatial Summary)</h2>
-            <p className="text-xs text-slate-500 mt-0.5">สรุปพื้นที่ตามระดับภูมิศาสตร์ที่เลือก</p>
-          </div>
-        </div>
-        <div className="overflow-x-auto p-4">
-          <table className="w-full text-sm text-left text-slate-600 border border-slate-200 rounded-lg">
-            <thead className="bg-slate-100 text-slate-700 text-xs uppercase font-semibold">
-              <tr>
-                <th className="px-4 py-3 border-b border-slate-200">Level</th>
-                <th className="px-4 py-3 border-b border-slate-200">พื้นที่</th>
-                <th className="px-4 py-3 border-b border-slate-200 text-right">แปลง</th>
-                <th className="px-4 py-3 border-b border-slate-200 text-right">ไร่</th>
-                <th className="px-4 py-3 border-b border-slate-200 text-right">Baseline (tCO2e)</th>
-                <th className="px-4 py-3 border-b border-slate-200 text-right">Project (tCO2e)</th>
-                <th className="px-4 py-3 border-b border-slate-200 text-right">ผลต่าง</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {spatialOverviewRows(report).map((node) => {
-                const diff = node.baselineEmission - node.currentEmission;
-                return (
-                  <tr key={node.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-4 py-3">
-                      <span className="text-[11px] font-bold bg-slate-200 text-slate-700 px-2 py-0.5 rounded">
-                        {node.level}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 font-medium text-slate-800">{node.name}</td>
-                    <td className="px-4 py-3 text-right">{node.fields.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right">{node.areaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
-                    <td className="px-4 py-3 text-right text-slate-600">{numberCell(node.baselineEmission)}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-slate-800">{numberCell(node.currentEmission)}</td>
-                    <td className={`px-4 py-3 text-right font-bold ${diff >= 0 ? "text-green-600" : "text-red-600"}`}>
-                      {diff >= 0 ? "▼" : "▲"} {numberCell(Math.abs(diff))}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </div>
+    </>
   );
 }
 
@@ -930,23 +633,23 @@ export function CfReportPage() {
       if (!pddEmissionRef.current) return;
       html2canvas(pddEmissionRef.current, { scale: 1.8, backgroundColor: "#ffffff" })
         .then((canvas) => {
-          const pdf = new jsPDF("l", "mm", "a4");
-          const width = pdf.internal.pageSize.getWidth();
-          const margin = 8;
-          const imageWidth = width - margin * 2;
-          const image = canvas.toDataURL("image/png");
-          const height = (canvas.height * imageWidth) / canvas.width;
-          pdf.addImage(image, "PNG", margin, margin, imageWidth, height);
-          const url = URL.createObjectURL(pdf.output("blob"));
-          setPdfUrl((old) => {
-            if (old) URL.revokeObjectURL(old);
-            return url;
-          });
-          revoked = url;
-          setGenerateNotice("อัปเดตตัวอย่างรายงานเรียบร้อยแล้ว");
-        })
-        .catch((err) => setError(err instanceof Error ? err.message : "สร้าง PDF preview ไม่สำเร็จ"))
-        .finally(() => setGeneratingPreview(false));
+        const pdf = new jsPDF("l", "mm", "a4");
+        const width = pdf.internal.pageSize.getWidth();
+        const margin = 8;
+        const imageWidth = width - margin * 2;
+        const image = canvas.toDataURL("image/png");
+        const height = (canvas.height * imageWidth) / canvas.width;
+        pdf.addImage(image, "PNG", margin, margin, imageWidth, height);
+        const url = URL.createObjectURL(pdf.output("blob"));
+        setPdfUrl((old) => {
+          if (old) URL.revokeObjectURL(old);
+          return url;
+        });
+        revoked = url;
+        setGenerateNotice("อัปเดตตัวอย่างรายงานเรียบร้อยแล้ว");
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "สร้าง PDF preview ไม่สำเร็จ"))
+      .finally(() => setGeneratingPreview(false));
     }, 200);
     return () => {
       window.clearTimeout(timer);
@@ -1019,7 +722,6 @@ export function CfReportPage() {
   return (
     <div className="cf-dash">
       <div className="page active">
-        {/* Page Header */}
         <div className="page-title">
           <div>
             <h1>สรุปผลทั้งหมดสำหรับเตรียมยื่น Premium T-VER</h1>
@@ -1028,11 +730,10 @@ export function CfReportPage() {
 
         {error && <div className="error-panel">{error}</div>}
 
-        {/* Toolbar: Filter & Export Controls */}
-        <section className="card report-toolbar shadow-sm border border-slate-200 rounded-xl mb-6">
+        <section className="card report-toolbar">
           <div>
-            <div className="card-title text-base">ตัวกรองพื้นที่รายงาน</div>
-            <p className="muted text-sm">{selectedReportNode ? `กำลังดู: ${selectedReportNode.name}` : "กำลังดู: ภาพรวมทั้งระบบ"}</p>
+            <div className="card-title">ตัวกรองพื้นที่รายงาน</div>
+            <p className="muted">{selectedReportNode ? `กำลังดู: ${selectedReportNode.name}` : "กำลังดู: ภาพรวมทั้งระบบ"}</p>
           </div>
           <label>
             ภาค
@@ -1079,121 +780,85 @@ export function CfReportPage() {
               ))}
             </select>
           </label>
-          <button
-            className="run-all-btn report-generate-btn"
-            type="button"
-            onClick={generateReportPreview}
-            disabled={!report || loading || generatingPreview}
-          >
+          <button className="run-all-btn report-generate-btn" type="button" onClick={generateReportPreview} disabled={!report || loading || generatingPreview}>
             สร้างเอกสารใหม่ (Generate Report)
           </button>
+          <div className="report-download-actions">
+            <button className="run-btn pdf-download-btn" type="button" onClick={downloadPdf} disabled={!pdfUrl || generatingPreview || !previewIsCurrent}>Download PDF</button>
+            <button className="run-btn word-download-btn" type="button" onClick={downloadWordDraft} disabled={!generatedReport || !previewIsCurrent}>Download Word</button>
+            <button className="run-all-btn excel-download-btn" type="button" onClick={exportExcel} disabled={!generatedReport || !previewIsCurrent}>Export Excel</button>
+          </div>
         </section>
 
-        {generateNotice && (
-          <div className="report-generate-notice bg-blue-50 text-blue-700 p-3 rounded-xl text-sm mb-5 border border-blue-100">
-            {generateNotice}
-          </div>
-        )}
+        {generateNotice && <div className="report-generate-notice">{generateNotice}</div>}
 
         {loading && <div className="empty-state">กำลังสร้างรายงานจากข้อมูลสมมุติเพื่อดูหน้าตาแดชบอร์ด...</div>}
 
         {report && (
           <>
-            {/* Hidden PDF render target */}
-            {generatedReport && (
-              <div className="pdf-render-source">
-                <div ref={pddEmissionRef}>
-                  <PddCarbonSummary report={generatedReport} />
-                </div>
+          {generatedReport && (
+            <div className="pdf-render-source">
+              <div ref={pddEmissionRef}>
+                <PddCarbonSummary report={generatedReport} />
               </div>
-            )}
-
-            {/* ─── 2-Column Grid ─────────────────────────────────── */}
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-
-              {/* LEFT COLUMN: Blocks 1, 2, 3 */}
-              <div className="flex flex-col gap-6">
-                <ProjectContextBlock report={report} />
-                <EvidenceBreakdownBlock report={report} />
-                <TabbedInsightsBlock />
-              </div>
-
-              {/* RIGHT COLUMN: Preview & Download (sticky) */}
-              <div className="flex flex-col gap-6">
-                <div className="sticky top-6 flex flex-col gap-4">
-
-                  {/* Export Toolbar */}
-                  <section className="card report-toolbar shadow-sm border border-slate-200 rounded-xl" style={{ margin: 0 }}>
-                    <div>
-                      <div className="card-title text-base">เอกสารรายงาน (Export)</div>
-                      <p className="muted text-sm">กดสร้างเอกสารใหม่เพื่อ Render PDF, Word และ Excel</p>
-                    </div>
-                    <div className="report-download-actions">
-                      <button className="run-btn pdf-download-btn" type="button" onClick={downloadPdf} disabled={!pdfUrl || generatingPreview || !previewIsCurrent}>Download PDF</button>
-                      <button className="run-btn word-download-btn" type="button" onClick={downloadWordDraft} disabled={!generatedReport || !previewIsCurrent}>Download Word</button>
-                      <button className="run-all-btn excel-download-btn" type="button" onClick={exportExcel} disabled={!generatedReport || !previewIsCurrent}>Export Excel</button>
-                    </div>
-                  </section>
-
-                  {/* Preview Panel */}
-                  <section className="card report-preview-panel shadow-sm border border-slate-200 rounded-xl" style={{ margin: 0 }}>
-                    <div className="report-preview-header">
-                      <div>
-                        <div className="card-title text-base">Preview &amp; Download</div>
-                        <p className="muted text-xs">
-                          {generatedReport
-                            ? previewIsCurrent
-                              ? `ตัวอย่างล่าสุด: ${new Date(generatedReport.generatedAt).toLocaleString()}`
-                              : "ตัวอย่างเอกสารยังเป็นชุดเดิม กด Generate Report เพื่ออัปเดตตามตัวกรองปัจจุบัน"
-                            : "เลือกตัวกรองด้านซ้ายให้เรียบร้อย แล้วกดสร้างเอกสารใหม่เพื่อดูตัวอย่าง"}
-                        </p>
-                      </div>
-                      <div className="report-preview-tabs" role="tablist" aria-label="Report preview tabs">
-                        {[
-                          ["pdf", "PDF"],
-                          ["word", "Word"],
-                          ["excel", "Excel"],
-                        ].map(([tab, label]) => (
-                          <button
-                            key={tab}
-                            type="button"
-                            role="tab"
-                            aria-selected={activePreviewTab === tab}
-                            className={activePreviewTab === tab ? "active" : ""}
-                            onClick={() => setActivePreviewTab(tab as PreviewTab)}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {!generatedReport && <div className="empty-state">ยังไม่มีตัวอย่างเอกสาร กด "สร้างเอกสารใหม่ (Generate Report)" เพื่อ Render PDF / Word / Excel</div>}
-                    {generatedReport && activePreviewTab === "pdf" && (
-                      <div className="pdf-preview">
-                        {generatingPreview ? <div className="empty-state">กำลัง Render PDF preview...</div> : pdfUrl ? <iframe title="Premium T-VER PDF Preview" src={pdfUrl} /> : <div className="empty-state">กดสร้างเอกสารใหม่เพื่อเตรียม PDF preview</div>}
-                      </div>
-                    )}
-                    {generatedReport && activePreviewTab === "word" && (
-                      <div className="word-preview">
-                        <iframe title="Premium T-VER Word Draft Preview" srcDoc={pddDraftHtml(generatedReport)} />
-                      </div>
-                    )}
-                    {generatedReport && activePreviewTab === "excel" && (
-                      <div className="excel-preview">
-                        <ExcelPreview report={generatedReport} />
-                      </div>
-                    )}
-                  </section>
-
-                </div>
-              </div>
-
             </div>
-            {/* ─── END 2-Column Grid ────────────────────────────── */}
+          )}
+          <section className="report-layout">
+            <div className="card report-paper">
+              <WebReportSummary report={report} />
+            </div>
 
-            {/* Bottom Full-Width Tables (Blocks 4, 5, 6) */}
-            <BottomTablesSection report={report} />
+            <div className="card report-preview-panel">
+              <div className="report-preview-header">
+                <div>
+                  <div className="card-title">Preview & Download</div>
+                  <p className="muted">
+                    {generatedReport
+                      ? previewIsCurrent
+                        ? `ตัวอย่างล่าสุด: ${new Date(generatedReport.generatedAt).toLocaleString()}`
+                        : "ตัวอย่างเอกสารยังเป็นชุดเดิม กด Generate Report เพื่ออัปเดตตามตัวกรองปัจจุบัน"
+                      : "เลือกตัวกรองด้านซ้ายให้เรียบร้อย แล้วกดสร้างเอกสารใหม่เพื่อดูตัวอย่าง"}
+                  </p>
+                </div>
+                <div className="report-preview-tabs" role="tablist" aria-label="Report preview tabs">
+                  {[
+                    ["pdf", "PDF"],
+                    ["word", "Word"],
+                    ["excel", "Excel"],
+                  ].map(([tab, label]) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      role="tab"
+                      aria-selected={activePreviewTab === tab}
+                      className={activePreviewTab === tab ? "active" : ""}
+                      onClick={() => setActivePreviewTab(tab as PreviewTab)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {!generatedReport && <div className="empty-state">ยังไม่มีตัวอย่างเอกสาร กด “สร้างเอกสารใหม่ (Generate Report)” เพื่อ Render PDF / Word / Excel</div>}
+              {generatedReport && activePreviewTab === "pdf" && (
+                <div className="pdf-preview">
+                  {generatingPreview ? <div className="empty-state">กำลัง Render PDF preview...</div> : pdfUrl ? <iframe title="Premium T-VER PDF Preview" src={pdfUrl} /> : <div className="empty-state">กดสร้างเอกสารใหม่เพื่อเตรียม PDF preview</div>}
+                </div>
+              )}
+              {generatedReport && activePreviewTab === "word" && (
+                <div className="word-preview">
+                  <iframe title="Premium T-VER Word Draft Preview" srcDoc={pddDraftHtml(generatedReport)} />
+                </div>
+              )}
+              {generatedReport && activePreviewTab === "excel" && (
+                <div className="excel-preview">
+                  <ExcelPreview report={generatedReport} />
+                </div>
+              )}
+            </div>
+          </section>
+          <ReportFullTables report={report} />
           </>
         )}
       </div>
