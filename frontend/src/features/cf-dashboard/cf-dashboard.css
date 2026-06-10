@@ -1196,6 +1196,9 @@
   gap: 16px;
   align-items: start;
 }
+.cf-dash .spatial-reset-btn {
+  margin-top: 12px;
+}
 .cf-dash .region-pills { display: flex; flex-wrap: wrap; gap: 8px; }
 .cf-dash .spatial-select-grid {
   display: grid;
@@ -1242,6 +1245,15 @@
   background: var(--surface);
   color: var(--text);
   font: inherit;
+}
+.cf-dash .spatial-camp-fields-card .mini-stat-grid {
+  margin-bottom: 18px;
+}
+.cf-dash .spatial-camp-fields-card .input-table-wrap {
+  margin-top: 4px;
+}
+.cf-dash .spatial-period-switch {
+  min-width: 230px;
 }
 
 /* Spatial layout */
