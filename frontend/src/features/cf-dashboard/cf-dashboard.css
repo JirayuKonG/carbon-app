@@ -2106,33 +2106,26 @@
   order: 2;
 }
 
-.cf-dash .footprint-report-page > .footprint-report-toolbar {
-  grid-column: 2;
-  order: 4;
-}
-
-.cf-dash .footprint-report-page > .report-generate-notice {
-  grid-column: 2;
-  order: 6;
-}
-
-.cf-dash .footprint-report-page > .footprint-context-grid {
+.cf-dash .footprint-report-page > .footprint-report-left-column {
   grid-column: 1;
   order: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: start;
 }
 
-.cf-dash .footprint-report-page > .footprint-headline-grid {
-  grid-column: 1;
-}
-
-.cf-dash .footprint-report-page > .footprint-soc-summary-block {
-  grid-column: 1;
-  order: 7;
-}
-
-.cf-dash .footprint-report-page > .footprint-preview-layout {
+.cf-dash .footprint-report-page > .footprint-report-right-column {
   grid-column: 2;
-  order: 5;
+  order: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: start;
+}
+
+.cf-dash .footprint-report-right-column .report-preview-panel {
+  width: 100%;
 }
 
 .cf-dash .footprint-report-page > .footprint-net-result-block {

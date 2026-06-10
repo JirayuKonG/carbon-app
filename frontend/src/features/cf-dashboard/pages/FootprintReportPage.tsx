@@ -1138,22 +1138,130 @@ export function CfFootprintReportPage() {
           </label>
         </section>
 
-        <section className="card report-toolbar footprint-report-toolbar">
-          <div>
-            <div className="card-title">เอกสารรายงาน</div>
-            <p className="muted">เลือกตัวกรองให้เรียบร้อย แล้วกดสร้างเอกสารใหม่เพื่อ Render PDF, Word และ Excel สำหรับ preview/download</p>
-          </div>
-          <button className="run-all-btn report-generate-btn" type="button" onClick={generateReportPreview} disabled={!processRows.length || generatingPreview}>
-            สร้างเอกสารใหม่ (Generate Report)
-          </button>
-          <div className="report-download-actions">
-            <button className="run-btn pdf-download-btn" type="button" onClick={downloadPdf} disabled={!pdfUrl || generatingPreview || !previewIsCurrent}>Download PDF</button>
-            <button className="run-btn word-download-btn" type="button" onClick={downloadWordDraft} disabled={!generatedReport || !previewIsCurrent}>Download Word</button>
-            <button className="run-all-btn excel-download-btn" type="button" onClick={exportExcel} disabled={!generatedReport || !previewIsCurrent}>Export Excel</button>
-          </div>
-        </section>
+        <section className="footprint-report-right-column">
+          <section className="card report-toolbar footprint-report-toolbar">
+            <div>
+              <div className="card-title">เอกสารรายงาน</div>
+              <p className="muted">เลือกตัวกรองให้เรียบร้อย แล้วกดสร้างเอกสารใหม่เพื่อ Render PDF, Word และ Excel สำหรับ preview/download</p>
+            </div>
+            <button className="run-all-btn report-generate-btn" type="button" onClick={generateReportPreview} disabled={!processRows.length || generatingPreview}>
+              สร้างเอกสารใหม่ (Generate Report)
+            </button>
+            <div className="report-download-actions">
+              <button className="run-btn pdf-download-btn" type="button" onClick={downloadPdf} disabled={!pdfUrl || generatingPreview || !previewIsCurrent}>Download PDF</button>
+              <button className="run-btn word-download-btn" type="button" onClick={downloadWordDraft} disabled={!generatedReport || !previewIsCurrent}>Download Word</button>
+              <button className="run-all-btn excel-download-btn" type="button" onClick={exportExcel} disabled={!generatedReport || !previewIsCurrent}>Export Excel</button>
+            </div>
+          </section>
 
-        {generateNotice && <div className="report-generate-notice">{generateNotice}</div>}
+          {generateNotice && <div className="report-generate-notice">{generateNotice}</div>}
+
+          <section className="card report-preview-panel full-span footprint-preview-layout">
+            <div className="report-preview-header">
+              <div>
+                <div className="card-title">Preview & Download</div>
+                <p className="muted">
+                  {generatedReport
+                    ? previewIsCurrent
+                      ? `ตัวอย่างล่าสุด: ${generatedReport.scopeLabel} · ${generatedReport.caneLabel}`
+                      : "ตัวอย่างเอกสารยังเป็นชุดเดิม กด Generate Report เพื่ออัปเดตตามตัวกรองปัจจุบัน"
+                    : "ยังไม่มีตัวอย่างเอกสาร กดสร้างเอกสารใหม่เพื่อ Render PDF / Word / Excel"}
+                </p>
+              </div>
+              <div className="report-preview-tabs" role="tablist" aria-label="Carbon Footprint report preview tabs">
+                {[
+                  ["pdf", "PDF"],
+                  ["word", "Word"],
+                  ["excel", "Excel"],
+                ].map(([tab, label]) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    role="tab"
+                    aria-selected={activePreviewTab === tab}
+                    className={activePreviewTab === tab ? "active" : ""}
+                    onClick={() => setActivePreviewTab(tab as FootprintPreviewTab)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {!generatedReport && <div className="empty-state">เลือกตัวกรองด้านบนให้เรียบร้อย แล้วกด “สร้างเอกสารใหม่ (Generate Report)”</div>}
+            {generatedReport && activePreviewTab === "pdf" && (
+              <div className="pdf-preview">
+                {generatingPreview ? <div className="empty-state">กำลัง Render PDF preview...</div> : pdfUrl ? <iframe title="Carbon Footprint PDF Preview" src={pdfUrl} /> : <div className="empty-state">กดสร้างเอกสารใหม่เพื่อเตรียม PDF preview</div>}
+              </div>
+            )}
+            {generatedReport && activePreviewTab === "word" && (
+              <div className="word-preview">
+                <iframe title="Carbon Footprint Word Preview" srcDoc={wordHtml} />
+              </div>
+            )}
+            {generatedReport && activePreviewTab === "excel" && (
+              <div className="excel-preview">
+                <div className="excel-sheet-grid">
+                  <div>
+                    <h3>Summary</h3>
+                    <table className="report-table">
+                      <tbody>
+                        <tr><th>Scope</th><td>{generatedReport.scopeLabel}</td></tr>
+                        <tr><th>Baseline</th><td>{formatNumber(generatedReport.baselineTotal)} tCO2e</td></tr>
+                        <tr><th>Project</th><td>{formatNumber(generatedReport.currentTotal)} tCO2e</td></tr>
+                        <tr><th>Diff</th><td>{generatedReport.reduction.text}</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div>
+                    <h3>Process Hotspot</h3>
+                    <table className="report-table">
+                      <thead><tr><th>Process</th><th>Current</th><th>Share</th></tr></thead>
+                      <tbody>
+                        {generatedReport.hotspotRows.slice(0, 6).map((row) => (
+                          <tr key={`excel-preview-${row.process}`}><td>{row.process}</td><td>{formatNumber(row.currentEmission)}</td><td>{row.share.toFixed(1)}%</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div>
+                    <h3>Activity Inputs</h3>
+                    <table className="report-table">
+                      <thead><tr><th>Process</th><th>Fertilizer</th><th>Fuel</th></tr></thead>
+                      <tbody>
+                        {generatedReport.inputs.map((row) => (
+                          <tr key={`input-preview-${row.process}`}><td>{row.process}</td><td>{formatNumber(row.currentFertilizerKg, 1)} kg</td><td>{formatNumber(row.currentFuelLiter, 1)} L</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div>
+                    <h3>Emission Reduction Analysis</h3>
+                    <table className="report-table">
+                      <thead><tr><th>Process</th><th>Baseline</th><th>Project</th><th>Reduction</th></tr></thead>
+                      <tbody>
+                        {generatedReport.hotspotRows.slice(0, 6).map((row) => (
+                          <tr key={`reduction-preview-${row.process}`}><td>{row.process}</td><td>{formatNumber(row.baselineEmission)}</td><td>{formatNumber(row.currentEmission)}</td><td>{formatNumber(row.diff)}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div>
+                    <h3>Cane Type Analysis</h3>
+                    <table className="report-table">
+                      <thead><tr><th>Cane Type</th><th>Area</th><th>Baseline</th><th>Project</th><th>Reduction</th></tr></thead>
+                      <tbody>
+                        {generatedCaneTypeRows.map((row) => (
+                          <tr key={`cane-type-preview-${row.cane}`}><td>{row.cane}</td><td>{formatNumber(row.areaRai, 1)} ไร่</td><td>{formatNumber(row.baselineEmission)}</td><td>{formatNumber(row.currentEmission)}</td><td>{formatNumber(row.diff)}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+        </section>
 
         <section className="card process-scope-panel footprint-report-filter" style={{ display: "none" }}>
           <div>
@@ -1263,43 +1371,45 @@ export function CfFootprintReportPage() {
           )}
         </section>
 
-        <section className="card full-span footprint-kpi-section footprint-context-grid" style={kpiSectionStyle}>
-          <div>
-            <div className="card-title">Project Context</div>
-            <p className="muted">ขอบเขตรายงานและข้อมูลปีฐานตามตัวกรองที่เลือกในปัจจุบัน</p>
-          </div>
-          <div style={kpiGridStyle(165)}>
-            {renderKpiCard("ขอบเขตข้อมูล", selectedScopeLabel, `สัดส่วนประเภทอ้อยที่เลือก ${selectedCanePercent.toFixed(1)}%`)}
-            {renderKpiCard("ปีโครงการ", currentYear || "-", "ช่วงเวลารายงานปัจจุบัน")}
-            {renderKpiCard("ปีฐาน", baselineYearLabel, "ช่วงเวลาเปรียบเทียบปีฐาน")}
-            {renderKpiCard("พื้นที่", formatNumber(scopedKpi.areaRai, 0), "ไร่")}
-            {renderKpiCard("ความเข้มการปล่อย", formatNumber(scopedKpi.co2ePerTon, 3), "tCO2e/ตันอ้อย")}
-          </div>
-        </section>
+        <section className="footprint-report-left-column">
+          <section className="card full-span footprint-kpi-section footprint-context-grid" style={kpiSectionStyle}>
+            <div>
+              <div className="card-title">Project Context</div>
+              <p className="muted">ขอบเขตรายงานและข้อมูลปีฐานตามตัวกรองที่เลือกในปัจจุบัน</p>
+            </div>
+            <div style={kpiGridStyle(165)}>
+              {renderKpiCard("ขอบเขตข้อมูล", selectedScopeLabel, `สัดส่วนประเภทอ้อยที่เลือก ${selectedCanePercent.toFixed(1)}%`)}
+              {renderKpiCard("ปีโครงการ", currentYear || "-", "ช่วงเวลารายงานปัจจุบัน")}
+              {renderKpiCard("ปีฐาน", baselineYearLabel, "ช่วงเวลาเปรียบเทียบปีฐาน")}
+              {renderKpiCard("พื้นที่", formatNumber(scopedKpi.areaRai, 0), "ไร่")}
+              {renderKpiCard("ความเข้มการปล่อย", formatNumber(scopedKpi.co2ePerTon, 3), "tCO2e/ตันอ้อย")}
+            </div>
+          </section>
 
-        <section className="card full-span footprint-kpi-section footprint-headline-grid" style={{ ...kpiSectionStyle, order: 5 }}>
-          <div>
-            <div className="card-title">Emission Summary</div>
-            <p className="muted">สรุปผลการปล่อยคาร์บอนหลังหักชดเชย SOC และเปรียบเทียบกับปีฐาน</p>
-          </div>
-          <div style={kpiGridStyle(180)}>
-            {renderKpiCard("การปล่อยรวม", formatNumber(currentTotal), "tCO2e")}
-            {renderKpiCard("ชดเชยจาก SOC", formatNumber(socIncrease), "tCO2e")}
-            {renderKpiCard("การปล่อยสุทธิ", formatNumber(netEmission), "tCO2e", true)}
-            {renderKpiCard("ปริมาณที่ลดลง", formatNumber(Math.abs(reduction.diff)), `${Math.abs(reduction.pct).toFixed(1)}% / tCO2e`)}
-          </div>
-        </section>
+          <section className="card full-span footprint-kpi-section footprint-headline-grid" style={{ ...kpiSectionStyle, order: 4 }}>
+            <div>
+              <div className="card-title">Emission Summary</div>
+              <p className="muted">สรุปผลการปล่อยคาร์บอนหลังหักชดเชย SOC และเปรียบเทียบกับปีฐาน</p>
+            </div>
+            <div style={kpiGridStyle(180)}>
+              {renderKpiCard("การปล่อยรวม", formatNumber(currentTotal), "tCO2e")}
+              {renderKpiCard("ชดเชยจาก SOC", formatNumber(socIncrease), "tCO2e")}
+              {renderKpiCard("การปล่อยสุทธิ", formatNumber(netEmission), "tCO2e", true)}
+              {renderKpiCard("ปริมาณที่ลดลง", formatNumber(Math.abs(reduction.diff)), `${Math.abs(reduction.pct).toFixed(1)}% / tCO2e`)}
+            </div>
+          </section>
 
-        <section className="card full-span footprint-kpi-section footprint-soc-summary-block" style={{ ...kpiSectionStyle, order: 6 }}>
-          <div>
-            <div className="card-title">Carbon Sequestration Summary</div>
-            <p className="muted">สรุปค่า SOC ปีฐาน ค่าโครงการ และปริมาณที่เพิ่มขึ้นซึ่งใช้เป็นค่าชดเชยคาร์บอน</p>
-          </div>
-          <div style={kpiGridStyle(220)}>
-            {renderKpiCard("SOC ปีฐาน", formatNumber(socBaseline), "tCO2e")}
-            {renderKpiCard("SOC โครงการ", formatNumber(socProject), "tCO2e")}
-            {renderKpiCard("SOC ที่เพิ่มขึ้น", formatNumber(socIncrease), "tCO2e")}
-          </div>
+          <section className="card full-span footprint-kpi-section footprint-soc-summary-block" style={{ ...kpiSectionStyle, order: 5 }}>
+            <div>
+              <div className="card-title">Carbon Sequestration Summary</div>
+              <p className="muted">สรุปค่า SOC ปีฐาน ค่าโครงการ และปริมาณที่เพิ่มขึ้นซึ่งใช้เป็นค่าชดเชยคาร์บอน</p>
+            </div>
+            <div style={kpiGridStyle(220)}>
+              {renderKpiCard("SOC ปีฐาน", formatNumber(socBaseline), "tCO2e")}
+              {renderKpiCard("SOC โครงการ", formatNumber(socProject), "tCO2e")}
+              {renderKpiCard("SOC ที่เพิ่มขึ้น", formatNumber(socIncrease), "tCO2e")}
+            </div>
+          </section>
         </section>
 
         <section className="card full-span">
@@ -1365,130 +1475,6 @@ export function CfFootprintReportPage() {
               </tbody>
             </table>
           </div>
-        </section>
-
-        <section className="card report-preview-panel full-span footprint-preview-layout">
-          <div className="report-preview-header">
-            <div>
-              <div className="card-title">Preview & Download</div>
-              <p className="muted">
-                {generatedReport
-                  ? previewIsCurrent
-                    ? `ตัวอย่างล่าสุด: ${generatedReport.scopeLabel} · ${generatedReport.caneLabel}`
-                    : "ตัวอย่างเอกสารยังเป็นชุดเดิม กด Generate Report เพื่ออัปเดตตามตัวกรองปัจจุบัน"
-                  : "ยังไม่มีตัวอย่างเอกสาร กดสร้างเอกสารใหม่เพื่อ Render PDF / Word / Excel"}
-              </p>
-            </div>
-            <div className="report-preview-tabs" role="tablist" aria-label="Carbon Footprint report preview tabs">
-              {[
-                ["pdf", "PDF"],
-                ["word", "Word"],
-                ["excel", "Excel"],
-              ].map(([tab, label]) => (
-                <button
-                  key={tab}
-                  type="button"
-                  role="tab"
-                  aria-selected={activePreviewTab === tab}
-                  className={activePreviewTab === tab ? "active" : ""}
-                  onClick={() => setActivePreviewTab(tab as FootprintPreviewTab)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {!generatedReport && <div className="empty-state">เลือกตัวกรองด้านบนให้เรียบร้อย แล้วกด “สร้างเอกสารใหม่ (Generate Report)”</div>}
-          {generatedReport && activePreviewTab === "pdf" && (
-            <div className="pdf-preview">
-              {generatingPreview ? <div className="empty-state">กำลัง Render PDF preview...</div> : pdfUrl ? <iframe title="Carbon Footprint PDF Preview" src={pdfUrl} /> : <div className="empty-state">กดสร้างเอกสารใหม่เพื่อเตรียม PDF preview</div>}
-            </div>
-          )}
-          {generatedReport && activePreviewTab === "word" && (
-            <div className="word-preview">
-              <iframe title="Carbon Footprint Word Preview" srcDoc={wordHtml} />
-            </div>
-          )}
-          {generatedReport && activePreviewTab === "excel" && (
-            <div className="excel-preview">
-              <div className="excel-sheet-grid">
-                <div>
-                  <h3>Summary</h3>
-                  <table className="report-table">
-                    <tbody>
-                      <tr><th>Scope</th><td>{generatedReport.scopeLabel}</td></tr>
-                      <tr><th>Baseline</th><td>{formatNumber(generatedReport.baselineTotal)} tCO2e</td></tr>
-                      <tr><th>Project</th><td>{formatNumber(generatedReport.currentTotal)} tCO2e</td></tr>
-                      <tr><th>Diff</th><td>{generatedReport.reduction.text}</td></tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div>
-                  <h3>Process Hotspot</h3>
-                  <table className="report-table">
-                    <thead><tr><th>Process</th><th>Current</th><th>Share</th></tr></thead>
-                    <tbody>
-                      {generatedReport.hotspotRows.slice(0, 6).map((row) => (
-                        <tr key={`excel-preview-${row.process}`}><td>{row.process}</td><td>{formatNumber(row.currentEmission)}</td><td>{row.share.toFixed(1)}%</td></tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div>
-                  <h3>Activity Inputs</h3>
-                  <table className="report-table">
-                    <thead><tr><th>Process</th><th>Fertilizer</th><th>Fuel</th></tr></thead>
-                    <tbody>
-                      {generatedReport.inputs.map((row) => (
-                        <tr key={`input-preview-${row.process}`}><td>{row.process}</td><td>{formatNumber(row.currentFertilizerKg, 1)} kg</td><td>{formatNumber(row.currentFuelLiter, 1)} L</td></tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div>
-                  <h3>Emission Reduction Analysis</h3>
-                  <table className="report-table">
-                    <thead><tr><th>Process</th><th>Baseline</th><th>Project</th><th>Reduction</th></tr></thead>
-                    <tbody>
-                      {generatedReport.hotspotRows.slice(0, 6).map((row) => (
-                        <tr key={`reduction-preview-${row.process}`}><td>{row.process}</td><td>{formatNumber(row.baselineEmission)}</td><td>{formatNumber(row.currentEmission)}</td><td>{formatNumber(row.diff)}</td></tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div>
-                  <h3>Cane Type Analysis</h3>
-                  <table className="report-table">
-                    <thead><tr><th>Cane Type</th><th>Area</th><th>Baseline</th><th>Project</th><th>Reduction</th></tr></thead>
-                    <tbody>
-                      {generatedCaneTypeRows.map((row) => (
-                        <tr key={`cane-summary-${row.caneType}`}><td>{row.caneType}</td><td>{formatNumber(row.area, 1)}</td><td>{formatNumber(row.baseline)}</td><td>{formatNumber(row.project)}</td><td>{formatNumber(row.reduction)}</td></tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div>
-                  <h3>SOC Summary</h3>
-                  <table className="report-table">
-                    <tbody>
-                      <tr><th>SOC Baseline</th><td>{formatNumber(generatedSoc?.socBaseline ?? 0)}</td><th>SOC Project</th><td>{formatNumber(generatedSoc?.socProject ?? 0)}</td><th>SOC Increase</th><td>{formatNumber(generatedSoc?.socIncrease ?? 0)}</td></tr>
-                      <tr><th>Vinasse</th><td>{formatNumber(generatedPractice?.vinasse ?? 0)}</td><th>Filter Cake</th><td>{formatNumber(generatedPractice?.filterCake ?? 0)}</td><th>Green Manure</th><td>{formatNumber(generatedPractice?.greenManure ?? 0)}</td></tr>
-                      <tr><th>Trash Retention</th><td>{formatNumber(generatedPractice?.trashRetention ?? 0)}</td><td colSpan={4}></td></tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div>
-                  <h3>Net Carbon Result</h3>
-                  <table className="report-table">
-                    <tbody>
-                      <tr><th>Gross Emission</th><td>{formatNumber(generatedReport.currentTotal)}</td><th>SOC Offset</th><td>{formatNumber(generatedSoc?.socIncrease ?? 0)}</td><th>Net Emission</th><td>{formatNumber(generatedSoc?.netEmission ?? 0)}</td></tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
         </section>
 
         <section className="card full-span footprint-soc-contribution-block">
