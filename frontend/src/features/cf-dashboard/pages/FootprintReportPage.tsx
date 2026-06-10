@@ -1005,7 +1005,7 @@ export function CfFootprintReportPage() {
   const kpiSectionStyle: CSSProperties = {
     display: "grid",
     gap: 16,
-    order: 5,
+    order: 3,
     borderRadius: 16,
     border: "1px solid #E5E7EB",
     background: "#FFFFFF",
@@ -1264,39 +1264,39 @@ export function CfFootprintReportPage() {
         <section className="card full-span footprint-kpi-section footprint-context-grid" style={kpiSectionStyle}>
           <div>
             <div className="card-title">Project Context</div>
-            <p className="muted">Current reporting scope and baseline context from the selected filters.</p>
+            <p className="muted">ขอบเขตรายงานและข้อมูลปีฐานตามตัวกรองที่เลือกในปัจจุบัน</p>
           </div>
           <div style={kpiGridStyle(165)}>
-            {renderKpiCard("Scope", selectedScopeLabel, `${selectedCanePercent.toFixed(1)}% selected cane type share`)}
-            {renderKpiCard("Project Year", currentYear || "-", "Current reporting period")}
-            {renderKpiCard("Baseline Year", baselineYearLabel, "Baseline comparison period")}
-            {renderKpiCard("Area", formatNumber(scopedKpi.areaRai, 0), "rai")}
-            {renderKpiCard("Intensity", formatNumber(scopedKpi.co2ePerTon, 3), "tCO2e/ton cane")}
+            {renderKpiCard("ขอบเขตข้อมูล", selectedScopeLabel, `สัดส่วนประเภทอ้อยที่เลือก ${selectedCanePercent.toFixed(1)}%`)}
+            {renderKpiCard("ปีโครงการ", currentYear || "-", "ช่วงเวลารายงานปัจจุบัน")}
+            {renderKpiCard("ปีฐาน", baselineYearLabel, "ช่วงเวลาเปรียบเทียบปีฐาน")}
+            {renderKpiCard("พื้นที่", formatNumber(scopedKpi.areaRai, 0), "ไร่")}
+            {renderKpiCard("ความเข้มการปล่อย", formatNumber(scopedKpi.co2ePerTon, 3), "tCO2e/ตันอ้อย")}
           </div>
         </section>
 
-        <section className="card full-span footprint-kpi-section footprint-headline-grid" style={{ ...kpiSectionStyle, order: 6 }}>
+        <section className="card full-span footprint-kpi-section footprint-headline-grid" style={{ ...kpiSectionStyle, order: 5 }}>
           <div>
             <div className="card-title">Emission Summary</div>
-            <p className="muted">Executive carbon result after SOC offset and baseline reduction comparison.</p>
+            <p className="muted">สรุปผลการปล่อยคาร์บอนหลังหักชดเชย SOC และเปรียบเทียบกับปีฐาน</p>
           </div>
           <div style={kpiGridStyle(180)}>
-            {renderKpiCard("Gross Emission", formatNumber(currentTotal), "tCO2e")}
-            {renderKpiCard("SOC Offset", formatNumber(socIncrease), "tCO2e")}
-            {renderKpiCard("Net Emission", formatNumber(netEmission), "tCO2e", true)}
-            {renderKpiCard("Reduction", formatNumber(Math.abs(reduction.diff)), `${Math.abs(reduction.pct).toFixed(1)}% · tCO2e`)}
+            {renderKpiCard("การปล่อยรวม", formatNumber(currentTotal), "tCO2e")}
+            {renderKpiCard("ชดเชยจาก SOC", formatNumber(socIncrease), "tCO2e")}
+            {renderKpiCard("การปล่อยสุทธิ", formatNumber(netEmission), "tCO2e", true)}
+            {renderKpiCard("ปริมาณที่ลดลง", formatNumber(Math.abs(reduction.diff)), `${Math.abs(reduction.pct).toFixed(1)}% / tCO2e`)}
           </div>
         </section>
 
-        <section className="card full-span footprint-kpi-section footprint-soc-summary-block" style={{ ...kpiSectionStyle, order: 7 }}>
+        <section className="card full-span footprint-kpi-section footprint-soc-summary-block" style={{ ...kpiSectionStyle, order: 6 }}>
           <div>
             <div className="card-title">Carbon Sequestration Summary</div>
-            <p className="muted">SOC baseline, project value, and increase used as the carbon offset summary.</p>
+            <p className="muted">สรุปค่า SOC ปีฐาน ค่าโครงการ และปริมาณที่เพิ่มขึ้นซึ่งใช้เป็นค่าชดเชยคาร์บอน</p>
           </div>
           <div style={kpiGridStyle(220)}>
-            {renderKpiCard("SOC Baseline", formatNumber(socBaseline), "tCO2e")}
-            {renderKpiCard("SOC Project", formatNumber(socProject), "tCO2e")}
-            {renderKpiCard("SOC Increase", formatNumber(socIncrease), "tCO2e")}
+            {renderKpiCard("SOC ปีฐาน", formatNumber(socBaseline), "tCO2e")}
+            {renderKpiCard("SOC โครงการ", formatNumber(socProject), "tCO2e")}
+            {renderKpiCard("SOC ที่เพิ่มขึ้น", formatNumber(socIncrease), "tCO2e")}
           </div>
         </section>
 
@@ -1365,7 +1365,7 @@ export function CfFootprintReportPage() {
           </div>
         </section>
 
-        <section className="card report-preview-panel full-span footprint-preview-layout" style={{ order: 8 }}>
+        <section className="card report-preview-panel full-span footprint-preview-layout">
           <div className="report-preview-header">
             <div>
               <div className="card-title">Preview & Download</div>

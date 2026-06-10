@@ -2052,6 +2052,7 @@
 
 .cf-dash .footprint-report-toolbar {
   justify-content: space-between;
+  align-self: start;
 }
 
 .cf-dash .footprint-report-toolbar > div:first-child {
@@ -2059,7 +2060,14 @@
   margin-right: auto;
 }
 
+.cf-dash .footprint-report-page {
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.85fr);
+  grid-auto-flow: row dense;
+  align-items: start;
+}
+
 .cf-dash .footprint-report-page > * {
+  grid-column: 1 / -1;
   order: 10;
 }
 
@@ -2077,19 +2085,32 @@
 }
 
 .cf-dash .footprint-report-page > .footprint-report-toolbar {
-  order: 3;
-}
-
-.cf-dash .footprint-report-page > .report-generate-notice {
+  grid-column: 2;
   order: 4;
 }
 
-.cf-dash .footprint-report-page > .footprint-preview-layout {
-  order: 5;
+.cf-dash .footprint-report-page > .report-generate-notice {
+  grid-column: 2;
+  order: 6;
+}
+
+.cf-dash .footprint-report-page > .footprint-context-grid {
+  grid-column: 1;
+  order: 3;
+}
+
+.cf-dash .footprint-report-page > .footprint-headline-grid {
+  grid-column: 1;
 }
 
 .cf-dash .footprint-report-page > .footprint-soc-summary-block {
-  order: 6;
+  grid-column: 1;
+  order: 7;
+}
+
+.cf-dash .footprint-report-page > .footprint-preview-layout {
+  grid-column: 2;
+  order: 5;
 }
 
 .cf-dash .footprint-report-page > .footprint-net-result-block {
@@ -2400,6 +2421,17 @@
 /* Responsive */
 @media (max-width: 1120px) {
   .cf-dash .grid2, .cf-dash .architecture-board, .cf-dash .report-layout, .cf-dash .spatial-picker { grid-template-columns: 1fr; }
+  .cf-dash .footprint-report-page {
+    grid-template-columns: 1fr;
+  }
+  .cf-dash .footprint-report-page > .footprint-report-toolbar,
+  .cf-dash .footprint-report-page > .report-generate-notice,
+  .cf-dash .footprint-report-page > .footprint-context-grid,
+  .cf-dash .footprint-report-page > .footprint-headline-grid,
+  .cf-dash .footprint-report-page > .footprint-soc-summary-block,
+  .cf-dash .footprint-report-page > .footprint-preview-layout {
+    grid-column: 1 / -1;
+  }
   .cf-dash .spatial-layout { grid-template-columns: 1fr; overflow: visible; }
   .cf-dash .region-sidebar, .cf-dash .detail-panel { border: 0; }
   .cf-dash .kpi-grid, .cf-dash .sub-pie-grid, .cf-dash .spatial-select-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
