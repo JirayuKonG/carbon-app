@@ -90,6 +90,11 @@ interface CarbonProcessQueueItem {
   carbon_process_queue_resultValue?: number | string
   unit_prefix_id_resultValue?: number
   unit_id_resultValue?: number
+  carbon_process_queue_retry_count?: number
+  carbon_process_queue_error_message?: string
+  carbon_process_queue_create_at?: string
+  carbon_process_queue_started_at?: string
+  carbon_process_queue_ended_at?: string
   carbon_process_queue_updated_at?: string
   lands?: { land_code?: string; name?: string }
   lands_camps?: { land_camp_name?: string }
@@ -150,6 +155,20 @@ type QueueRow = {
   resourceTypeId: string
   resourceTypeName: string
   resourceItemName: string
+  formulaMode: FootprintFormulaMode
+  formulaModeLabel: string
+  inputStatusKind: FootprintInputStatusKind
+  inputStatusLabel: string
+  calculationAmountLabel: string
+  nValueLabel: string
+  resultValueLabel: string
+  resultUnitIdLabel: string
+  resultUnitLabel: string
+  retryCountLabel: string
+  errorMessageLabel: string
+  createAtLabel: string
+  startedAtLabel: string
+  endedAtLabel: string
   quantityUnitLabel: string
   quantityLabel: string
   sourceAmountLabel: string
@@ -171,8 +190,17 @@ type QueueRow = {
 }
 
 type PreparationRowType = 'fertilizer' | 'fuel' | 'other'
-type BulkFuelTarget = 'keep' | 'liter' | 'm3'
+type FootprintFormulaMode = 'generic_ef' | 'fertilizer_n2o' | 'fnfix_group' | 'soc_removal'
+type FootprintInputStatusKind = 'ready' | 'warning' | 'blocked'
 type BulkOtherMode = 'keep' | 'factor'
+
+const FOOTPRINT_SUPPORTED_FORMULA_MODES: FootprintFormulaMode[] = ['generic_ef', 'fertilizer_n2o']
+const FOOTPRINT_UNSUPPORTED_FORMULA_MODES: FootprintFormulaMode[] = ['fnfix_group', 'soc_removal']
+const FOOTPRINT_FORMULA_MODES: FootprintFormulaMode[] = [
+  ...FOOTPRINT_SUPPORTED_FORMULA_MODES,
+  ...FOOTPRINT_UNSUPPORTED_FORMULA_MODES,
+]
+
 type BulkPreparationPopupState =
   | { kind: 'hidden' }
   | { kind: 'loading'; current: number; total: number; currentLabel: string }
@@ -183,6 +211,35 @@ type StatusTransitionPopupState =
   | { kind: 'loading'; itemCount: number }
   | { kind: 'success'; itemCount: number; countdown: number }
 
+type FootprintCalculationSource = 'single' | 'selected' | 'all'
+
+type FootprintCalculationRunResult = {
+  row: QueueRow
+  resultValue?: number | string
+  error?: string
+}
+
+type FootprintCalculationModalState =
+  | { kind: 'hidden' }
+  | { kind: 'preview'; source: FootprintCalculationSource; rows: QueueRow[] }
+  | {
+      kind: 'running'
+      source: FootprintCalculationSource
+      rows: QueueRow[]
+      currentIndex: number
+      currentLabel: string
+      successRows: FootprintCalculationRunResult[]
+      failedRows: FootprintCalculationRunResult[]
+    }
+  | {
+      kind: 'complete'
+      source: FootprintCalculationSource
+      rows: QueueRow[]
+      successRows: FootprintCalculationRunResult[]
+      failedRows: FootprintCalculationRunResult[]
+      countdown?: number
+    }
+
 type BulkConversionPreview = {
   row: QueueRow
   rowType: PreparationRowType
@@ -192,6 +249,31 @@ type BulkConversionPreview = {
   preparedUnitLabel: string
   preparedVolumeAll: number
   payload: Record<string, unknown>
+}
+
+type FertilizerNitrogenProfile = {
+  kind: 'chemical' | 'organic' | 'unknown'
+  detectedN: number | null
+  label: string
+  reason: string
+}
+
+type OtherGroupConfig = {
+  mode: BulkOtherMode
+  conversionFactor: string
+  preparedUnitId: string
+  preparedUnitPrefixId: string
+  preparedUnitName: string
+  preparedUnitInitial: string
+}
+
+const DEFAULT_OTHER_GROUP_CONFIG: OtherGroupConfig = {
+  mode: 'keep',
+  conversionFactor: '1',
+  preparedUnitId: '',
+  preparedUnitPrefixId: '',
+  preparedUnitName: '',
+  preparedUnitInitial: '',
 }
 
 const emptyForm: PreparationForm = {
@@ -222,6 +304,16 @@ function formatNumber(value?: number | null, digits = 3) {
 function formatFormNumber(value: number) {
   if (!Number.isFinite(value)) return ''
   return String(Math.round(value * 1_000_000) / 1_000_000)
+}
+
+function formatNumberish(value?: number | string | null, digits = 4) {
+  if (value == null || value === '') return '—'
+  const parsed = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(parsed)) return String(value)
+  return parsed.toLocaleString('th-TH', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  })
 }
 
 function getErrorMessage(error: unknown) {
@@ -296,12 +388,55 @@ function getQueueStatusName(item: CarbonProcessQueueItem) {
 }
 
 function getPreparationTypeLabel(value?: string | null) {
+  if (value === 'fertilizer') return 'ปุ๋ย'
   if (value === 'chemical') return 'ปุ๋ยเคมี'
   if (value === 'organic') return 'ปุ๋ยอินทรีย์'
   if (value === 'fuel') return 'น้ำมัน'
   if (value === 'soil') return 'ตรวจดิน / SOC'
   if (value === 'other') return 'อื่น ๆ'
   return 'ยังไม่ระบุ'
+}
+
+function getFertilizerNitrogenProfile(name?: string | null): FertilizerNitrogenProfile {
+  const rawName = (name ?? '').trim()
+  const normalized = rawName.toLowerCase()
+
+  const chemicalFormulaMatch = rawName.match(/(\d+(?:\.\d+)?)\s*[-xX]\s*\d+(?:\.\d+)?\s*[-xX]\s*\d+(?:\.\d+)?/)
+  if (chemicalFormulaMatch) {
+    return {
+      kind: 'chemical',
+      detectedN: Number(chemicalFormulaMatch[1]),
+      label: 'ปุ๋ยเคมี',
+      reason: `พบสูตรปุ๋ย ${chemicalFormulaMatch[0]}`,
+    }
+  }
+
+  const organicKeywords = [
+    'อินทรีย์',
+    'organic',
+    'pellet',
+    'pellets',
+    'compost',
+    'manure',
+    'soilmate',
+    'ชีวภาพ',
+    'มูล',
+  ]
+  if (organicKeywords.some((keyword) => normalized.includes(keyword))) {
+    return {
+      kind: 'organic',
+      detectedN: null,
+      label: 'ปุ๋ยอินทรีย์',
+      reason: 'พบคำที่สื่อว่าเป็นปุ๋ยอินทรีย์',
+    }
+  }
+
+  return {
+    kind: 'unknown',
+    detectedN: null,
+    label: 'ปุ๋ยประเภทอื่น',
+    reason: rawName ? 'ยังไม่พบสูตรหรือคำสำคัญที่ใช้ระบุ N อัตโนมัติ' : 'ยังไม่มีชื่อปุ๋ยสำหรับวิเคราะห์',
+  }
 }
 
 function getPreparationStateBadgeClass(row: QueueRow) {
@@ -311,9 +446,103 @@ function getPreparationStateBadgeClass(row: QueueRow) {
 }
 
 function getDefaultPreparationType(rowType: PreparationRowType) {
-  if (rowType === 'fertilizer') return 'chemical'
+  if (rowType === 'fertilizer') return 'fertilizer'
   if (rowType === 'fuel') return 'fuel'
   return 'other'
+}
+
+function isKgUnitLabel(value: string) {
+  const normalized = normalizeUnitText(value)
+  return ['kg', 'kilogram', 'kilograms', 'กิโลกรัม'].some((alias) => normalized.includes(alias))
+}
+
+function getFootprintFormulaMode(rowType: PreparationRowType, resourceText: string): FootprintFormulaMode {
+  if (rowType === 'fertilizer' || /ปุ๋ย|fertilizer/.test(resourceText)) return 'fertilizer_n2o'
+  if (/soc|soil|ดิน|ตรวจดิน|carbon stock/.test(resourceText)) return 'soc_removal'
+  if (/fnfix|ปอเทือง|ถั่วเขียว|ถั่วเหลือง|ถั่วลิสง|legume/.test(resourceText)) return 'fnfix_group'
+  return 'generic_ef'
+}
+
+function getFootprintFormulaModeLabel(mode: FootprintFormulaMode) {
+  if (mode === 'fertilizer_n2o') return 'ปุ๋ย / N2O'
+  if (mode === 'generic_ef') return 'EF ทั่วไป'
+  if (mode === 'fnfix_group') return 'Fnfix'
+  return 'SOC'
+}
+
+function getFootprintInputStatus({
+  formulaMode,
+  rowType,
+  resourceItemName,
+  amount,
+  unitLabelText,
+  nValue,
+}: {
+  formulaMode: FootprintFormulaMode
+  rowType: PreparationRowType
+  resourceItemName: string
+  amount?: number
+  unitLabelText: string
+  nValue?: number | null
+}): { kind: FootprintInputStatusKind; label: string } {
+  if (formulaMode === 'fnfix_group' || formulaMode === 'soc_removal') {
+    return { kind: 'blocked', label: 'สูตรนี้ยังไม่เปิดคำนวณ' }
+  }
+
+  if (amount == null || !Number.isFinite(amount)) {
+    return { kind: 'blocked', label: 'ขาดปริมาณที่ใช้คำนวณ' }
+  }
+
+  if (!unitLabelText || unitLabelText === '—') {
+    return { kind: 'blocked', label: 'ขาดหน่วยหลังเตรียม' }
+  }
+
+  if (formulaMode === 'fertilizer_n2o') {
+    const profile = getFertilizerNitrogenProfile(resourceItemName)
+    if (!isKgUnitLabel(unitLabelText)) {
+      return { kind: 'blocked', label: 'ต้องเตรียมปุ๋ยเป็น kg' }
+    }
+    if (nValue == null) {
+      return { kind: 'blocked', label: 'ขาดค่า N' }
+    }
+    if (profile.kind === 'unknown') {
+      return { kind: 'blocked', label: 'ต้องยืนยันประเภทปุ๋ย' }
+    }
+    return { kind: 'ready', label: rowType === 'fertilizer' ? 'พร้อมคำนวณ N2O' : 'พร้อมคำนวณ' }
+  }
+
+  return { kind: 'warning', label: 'พร้อมตรวจ EF' }
+}
+
+function getFootprintInputStatusClass(kind: FootprintInputStatusKind) {
+  if (kind === 'ready') return 'inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700'
+  if (kind === 'warning') return 'inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-700'
+  return 'inline-flex rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700'
+}
+
+function isSupportedFootprintFormula(row: Pick<QueueRow, 'formulaMode'>) {
+  return FOOTPRINT_SUPPORTED_FORMULA_MODES.includes(row.formulaMode)
+}
+
+function canRunFootprintCalculation(row: Pick<QueueRow, 'formulaMode' | 'inputStatusKind' | 'statusKind'>) {
+  return (
+    isSupportedFootprintFormula(row)
+    && row.inputStatusKind !== 'blocked'
+    && ['ready', 'error'].includes(row.statusKind)
+  )
+}
+
+function splitFootprintCalculationRows(rows: QueueRow[]) {
+  const readyRows = rows.filter(canRunFootprintCalculation)
+  const unsupportedRows = rows.filter((row) => !isSupportedFootprintFormula(row))
+  const blockedRows = rows.filter((row) => !readyRows.includes(row) && !unsupportedRows.includes(row))
+
+  return { readyRows, blockedRows, unsupportedRows }
+}
+
+function getFootprintBlockedReason(row: QueueRow) {
+  if (!['ready', 'error'].includes(row.statusKind)) return `สถานะปัจจุบัน: ${row.statusLabel}`
+  return row.inputStatusLabel
 }
 
 export function CarbonFootprintQueuePage({
@@ -333,18 +562,20 @@ export function CarbonFootprintQueuePage({
   const [selectedRow, setSelectedRow] = useState<QueueRow | null>(null)
   const [bulkModalOpen, setBulkModalOpen] = useState(false)
   const [bulkFertilizerBagWeightKg, setBulkFertilizerBagWeightKg] = useState('50')
-  const [bulkFertilizerPrepareType, setBulkFertilizerPrepareType] = useState('chemical')
+  const [bulkFertilizerUnitFactor, setBulkFertilizerUnitFactor] = useState('1')
+  const [bulkUnknownFertilizerN, setBulkUnknownFertilizerN] = useState('')
+  const [bulkFertilizerPreparedUnitId, setBulkFertilizerPreparedUnitId] = useState('')
   const [bulkFertilizerTargetUnitName, setBulkFertilizerTargetUnitName] = useState('kg')
   const [bulkFertilizerTargetUnitInitial, setBulkFertilizerTargetUnitInitial] = useState('kg')
-  const [bulkFuelTarget, setBulkFuelTarget] = useState<BulkFuelTarget>('keep')
   const [bulkFuelValuePerUnit, setBulkFuelValuePerUnit] = useState('1')
-  const [bulkOtherMode, setBulkOtherMode] = useState<BulkOtherMode>('keep')
-  const [bulkOtherConversionFactor, setBulkOtherConversionFactor] = useState('1')
-  const [bulkOtherPreparedUnitId, setBulkOtherPreparedUnitId] = useState('')
-  const [bulkOtherPreparedUnitPrefixId, setBulkOtherPreparedUnitPrefixId] = useState('')
+  const [bulkFuelPreparedUnitId, setBulkFuelPreparedUnitId] = useState('')
+  const [bulkFuelPreparedUnitName, setBulkFuelPreparedUnitName] = useState('')
+  const [bulkFuelPreparedUnitInitial, setBulkFuelPreparedUnitInitial] = useState('')
+  const [bulkOtherConfigs, setBulkOtherConfigs] = useState<Record<string, OtherGroupConfig>>({})
   const [bulkModalError, setBulkModalError] = useState<string | null>(null)
   const [bulkPreparationPopup, setBulkPreparationPopup] = useState<BulkPreparationPopupState>({ kind: 'hidden' })
   const [statusPopup, setStatusPopup] = useState<StatusTransitionPopupState>({ kind: 'hidden' })
+  const [footprintCalculationModal, setFootprintCalculationModal] = useState<FootprintCalculationModalState>({ kind: 'hidden' })
   const [form, setForm] = useState<PreparationForm>(emptyForm)
 
   const { data: queue = [], isLoading, error: queueError } = useQuery({
@@ -448,6 +679,7 @@ export function CarbonFootprintQueuePage({
     const preparedPrefix = prefixById[preparedPrefixId ?? 0]
     const sourceVolumeAll = preparationInfo.sourceVolumeAll ?? detail?.log_act_detail_volumeAll
     const preparedVolumeAll = detail?.log_act_detail_volumeAll
+    const nValue = item.N ?? preparationInfo.soilN
     const quantityUnitLabel = [
       prefixLabel(detail?.units_prefixs),
       unitLabel(detail?.units),
@@ -461,6 +693,20 @@ export function CarbonFootprintQueuePage({
       unitLabel(preparedUnit),
     ].filter(Boolean).join(' ')
     const rowType = getRowTypeFromDetail(detail)
+    const formulaMode = getFootprintFormulaMode(rowType, getDetailResourceText(detail))
+    const calculationAmount = preparedVolumeAll ?? sourceVolumeAll
+    const inputStatus = getFootprintInputStatus({
+      formulaMode,
+      rowType,
+      resourceItemName: getResourceItemName(detail),
+      amount: calculationAmount,
+      unitLabelText: preparedUnitLabel,
+      nValue,
+    })
+    const resultUnitLabel = [
+      prefixLabel(item.units_prefixs) !== '—' ? prefixLabel(item.units_prefixs) : '',
+      unitLabel(item.units),
+    ].filter(Boolean).join(' ') || '—'
     const isPrepared = Boolean(
       preparationInfo.preparedAt
       || preparationInfo.conversionFactor != null
@@ -499,6 +745,22 @@ export function CarbonFootprintQueuePage({
       resourceTypeId: detail?.resource_used_type_id != null ? String(detail.resource_used_type_id) : '',
       resourceTypeName: detail?.resource_used_type?.resc_used_type_name ?? '—',
       resourceItemName: getResourceItemName(detail),
+      formulaMode,
+      formulaModeLabel: getFootprintFormulaModeLabel(formulaMode),
+      inputStatusKind: inputStatus.kind,
+      inputStatusLabel: inputStatus.label,
+      calculationAmountLabel: formatNumber(calculationAmount),
+      nValueLabel: item.N != null
+        ? formatNumber(item.N, 3)
+        : (preparationInfo.soilN != null ? formatNumber(preparationInfo.soilN, 3) : 'null'),
+      resultValueLabel: formatNumberish(item.carbon_process_queue_resultValue, 4),
+      resultUnitIdLabel: item.unit_id_resultValue != null ? String(item.unit_id_resultValue) : '—',
+      resultUnitLabel,
+      retryCountLabel: item.carbon_process_queue_retry_count != null ? String(item.carbon_process_queue_retry_count) : '—',
+      errorMessageLabel: item.carbon_process_queue_error_message?.trim() || '—',
+      createAtLabel: item.carbon_process_queue_create_at ? formatBangkokDateTime(item.carbon_process_queue_create_at) : '—',
+      startedAtLabel: item.carbon_process_queue_started_at ? formatBangkokDateTime(item.carbon_process_queue_started_at) : '—',
+      endedAtLabel: item.carbon_process_queue_ended_at ? formatBangkokDateTime(item.carbon_process_queue_ended_at) : '—',
       quantityUnitLabel,
       quantityLabel: formatNumber(detail?.log_act_detail_quatity),
       sourceAmountLabel: formatNumber(sourceVolumeAll),
@@ -522,7 +784,7 @@ export function CarbonFootprintQueuePage({
 
   const scopedRows = isPreparationMode
     ? rows
-    : rows.filter((row) => row.statusKind === 'ready')
+    : rows.filter((row) => ['ready', 'standardDone', 'cfpDone', 'error'].includes(row.statusKind))
 
   const filteredRows = scopedRows.filter((row) =>
     (!statusFilter || row.statusKind === statusFilter)
@@ -542,6 +804,10 @@ export function CarbonFootprintQueuePage({
   const selectedQueueRows = filteredRows.filter((row) => selectedQueueIds.includes(row.id))
   const readyEligibleRows = selectedQueueRows.filter((row) => row.statusKind === 'preparing' && row.isPrepared)
   const readyEligibleDetailIds = readyEligibleRows.map((row) => row.detailId)
+  const footprintCalculateRows = selectedQueueRows.filter(canRunFootprintCalculation)
+  const footprintAllCandidateRows = filteredRows.filter((row) => row.statusKind === 'ready')
+  const footprintCalculateAllRows = footprintAllCandidateRows.filter(canRunFootprintCalculation)
+  const footprintBlockedSelectedCount = selectedQueueRows.filter((row) => row.inputStatusKind === 'blocked').length
   const selectedUnitSummary = Array.from(
     selectedQueueRows.reduce((summary, row) => {
       summary.set(row.quantityUnitLabel, (summary.get(row.quantityUnitLabel) ?? 0) + 1)
@@ -555,6 +821,19 @@ export function CarbonFootprintQueuePage({
   const soilCount = scopedRows.filter((row) => row.hasSoilData).length
   const readyCount = scopedRows.filter((row) => row.statusKind === 'ready').length
   const errorCount = scopedRows.filter((row) => row.statusKind === 'error').length
+  const isFootprintCalculating = footprintCalculationModal.kind === 'running'
+  const footprintModalRows = footprintCalculationModal.kind === 'hidden' ? [] : footprintCalculationModal.rows
+  const {
+    readyRows: footprintModalReadyRows,
+    blockedRows: footprintModalBlockedRows,
+    unsupportedRows: footprintModalUnsupportedRows,
+  } = splitFootprintCalculationRows(footprintModalRows)
+  const footprintModalFormulaSummary = FOOTPRINT_FORMULA_MODES.map((mode) => ({
+    mode,
+    label: getFootprintFormulaModeLabel(mode),
+    count: footprintModalRows.filter((row) => row.formulaMode === mode).length,
+    readyCount: footprintModalReadyRows.filter((row) => row.formulaMode === mode).length,
+  }))
 
   const pageQueryItems = [
     { label: 'Carbon process queue', error: queueError },
@@ -575,6 +854,81 @@ export function CarbonFootprintQueuePage({
 
   const setFormValue = (key: keyof PreparationForm, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const getOtherGroupKey = (row: Pick<QueueRow, 'resourceTypeId' | 'resourceTypeName'>) => (
+    row.resourceTypeId || `other:${row.resourceTypeName || 'uncategorized'}`
+  )
+
+  const getOtherGroupLabel = (row: Pick<QueueRow, 'resourceTypeName'>) => {
+    const label = row.resourceTypeName?.trim()
+    return label && label !== '—' ? label : 'ประเภทอื่น'
+  }
+
+  const getOtherGroupConfig = (row: Pick<QueueRow, 'resourceTypeId' | 'resourceTypeName'>): OtherGroupConfig => (
+    bulkOtherConfigs[getOtherGroupKey(row)] ?? DEFAULT_OTHER_GROUP_CONFIG
+  )
+
+  const updateOtherGroupConfig = (groupKey: string, patch: Partial<OtherGroupConfig>) => {
+    setBulkOtherConfigs((prev) => ({
+      ...prev,
+      [groupKey]: {
+        ...DEFAULT_OTHER_GROUP_CONFIG,
+        ...(prev[groupKey] ?? {}),
+        ...patch,
+      },
+    }))
+  }
+
+  const resolveBulkPreparedUnit = ({
+    preparedUnitId,
+    preparedUnitName,
+    preparedUnitInitial,
+    fallbackUnit,
+    fallbackLabel,
+  }: {
+    preparedUnitId?: string
+    preparedUnitName?: string
+    preparedUnitInitial?: string
+    fallbackUnit?: Unit
+    fallbackLabel: string
+  }) => {
+    const selectedUnit = preparedUnitId ? unitById[Number(preparedUnitId)] : undefined
+    if (selectedUnit) {
+      return {
+        preparedUnitId: selectedUnit.unit_id,
+        preparedUnitName: undefined,
+        preparedUnitInitial: undefined,
+        preparedUnitLabel: unitLabel(selectedUnit),
+      }
+    }
+
+    const customName = preparedUnitName?.trim() ?? ''
+    const customInitial = preparedUnitInitial?.trim() ?? ''
+    if (customName || customInitial) {
+      return {
+        preparedUnitId: undefined,
+        preparedUnitName: customName || customInitial,
+        preparedUnitInitial: customInitial || customName,
+        preparedUnitLabel: customInitial || customName,
+      }
+    }
+
+    if (fallbackUnit?.unit_id != null) {
+      return {
+        preparedUnitId: fallbackUnit.unit_id,
+        preparedUnitName: undefined,
+        preparedUnitInitial: undefined,
+        preparedUnitLabel: unitLabel(fallbackUnit),
+      }
+    }
+
+    return {
+      preparedUnitId: undefined,
+      preparedUnitName: undefined,
+      preparedUnitInitial: undefined,
+      preparedUnitLabel: fallbackLabel,
+    }
   }
 
   const toggleSelectedQueueRow = (id: number, checked: boolean) => {
@@ -609,7 +963,6 @@ export function CarbonFootprintQueuePage({
     `${row.resourceTypeName} ${row.resourceItemName} ${row.quantityUnitLabel}`.toLowerCase()
   )
 
-  const isBagUnitRow = (row: QueueRow) => /sck|sack|bag|กระสอบ/.test(getRowUnitText(row))
   const isFuelRow = (row: QueueRow) => row.rowType === 'fuel' || /น้ำมัน|fuel|diesel|gasohol|benzene|เบนซิน|lit|liter|litre|litter|ลิตร|m3|m\^3|m³|ลูกบาศก์เมตร/.test(getRowResourceText(row))
   const isLiterRow = (row: QueueRow) => isLiterUnitText(getRowUnitText(row))
   const isCubicMeterRow = (row: QueueRow) => isCubicMeterUnitText(getRowUnitText(row))
@@ -623,121 +976,118 @@ export function CarbonFootprintQueuePage({
     const preparedVolumePerUnit = calculatePreparedVolumePerUnit(quantity, sourceVolumeAll)
 
     if (row.rowType === 'fertilizer') {
-      if (!isBagUnitRow(row)) {
-        return {
-          row,
-          rowType: 'fertilizer',
-          ruleLabel: 'ปุ๋ย: คงหน่วยเดิม',
-          currentUnitLabel,
-          formulaText: `${formatNumber(sourceVolumeAll)} * 1 = ${formatNumber(sourceVolumeAll)} ${currentUnitLabel}`,
-          preparedUnitLabel: currentUnitLabel,
-          preparedVolumeAll: sourceVolumeAll,
-          payload: {
-            preparedUnitId: detail?.unit_id,
-            preparedUnitPrefixId: detail?.unit_prefix_id,
-            preparedVolumePerUnit: detail?.log_act_detail_volumePerUnit,
-            preparedVolumeAll: sourceVolumeAll,
-            conversionFactor: 1,
-            fertilizerPrepareType: bulkFertilizerPrepareType || 'chemical',
-            note: `Bulk fertilizer keep unit: ${sourceVolumeAll} ${currentUnitLabel}`,
-          },
-        }
-      }
+      const fertilizerUnitFactor = toNumberOrUndefined(bulkFertilizerUnitFactor) ?? 1
+      const fertilizerBaseKg = quantity * bagWeightKg
+      const fertilizerPreparedVolumeAll = fertilizerBaseKg * fertilizerUnitFactor
+      const fertilizerPreparedVolumePerUnit = bagWeightKg * fertilizerUnitFactor
+      const fertilizerNitrogenProfile = getFertilizerNitrogenProfile(row.resourceItemName)
+      const unknownFertilizerN = toNumberOrUndefined(bulkUnknownFertilizerN)
+      const resolvedFertilizerN = fertilizerNitrogenProfile.kind === 'chemical'
+        ? fertilizerNitrogenProfile.detectedN
+        : fertilizerNitrogenProfile.kind === 'organic'
+          ? null
+          : unknownFertilizerN
+      const fertilizerTarget = resolveBulkPreparedUnit({
+        preparedUnitId: bulkFertilizerPreparedUnitId,
+        preparedUnitName: bulkFertilizerTargetUnitName,
+        preparedUnitInitial: bulkFertilizerTargetUnitInitial,
+        fallbackUnit: kgUnit,
+        fallbackLabel: bulkFertilizerTargetUnitInitial.trim() || bulkFertilizerTargetUnitName.trim() || 'kg',
+      })
 
-      const fertilizerPreparedVolumeAll = quantity * bagWeightKg
-      const fertilizerTargetUnitLabel = kgUnit
-        ? unitLabel(kgUnit)
-        : (bulkFertilizerTargetUnitInitial.trim() || bulkFertilizerTargetUnitName.trim() || 'kg')
       return {
         row,
         rowType: 'fertilizer',
-        ruleLabel: 'SCK / กระสอบ -> kg',
+        ruleLabel: `ปุ๋ย: จำนวน x ปริมาณต่อจำนวน x ตัวคูณแปลงหน่วย -> ${fertilizerTarget.preparedUnitLabel}`,
         currentUnitLabel,
-        formulaText: `${formatNumber(quantity)} * ${formatNumber(bagWeightKg)} = ${formatNumber(fertilizerPreparedVolumeAll)} ${fertilizerTargetUnitLabel}`,
-        preparedUnitLabel: fertilizerTargetUnitLabel,
+        formulaText: `(${formatNumber(quantity)} * ${formatNumber(bagWeightKg)}) * ${formatNumber(fertilizerUnitFactor, 6)} = ${formatNumber(fertilizerPreparedVolumeAll)} ${fertilizerTarget.preparedUnitLabel}`,
+        preparedUnitLabel: fertilizerTarget.preparedUnitLabel,
         preparedVolumeAll: fertilizerPreparedVolumeAll,
         payload: {
-          preparedUnitId: kgUnit?.unit_id,
-          preparedUnitName: kgUnit ? undefined : (bulkFertilizerTargetUnitName.trim() || 'kg'),
-          preparedUnitInitial: kgUnit ? undefined : (bulkFertilizerTargetUnitInitial.trim() || 'kg'),
-          preparedVolumePerUnit: bagWeightKg,
+          preparedUnitId: fertilizerTarget.preparedUnitId,
+          preparedUnitName: fertilizerTarget.preparedUnitName,
+          preparedUnitInitial: fertilizerTarget.preparedUnitInitial,
+          preparedVolumePerUnit: fertilizerPreparedVolumePerUnit,
           preparedVolumeAll: fertilizerPreparedVolumeAll,
-          conversionFactor: bagWeightKg,
+          conversionFactor: fertilizerUnitFactor,
           fertilizerBagWeightKg: bagWeightKg,
-          fertilizerPrepareType: bulkFertilizerPrepareType || 'chemical',
-          note: `Bulk fertilizer conversion: ${quantity} ${currentUnitLabel} * ${bagWeightKg} ${fertilizerTargetUnitLabel} = ${fertilizerPreparedVolumeAll} ${fertilizerTargetUnitLabel}`,
+          fertilizerPrepareType: 'fertilizer',
+          soilN: resolvedFertilizerN,
+          note: `Bulk fertilizer conversion: (${quantity} x ${bagWeightKg}) x ${fertilizerUnitFactor} = ${fertilizerPreparedVolumeAll} ${fertilizerTarget.preparedUnitLabel}`,
         },
       }
     }
 
     if (row.rowType === 'fuel' || isFuelRow(row)) {
-      const sourceIsLiter = isLiterRow(row)
-      const sourceIsM3 = isCubicMeterRow(row)
-      const canConvertFuelUnit = sourceIsLiter || sourceIsM3
-      const targetUnit = canConvertFuelUnit && bulkFuelTarget === 'm3'
-        ? cubicMeterUnit
-        : canConvertFuelUnit && bulkFuelTarget === 'liter'
-          ? literUnit
-          : undefined
-      const targetUnitId = targetUnit?.unit_id ?? detail?.unit_id
-      const targetUnitLabel = targetUnit ? unitLabel(targetUnit) : currentUnitLabel
-      const factor = bulkFuelTarget === 'm3' && sourceIsLiter
-        ? 0.001
-        : bulkFuelTarget === 'liter' && sourceIsM3
-          ? 1000
-          : 1
-      const fuelValuePerUnit = toNumberOrUndefined(bulkFuelValuePerUnit) ?? detail?.log_act_detail_volumePerUnit ?? factor
+      const fuelTarget = resolveBulkPreparedUnit({
+        preparedUnitId: bulkFuelPreparedUnitId,
+        preparedUnitName: bulkFuelPreparedUnitName,
+        preparedUnitInitial: bulkFuelPreparedUnitInitial,
+        fallbackUnit: detail?.unit_id != null ? unitById[detail.unit_id] : undefined,
+        fallbackLabel: currentUnitLabel,
+      })
+      const fuelValuePerUnit = toNumberOrUndefined(bulkFuelValuePerUnit) ?? detail?.log_act_detail_volumePerUnit ?? 1
       const preparedVolumeAll = quantity * fuelValuePerUnit
-      const targetText = !canConvertFuelUnit || bulkFuelTarget === 'keep'
-        ? 'คงหน่วยเดิม'
-        : `เตรียมเป็น ${targetUnitLabel}`
 
       return {
         row,
         rowType: 'fuel',
-        ruleLabel: `น้ำมัน: ${targetText}`,
+        ruleLabel: `น้ำมัน: จำนวน x ค่าหลังแปลงต่อจำนวน -> ${fuelTarget.preparedUnitLabel}`,
         currentUnitLabel,
-        formulaText: `${formatNumber(quantity)} * ${formatNumber(fuelValuePerUnit, 6)} = ${formatNumber(preparedVolumeAll)} ${targetUnitLabel}`,
-        preparedUnitLabel: targetUnitLabel,
+        formulaText: `${formatNumber(quantity)} * ${formatNumber(fuelValuePerUnit, 6)} = ${formatNumber(preparedVolumeAll)} ${fuelTarget.preparedUnitLabel}`,
+        preparedUnitLabel: fuelTarget.preparedUnitLabel,
         preparedVolumeAll,
         payload: {
-          preparedUnitId: targetUnitId,
+          preparedUnitId: fuelTarget.preparedUnitId,
+          preparedUnitName: fuelTarget.preparedUnitName,
+          preparedUnitInitial: fuelTarget.preparedUnitInitial,
           preparedVolumePerUnit: fuelValuePerUnit,
           preparedVolumeAll,
           conversionFactor: fuelValuePerUnit,
           fertilizerPrepareType: 'fuel',
-          note: `Bulk fuel conversion: ${quantity} ${currentUnitLabel} * ${fuelValuePerUnit} = ${preparedVolumeAll} ${targetUnitLabel}`,
+          note: `Bulk fuel conversion: ${quantity} x ${fuelValuePerUnit} = ${preparedVolumeAll} ${fuelTarget.preparedUnitLabel}`,
         },
       }
     }
 
-    const otherFactor = bulkOtherMode === 'factor'
-      ? (toNumberOrUndefined(bulkOtherConversionFactor) ?? 1)
+    const otherConfig = getOtherGroupConfig(row)
+    const otherFactor = otherConfig.mode === 'factor'
+      ? (toNumberOrUndefined(otherConfig.conversionFactor) ?? 1)
       : 1
     const otherPreparedVolumeAll = sourceVolumeAll * otherFactor
-    const targetUnit = bulkOtherPreparedUnitId ? unitById[Number(bulkOtherPreparedUnitId)] : undefined
-    const targetPrefix = bulkOtherPreparedUnitPrefixId ? prefixById[Number(bulkOtherPreparedUnitPrefixId)] : undefined
+    const targetPrefix = otherConfig.preparedUnitPrefixId ? prefixById[Number(otherConfig.preparedUnitPrefixId)] : undefined
+    const otherTarget = resolveBulkPreparedUnit({
+      preparedUnitId: otherConfig.preparedUnitId,
+      preparedUnitName: otherConfig.preparedUnitName,
+      preparedUnitInitial: otherConfig.preparedUnitInitial,
+      fallbackUnit: detail?.unit_id != null ? unitById[detail.unit_id] : undefined,
+      fallbackLabel: currentUnitLabel,
+    })
     const targetUnitLabel = [
       targetPrefix ? prefixLabel(targetPrefix) : '',
-      targetUnit ? unitLabel(targetUnit) : currentUnitLabel,
+      otherTarget.preparedUnitLabel,
     ].filter(Boolean).join(' ')
 
     return {
       row,
       rowType: 'other',
-      ruleLabel: bulkOtherMode === 'factor' ? 'อื่น ๆ: แปลงด้วยตัวคูณ' : 'อื่น ๆ: คงหน่วยเดิม',
+      ruleLabel: otherConfig.mode === 'factor'
+        ? `${getOtherGroupLabel(row)}: แปลงด้วยตัวคูณ`
+        : `${getOtherGroupLabel(row)}: คงหน่วยเดิม`,
       currentUnitLabel,
       formulaText: `${formatNumber(sourceVolumeAll)} * ${formatNumber(otherFactor, 6)} = ${formatNumber(otherPreparedVolumeAll)} ${targetUnitLabel}`,
       preparedUnitLabel: targetUnitLabel,
       preparedVolumeAll: otherPreparedVolumeAll,
       payload: {
-        preparedUnitId: targetUnit?.unit_id ?? detail?.unit_id,
+        preparedUnitId: otherTarget.preparedUnitId ?? detail?.unit_id,
+        preparedUnitName: otherTarget.preparedUnitName,
+        preparedUnitInitial: otherTarget.preparedUnitInitial,
         preparedUnitPrefixId: targetPrefix?.unit_prefix_id ?? detail?.unit_prefix_id,
-        preparedVolumePerUnit: bulkOtherMode === 'factor' ? calculatePreparedVolumePerUnit(quantity, otherPreparedVolumeAll) ?? preparedVolumePerUnit : undefined,
+        preparedVolumePerUnit: otherConfig.mode === 'factor' ? calculatePreparedVolumePerUnit(quantity, otherPreparedVolumeAll) ?? preparedVolumePerUnit : undefined,
         preparedVolumeAll: otherPreparedVolumeAll,
         conversionFactor: otherFactor,
         fertilizerPrepareType: 'other',
-        note: bulkOtherMode === 'factor'
+        note: otherConfig.mode === 'factor'
           ? `Bulk other conversion: ${sourceVolumeAll} ${currentUnitLabel} * ${otherFactor} = ${otherPreparedVolumeAll} ${targetUnitLabel}`
           : `Bulk keep unit: ${sourceVolumeAll} ${currentUnitLabel}`,
       },
@@ -748,15 +1098,62 @@ export function CarbonFootprintQueuePage({
   const selectedFertilizerRows = selectedQueueRows.filter((row) => row.rowType === 'fertilizer')
   const selectedFuelRows = selectedQueueRows.filter((row) => row.rowType === 'fuel')
   const selectedOtherRows = selectedQueueRows.filter((row) => row.rowType === 'other')
+  const fertilizerNitrogenProfiles = selectedFertilizerRows.map((row) => ({
+    row,
+    profile: getFertilizerNitrogenProfile(row.resourceItemName),
+  }))
+  const chemicalFertilizerCount = fertilizerNitrogenProfiles.filter((item) => item.profile.kind === 'chemical').length
+  const organicFertilizerCount = fertilizerNitrogenProfiles.filter((item) => item.profile.kind === 'organic').length
+  const unknownFertilizerCount = fertilizerNitrogenProfiles.filter((item) => item.profile.kind === 'unknown').length
+  const otherGroupEntries = Array.from(
+    selectedOtherRows.reduce((groups, row) => {
+      const groupKey = getOtherGroupKey(row)
+      const existing = groups.get(groupKey)
+      if (existing) {
+        existing.rows.push(row)
+        return groups
+      }
+
+      groups.set(groupKey, {
+        key: groupKey,
+        label: getOtherGroupLabel(row),
+        rows: [row],
+      })
+      return groups
+    }, new Map<string, { key: string; label: string; rows: QueueRow[] }>()),
+  ).map(([, value]) => value)
   const bulkFertilizerPreview = bulkConversionPreview.filter((item) => item.rowType === 'fertilizer')
   const bulkFuelPreview = bulkConversionPreview.filter((item) => item.rowType === 'fuel')
   const bulkOtherPreview = bulkConversionPreview.filter((item) => item.rowType === 'other')
-  const getBulkFuelPresetValue = (target: BulkFuelTarget) => {
+  const bulkOtherPreviewGroups = otherGroupEntries.map((group) => ({
+    ...group,
+    items: bulkOtherPreview.filter((item) => getOtherGroupKey(item.row) === group.key),
+  }))
+  const getBulkFertilizerPreviewNLabel = (row: QueueRow) => {
+    const profile = getFertilizerNitrogenProfile(row.resourceItemName)
+    if (profile.kind === 'chemical') {
+      return profile.detectedN != null ? formatNumber(profile.detectedN, 3) : 'null'
+    }
+    if (profile.kind === 'organic') {
+      return 'null'
+    }
+
+    const manualN = toNumberOrUndefined(bulkUnknownFertilizerN)
+    return manualN != null ? formatNumber(manualN, 3) : 'null'
+  }
+  const getBulkFuelPresetValue = (target: 'liter' | 'm3') => {
     const hasLiter = selectedFuelRows.some(isLiterRow)
     const hasCubicMeter = selectedFuelRows.some(isCubicMeterRow)
     if (target === 'm3') return hasLiter && !hasCubicMeter ? '0.001' : '1'
-    if (target === 'liter') return hasCubicMeter && !hasLiter ? '1000' : '1'
-    return '1'
+    return hasCubicMeter && !hasLiter ? '1000' : '1'
+  }
+
+  const applyBulkFuelPreset = (target: 'liter' | 'm3') => {
+    const targetUnit = target === 'liter' ? literUnit : cubicMeterUnit
+    setBulkFuelValuePerUnit(getBulkFuelPresetValue(target))
+    setBulkFuelPreparedUnitId(targetUnit?.unit_id != null ? String(targetUnit.unit_id) : '')
+    setBulkFuelPreparedUnitName('')
+    setBulkFuelPreparedUnitInitial('')
   }
 
   useEffect(() => {
@@ -778,6 +1175,11 @@ export function CarbonFootprintQueuePage({
   }, [bulkPreparationPopup])
 
   useEffect(() => {
+    if (!kgUnit?.unit_id || bulkFertilizerPreparedUnitId) return
+    setBulkFertilizerPreparedUnitId(String(kgUnit.unit_id))
+  }, [bulkFertilizerPreparedUnitId, kgUnit])
+
+  useEffect(() => {
     if (statusPopup.kind !== 'success') return undefined
 
     const timer = window.setTimeout(() => {
@@ -790,6 +1192,20 @@ export function CarbonFootprintQueuePage({
 
     return () => window.clearTimeout(timer)
   }, [statusPopup])
+
+  useEffect(() => {
+    if (footprintCalculationModal.kind !== 'complete' || footprintCalculationModal.countdown == null) return undefined
+
+    const timer = window.setTimeout(() => {
+      setFootprintCalculationModal((prev) => {
+        if (prev.kind !== 'complete' || prev.countdown == null) return prev
+        if (prev.countdown <= 1) return { kind: 'hidden' }
+        return { ...prev, countdown: prev.countdown - 1 }
+      })
+    }, 1000)
+
+    return () => window.clearTimeout(timer)
+  }, [footprintCalculationModal])
 
   const sourceVolume = selectedRow
     ? selectedRow.preparationInfo.sourceVolumeAll ?? selectedRow.original.log_activities_detail?.log_act_detail_volumeAll ?? 0
@@ -807,6 +1223,9 @@ export function CarbonFootprintQueuePage({
     const detail = item.log_activities_detail
     const preparationInfo = row.preparationInfo
     const defaultPreparationType = preparationInfo.fertilizerPrepareType ?? getDefaultPreparationType(row.rowType)
+    const fertilizerProfile = row.rowType === 'fertilizer'
+      ? getFertilizerNitrogenProfile(row.resourceItemName)
+      : null
     setSelectedRow(row)
     setForm({
       preparedUnitId: detail?.unit_id != null ? String(detail.unit_id) : '',
@@ -819,7 +1238,13 @@ export function CarbonFootprintQueuePage({
       fertilizerBagWeightKg: preparationInfo.fertilizerBagWeightKg != null ? String(preparationInfo.fertilizerBagWeightKg) : '',
       fertilizerPrepareType: defaultPreparationType,
       soilSampleDate: dateInputValue(preparationInfo.soilSampleDate),
-      soilN: item.N != null ? String(item.N) : (preparationInfo.soilN != null ? String(preparationInfo.soilN) : ''),
+      soilN: item.N != null
+        ? String(item.N)
+        : (preparationInfo.soilN != null
+            ? String(preparationInfo.soilN)
+            : (fertilizerProfile?.kind === 'chemical' && fertilizerProfile.detectedN != null
+                ? String(fertilizerProfile.detectedN)
+                : '')),
       soilSocBaseline: preparationInfo.soilSocBaseline != null ? String(preparationInfo.soilSocBaseline) : '',
       soilSocProject: preparationInfo.soilSocProject != null ? String(preparationInfo.soilSocProject) : '',
       note: preparationInfo.note ?? '',
@@ -835,7 +1260,7 @@ export function CarbonFootprintQueuePage({
     const result = sourceQuantity * weightKg
     setForm((prev) => ({
       ...prev,
-      fertilizerPrepareType: prev.fertilizerPrepareType || 'chemical',
+      fertilizerPrepareType: 'fertilizer',
       fertilizerBagWeightKg: String(weightKg),
       preparedUnitId: kgUnit ? String(kgUnit.unit_id) : '',
       preparedUnitName: kgUnit ? '' : (prev.preparedUnitName || 'kg'),
@@ -964,19 +1389,112 @@ export function CarbonFootprintQueuePage({
     },
   })
 
-  const calculateMut = useMutation({
-    mutationFn: ({ detailId, calcMode }: { detailId: number; calcMode: 'standard' | 'tver' }) =>
-      post(`/activities/details/${detailId}/calculate`, { calcMode }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['carbon-process-queue'] })
-      void qc.invalidateQueries({ queryKey: ['activity-details-calculate'] })
-      void qc.invalidateQueries({ queryKey: ['activity-details'] })
-    },
-  })
+  const openFootprintCalculationModal = (rowsToReview: QueueRow[], source: FootprintCalculationSource) => {
+    setFootprintCalculationModal({
+      kind: 'preview',
+      source,
+      rows: rowsToReview,
+    })
+  }
+
+  const closeFootprintCalculationModal = () => {
+    if (footprintCalculationModal.kind === 'running') return
+    setFootprintCalculationModal({ kind: 'hidden' })
+  }
+
+  const startFootprintCalculation = async () => {
+    if (footprintCalculationModal.kind !== 'preview') return
+
+    const source = footprintCalculationModal.source
+    const rowsToReview = footprintCalculationModal.rows
+    const { readyRows } = splitFootprintCalculationRows(rowsToReview)
+    const successRows: FootprintCalculationRunResult[] = []
+    const failedRows: FootprintCalculationRunResult[] = []
+
+    setFootprintCalculationModal({
+      kind: 'running',
+      source,
+      rows: rowsToReview,
+      currentIndex: 0,
+      currentLabel: '',
+      successRows,
+      failedRows,
+    })
+
+    for (let index = 0; index < readyRows.length; index += 1) {
+      const row = readyRows[index]
+      const currentLabel = `${row.headerLabel} · ${row.resourceItemName}`
+
+      setFootprintCalculationModal({
+        kind: 'running',
+        source,
+        rows: rowsToReview,
+        currentIndex: index + 1,
+        currentLabel,
+        successRows: [...successRows],
+        failedRows: [...failedRows],
+      })
+
+      try {
+        const result = await post<CarbonProcessQueueItem>(`/activities/carbon-process-queue/${row.id}/calculate`)
+        successRows.push({
+          row,
+          resultValue: result.carbon_process_queue_resultValue,
+        })
+      } catch (error) {
+        failedRows.push({
+          row,
+          error: getErrorMessage(error),
+        })
+      }
+
+      setFootprintCalculationModal({
+        kind: 'running',
+        source,
+        rows: rowsToReview,
+        currentIndex: index + 1,
+        currentLabel,
+        successRows: [...successRows],
+        failedRows: [...failedRows],
+      })
+
+      if (index < readyRows.length - 1) {
+        await wait(120)
+      }
+    }
+
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ['carbon-process-queue'] }),
+      qc.invalidateQueries({ queryKey: ['activity-details-calculate'] }),
+      qc.invalidateQueries({ queryKey: ['activity-details'] }),
+    ])
+
+    setSelectedQueueIds((prev) => prev.filter((id) => !successRows.some((item) => item.row.id === id)))
+    setFootprintCalculationModal({
+      kind: 'complete',
+      source,
+      rows: rowsToReview,
+      successRows,
+      failedRows,
+      countdown: failedRows.length ? undefined : 4,
+    })
+  }
 
   const submitPreparation = (event: FormEvent) => {
     event.preventDefault()
     if (!selectedRow) return
+
+    const selectedFertilizerNitrogen = selectedRow.rowType === 'fertilizer'
+      ? getFertilizerNitrogenProfile(selectedRow.resourceItemName)
+      : null
+    const resolvedSoilN = (() => {
+      const manualSoilN = toNumberOrUndefined(form.soilN)
+      if (manualSoilN != null) return manualSoilN
+      if (!selectedFertilizerNitrogen) return undefined
+      if (selectedFertilizerNitrogen.kind === 'chemical') return selectedFertilizerNitrogen.detectedN
+      if (selectedFertilizerNitrogen.kind === 'organic') return null
+      return undefined
+    })()
 
     preparationMut.mutate({
       id: selectedRow.id,
@@ -991,7 +1509,7 @@ export function CarbonFootprintQueuePage({
         fertilizerBagWeightKg: toNumberOrUndefined(form.fertilizerBagWeightKg),
         fertilizerPrepareType: form.fertilizerPrepareType || undefined,
         soilSampleDate: form.soilSampleDate || undefined,
-        soilN: toNumberOrUndefined(form.soilN),
+        soilN: resolvedSoilN,
         soilSocBaseline: toNumberOrUndefined(form.soilSocBaseline),
         soilSocProject: toNumberOrUndefined(form.soilSocProject),
         note: form.note || undefined,
@@ -1000,7 +1518,7 @@ export function CarbonFootprintQueuePage({
   }
 
   const clearFilters = () => {
-    setStatusFilter(isPreparationMode ? 'preparing' : 'ready')
+    setStatusFilter(isPreparationMode ? 'preparing' : '')
     setResourceTypeFilter('')
     setCampFilter('')
     setPreparationFilter('')
@@ -1025,6 +1543,7 @@ export function CarbonFootprintQueuePage({
     { key: 'detailTypeName', header: 'รายละเอียด', sortable: true },
     { key: 'resourceTypeName', header: 'ประเภทปัจจัย', sortable: true },
     { key: 'resourceItemName', header: 'รายการปัจจัย', sortable: true },
+    { key: 'nValueLabel', header: 'N', sortable: true, render: (row) => <span className="font-mono">{row.nValueLabel}</span> },
     { key: 'quantityUnitLabel', header: 'unit จำนวน', sortable: true },
     { key: 'quantityLabel', header: 'จำนวน', sortable: true, render: (row) => <span className="font-mono">{row.quantityLabel}</span> },
     { key: 'sourceUnitLabel', header: 'หน่วยเดิม', sortable: true },
@@ -1051,15 +1570,43 @@ export function CarbonFootprintQueuePage({
   ]
 
   const footprintColumns: Column<QueueRow>[] = [
+    {
+      key: 'checked',
+      header: 'เลือก',
+      width: '70px',
+      render: (row: QueueRow) => (
+        <input
+          type="checkbox"
+          checked={Boolean(row.checked)}
+          onChange={(event) => toggleSelectedQueueRow(row.id, event.target.checked)}
+        />
+      ),
+    },
     { key: 'dateLabel', header: 'วันที่กิจกรรม', sortable: true },
     { key: 'campLabel', header: 'แคมป์', sortable: true, render: (row) => <span className="badge-blue">{row.campLabel}</span> },
     { key: 'landLabel', header: 'แปลง', sortable: true, render: (row) => <span className="badge-green">{row.landLabel}</span> },
     { key: 'resourceTypeName', header: 'ประเภทปัจจัย', sortable: true },
     { key: 'resourceItemName', header: 'รายการปัจจัย', sortable: true },
+    { key: 'formulaModeLabel', header: 'สูตรที่จะใช้', sortable: true },
+    {
+      key: 'inputStatusLabel',
+      header: 'สถานะ input',
+      sortable: true,
+      render: (row) => <span className={getFootprintInputStatusClass(row.inputStatusKind)}>{row.inputStatusLabel}</span>,
+    },
+    { key: 'nValueLabel', header: 'N', sortable: true, render: (row) => <span className="font-mono">{row.nValueLabel}</span> },
     { key: 'sourceAmountLabel', header: 'ปริมาณเดิม', sortable: true, render: (row) => <span className="font-mono">{row.sourceAmountLabel}</span> },
     { key: 'sourceUnitLabel', header: 'หน่วยเดิม', sortable: true },
+    { key: 'calculationAmountLabel', header: 'ปริมาณที่ใช้คำนวณ', sortable: true, render: (row) => <span className="font-mono">{row.calculationAmountLabel}</span> },
     { key: 'preparedAmountLabel', header: 'ปริมาณหลังเตรียม', sortable: true, render: (row) => <span className="font-mono">{row.preparedAmountLabel}</span> },
     { key: 'preparedUnitLabel', header: 'หน่วยหลังเตรียม', sortable: true },
+    { key: 'resultValueLabel', header: 'ผลลัพธ์การคำนวณ', sortable: true, render: (row) => <span className="font-mono">{row.resultValueLabel}</span> },
+    { key: 'resultUnitLabel', header: 'หน่วยผลลัพธ์', sortable: true, render: (row) => <span className="font-medium">{row.resultUnitLabel}</span> },
+    { key: 'retryCountLabel', header: 'จำนวนครั้งที่ลองใหม่', sortable: true, render: (row) => <span className="font-mono">{row.retryCountLabel}</span> },
+    { key: 'errorMessageLabel', header: 'ข้อความปัญหา', sortable: true },
+    { key: 'createAtLabel', header: 'เวลาสร้างรายการ', sortable: true },
+    { key: 'startedAtLabel', header: 'เวลาเริ่มประมวลผล', sortable: true },
+    { key: 'endedAtLabel', header: 'เวลาสิ้นสุดประมวลผล', sortable: true },
     {
       key: 'statusLabel',
       header: 'สถานะ',
@@ -1072,12 +1619,75 @@ export function CarbonFootprintQueuePage({
   const selectedRowType = selectedRow?.rowType ?? 'other'
   const selectedIsFertilizer = selectedRowType === 'fertilizer'
   const selectedIsFuel = selectedRowType === 'fuel'
+  const selectedFertilizerProfile = selectedIsFertilizer
+    ? getFertilizerNitrogenProfile(selectedRow?.resourceItemName)
+    : null
   const canApplyFuelPresets = selectedIsFuel && (sourceIsLiter || sourceIsCubicMeter)
   const previewPreparedVolume = toNumberOrUndefined(form.preparedVolumeAll)
   const previewDiff = previewPreparedVolume != null ? previewPreparedVolume - sourceVolume : undefined
   const previewPreparedUnitLabel = form.preparedUnitId
     ? unitLabel(unitById[Number(form.preparedUnitId)])
     : (form.preparedUnitInitial || form.preparedUnitName || '—')
+
+  const renderFootprintRowsTable = (items: QueueRow[], options?: { reason?: 'blocked' | 'unsupported'; result?: FootprintCalculationRunResult[] }) => {
+    if (!items.length) {
+      return (
+        <div className="rounded-xl border border-dashed border-[#d9e7f2] px-4 py-8 text-center text-sm text-surface-400">
+          ไม่มีรายการในกลุ่มนี้
+        </div>
+      )
+    }
+
+    return (
+      <div className="max-h-[280px] overflow-auto rounded-xl border border-[#d9e7f2]">
+        <table className="w-full min-w-[860px] text-left text-xs">
+          <thead className="sticky top-0 bg-[#f3f7fb] text-surface-600">
+            <tr>
+              <th className="px-3 py-2 font-semibold">หัวข้อกิจกรรม</th>
+              <th className="px-3 py-2 font-semibold">รายการปัจจัย</th>
+              <th className="px-3 py-2 font-semibold">สูตร</th>
+              <th className="px-3 py-2 font-semibold">ปริมาณที่ใช้</th>
+              <th className="px-3 py-2 font-semibold">หน่วยหลังเตรียม</th>
+              <th className="px-3 py-2 font-semibold">N</th>
+              <th className="px-3 py-2 font-semibold">{options?.reason ? 'เหตุผล' : 'สถานะ input'}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#e5eef5] bg-white">
+            {items.map((row) => {
+              const result = options?.result?.find((item) => item.row.id === row.id)
+
+              return (
+                <tr key={row.id}>
+                  <td className="px-3 py-2 align-top">
+                    <div className="min-w-[140px]">
+                      <div className="font-medium text-surface-800">{row.headerLabel}</div>
+                      <div className="text-[11px] text-surface-500">{row.campLabel} · {row.landLabel}</div>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 align-top">{row.resourceItemName}</td>
+                  <td className="px-3 py-2 align-top">{row.formulaModeLabel}</td>
+                  <td className="px-3 py-2 align-top font-mono">{row.calculationAmountLabel}</td>
+                  <td className="px-3 py-2 align-top">{row.preparedUnitLabel}</td>
+                  <td className="px-3 py-2 align-top font-mono">{row.nValueLabel}</td>
+                  <td className="px-3 py-2 align-top">
+                    {result?.error
+                      ? <span className="text-red-700">{result.error}</span>
+                      : result
+                        ? <span className="text-emerald-700">สำเร็จ {formatNumberish(result.resultValue, 4)}</span>
+                        : options?.reason === 'unsupported'
+                          ? <span className="text-amber-700">สูตรนี้ยังไม่เปิดคำนวณ</span>
+                          : options?.reason === 'blocked'
+                            ? <span className="text-red-700">{getFootprintBlockedReason(row)}</span>
+                            : <span className={getFootprintInputStatusClass(row.inputStatusKind)}>{row.inputStatusLabel}</span>}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
 
   const content = (
     <>
@@ -1090,8 +1700,8 @@ export function CarbonFootprintQueuePage({
               </h1>
               <p className="page-subtitle">
                 {isPreparationMode
-                  ? 'จัดการตาราง carbon_process_queue, เตรียมหน่วย ปริมาณ และตรวจสอบความพร้อมก่อนเปลี่ยนเป็น พร้อมคำนวณมาตรฐาน'
-                  : 'ใช้เฉพาะข้อมูลสถานะพร้อมคำนวณมาตรฐานจาก carbon_process_queue เพื่อคำนวณ Carbon Footprint'}
+                  ? 'จัดการคิวเตรียมข้อมูล Carbon ปรับหน่วย ปริมาณ และตรวจสอบความพร้อมก่อนเปลี่ยนเป็น พร้อมคำนวณมาตรฐาน'
+                  : 'คำนวณจากคิวที่พร้อม แสดงผลที่คำนวณแล้ว และติดตามรายการที่ผิดพลาดเพื่อ retry ได้'}
               </p>
             </div>
             <div className="source-badge w-full justify-start md:w-auto md:justify-end">
@@ -1128,7 +1738,7 @@ export function CarbonFootprintQueuePage({
               <p className="mt-1 text-xs text-surface-500">
                 {isPreparationMode
                   ? 'ปรับข้อมูลให้อยู่ในหน่วยกลาง และยืนยันความพร้อมก่อนเปลี่ยนเป็น พร้อมคำนวณมาตรฐาน'
-                  : 'หน้า Carbon Footprint ใช้เฉพาะรายการสถานะพร้อมคำนวณมาตรฐานเท่านั้น และไม่มีขั้นตอนเตรียมข้อมูลในหน้านี้'}
+                  : 'หน้า Carbon Footprint ใช้รายการที่พร้อมคำนวณ พร้อมผลลัพธ์และข้อผิดพลาดจากการประมวลผลล่าสุด'}
               </p>
             </div>
             <button type="button" className="btn-ghost btn-sm w-full justify-center sm:w-auto" onClick={clearFilters}>
@@ -1246,21 +1856,75 @@ export function CarbonFootprintQueuePage({
             </>
           )}
 
+          {!isPreparationMode && (
+            <div className="mb-4 rounded-[20px] border border-[#d9e7f2] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(243,247,251,0.96))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <div className="min-w-0">
+                  <div className="mb-2 flex items-center gap-2">
+                    <Calculator size={14} className="text-cyan-700" />
+                    <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-surface-600">คำนวณ Carbon Footprint</h3>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 text-xs text-surface-700 sm:grid-cols-4">
+                    <div className="rounded-xl border border-[#d9e7f2] bg-white/85 px-3 py-2">
+                      <span className="block text-surface-500">เลือกอยู่</span>
+                      <strong className="text-sm">{selectedQueueRows.length.toLocaleString('th-TH')} รายการ</strong>
+                    </div>
+                    <div className="rounded-xl border border-[#d9e7f2] bg-white/85 px-3 py-2">
+                      <span className="block text-surface-500">เลือกที่คำนวณได้</span>
+                      <strong className="text-sm">{footprintCalculateRows.length.toLocaleString('th-TH')} รายการ</strong>
+                    </div>
+                    <div className="rounded-xl border border-[#d9e7f2] bg-white/85 px-3 py-2">
+                      <span className="block text-surface-500">พร้อมทั้งหมดที่กรอง</span>
+                      <strong className="text-sm">{footprintCalculateAllRows.length.toLocaleString('th-TH')} รายการ</strong>
+                    </div>
+                    <div className="rounded-xl border border-[#f1d3d3] bg-[#fff8f8] px-3 py-2">
+                      <span className="block text-surface-500">เลือกแต่ input ยังไม่ครบ</span>
+                      <strong className="text-sm text-red-700">{footprintBlockedSelectedCount.toLocaleString('th-TH')} รายการ</strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:min-w-[30rem]">
+                  <button type="button" className="btn-secondary btn-sm w-full justify-center" onClick={selectVisibleQueueRows}>
+                    เลือกทั้งหมดที่กรอง
+                  </button>
+                  <button type="button" className="btn-ghost btn-sm w-full justify-center" onClick={clearSelectedQueueRows}>
+                    ล้างรายการที่เลือก
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary btn-sm w-full justify-center"
+                    disabled={!selectedQueueRows.length || isFootprintCalculating}
+                    onClick={() => openFootprintCalculationModal(selectedQueueRows, 'selected')}
+                  >
+                    <Calculator size={14} /> คำนวณรายการที่เลือก
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm w-full justify-center"
+                    disabled={!footprintAllCandidateRows.length || isFootprintCalculating}
+                    onClick={() => openFootprintCalculationModal(footprintAllCandidateRows, 'all')}
+                  >
+                    <Calculator size={14} /> คำนวณทั้งหมดที่พร้อม
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="mb-4 rounded-[20px] border border-[#d9e7f2] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(243,247,251,0.96))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
             <div className={`grid grid-cols-1 gap-3 md:grid-cols-2 ${isPreparationMode ? 'xl:grid-cols-5' : 'xl:grid-cols-4'}`}>
-              {isPreparationMode && (
-                <div>
-                  <label className="label">สถานะ</label>
-                  <select className="select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-                    <option value="">ทั้งหมด</option>
-                    <option value="preparing">กำลังเตรียมข้อมูล</option>
-                    <option value="ready">พร้อมคำนวณมาตรฐาน</option>
-                    <option value="standardDone">คำนวณแล้ว(มาตรฐาน)</option>
-                    <option value="cfpDone">คำนวณแล้ว(มาตรฐาน,CFP)</option>
-                    <option value="error">คำนวณผิดพลาด</option>
-                  </select>
-                </div>
-              )}
+              <div>
+                <label className="label">สถานะ</label>
+                <select className="select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+                  <option value="">ทั้งหมด</option>
+                  {isPreparationMode && <option value="preparing">กำลังเตรียมข้อมูล</option>}
+                  <option value="ready">พร้อมคำนวณมาตรฐาน</option>
+                  <option value="standardDone">คำนวณแล้ว(มาตรฐาน)</option>
+                  <option value="cfpDone">คำนวณแล้ว(มาตรฐาน,CFP)</option>
+                  <option value="error">คำนวณผิดพลาด</option>
+                </select>
+              </div>
               <div>
                 <label className="label">ประเภทปัจจัย</label>
                 <select className="select" value={resourceTypeFilter} onChange={(event) => setResourceTypeFilter(event.target.value)}>
@@ -1282,8 +1946,7 @@ export function CarbonFootprintQueuePage({
                     <option value="">ทั้งหมด</option>
                     <option value="pending">รอเตรียมข้อมูล</option>
                     <option value="prepared">เตรียมหน่วยแล้ว</option>
-                    <option value="chemical">ปุ๋ยเคมี</option>
-                    <option value="organic">ปุ๋ยอินทรีย์</option>
+                    <option value="fertilizer">ปุ๋ย</option>
                     <option value="fuel">น้ำมัน</option>
                     <option value="soil">ตรวจดิน / SOC</option>
                     <option value="other">อื่น ๆ</option>
@@ -1299,9 +1962,9 @@ export function CarbonFootprintQueuePage({
             </div>
           </div>
 
-          {((isPreparationMode && (preparationMut.isError || statusMut.isError)) || (!isPreparationMode && calculateMut.isError)) && (
+          {isPreparationMode && (preparationMut.isError || statusMut.isError) && (
             <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">
-              {preparationMut.error?.message ?? statusMut.error?.message ?? calculateMut.error?.message}
+              {preparationMut.error?.message ?? statusMut.error?.message}
             </div>
           )}
 
@@ -1311,7 +1974,7 @@ export function CarbonFootprintQueuePage({
             isLoading={isLoading}
             rowKey={(row) => row.id}
             searchPlaceholder="ค้นหาแคมป์ แปลง รายการปัจจัย หรือสถานะ..."
-            emptyMessage={isPreparationMode ? 'ไม่พบรายการใน carbon_process_queue' : 'ไม่พบรายการสถานะพร้อมคำนวณมาตรฐานสำหรับ Carbon Footprint'}
+            emptyMessage={isPreparationMode ? 'ไม่พบรายการในคิวเตรียมข้อมูล Carbon' : 'ไม่พบรายการสถานะพร้อมคำนวณมาตรฐานสำหรับ Carbon Footprint'}
             actions={(row) => (
               <div className="flex flex-wrap justify-end gap-1">
                 {isPreparationMode && (
@@ -1329,20 +1992,248 @@ export function CarbonFootprintQueuePage({
                     <CheckCircle2 size={13} /> พร้อม
                   </button>
                 )}
-                {!isPreparationMode && row.statusKind === 'ready' && (
+                {!isPreparationMode && ['ready', 'error'].includes(row.statusKind) && (
                   <button
                     type="button"
                     className="btn-primary btn-sm"
-                    disabled={calculateMut.isPending}
-                    onClick={() => calculateMut.mutate({ detailId: row.detailId, calcMode: 'standard' })}
+                    disabled={isFootprintCalculating}
+                    onClick={() => openFootprintCalculationModal([row], 'single')}
                   >
-                    <Calculator size={13} /> มาตรฐาน
+                    <Calculator size={13} /> {row.statusKind === 'error' ? 'Retry' : 'คำนวณ'}
                   </button>
+                )}
+                {!isPreparationMode && ['ready', 'error'].includes(row.statusKind) && row.inputStatusKind === 'blocked' && (
+                  <span className="rounded-full bg-red-50 px-2 py-1 text-[11px] text-red-700">
+                    input ไม่ครบ
+                  </span>
                 )}
               </div>
             )}
           />
         </div>
+
+        {!isPreparationMode && footprintCalculationModal.kind !== 'hidden' && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div
+              className="absolute inset-0 bg-black/40"
+              onClick={footprintCalculationModal.kind === 'running' ? undefined : closeFootprintCalculationModal}
+            />
+            <div className="relative max-h-[90vh] w-full max-w-6xl overflow-y-auto rounded-2xl bg-white p-6 shadow-card-lg animate-slide-up">
+              <div className="mb-5 flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="flex items-center gap-2 text-base font-semibold">
+                    <Calculator size={17} className="text-cyan-700" />
+                    คำนวณ Carbon Footprint
+                  </h3>
+                  <p className="mt-1 text-xs text-surface-500">
+                    {footprintCalculationModal.kind === 'preview'
+                      ? 'ตรวจสอบรายการก่อนเริ่มคำนวณ ระบบจะแสดงเฉพาะรายการที่พร้อมให้ประมวลผล'
+                      : footprintCalculationModal.kind === 'running'
+                        ? 'ระบบกำลังคำนวณทีละรายการและบันทึกผลกลับเข้าคิว'
+                        : 'สรุปผลการคำนวณล่าสุด'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn-icon btn-ghost"
+                  onClick={closeFootprintCalculationModal}
+                  disabled={footprintCalculationModal.kind === 'running'}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {footprintCalculationModal.kind === 'preview' && (
+                <div className="space-y-5">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                    <div className="rounded-xl border border-[#d9e7f2] bg-white/85 px-4 py-3">
+                      <div className="text-xs text-surface-500">รายการทั้งหมด</div>
+                      <div className="mt-1 text-lg font-semibold text-surface-800">{footprintModalRows.length.toLocaleString('th-TH')}</div>
+                    </div>
+                    <div className="rounded-xl border border-[#cfe7d9] bg-[#f2fbf5] px-4 py-3">
+                      <div className="text-xs text-surface-500">พร้อมคำนวณ</div>
+                      <div className="mt-1 text-lg font-semibold text-emerald-700">{footprintModalReadyRows.length.toLocaleString('th-TH')}</div>
+                    </div>
+                    <div className="rounded-xl border border-[#f1d3d3] bg-[#fff8f8] px-4 py-3">
+                      <div className="text-xs text-surface-500">input ยังไม่ครบ</div>
+                      <div className="mt-1 text-lg font-semibold text-red-700">{footprintModalBlockedRows.length.toLocaleString('th-TH')}</div>
+                    </div>
+                    <div className="rounded-xl border border-[#f5dfb8] bg-[#fffaf0] px-4 py-3">
+                      <div className="text-xs text-surface-500">สูตรยังไม่รองรับ</div>
+                      <div className="mt-1 text-lg font-semibold text-amber-700">{footprintModalUnsupportedRows.length.toLocaleString('th-TH')}</div>
+                    </div>
+                  </div>
+
+                  <section className="rounded-xl border border-[#d9e7f2] bg-white/85 p-4">
+                    <h4 className="mb-3 text-sm font-semibold">แยกกลุ่มตามสูตรที่จะใช้</h4>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                      {footprintModalFormulaSummary.map((item) => (
+                        <div key={item.mode} className="rounded-xl border border-[#d9e7f2] bg-[#f8fbff] px-3 py-3 text-xs">
+                          <div className="font-semibold text-surface-800">{item.label}</div>
+                          <div className="mt-1 text-surface-500">
+                            ทั้งหมด {item.count.toLocaleString('th-TH')} รายการ
+                          </div>
+                          <div className={item.readyCount ? 'mt-1 font-medium text-emerald-700' : 'mt-1 text-surface-400'}>
+                            พร้อม {item.readyCount.toLocaleString('th-TH')} รายการ
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  {FOOTPRINT_SUPPORTED_FORMULA_MODES.map((mode) => {
+                    const modeRows = footprintModalReadyRows.filter((row) => row.formulaMode === mode)
+                    if (!modeRows.length) return null
+
+                    return (
+                      <section key={mode} className="rounded-xl border border-[#d9e7f2] bg-[#f8fbff] p-4">
+                        <h4 className="mb-3 text-sm font-semibold">รายการพร้อมคำนวณ: {getFootprintFormulaModeLabel(mode)}</h4>
+                        {renderFootprintRowsTable(modeRows)}
+                      </section>
+                    )
+                  })}
+
+                  {!footprintModalReadyRows.length && (
+                    <section className="rounded-xl border border-[#d9e7f2] bg-[#f8fbff] p-4">
+                      <h4 className="mb-3 text-sm font-semibold">รายการพร้อมคำนวณ</h4>
+                      {renderFootprintRowsTable([])}
+                    </section>
+                  )}
+
+                  {(footprintModalBlockedRows.length > 0 || footprintModalUnsupportedRows.length > 0) && (
+                    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                      <section className="rounded-xl border border-[#f1d3d3] bg-[#fff8f8] p-4">
+                        <h4 className="mb-3 text-sm font-semibold text-red-800">รายการที่ input ยังไม่ครบ</h4>
+                        {renderFootprintRowsTable(footprintModalBlockedRows, { reason: 'blocked' })}
+                      </section>
+                      <div className="space-y-4">
+                        {FOOTPRINT_UNSUPPORTED_FORMULA_MODES.map((mode) => {
+                          const modeRows = footprintModalUnsupportedRows.filter((row) => row.formulaMode === mode)
+                          if (!modeRows.length) return null
+
+                          return (
+                            <section key={mode} className="rounded-xl border border-[#f5dfb8] bg-[#fffaf0] p-4">
+                              <h4 className="mb-3 text-sm font-semibold text-amber-800">สูตรยังไม่รองรับ: {getFootprintFormulaModeLabel(mode)}</h4>
+                              {renderFootprintRowsTable(modeRows, { reason: 'unsupported' })}
+                            </section>
+                          )
+                        })}
+                        {!footprintModalUnsupportedRows.length && (
+                          <section className="rounded-xl border border-[#f5dfb8] bg-[#fffaf0] p-4">
+                            <h4 className="mb-3 text-sm font-semibold text-amber-800">รายการที่สูตรยังไม่รองรับ</h4>
+                            {renderFootprintRowsTable([])}
+                          </section>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <button type="button" className="btn-secondary flex-1 justify-center" onClick={closeFootprintCalculationModal}>
+                      ยกเลิก
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-primary flex-1 justify-center"
+                      disabled={!footprintModalReadyRows.length}
+                      onClick={() => { void startFootprintCalculation() }}
+                    >
+                      <Calculator size={14} /> ยืนยันและเริ่มคำนวณ
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {footprintCalculationModal.kind === 'running' && (
+                <div className="flex flex-col items-center text-center">
+                  <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-[radial-gradient(circle_at_30%_30%,rgba(91,164,255,0.22),rgba(91,164,255,0.08),transparent_72%)]">
+                    <LoaderCircle size={40} className="animate-spin text-primary-600" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-surface-900">กำลังคำนวณทีละรายการ</h3>
+                  <p className="mt-2 text-sm text-surface-600">
+                    ระบบกำลังประมวลผล {footprintCalculationModal.currentIndex.toLocaleString('th-TH')} / {footprintModalReadyRows.length.toLocaleString('th-TH')} รายการ
+                  </p>
+                  <div className="mt-2 text-sm font-medium text-surface-800">{footprintCalculationModal.currentLabel || 'กำลังเริ่มคำนวณ'}</div>
+                  <div className="mt-4 w-full max-w-md overflow-hidden rounded-full bg-[#eaf1f7]">
+                    <div
+                      className="h-2 rounded-full bg-primary-500 transition-all duration-300"
+                      style={{ width: `${footprintModalReadyRows.length ? (footprintCalculationModal.currentIndex / footprintModalReadyRows.length) * 100 : 0}%` }}
+                    />
+                  </div>
+                  <div className="mt-4 grid w-full max-w-md grid-cols-2 gap-2 text-xs text-surface-700">
+                    <div className="rounded-xl border border-[#cfe7d9] bg-[#f2fbf5] px-3 py-2">
+                      <span className="block text-surface-500">สำเร็จ</span>
+                      <strong className="text-sm text-emerald-700">{footprintCalculationModal.successRows.length.toLocaleString('th-TH')}</strong>
+                    </div>
+                    <div className="rounded-xl border border-[#f1d3d3] bg-[#fff8f8] px-3 py-2">
+                      <span className="block text-surface-500">ไม่สำเร็จ</span>
+                      <strong className="text-sm text-red-700">{footprintCalculationModal.failedRows.length.toLocaleString('th-TH')}</strong>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex items-center gap-2 rounded-full border border-[#d9e7f2] bg-white/85 px-4 py-2 text-xs text-surface-500 shadow-sm">
+                    <span className="loading-dot" />
+                    <span className="loading-dot" />
+                    <span className="loading-dot" />
+                    <span className="ml-1">กำลังส่งคำขอแบบเรียงลำดับทีละ row</span>
+                  </div>
+                </div>
+              )}
+
+              {footprintCalculationModal.kind === 'complete' && (
+                <div className="space-y-5">
+                  <div className="flex flex-col items-center text-center">
+                    <div className={`mb-4 flex h-20 w-20 items-center justify-center rounded-full ${
+                      footprintCalculationModal.failedRows.length
+                        ? 'bg-[radial-gradient(circle_at_30%_30%,rgba(245,158,11,0.24),rgba(245,158,11,0.08),transparent_72%)]'
+                        : 'bg-[radial-gradient(circle_at_30%_30%,rgba(78,143,106,0.24),rgba(78,143,106,0.08),transparent_72%)]'
+                    }`}>
+                      {footprintCalculationModal.failedRows.length
+                        ? <CircleAlert size={40} className="text-amber-600" />
+                        : <CheckCircle2 size={40} className="text-green-600" />}
+                    </div>
+                    <h3 className="text-lg font-semibold text-surface-900">สรุปผลการคำนวณ</h3>
+                    <p className="mt-2 text-sm text-surface-600">
+                      สำเร็จ {footprintCalculationModal.successRows.length.toLocaleString('th-TH')} รายการ, ไม่สำเร็จ {footprintCalculationModal.failedRows.length.toLocaleString('th-TH')} รายการ
+                    </p>
+                    {footprintCalculationModal.countdown != null && (
+                      <div className="mt-4 rounded-2xl border border-[#d9e7f2] bg-white/90 px-4 py-3 shadow-sm">
+                        <span className="text-xs text-surface-500">หน้าต่างนี้จะปิดอัตโนมัติใน </span>
+                        <span className="countdown text-sm">{footprintCalculationModal.countdown}</span>
+                        <span className="text-xs text-surface-500"> วินาที</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {footprintCalculationModal.successRows.length > 0 && (
+                    <section className="rounded-xl border border-[#cfe7d9] bg-[#f2fbf5] p-4">
+                      <h4 className="mb-3 text-sm font-semibold text-emerald-800">รายการสำเร็จ</h4>
+                      {renderFootprintRowsTable(
+                        footprintCalculationModal.successRows.map((item) => item.row),
+                        { result: footprintCalculationModal.successRows },
+                      )}
+                    </section>
+                  )}
+
+                  {footprintCalculationModal.failedRows.length > 0 && (
+                    <section className="rounded-xl border border-[#f1d3d3] bg-[#fff8f8] p-4">
+                      <h4 className="mb-3 text-sm font-semibold text-red-800">รายการที่ไม่สำเร็จ</h4>
+                      {renderFootprintRowsTable(
+                        footprintCalculationModal.failedRows.map((item) => item.row),
+                        { result: footprintCalculationModal.failedRows },
+                      )}
+                    </section>
+                  )}
+
+                  <div className="flex justify-center">
+                    <button type="button" className="btn-primary min-w-[12rem] justify-center" onClick={closeFootprintCalculationModal}>
+                      ปิดหน้าต่าง
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {isPreparationMode && bulkModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -1354,7 +2245,7 @@ export function CarbonFootprintQueuePage({
                     <Wand2 size={17} className="text-primary-600" />
                     ทำรายการทั้งหมดจากที่เลือก
                   </h3>
-                  <p className="mt-1 text-xs text-surface-500">ปรับค่าหลังเตรียมลง `log_act_detail` เป็นค่าหลัก และเก็บ metadata สำหรับ tracking ไว้ใน `carbon_process_queue_info`</p>
+                  <p className="mt-1 text-xs text-surface-500">ปรับหน่วยและปริมาณของข้อมูลกิจกรรมที่เลือก พร้อมเก็บข้อมูลประกอบของการเตรียมไว้สำหรับติดตามภายในระบบ</p>
                 </div>
                 <button type="button" className="btn-icon btn-ghost" onClick={closeBulkModal} disabled={bulkPreparationPopup.kind === 'loading'}>
                   <X size={16} />
@@ -1379,19 +2270,11 @@ export function CarbonFootprintQueuePage({
                             <h5 className="text-sm font-semibold text-surface-800">ปุ๋ย</h5>
                             <p className="text-xs text-surface-500">{selectedFertilizerRows.length.toLocaleString('th-TH')} รายการ</p>
                           </div>
-                          <span className="rounded-full bg-[#eef6ff] px-3 py-1 text-xs font-medium text-primary-700">SCK / กระสอบ ไป kg</span>
+                          <span className="rounded-full bg-[#eef6ff] px-3 py-1 text-xs font-medium text-primary-700">จำนวน x ปริมาณต่อจำนวน = kg</span>
                         </div>
                         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                           <div>
-                            <label className="label">ประเภทการเตรียมปุ๋ย</label>
-                            <select className="select" value={bulkFertilizerPrepareType} onChange={(event) => setBulkFertilizerPrepareType(event.target.value)}>
-                              <option value="chemical">ปุ๋ยเคมี</option>
-                              <option value="organic">ปุ๋ยอินทรีย์</option>
-                              <option value="other">อื่น ๆ</option>
-                            </select>
-                          </div>
-                          <div>
-                            <label className="label">น้ำหนักต่อกระสอบ สำหรับ SCK ไป kg</label>
+                            <label className="label">ปริมาณต่อจำนวน / ต่อชิ้น (kg)</label>
                             <input
                               type="number"
                               step="0.001"
@@ -1400,32 +2283,79 @@ export function CarbonFootprintQueuePage({
                               onChange={(event) => setBulkFertilizerBagWeightKg(event.target.value)}
                             />
                           </div>
-                          {!kgUnit && (
-                            <>
-                              <div>
-                                <label className="label">สร้างชื่อหน่วยปลายทาง</label>
-                                <input
-                                  className="input"
-                                  value={bulkFertilizerTargetUnitName}
-                                  onChange={(event) => setBulkFertilizerTargetUnitName(event.target.value)}
-                                />
-                              </div>
-                              <div>
-                                <label className="label">ตัวย่อหน่วยปลายทาง</label>
-                                <input
-                                  className="input"
-                                  value={bulkFertilizerTargetUnitInitial}
-                                  onChange={(event) => setBulkFertilizerTargetUnitInitial(event.target.value)}
-                                />
-                              </div>
-                            </>
+                          <div>
+                            <label className="label">ตัวคูณแปลงหน่วยจาก kg</label>
+                            <input
+                              type="number"
+                              step="0.000001"
+                              className="input"
+                              value={bulkFertilizerUnitFactor}
+                              onChange={(event) => setBulkFertilizerUnitFactor(event.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <label className="label">หน่วยหลังเตรียม</label>
+                            <select
+                              className="select"
+                              value={bulkFertilizerPreparedUnitId}
+                              onChange={(event) => setBulkFertilizerPreparedUnitId(event.target.value)}
+                            >
+                              <option value="">— กรอกหน่วยเอง —</option>
+                              {units.map((unit) => <option key={unit.unit_id} value={unit.unit_id}>{unitLabel(unit)}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="label">ชื่อหน่วยใหม่</label>
+                            <input
+                              className="input"
+                              value={bulkFertilizerTargetUnitName}
+                              onChange={(event) => setBulkFertilizerTargetUnitName(event.target.value)}
+                              disabled={Boolean(bulkFertilizerPreparedUnitId)}
+                              placeholder="เช่น kilogram"
+                            />
+                          </div>
+                          <div>
+                            <label className="label">ตัวย่อหน่วยใหม่</label>
+                            <input
+                              className="input"
+                              value={bulkFertilizerTargetUnitInitial}
+                              onChange={(event) => setBulkFertilizerTargetUnitInitial(event.target.value)}
+                              disabled={Boolean(bulkFertilizerPreparedUnitId)}
+                              placeholder="เช่น kg หรือ g"
+                            />
+                          </div>
+                          <div className="md:col-span-2 rounded-xl border border-[#d9e7f2] bg-[#f8fbff] px-3 py-3 text-xs text-surface-600">
+                            <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                              <div>ปุ๋ยเคมีที่พบสูตรอัตโนมัติ: <strong>{chemicalFertilizerCount.toLocaleString('th-TH')}</strong> รายการ</div>
+                              <div>ปุ๋ยอินทรีย์ที่จะบันทึก N เป็นค่าว่าง: <strong>{organicFertilizerCount.toLocaleString('th-TH')}</strong> รายการ</div>
+                              <div>ปุ๋ยที่ยังไม่ทราบ N: <strong>{unknownFertilizerCount.toLocaleString('th-TH')}</strong> รายการ</div>
+                            </div>
+                          </div>
+                          {unknownFertilizerCount > 0 && (
+                            <div>
+                              <label className="label">ค่า N สำหรับปุ๋ยที่ยังไม่ทราบอัตโนมัติ</label>
+                              <input
+                                type="number"
+                                step="0.001"
+                                className="input"
+                                value={bulkUnknownFertilizerN}
+                                onChange={(event) => setBulkUnknownFertilizerN(event.target.value)}
+                                placeholder="ปล่อยว่างไว้เพื่อให้เป็น null ก่อน"
+                              />
+                            </div>
                           )}
                         </div>
                         {!kgUnit && (
                           <p className="mt-2 text-xs text-amber-700">
-                            ยังไม่พบหน่วย kg ใน master units ระบบจะสร้างหน่วยนี้ระหว่างบันทึก แล้วอัปเดต `log_act_detail.unit_id`
+                            ยังไม่พบหน่วย kg ใน master units ระบบจะสร้างหน่วยนี้ระหว่างบันทึกและผูกให้กับข้อมูลหลังเตรียม
                           </p>
                         )}
+                        <p className="mt-2 text-xs text-surface-500">
+                          สูตรปุ๋ยคือ (จำนวน x ปริมาณต่อจำนวนเป็น kg) x ตัวคูณแปลงหน่วย เช่น ถ้าต้องการ g ให้เลือกหน่วย g และใส่ตัวคูณ 1000
+                        </p>
+                        <p className="mt-1 text-xs text-surface-500">
+                          ระบบจะพยายามอ่านค่า N อัตโนมัติจากชื่อปุ๋ยเคมี เช่น `ปุ๋ยสูตร 16-8-8` จะบันทึก N = 16 ส่วนปุ๋ยอินทรีย์จะบันทึก N เป็นค่าว่าง
+                        </p>
                       </div>
                     )}
 
@@ -1436,27 +2366,22 @@ export function CarbonFootprintQueuePage({
                             <h5 className="text-sm font-semibold text-surface-800">น้ำมัน</h5>
                             <p className="text-xs text-surface-500">{selectedFuelRows.length.toLocaleString('th-TH')} รายการ</p>
                           </div>
-                          <span className="rounded-full bg-[#eefbf7] px-3 py-1 text-xs font-medium text-green-700">L และ m3</span>
+                          <span className="rounded-full bg-[#eefbf7] px-3 py-1 text-xs font-medium text-green-700">เลือกหน่วยปลายทางได้เอง</span>
+                        </div>
+                        <div className="mb-3 flex flex-wrap gap-2">
+                          <button type="button" className="btn-secondary btn-sm" onClick={() => applyBulkFuelPreset('liter')}>ใช้ preset L</button>
+                          <button type="button" className="btn-secondary btn-sm" onClick={() => applyBulkFuelPreset('m3')}>ใช้ preset m3</button>
                         </div>
                         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                           <div>
-                            <label className="label">การจัดการหน่วยน้ำมัน</label>
-                            <select
-                              className="select"
-                              value={bulkFuelTarget}
-                              onChange={(event) => {
-                                const nextTarget = event.target.value as BulkFuelTarget
-                                setBulkFuelTarget(nextTarget)
-                                setBulkFuelValuePerUnit(getBulkFuelPresetValue(nextTarget))
-                              }}
-                            >
-                              <option value="keep">คงหน่วยเดิม</option>
-                              <option value="liter">เตรียมเป็น L</option>
-                              <option value="m3">เตรียมเป็น m3</option>
+                            <label className="label">หน่วยหลังเตรียม</label>
+                            <select className="select" value={bulkFuelPreparedUnitId} onChange={(event) => setBulkFuelPreparedUnitId(event.target.value)}>
+                              <option value="">— กรอกหน่วยเอง / คงเดิม —</option>
+                              {units.map((unit) => <option key={unit.unit_id} value={unit.unit_id}>{unitLabel(unit)}</option>)}
                             </select>
                           </div>
                           <div>
-                            <label className="label">ค่าต่อจำนวน</label>
+                            <label className="label">ค่าหลังแปลงต่อจำนวน</label>
                             <input
                               type="number"
                               step="0.000001"
@@ -1465,56 +2390,115 @@ export function CarbonFootprintQueuePage({
                               onChange={(event) => setBulkFuelValuePerUnit(event.target.value)}
                             />
                           </div>
-                          <p className="text-xs text-surface-500 md:col-span-2">สูตรที่ใช้บันทึกคือ จำนวน * ค่าต่อจำนวน เช่น 1000 * 0.001 = 1 m3</p>
+                          <div>
+                            <label className="label">ชื่อหน่วยใหม่</label>
+                            <input
+                              className="input"
+                              value={bulkFuelPreparedUnitName}
+                              onChange={(event) => setBulkFuelPreparedUnitName(event.target.value)}
+                              disabled={Boolean(bulkFuelPreparedUnitId)}
+                              placeholder="เช่น litre"
+                            />
+                          </div>
+                          <div>
+                            <label className="label">ตัวย่อหน่วยใหม่</label>
+                            <input
+                              className="input"
+                              value={bulkFuelPreparedUnitInitial}
+                              onChange={(event) => setBulkFuelPreparedUnitInitial(event.target.value)}
+                              disabled={Boolean(bulkFuelPreparedUnitId)}
+                              placeholder="เช่น L หรือ m3"
+                            />
+                          </div>
+                          <p className="text-xs text-surface-500 md:col-span-2">สูตรที่ใช้บันทึกคือ จำนวน * ค่าหลังแปลงต่อจำนวน เช่น 1000 * 0.001 = 1 m3</p>
                         </div>
                       </div>
                     )}
 
-                    {selectedOtherRows.length > 0 && (
-                      <div className="rounded-xl border border-[#d9e7f2] bg-white/90 p-3">
-                        <div className="mb-3 flex items-center justify-between gap-3">
-                          <div>
-                            <h5 className="text-sm font-semibold text-surface-800">อื่น ๆ</h5>
-                            <p className="text-xs text-surface-500">{selectedOtherRows.length.toLocaleString('th-TH')} รายการ</p>
+                    {otherGroupEntries.map((group) => {
+                      const config = bulkOtherConfigs[group.key] ?? DEFAULT_OTHER_GROUP_CONFIG
+
+                      return (
+                        <div key={group.key} className="rounded-xl border border-[#d9e7f2] bg-white/90 p-3">
+                          <div className="mb-3 flex items-center justify-between gap-3">
+                            <div>
+                              <h5 className="text-sm font-semibold text-surface-800">{group.label}</h5>
+                              <p className="text-xs text-surface-500">{group.rows.length.toLocaleString('th-TH')} รายการ</p>
+                            </div>
+                            <span className="rounded-full bg-[#fff8ec] px-3 py-1 text-xs font-medium text-amber-700">กำหนดหน่วยแยกตามหัวข้อ</span>
                           </div>
-                          <span className="rounded-full bg-[#fff8ec] px-3 py-1 text-xs font-medium text-amber-700">Generic conversion</span>
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                            <div>
+                              <label className="label">โหมดการเตรียมข้อมูล</label>
+                              <select
+                                className="select"
+                                value={config.mode}
+                                onChange={(event) => updateOtherGroupConfig(group.key, { mode: event.target.value as BulkOtherMode })}
+                              >
+                                <option value="keep">คงหน่วยเดิม</option>
+                                <option value="factor">แปลงด้วยตัวคูณเดียวกัน</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="label">ตัวคูณแปลงหน่วย</label>
+                              <input
+                                type="number"
+                                step="0.000001"
+                                className="input"
+                                value={config.conversionFactor}
+                                onChange={(event) => updateOtherGroupConfig(group.key, { conversionFactor: event.target.value })}
+                                disabled={config.mode !== 'factor'}
+                              />
+                            </div>
+                            <div>
+                              <label className="label">Prefix หน่วยหลังเตรียม</label>
+                              <select
+                                className="select"
+                                value={config.preparedUnitPrefixId}
+                                onChange={(event) => updateOtherGroupConfig(group.key, { preparedUnitPrefixId: event.target.value })}
+                              >
+                                <option value="">— คงค่าเดิม —</option>
+                                {unitPrefixes.map((prefix) => <option key={prefix.unit_prefix_id} value={prefix.unit_prefix_id}>{prefixLabel(prefix)}</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="label">หน่วยหลังเตรียม</label>
+                              <select
+                                className="select"
+                                value={config.preparedUnitId}
+                                onChange={(event) => updateOtherGroupConfig(group.key, { preparedUnitId: event.target.value })}
+                              >
+                                <option value="">— คงค่าเดิม —</option>
+                                {units.map((unit) => <option key={unit.unit_id} value={unit.unit_id}>{unitLabel(unit)}</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="label">ชื่อหน่วยใหม่</label>
+                              <input
+                                className="input"
+                                value={config.preparedUnitName}
+                                onChange={(event) => updateOtherGroupConfig(group.key, { preparedUnitName: event.target.value })}
+                                disabled={Boolean(config.preparedUnitId)}
+                                placeholder="เช่น kilogram"
+                              />
+                            </div>
+                            <div>
+                              <label className="label">ตัวย่อหน่วยใหม่</label>
+                              <input
+                                className="input"
+                                value={config.preparedUnitInitial}
+                                onChange={(event) => updateOtherGroupConfig(group.key, { preparedUnitInitial: event.target.value })}
+                                disabled={Boolean(config.preparedUnitId)}
+                                placeholder="เช่น kg"
+                              />
+                            </div>
+                            <p className="text-xs text-surface-500 md:col-span-2">
+                              ระบบจะสร้างส่วนนี้ให้อัตโนมัติสำหรับทุกหัวข้อที่ไม่ใช่ปุ๋ยหรือน้ำมัน และให้แต่ละหัวข้อตั้งค่าการเปลี่ยนหน่วยของตัวเองได้
+                            </p>
+                          </div>
                         </div>
-                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                          <div>
-                            <label className="label">โหมดการเตรียมข้อมูล</label>
-                            <select className="select" value={bulkOtherMode} onChange={(event) => setBulkOtherMode(event.target.value as BulkOtherMode)}>
-                              <option value="keep">คงหน่วยเดิม</option>
-                              <option value="factor">แปลงด้วยตัวคูณเดียวกัน</option>
-                            </select>
-                          </div>
-                          <div>
-                            <label className="label">ตัวคูณแปลงหน่วย</label>
-                            <input
-                              type="number"
-                              step="0.000001"
-                              className="input"
-                              value={bulkOtherConversionFactor}
-                              onChange={(event) => setBulkOtherConversionFactor(event.target.value)}
-                              disabled={bulkOtherMode !== 'factor'}
-                            />
-                          </div>
-                          <div>
-                            <label className="label">Prefix หน่วยหลังเตรียม</label>
-                            <select className="select" value={bulkOtherPreparedUnitPrefixId} onChange={(event) => setBulkOtherPreparedUnitPrefixId(event.target.value)}>
-                              <option value="">— คงค่าเดิม —</option>
-                              {unitPrefixes.map((prefix) => <option key={prefix.unit_prefix_id} value={prefix.unit_prefix_id}>{prefixLabel(prefix)}</option>)}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="label">หน่วยหลังเตรียม</label>
-                            <select className="select" value={bulkOtherPreparedUnitId} onChange={(event) => setBulkOtherPreparedUnitId(event.target.value)}>
-                              <option value="">— คงค่าเดิม —</option>
-                              {units.map((unit) => <option key={unit.unit_id} value={unit.unit_id}>{unitLabel(unit)}</option>)}
-                            </select>
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                      )
+                    })}
                   </div>
 
                   <div className="mt-4">
@@ -1534,7 +2518,7 @@ export function CarbonFootprintQueuePage({
                     <div className="grid grid-cols-1 gap-3">
                       <div>
                         <strong className="block text-surface-800">Dynamic String Interpolation / Template Literals</strong>
-                        <span>ข้อความสูตรด้านขวาถูกสร้างจากค่าที่เลือก เช่น จำนวน, น้ำหนักกระสอบ และ target unit แล้วอัปเดตทันทีเมื่อเปลี่ยนค่า</span>
+                        <span>ข้อความสูตรด้านขวาถูกสร้างจากค่าที่เลือก เช่น จำนวน, ปริมาณต่อจำนวน และหน่วยปลายทาง แล้วอัปเดตทันทีเมื่อเปลี่ยนค่า</span>
                       </div>
                       <div>
                         <strong className="block text-surface-800">Frontend Simulation</strong>
@@ -1562,8 +2546,9 @@ export function CarbonFootprintQueuePage({
                         <div className="p-4">
                           <pre className="overflow-x-auto rounded-xl border border-[#d9e7f2] bg-[#101827] p-4 text-xs leading-6 text-slate-100">
                             <code>
-                              <span className="text-sky-300">const</span> <span className="text-emerald-300">bagWeightKg</span> = <span className="text-amber-300">{toNumberOrUndefined(bulkFertilizerBagWeightKg) ?? 50}</span>{'\n'}
-                              <span className="text-sky-300">const</span> <span className="text-emerald-300">fertilizerKg</span> = <span className="text-violet-300">quantity</span> * <span className="text-emerald-300">bagWeightKg</span>{'\n'}
+                              <span className="text-sky-300">const</span> <span className="text-emerald-300">weightPerUnitKg</span> = <span className="text-amber-300">{toNumberOrUndefined(bulkFertilizerBagWeightKg) ?? 50}</span>{'\n'}
+                              <span className="text-sky-300">const</span> <span className="text-emerald-300">unitFactor</span> = <span className="text-amber-300">{toNumberOrUndefined(bulkFertilizerUnitFactor) ?? 1}</span>{'\n'}
+                              <span className="text-sky-300">const</span> <span className="text-emerald-300">fertilizerResult</span> = (<span className="text-violet-300">quantity</span> * <span className="text-emerald-300">weightPerUnitKg</span>) * <span className="text-emerald-300">unitFactor</span>{'\n'}
                               <span className="text-slate-400">{'// '}</span><span className="text-slate-300">{bulkFertilizerPreview[0]?.formulaText ?? 'เลือกรายการปุ๋ยเพื่อดูสูตรตัวอย่าง'}</span>
                             </code>
                           </pre>
@@ -1588,27 +2573,31 @@ export function CarbonFootprintQueuePage({
                       </div>
                     )}
 
-                    {selectedOtherRows.length > 0 && (
-                      <div className="rounded-xl border border-[#d9e7f2]">
-                        <div className="border-b border-[#d9e7f2] bg-[#f8fbff] px-4 py-3">
-                          <h5 className="text-sm font-semibold">สูตรทั่วไป</h5>
+                    {bulkOtherPreviewGroups.map((group) => {
+                      const config = bulkOtherConfigs[group.key] ?? DEFAULT_OTHER_GROUP_CONFIG
+
+                      return (
+                        <div key={`formula-${group.key}`} className="rounded-xl border border-[#d9e7f2]">
+                          <div className="border-b border-[#d9e7f2] bg-[#f8fbff] px-4 py-3">
+                            <h5 className="text-sm font-semibold">สูตร {group.label}</h5>
+                          </div>
+                          <div className="p-4">
+                            <pre className="overflow-x-auto rounded-xl border border-[#d9e7f2] bg-[#101827] p-4 text-xs leading-6 text-slate-100">
+                              <code>
+                                <span className="text-sky-300">const</span> <span className="text-emerald-300">otherFactor</span> = <span className="text-amber-300">{config.mode === 'factor' ? (toNumberOrUndefined(config.conversionFactor) ?? 1) : 1}</span>{'\n'}
+                                <span className="text-sky-300">const</span> <span className="text-emerald-300">otherResult</span> = <span className="text-violet-300">volumeAll</span> * <span className="text-emerald-300">otherFactor</span>{'\n'}
+                                <span className="text-slate-400">{'// '}</span><span className="text-slate-300">{group.items[0]?.formulaText ?? `เลือก${group.label}เพื่อดูสูตรตัวอย่าง`}</span>
+                              </code>
+                            </pre>
+                          </div>
                         </div>
-                        <div className="p-4">
-                          <pre className="overflow-x-auto rounded-xl border border-[#d9e7f2] bg-[#101827] p-4 text-xs leading-6 text-slate-100">
-                            <code>
-                              <span className="text-sky-300">const</span> <span className="text-emerald-300">otherFactor</span> = <span className="text-amber-300">{bulkOtherMode === 'factor' ? (toNumberOrUndefined(bulkOtherConversionFactor) ?? 1) : 1}</span>{'\n'}
-                              <span className="text-sky-300">const</span> <span className="text-emerald-300">otherResult</span> = <span className="text-violet-300">volumeAll</span> * <span className="text-emerald-300">otherFactor</span>{'\n'}
-                              <span className="text-slate-400">{'// '}</span><span className="text-slate-300">{bulkOtherPreview[0]?.formulaText ?? 'เลือกรายการอื่น ๆ เพื่อดูสูตรตัวอย่าง'}</span>
-                            </code>
-                          </pre>
-                        </div>
-                      </div>
-                    )}
+                      )
+                    })}
 
                     {[
                       { key: 'fertilizer', label: 'ปุ๋ย', items: bulkFertilizerPreview },
                       { key: 'fuel', label: 'น้ำมัน', items: bulkFuelPreview },
-                      { key: 'other', label: 'อื่น ๆ', items: bulkOtherPreview },
+                      ...bulkOtherPreviewGroups.map((group) => ({ key: group.key, label: group.label, items: group.items })),
                     ].map((group) => (
                       group.items.length ? (
                         <div key={group.key} className="rounded-xl border border-[#d9e7f2]">
@@ -1622,6 +2611,7 @@ export function CarbonFootprintQueuePage({
                                   <th className="px-3 py-2 font-semibold">หัวข้อกิจกรรม</th>
                                   <th className="px-3 py-2 font-semibold">รายการ</th>
                                   <th className="px-3 py-2 font-semibold">หน่วยเดิม</th>
+                                  {group.key === 'fertilizer' && <th className="px-3 py-2 font-semibold">N ที่จะบันทึก</th>}
                                   <th className="px-3 py-2 font-semibold">Rule</th>
                                   <th className="px-3 py-2 font-semibold">สูตร</th>
                                   <th className="px-3 py-2 font-semibold">ผลลัพธ์</th>
@@ -1638,6 +2628,11 @@ export function CarbonFootprintQueuePage({
                                     </td>
                                     <td className="px-3 py-2 align-top">{item.row.resourceItemName}</td>
                                     <td className="px-3 py-2 align-top">{item.currentUnitLabel}</td>
+                                    {group.key === 'fertilizer' && (
+                                      <td className="px-3 py-2 align-top">
+                                        <span className="font-mono">{getBulkFertilizerPreviewNLabel(item.row)}</span>
+                                      </td>
+                                    )}
                                     <td className="px-3 py-2 align-top">{item.ruleLabel}</td>
                                     <td className="px-3 py-2 align-top font-mono">{item.formulaText}</td>
                                     <td className="px-3 py-2 align-top font-mono">{formatNumber(item.preparedVolumeAll)} {item.preparedUnitLabel}</td>
@@ -1712,7 +2707,7 @@ export function CarbonFootprintQueuePage({
                         </div>
                         <h3 className="text-lg font-semibold text-surface-900">บันทึกการเตรียมข้อมูลสำเร็จแล้ว</h3>
                         <p className="mt-2 text-sm text-surface-600">
-                          อัปเดตข้อมูล {bulkPreparationPopup.itemCount.toLocaleString('th-TH')} รายการ ลง `log_act_detail` เรียบร้อยแล้ว
+                          อัปเดตข้อมูล {bulkPreparationPopup.itemCount.toLocaleString('th-TH')} รายการในชุดข้อมูลกิจกรรมเรียบร้อยแล้ว
                         </p>
                         <div className="mt-4 rounded-2xl border border-[#d9e7f2] bg-white/90 px-4 py-3 shadow-sm">
                           <span className="text-xs text-surface-500">หน้าต่างนี้จะปิดอัตโนมัติใน </span>
@@ -1805,22 +2800,30 @@ export function CarbonFootprintQueuePage({
                   <section className="rounded-xl border border-[#d9e7f2] p-4">
                     <h4 className="mb-3 text-sm font-semibold">ปุ๋ย</h4>
                     <div className="mb-3 flex flex-wrap gap-2">
-                      <button type="button" className="btn-secondary btn-sm" onClick={() => applyFertilizerBag(50)}>1 SCK = 50 kg</button>
-                      <button type="button" className="btn-secondary btn-sm" onClick={() => applyFertilizerBag(30)}>1 SCK = 30 kg</button>
-                      <button type="button" className="btn-ghost btn-sm" onClick={() => setFormValue('fertilizerPrepareType', 'organic')}>ปุ๋ยอินทรีย์</button>
+                      <button type="button" className="btn-secondary btn-sm" onClick={() => applyFertilizerBag(50)}>ตั้งค่า 50 kg/จำนวน</button>
+                      <button type="button" className="btn-secondary btn-sm" onClick={() => applyFertilizerBag(30)}>ตั้งค่า 30 kg/จำนวน</button>
                     </div>
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                      <div>
-                        <label className="label">ประเภทการเตรียม</label>
-                        <select className="select" value={form.fertilizerPrepareType} onChange={(event) => setFormValue('fertilizerPrepareType', event.target.value)}>
-                          <option value="chemical">ปุ๋ยเคมี</option>
-                          <option value="organic">ปุ๋ยอินทรีย์</option>
-                          <option value="other">อื่น ๆ</option>
-                        </select>
+                    {selectedFertilizerProfile && (
+                      <div className="mb-3 rounded-xl border border-[#d9e7f2] bg-[#f8fbff] px-3 py-3 text-xs text-surface-600">
+                        <div><strong className="text-surface-800">{selectedFertilizerProfile.label}</strong></div>
+                        <div className="mt-1">{selectedFertilizerProfile.reason}</div>
+                        <div className="mt-1">
+                          ค่า N ที่ระบบแนะนำ:
+                          {' '}
+                          <strong>{selectedFertilizerProfile.detectedN != null ? formatNumber(selectedFertilizerProfile.detectedN, 3) : 'null'}</strong>
+                        </div>
+                        {selectedFertilizerProfile.kind === 'unknown' && (
+                          <div className="mt-1 text-amber-700">ถ้าปุ๋ยนี้มีค่า N ให้กรอกเองในช่อง N ด้านล่าง</div>
+                        )}
                       </div>
-                      <div><label className="label">น้ำหนักต่อกระสอบ (kg)</label><input type="number" step="0.001" className="input" value={form.fertilizerBagWeightKg} onChange={(event) => setFormValue('fertilizerBagWeightKg', event.target.value)} /></div>
-                      <div><label className="label">N / Soil N</label><input type="number" step="0.001" className="input" value={form.soilN} onChange={(event) => setFormValue('soilN', event.target.value)} /></div>
+                    )}
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div><label className="label">ปริมาณต่อจำนวน / ต่อชิ้น (kg)</label><input type="number" step="0.001" className="input" value={form.fertilizerBagWeightKg} onChange={(event) => setFormValue('fertilizerBagWeightKg', event.target.value)} /></div>
+                      <div><label className="label">N</label><input type="number" step="0.001" className="input" value={form.soilN} onChange={(event) => setFormValue('soilN', event.target.value)} placeholder={selectedFertilizerProfile?.detectedN != null ? String(selectedFertilizerProfile.detectedN) : 'ปล่อยว่างได้ถ้ายังไม่มีค่า'} /></div>
                     </div>
+                    <p className="mt-3 text-xs text-surface-500">
+                      สูตรปุ๋ยคือ (จำนวน x ปริมาณต่อจำนวนเป็น kg) x ตัวคูณแปลงหน่วย เช่น ถ้าต้องการ g ให้เลือกหน่วย g และใส่ตัวคูณ 1000
+                    </p>
                   </section>
                 )}
 
@@ -1841,9 +2844,9 @@ export function CarbonFootprintQueuePage({
 
                 {!selectedIsFertilizer && !selectedIsFuel && (
                   <section className="rounded-xl border border-[#d9e7f2] bg-[#f8fbff] p-4">
-                    <h4 className="mb-3 text-sm font-semibold">ข้อมูลทั่วไป</h4>
+                    <h4 className="mb-3 text-sm font-semibold">ประเภทอื่น</h4>
                     <p className="text-sm text-surface-600">
-                      รายการนี้ไม่มีสูตรเฉพาะแบบปุ๋ยหรือน้ำมันในรอบนี้ เราจะใช้การตั้งค่าในส่วนแปลงหน่วยด้านบน และบันทึกผลลง `log_act_detail` โดยตรง
+                      รายการนี้ไม่มีสูตรเฉพาะแบบปุ๋ยหรือน้ำมันในรอบนี้ เราจะใช้การตั้งค่าในส่วนแปลงหน่วยด้านบน และอัปเดตผลกับข้อมูลกิจกรรมโดยตรง
                     </p>
                   </section>
                 )}
@@ -1860,10 +2863,11 @@ export function CarbonFootprintQueuePage({
 
                 <section className="rounded-xl border border-[#d9e7f2] bg-[#f8fbff] p-4">
                   <h4 className="mb-3 text-sm font-semibold">ผลลัพธ์ที่จะบันทึก</h4>
-                  <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-4">
+                  <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-5">
                     <div><span className="text-surface-500">ประเภท</span><strong className="block">{getPreparationTypeLabel(form.fertilizerPrepareType)}</strong></div>
                     <div><span className="text-surface-500">หน่วยหลังเตรียม</span><strong className="block">{previewPreparedUnitLabel}</strong></div>
                     <div><span className="text-surface-500">ปริมาณหลังเตรียม</span><strong className="block">{formatNumber(previewPreparedVolume)}</strong></div>
+                    <div><span className="text-surface-500">N ที่จะบันทึก</span><strong className="block">{form.soilN || (selectedFertilizerProfile?.detectedN != null ? formatNumber(selectedFertilizerProfile.detectedN, 3) : 'null')}</strong></div>
                     <div><span className="text-surface-500">ผลต่างจากเดิม</span><strong className="block">{formatNumber(previewDiff)}</strong></div>
                   </div>
                 </section>
