@@ -1779,6 +1779,16 @@
   flex: 1 1 320px;
   min-width: min(100%, 280px);
 }
+.cf-dash .report-toolbar .report-download-actions {
+  display: flex;
+  flex-wrap: wrap;
+  width: 100%;
+  gap: 12px;
+  align-items: end;
+}
+.cf-dash .report-toolbar .report-download-actions > button {
+  flex: 1 1 auto;
+}
 .cf-dash .report-toolbar label {
   display: grid;
   gap: 6px;
