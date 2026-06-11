@@ -15,12 +15,6 @@ import type {
 } from "../types/dashboard";
 import { mockDashboard } from "../data/mockDashboard";
 
-// Temporary preview mode: API routes below are wired and backend contracts are prepared
-// (/cf-kpi, /cf-trend, /cf-process, /cf-process-activities, /cf-spatial-nodes,
-// /cf-report-summary, /cf-process-inputs, /cf-cane-types, /cf-camps, /cf-camp-fields).
-// Keep mock data visible until the real activity/input data is validated end-to-end.
-const ENABLE_API_DASHBOARD = false;
-
 function cleanParams(filter?: Partial<ReportFilter>, extra?: Record<string, string>) {
   const params: Record<string, string> = { ...(extra ?? {}) };
   if (filter?.level && filter.level !== "all") params.level = filter.level;
@@ -54,26 +48,22 @@ function mockResult<T>(route: string, data: T): DataResult<T> {
 
 export async function getOverviewKpi(filter?: Partial<ReportFilter>): Promise<DataResult<OverviewKpi>> {
   const route = "/analytics/cf-kpi";
-  if (ENABLE_API_DASHBOARD) return apiResult(route, await get<OverviewKpi>(route, cleanParams(filter)));
-  return mockResult(route, mockDashboard.kpi);
+  return apiOrMock(route, () => get<OverviewKpi>(route, cleanParams(filter)), mockDashboard.kpi, hasUsableKpi);
 }
 
 export async function getTrend(filter?: Partial<ReportFilter>): Promise<DataResult<TrendPoint[]>> {
   const route = "/analytics/cf-trend";
-  if (ENABLE_API_DASHBOARD) return apiResult(route, await get<TrendPoint[]>(route, cleanParams(filter)));
-  return mockResult(route, mockDashboard.trend);
+  return apiOrMock(route, () => get<TrendPoint[]>(route, cleanParams(filter)), mockDashboard.trend, hasTrendRows);
 }
 
 export async function getProcessEmissions(filter?: Partial<ReportFilter>): Promise<DataResult<ProcessEmission[]>> {
   const route = "/analytics/cf-process";
-  if (ENABLE_API_DASHBOARD) return apiResult(route, await get<ProcessEmission[]>(route, cleanParams(filter)));
-  return mockResult(route, mockDashboard.processEmissions);
+  return apiOrMock(route, () => get<ProcessEmission[]>(route, cleanParams(filter)), mockDashboard.processEmissions, hasEmissionRows);
 }
 
 export async function getTransportEmissions(filter?: Partial<ReportFilter>): Promise<DataResult<ProcessEmission[]>> {
   const route = "/analytics/cf-transport";
-  if (ENABLE_API_DASHBOARD) return apiResult(route, await get<ProcessEmission[]>(route, cleanParams(filter)));
-  return mockResult(route, []);
+  return apiOrMock(route, () => get<ProcessEmission[]>(route, cleanParams(filter)), [], () => true);
 }
 
 export async function getProvinceMap(filter?: Partial<ReportFilter>): Promise<DataResult<SpatialSummaryNode[]>> {
@@ -85,47 +75,44 @@ export async function getCfProcessActivities(
   filter?: Partial<ReportFilter>,
 ): Promise<DataResult<ProcessActivityBreakdown[]>> {
   const route = "/analytics/cf-process-activities";
-  if (ENABLE_API_DASHBOARD) return apiResult(route, await get<ProcessActivityBreakdown[]>(route, cleanParams(filter, { kind })));
-  if (kind === "transport") return mockResult(route, []);
-  return mockResult(route, mockDashboard.processActivities);
+  const mockData = kind === "transport" ? [] : mockDashboard.processActivities;
+  return apiOrMock(route, () => get<ProcessActivityBreakdown[]>(route, cleanParams(filter, { kind })), mockData, kind === "transport" ? () => true : hasActivityRows);
 }
 
 export async function getCfSpatialNodes(filter?: Partial<ReportFilter>): Promise<DataResult<SpatialSummaryNode[]>> {
   const route = "/analytics/cf-spatial-nodes";
-  if (ENABLE_API_DASHBOARD) return apiResult(route, await get<SpatialSummaryNode[]>(route, cleanParams(filter)));
-  return mockResult(route, mockDashboard.spatialNodes);
+  return apiOrMock(route, () => get<SpatialSummaryNode[]>(route, cleanParams(filter)), mockDashboard.spatialNodes, hasSpatialRows);
 }
 
 export async function getProcessInputComparisons(filter?: Partial<ReportFilter>): Promise<DataResult<ProcessInputComparison[]>> {
   const route = "/analytics/cf-process-inputs";
-  if (ENABLE_API_DASHBOARD) return apiResult(route, await get<ProcessInputComparison[]>(route, cleanParams(filter)));
-  return mockResult(route, mockDashboard.processInputComparisons);
+  return apiOrMock(route, () => get<ProcessInputComparison[]>(route, cleanParams(filter)), mockDashboard.processInputComparisons, hasInputRows);
 }
 
 export async function getCaneTypeSummaries(filter?: Partial<ReportFilter>): Promise<DataResult<CaneTypeSummary[]>> {
   const route = "/analytics/cf-cane-types";
-  if (ENABLE_API_DASHBOARD) return apiResult(route, await get<CaneTypeSummary[]>(route, cleanParams(filter)));
-  return mockResult(route, mockDashboard.caneTypeSummaries);
+  return apiOrMock(route, () => get<CaneTypeSummary[]>(route, cleanParams(filter)), mockDashboard.caneTypeSummaries, hasCaneRows);
 }
 
 export async function getCampCarbonSummaries(): Promise<DataResult<CampCarbonSummary[]>> {
   const route = "/analytics/cf-camps";
-  if (ENABLE_API_DASHBOARD) return apiResult(route, await get<CampCarbonSummary[]>(route));
-  return mockResult(route, mockDashboard.campSummaries);
+  return apiOrMock(route, () => get<CampCarbonSummary[]>(route), mockDashboard.campSummaries, hasCampRows);
 }
 
 export async function getCampFieldCarbonDetails(campId?: number): Promise<DataResult<CampFieldCarbonDetail[]>> {
   const route = "/analytics/cf-camp-fields";
   const routeWithQuery = campId ? `${route}?camp_id=${campId}` : route;
-  if (ENABLE_API_DASHBOARD) {
-    return apiResult(routeWithQuery, await get<CampFieldCarbonDetail[]>(route, campId ? { camp_id: String(campId) } : undefined));
-  }
   const data = campId ? mockDashboard.campFields.filter((field) => field.campId === campId) : mockDashboard.campFields;
-  return mockResult(routeWithQuery, data);
+  return apiOrMock(routeWithQuery, () => get<CampFieldCarbonDetail[]>(route, campId ? { camp_id: String(campId) } : undefined), data, hasCampFieldRows);
 }
 
 export async function getReportSummary(filter: ReportFilter): Promise<ReportSummary> {
-  if (ENABLE_API_DASHBOARD) return get<ReportSummary>("/analytics/cf-report-summary", cleanParams(filter));
+  try {
+    const apiReport = await get<ReportSummary>("/analytics/cf-report-summary", cleanParams(filter));
+    if (hasUsableKpi(apiReport.kpi) && hasSpatialRows(apiReport.spatialNodes ?? [])) return apiReport;
+  } catch {
+    // Fall through to the mock report when calculated queue data is not ready.
+  }
   const selectedNode = filter.level && filter.level !== "all" && filter.id
     ? mockDashboard.spatialNodes.find((node) => node.id === `${filter.level}-${filter.id}` || node.id === filter.id)
     : mockDashboard.spatialNodes.find((node) => node.level === "country") ?? mockDashboard.spatialNodes[0];
@@ -183,4 +170,86 @@ export async function getReportSummary(filter: ReportFilter): Promise<ReportSumm
       areaSummary: `มีแปลงเข้าร่วมโครงการ ${kpi.fields.toLocaleString()} แปลง รวมพื้นที่ ${kpi.areaRai.toLocaleString()} ไร่`,
     },
   };
+}
+
+function hasRows(value: unknown) {
+  return Array.isArray(value) ? value.length > 0 : Boolean(value);
+}
+
+function hasUsableKpi(value: OverviewKpi) {
+  return Boolean(value.years?.length || value.currentEmission || value.baselineAvgEmission || value.fields);
+}
+
+function sumNumbers(values: number[]) {
+  return values.reduce((sum, value) => sum + (Number.isFinite(value) ? Math.abs(value) : 0), 0);
+}
+
+function hasTrendRows(rows: TrendPoint[]) {
+  return rows.length > 0 && sumNumbers(rows.map((row) => row.emission)) > 0;
+}
+
+function hasEmissionRows(rows: ProcessEmission[]) {
+  return rows.length > 0 && sumNumbers(rows.map((row) => row.emission)) > 0;
+}
+
+function hasActivityRows(rows: ProcessActivityBreakdown[]) {
+  return rows.length > 0 && sumNumbers(rows.map((row) => row.totalEmission)) > 0;
+}
+
+function hasInputRows(rows: ProcessInputComparison[]) {
+  return rows.length > 0 && sumNumbers(rows.flatMap((row) => [
+    row.baselineFertilizerKg,
+    row.currentFertilizerKg,
+    row.baselineFuelLiter,
+    row.currentFuelLiter,
+  ])) > 0;
+}
+
+function hasSpatialRows(rows: SpatialSummaryNode[]) {
+  return rows.length > 1 && rows.some((row) =>
+    row.areaRai > 0
+    || row.fields > 0
+    || row.baselineEmission > 0
+    || row.currentEmission > 0
+    || hasInputRows(row.processInputComparisons ?? []),
+  );
+}
+
+function hasCaneRows(rows: CaneTypeSummary[]) {
+  return rows.length > 0 && rows.some((row) => row.areaRai > 0 || row.percent > 0 || (row.co2eTotal ?? 0) > 0);
+}
+
+function hasCampRows(rows: CampCarbonSummary[]) {
+  return rows.length > 0 && rows.some((row) =>
+    row.areaRai > 0
+    || row.fieldCount > 0
+    || row.baselineCo2eTotal > 0
+    || row.currentCo2eTotal > 0
+    || hasInputRows(row.processInputComparisons ?? []),
+  );
+}
+
+function hasCampFieldRows(rows: CampFieldCarbonDetail[]) {
+  return rows.length > 0 && rows.some((row) =>
+    row.areaRai > 0
+    || row.baselineEmission > 0
+    || row.currentEmission > 0
+    || row.co2eTotal > 0
+    || hasInputRows(row.processInputComparisons ?? []),
+  );
+}
+
+async function apiOrMock<T>(
+  route: string,
+  apiCall: () => Promise<T>,
+  mockData: T,
+  isUsable: (value: T) => boolean = hasRows,
+): Promise<DataResult<T>> {
+  try {
+    const data = await apiCall();
+    if (isUsable(data)) return apiResult(route, data);
+  } catch {
+    // Keep dashboard pages usable while some API routes or calculated rows are not ready yet.
+  }
+  return mockResult(route, mockData);
 }
