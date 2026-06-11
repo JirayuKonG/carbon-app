@@ -83,7 +83,7 @@ kgPerGram = 1000 หรือค่าที่ผู้ใช้ตั้งต
 ให้คำนวณจาก N เป็น “ตัน N”
 
 ```text
-FSN = sum(chemical_amount_kg * n_percent / 100 / 1000)
+FSN = sum(chemical_amount_kg * n_percent / 100 / 1000)      tN
 FON = sum(organic_amount_kg * n_percent / 100 / 1000)
 ```
 
@@ -114,7 +114,7 @@ FON_per_rai = sum(organic_amount_kg_per_rai * n_percent / 100 / 1000)
 ### 3.6 สูตร Direct/Indirect N2O
 
 ```text
-N2O_Direct = (FSN + FON + FNfix) * EF_DIRECT * (44/28) * GWP_N2O
+N2O_Direct = (FSN + FON + FNfix) * EF_DIRECT * (44/28) * GWP_N2O     can use ////
 
 N2O_ATD = ((FSN * FRAC_GASF) + (FON * FRAC_GASM)) * EF_ATD * (44/28) * GWP_N2O
 

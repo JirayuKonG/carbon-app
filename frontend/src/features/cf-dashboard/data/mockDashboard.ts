@@ -270,7 +270,7 @@ const nodes: SpatialSummaryNode[] = [
     baselineEmission: 56,
     currentEmission: 41,
     processBreakdown: PROCESS_STEPS.map((name, index) => ({ name, emission: [8, 12, 14, 7][index] })),
-    childrenIds: ["pa-sang"],
+    childrenIds: ["pa-sang", "pa-sang-ext"],
   },
   {
     id: "pa-sang",
@@ -749,8 +749,8 @@ export const mockDashboard: DashboardDataset = {
   transportActivities,
   caneTypeSummaries,
   spatialNodes: [...nodes, ...fields, ...campFields, ...campSummaryFields].map(withSpatialInputs),
-  fields,
+  fields: fields.map(withSpatialInputs),
   campSummaries,
-  campFields,
+  campFields: campFields.map(withSpatialInputs),
 };
 

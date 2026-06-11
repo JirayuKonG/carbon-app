@@ -10,10 +10,13 @@ export function SocCorrelationChart({
   data: ProcessInputComparison[];
   socValues: number[];
 }) {
-  const points = data.map((item, index) => ({
-    x: item.currentFertilizerKg,
-    y: socValues[index] ?? 0,
-  }));
+  const points = data
+    .map((item, index) => ({
+      x: item.currentFertilizerKg,
+      y: socValues[index] ?? 0,
+    }))
+    .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+    .sort((left, right) => left.x - right.x);
 
   return (
     <div className="chart-box md">
@@ -24,12 +27,15 @@ export function SocCorrelationChart({
               label: "SOC vs fertilizer",
               data: points,
               parsing: false,
-              showLine: false,
+              showLine: true,
+              tension: 0.25,
               pointRadius: 6,
               pointHoverRadius: 8,
               pointBackgroundColor: "#10A345",
               pointBorderColor: "#0F7A35",
               borderColor: "#10A345",
+              borderWidth: 2,
+              fill: false,
             },
           ],
         }}

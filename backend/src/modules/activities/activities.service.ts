@@ -131,6 +131,13 @@ type GenericEfCalculationResult = {
   breakdown: Record<string, unknown>
 }
 
+type CarbonQueueCalculationPayload = {
+  resultUnitId?: number | string | null
+  selectedEfId?: number | string | null
+}
+
+type FootprintResultUnitKind = 'kgco2e' | 'tco2e'
+
 const FERTILIZER_N2O_CONSTANTS = {
   EF_DIRECT: 0.005,
   GWP_N2O: 298,
@@ -472,6 +479,14 @@ export class ActivitiesService {
   private canTransitionManualStatus(currentStatusName: string, nextStatusName: string) {
     if (nextStatusName === CAL_STATUS_NAMES.preparing || nextStatusName === CAL_STATUS_NAMES.ready) {
       return this.canTransitionWorkflowStatus(currentStatusName, nextStatusName)
+    }
+
+    if (nextStatusName === CAL_STATUS_NAMES.imported) {
+      return (
+        currentStatusName === CAL_STATUS_NAMES.preparing
+        || currentStatusName === CAL_STATUS_NAMES.ready
+        || currentStatusName === CAL_STATUS_NAMES.error
+      )
     }
 
     if (nextStatusName === CAL_STATUS_NAMES.standardDone) {
@@ -1106,22 +1121,141 @@ export class ActivitiesService {
     return score
   }
 
-  private async findEmissionFactorForQueue(queue: any, amountInput: QueueAmountInput) {
+  private getEmissionFactorInputUnitCandidates(ef: any) {
+    return [
+      {
+        key: 'total',
+        label: 'EF_total',
+        value: ef.coef_em_factor_value_total,
+        unitId: ef.unit_id ?? ef.unit_id_total,
+        unitPrefixId: ef.unit_prefix_id ?? ef.unit_prefix_id_total,
+      },
+      {
+        key: 'co2',
+        label: 'CO2',
+        value: ef.coef_em_factor_value_co2,
+        unitId: ef.unit_id ?? ef.unit_id_co2,
+        unitPrefixId: ef.unit_prefix_id ?? ef.unit_prefix_id_co2,
+      },
+      {
+        key: 'ch4foss',
+        label: 'CH4 fossil',
+        value: ef.coef_em_factor_value_ch4foss,
+        unitId: ef.unit_id ?? ef.unit_id_ch4foss,
+        unitPrefixId: ef.unit_prefix_id ?? ef.unit_prefix_id_ch4foss,
+      },
+      {
+        key: 'ch4',
+        label: 'CH4',
+        value: ef.coef_em_factor_value_ch4,
+        unitId: ef.unit_id ?? ef.unit_id_ch4,
+        unitPrefixId: ef.unit_prefix_id ?? ef.unit_prefix_id_ch4,
+      },
+      {
+        key: 'n2o',
+        label: 'N2O',
+        value: ef.coef_em_factor_value_n2o,
+        unitId: ef.unit_id ?? ef.unit_id_n2o,
+        unitPrefixId: ef.unit_prefix_id ?? ef.unit_prefix_id_n2o,
+      },
+    ].filter((item) => item.value != null && item.unitId != null)
+  }
+
+  private emissionFactorCandidateMatchesAmountInput(
+    candidate: { unitId?: number | null; unitPrefixId?: number | null },
+    amountInput: QueueAmountInput,
+  ) {
+    if (candidate.unitId == null || amountInput.unitId == null) return false
+    if (candidate.unitId !== amountInput.unitId) return false
+    if (
+      amountInput.unitPrefixId != null
+      && candidate.unitPrefixId != null
+      && candidate.unitPrefixId !== amountInput.unitPrefixId
+    ) {
+      return false
+    }
+    return true
+  }
+
+  private async getUnitDisplayLabel(unitId?: number | null, unitPrefixId?: number | null) {
+    if (!unitId) return '—'
+
+    const [unit, prefix] = await Promise.all([
+      this.prisma.units.findUnique({
+        where: { unit_id: unitId },
+        select: { unit_name: true, unit_initial: true },
+      }),
+      unitPrefixId
+        ? this.prisma.units_prefixs.findUnique({
+            where: { unit_prefix_id: unitPrefixId },
+            select: { unit_prefix_name: true, unit_prefix_initial: true },
+          })
+        : Promise.resolve(null),
+    ])
+
+    const unitLabel = unit?.unit_initial?.trim() || unit?.unit_name?.trim() || `#${unitId}`
+    const prefixLabel = prefix?.unit_prefix_initial?.trim() || prefix?.unit_prefix_name?.trim()
+    return [prefixLabel, unitLabel].filter(Boolean).join(' ')
+  }
+
+  private async findEmissionFactorForQueue(
+    queue: any,
+    amountInput: QueueAmountInput,
+    options?: { selectedEfId?: number },
+  ) {
     if (!amountInput.unitId) {
       throw new BadRequestException('ยังไม่มีหน่วยหลังเตรียมสำหรับใช้ค้นหา EF')
     }
 
+    if (options?.selectedEfId != null) {
+      const selectedEf = await this.prisma.coefficients_emissions_factors.findUnique({
+        where: { coefficient_emission_factor_id: options.selectedEfId },
+        include: {
+          groups_emissions_factors: true,
+        },
+      })
+
+      if (!selectedEf) {
+        throw new BadRequestException(`ไม่พบ EF ที่เลือก (#${options.selectedEfId})`)
+      }
+
+      const matchingCandidate = this.getEmissionFactorInputUnitCandidates(selectedEf)
+        .find((candidate) => this.emissionFactorCandidateMatchesAmountInput(candidate, amountInput))
+
+      if (!matchingCandidate) {
+        const activityUnitLabel = await this.getUnitDisplayLabel(amountInput.unitId, amountInput.unitPrefixId)
+        const efUnitLabels = await Promise.all(
+          this.getEmissionFactorInputUnitCandidates(selectedEf).map(async (candidate) => (
+            `${candidate.label}: ${await this.getUnitDisplayLabel(candidate.unitId, candidate.unitPrefixId)}`
+          )),
+        )
+        throw new BadRequestException(
+          `EF "${selectedEf.coef_em_factor_name ?? selectedEf.coefficient_emission_factor_id}" ใช้คนละหน่วยกับ activity amount ของรายการนี้`
+          + ` (activity amount: ${activityUnitLabel}; EF units: ${efUnitLabels.join(', ') || '—'})`,
+        )
+      }
+
+      return selectedEf
+    }
+
     const candidates = await this.prisma.coefficients_emissions_factors.findMany({
-      where: { unit_id: amountInput.unitId },
+      where: {
+        OR: [
+          { unit_id: amountInput.unitId },
+          { unit_id_total: amountInput.unitId },
+        ],
+      },
       include: {
         groups_emissions_factors: true,
       },
       orderBy: { coefficient_emission_factor_id: 'asc' },
     })
 
-    const unitMatched = amountInput.unitPrefixId != null
-      ? candidates.filter((ef) => ef.unit_prefix_id == null || ef.unit_prefix_id === amountInput.unitPrefixId)
-      : candidates
+    const unitMatched = candidates.filter((ef) => (
+      this.getEmissionFactorInputUnitCandidates(ef).some((candidate) => (
+        this.emissionFactorCandidateMatchesAmountInput(candidate, amountInput)
+      ))
+    ))
 
     if (!unitMatched.length) {
       throw new BadRequestException(`ไม่พบ EF ที่ตรงกับหน่วย input #${amountInput.unitId}`)
@@ -1167,8 +1301,86 @@ export class ActivitiesService {
     return names.some((name) => ['kg', 'kilogram', 'kilograms', 'กิโลกรัม'].includes(name))
   }
 
-  private async calculateGenericEfForQueue(queue: any, amountInput: QueueAmountInput): Promise<GenericEfCalculationResult> {
-    const ef = await this.findEmissionFactorForQueue(queue, amountInput)
+  private resolveFootprintResultUnitKindFromNames(names: Array<string | null | undefined>): FootprintResultUnitKind | null {
+    const normalized = names
+      .map((value) => this.normalizeSearchText(value).replace(/\s+/g, ''))
+      .filter(Boolean)
+
+    if (normalized.some((value) => ['kgco2e', 'kilogramco2e', 'กิโลกรัมco2e'].includes(value))) return 'kgco2e'
+    if (normalized.some((value) => ['tco2e', 'tonco2e', 'tonneco2e', 'ตันco2e'].includes(value))) return 'tco2e'
+    return null
+  }
+
+  private getDefaultFootprintResultUnitKind(formulaMode: CarbonFormulaMode): FootprintResultUnitKind | null {
+    if (formulaMode === 'generic_ef') return 'kgco2e'
+    if (formulaMode === 'fertilizer_n2o') return 'tco2e'
+    return null
+  }
+
+  private async resolveFootprintResultUnitKindFromUnitId(unitId?: number | null, fallbackMode?: CarbonFormulaMode) {
+    if (!unitId) return fallbackMode ? this.getDefaultFootprintResultUnitKind(fallbackMode) : null
+
+    const unit = await this.prisma.units.findUnique({
+      where: { unit_id: unitId },
+      select: { unit_name: true, unit_initial: true },
+    })
+
+    return this.resolveFootprintResultUnitKindFromNames([unit?.unit_name, unit?.unit_initial])
+      ?? (fallbackMode ? this.getDefaultFootprintResultUnitKind(fallbackMode) : null)
+  }
+
+  private convertFootprintResultUnitValue(value: number, from: FootprintResultUnitKind, to: FootprintResultUnitKind) {
+    if (from === to) return value
+    if (from === 'kgco2e' && to === 'tco2e') return value / 1000
+    if (from === 'tco2e' && to === 'kgco2e') return value * 1000
+    return value
+  }
+
+  private async applyRequestedFootprintResultUnit(
+    result: GenericEfCalculationResult,
+    requestedUnitId?: number,
+  ): Promise<GenericEfCalculationResult> {
+    if (!requestedUnitId) return result
+
+    const requestedUnit = await this.prisma.units.findUnique({
+      where: { unit_id: requestedUnitId },
+      select: { unit_id: true, unit_name: true, unit_initial: true },
+    })
+
+    if (!requestedUnit) {
+      throw new BadRequestException(`ไม่พบหน่วยผลลัพธ์ที่เลือก (#${requestedUnitId})`)
+    }
+
+    const targetKind = this.resolveFootprintResultUnitKindFromNames([requestedUnit.unit_name, requestedUnit.unit_initial])
+    if (!targetKind) {
+      throw new BadRequestException(`หน่วย "${requestedUnit.unit_initial ?? requestedUnit.unit_name ?? requestedUnitId}" ยังไม่รองรับสำหรับผลลัพธ์ Carbon`)
+    }
+
+    const sourceKind = await this.resolveFootprintResultUnitKindFromUnitId(result.resultUnitId, result.formulaMode)
+    if (!sourceKind) {
+      throw new BadRequestException('ไม่สามารถระบุหน่วยผลลัพธ์ตั้งต้นของสูตรนี้เพื่อแปลงหน่วยได้')
+    }
+
+    return {
+      ...result,
+      resultValue: this.convertFootprintResultUnitValue(result.resultValue, sourceKind, targetKind),
+      resultUnitId: requestedUnit.unit_id,
+      resultUnitPrefixId: null,
+      breakdown: {
+        ...result.breakdown,
+        requestedResultUnitId: requestedUnit.unit_id,
+        requestedResultUnitKind: targetKind,
+        sourceResultUnitKind: sourceKind,
+      },
+    }
+  }
+
+  private async calculateGenericEfForQueue(
+    queue: any,
+    amountInput: QueueAmountInput,
+    options?: { selectedEfId?: number },
+  ): Promise<GenericEfCalculationResult> {
+    const ef = await this.findEmissionFactorForQueue(queue, amountInput, options)
     const gwp = await this.getGwpMapForCalculation()
     const hasTotalEf = ef.coef_em_factor_value_total != null
     const hasGasSplitEf = (
@@ -1292,16 +1504,20 @@ export class ActivitiesService {
     }
   }
 
-  private async calculateCarbonQueueResult(queue: any) {
+  private async calculateCarbonQueueResult(queue: any, payload?: CarbonQueueCalculationPayload) {
     const formulaMode = this.resolveCarbonFormulaMode(queue)
     const amountInput = this.resolveQueueAmountInput(queue)
+    const requestedResultUnitId = this.toOptionalNumber(payload?.resultUnitId)
+    const selectedEfId = this.toOptionalNumber(payload?.selectedEfId)
 
     if (formulaMode === 'fertilizer_n2o') {
-      return this.calculateFertilizerN2OForQueue(queue, amountInput)
+      const result = await this.calculateFertilizerN2OForQueue(queue, amountInput)
+      return this.applyRequestedFootprintResultUnit(result, requestedResultUnitId)
     }
 
     if (formulaMode === 'generic_ef') {
-      return this.calculateGenericEfForQueue(queue, amountInput)
+      const result = await this.calculateGenericEfForQueue(queue, amountInput, { selectedEfId })
+      return this.applyRequestedFootprintResultUnit(result, requestedResultUnitId)
     }
 
     throw new BadRequestException(`สูตร ${formulaMode} ถูกเตรียม mode ไว้แล้ว แต่ยังไม่เปิดคำนวณในรอบนี้`)
@@ -1346,7 +1562,7 @@ export class ActivitiesService {
     })
   }
 
-  async calculateCarbonProcessQueueItem(id: number) {
+  async calculateCarbonProcessQueueItem(id: number, payload?: CarbonQueueCalculationPayload) {
     const startedAt = new Date()
     let queue: any | null = null
 
@@ -1379,7 +1595,7 @@ export class ActivitiesService {
         },
       })
 
-      const result = await this.calculateCarbonQueueResult(queue)
+      const result = await this.calculateCarbonQueueResult(queue, payload)
       const nextStatusId = await this.getCalStatusId(CAL_STATUS_NAMES.standardDone)
       const endedAt = new Date()
 
@@ -2527,5 +2743,3 @@ export class ActivitiesService {
     return results
   }
 }
-
-

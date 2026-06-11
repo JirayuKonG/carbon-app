@@ -38,6 +38,15 @@ function inputPct(base: number, current: number) {
   return base ? ((base - current) / base) * 100 : 0;
 }
 
+function hasInputComparisonRows(rows?: ProcessInputComparison[]) {
+  return Boolean(rows?.some((row) =>
+    row.baselineFertilizerKg > 0
+    || row.currentFertilizerKg > 0
+    || row.baselineFuelLiter > 0
+    || row.currentFuelLiter > 0,
+  ));
+}
+
 const spatialOrder: Exclude<SpatialLevel, "country">[] = ["region", "province", "district", "subdistrict", "field"];
 
 function aggregateInputs(inputs: ProcessInputComparison[][]): ProcessInputComparison[] {
@@ -423,7 +432,7 @@ export function CfSpatialPage() {
       baselineEmission: scopedCampFields.reduce((sum, field) => sum + field.baselineEmission, 0),
       currentEmission: scopedCampFields.reduce((sum, field) => sum + field.currentEmission, 0),
       processBreakdown: aggregateProcessBreakdown(scopedCampFields),
-      processInputComparisons: inputRows,
+      processInputComparisons: hasInputComparisonRows(inputRows) ? inputRows : selected.processInputComparisons,
     };
   }, [scopedCampFields, selected, selectedBoundaryField, selectedCamp]);
   const focusNode = selectedBoundaryField ?? selectedCampNode ?? scopedNode ?? selected;
