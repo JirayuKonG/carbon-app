@@ -81,6 +81,16 @@ export class ActivitiesController {
     return this.svc.getCarbonProcessQueue()
   }
 
+  @Post('carbon-process-queue/calculate/bulk')
+  calculateCarbonProcessQueueBulk(@Body() b: { ids: number[] }) {
+    return this.svc.calculateCarbonProcessQueueItems(b.ids)
+  }
+
+  @Post('carbon-process-queue/:id/calculate')
+  calculateCarbonProcessQueueItem(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.calculateCarbonProcessQueueItem(id)
+  }
+
   @Put('carbon-process-queue/:id/preparation')
   updateCarbonProcessQueuePreparation(@Param('id', ParseIntPipe) id: number, @Body() b: any) {
     return this.svc.updateCarbonProcessQueuePreparation(id, b)

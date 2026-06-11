@@ -115,6 +115,40 @@ type CarbonPreparationNormalized = {
   note?: string
 }
 
+type CarbonFormulaMode = 'generic_ef' | 'fertilizer_n2o' | 'fnfix_group' | 'soc_removal'
+
+type QueueAmountInput = {
+  amount: number
+  unitId?: number
+  unitPrefixId?: number
+}
+
+type GenericEfCalculationResult = {
+  formulaMode: CarbonFormulaMode
+  resultValue: number
+  resultUnitId?: number | null
+  resultUnitPrefixId?: number | null
+  breakdown: Record<string, unknown>
+}
+
+type CarbonQueueCalculationPayload = {
+  resultUnitId?: number | string | null
+  selectedEfId?: number | string | null
+}
+
+type FootprintResultUnitKind = 'kgco2e' | 'tco2e'
+
+const FERTILIZER_N2O_CONSTANTS = {
+  EF_DIRECT: 0.005,
+  GWP_N2O: 298,
+  MW_RATIO_N2O_N: 44 / 28,
+  FRAC_GASF: 0.11,
+  FRAC_GASM: 0.21,
+  FRAC_LEACH: 0.24,
+  EF_ATD: 0.01,
+  EF_LEACH: 0.011,
+} as const
+
 @Injectable()
 export class ActivitiesService {
   private readonly logger = new Logger(ActivitiesService.name)
@@ -270,6 +304,10 @@ export class ActivitiesService {
       sourceUnitPrefixId: previousInfo.sourceUnitPrefixId ?? sourceDetail.unit_prefix_id,
       sourceVolumePerUnit: previousInfo.sourceVolumePerUnit ?? sourceDetail.log_act_detail_volumePerUnit,
       sourceVolumeAll: previousInfo.sourceVolumeAll ?? sourceDetail.log_act_detail_volumeAll,
+      preparedUnitId: data.preparedUnitId,
+      preparedUnitPrefixId: data.preparedUnitPrefixId,
+      preparedVolumePerUnit: data.preparedVolumePerUnit,
+      preparedVolumeAll: data.preparedVolumeAll,
       conversionFactor: data.conversionFactor,
       fertilizerBagWeightKg: data.fertilizerBagWeightKg,
       fertilizerPrepareType: data.fertilizerPrepareType,
@@ -282,6 +320,42 @@ export class ActivitiesService {
     })
 
     return JSON.stringify(info)
+  }
+
+  private inferFertilizerNitrogenFromName(name?: string | null) {
+    const rawName = (name ?? '').trim()
+    const normalized = rawName.toLowerCase()
+
+    const chemicalFormulaMatch = rawName.match(/(\d+(?:\.\d+)?)\s*[-xX]\s*\d+(?:\.\d+)?\s*[-xX]\s*\d+(?:\.\d+)?/)
+    if (chemicalFormulaMatch) {
+      return {
+        kind: 'chemical' as const,
+        value: Number(chemicalFormulaMatch[1]),
+      }
+    }
+
+    const organicKeywords = [
+      'อินทรีย์',
+      'organic',
+      'pellet',
+      'pellets',
+      'compost',
+      'manure',
+      'soilmate',
+      'ชีวภาพ',
+      'มูล',
+    ]
+    if (organicKeywords.some((keyword) => normalized.includes(keyword))) {
+      return {
+        kind: 'organic' as const,
+        value: null,
+      }
+    }
+
+    return {
+      kind: 'unknown' as const,
+      value: undefined,
+    }
   }
 
   private normalizeCalStatusName(value: string | null | undefined) {
@@ -405,6 +479,14 @@ export class ActivitiesService {
   private canTransitionManualStatus(currentStatusName: string, nextStatusName: string) {
     if (nextStatusName === CAL_STATUS_NAMES.preparing || nextStatusName === CAL_STATUS_NAMES.ready) {
       return this.canTransitionWorkflowStatus(currentStatusName, nextStatusName)
+    }
+
+    if (nextStatusName === CAL_STATUS_NAMES.imported) {
+      return (
+        currentStatusName === CAL_STATUS_NAMES.preparing
+        || currentStatusName === CAL_STATUS_NAMES.ready
+        || currentStatusName === CAL_STATUS_NAMES.error
+      )
     }
 
     if (nextStatusName === CAL_STATUS_NAMES.standardDone) {
@@ -901,6 +983,681 @@ export class ActivitiesService {
     }
   }
 
+  private getErrorMessage(error: unknown) {
+    if (error instanceof Error) return error.message
+    if (typeof error === 'string') return error
+    try {
+      return JSON.stringify(error)
+    } catch {
+      return 'เกิดข้อผิดพลาดระหว่างคำนวณ Carbon Footprint'
+    }
+  }
+
+  private toFiniteNumberOrUndefined(value: unknown) {
+    if (value === undefined || value === null || value === '') return undefined
+    const num = Number(value)
+    return Number.isFinite(num) ? num : undefined
+  }
+
+  private roundNumber(value: number, digits = 4) {
+    const factor = 10 ** digits
+    return Math.round(value * factor) / factor
+  }
+
+  private normalizeSearchText(value?: string | null) {
+    return (value ?? '')
+      .toLowerCase()
+      .replace(/[_/(),:;]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
+  private getCarbonQueueResourceNames(queue: any) {
+    const detail = queue?.log_activities_detail
+    return [
+      detail?.activities_fertilizers?.act_fertilizer_name,
+      detail?.activities_equipments?.act_equipment_name,
+      detail?.activities_chemiscals?.act_chemiscal_name,
+      detail?.activities_resourceOther?.act_resourceOther_name,
+      detail?.resource_used_type?.resc_used_type_name,
+    ]
+      .map((value) => String(value ?? '').trim())
+      .filter((value) => value && value !== '—')
+  }
+
+  private getCarbonQueueResourceText(queue: any) {
+    return this.normalizeSearchText(this.getCarbonQueueResourceNames(queue).join(' '))
+  }
+
+  private resolveCarbonFormulaMode(queue: any): CarbonFormulaMode {
+    const detail = queue?.log_activities_detail
+    const resourceText = this.getCarbonQueueResourceText(queue)
+
+    if (
+      detail?.act_fertilizer_id != null
+      || /ปุ๋ย|fertilizer/.test(resourceText)
+    ) {
+      return 'fertilizer_n2o'
+    }
+
+    if (/soc|soil|ดิน|ตรวจดิน|carbon stock/.test(resourceText)) {
+      return 'soc_removal'
+    }
+
+    if (/fnfix|ปอเทือง|ถั่วเขียว|ถั่วเหลือง|ถั่วลิสง|legume/.test(resourceText)) {
+      return 'fnfix_group'
+    }
+
+    return 'generic_ef'
+  }
+
+  private resolveQueueAmountInput(queue: any): QueueAmountInput {
+    const info = this.parseCarbonPreparationInfo(queue?.carbon_process_queue_info)
+    const detail = queue?.log_activities_detail
+    const quantity = this.toFiniteNumberOrUndefined(detail?.log_act_detail_quatity)
+    const volumePerUnit = this.toFiniteNumberOrUndefined(detail?.log_act_detail_volumePerUnit)
+    const preparedVolumeAll = this.toFiniteNumberOrUndefined(info.preparedVolumeAll)
+    const detailVolumeAll = this.toFiniteNumberOrUndefined(detail?.log_act_detail_volumeAll)
+    const fallbackVolumeAll = quantity != null && volumePerUnit != null ? quantity * volumePerUnit : undefined
+    const amount = preparedVolumeAll ?? detailVolumeAll ?? fallbackVolumeAll
+
+    if (amount == null) {
+      throw new BadRequestException('ยังไม่มีปริมาณที่ใช้คำนวณ กรุณาเตรียมข้อมูลหรือกรอกปริมาณรวมก่อน')
+    }
+
+    if (amount < 0) {
+      throw new BadRequestException('ปริมาณที่ใช้คำนวณต้องไม่ติดลบ')
+    }
+
+    return {
+      amount,
+      unitId: this.toFiniteNumberOrUndefined(info.preparedUnitId) ?? this.toFiniteNumberOrUndefined(detail?.unit_id),
+      unitPrefixId: this.toFiniteNumberOrUndefined(info.preparedUnitPrefixId) ?? this.toFiniteNumberOrUndefined(detail?.unit_prefix_id),
+    }
+  }
+
+  private async getGwpMapForCalculation() {
+    const rows = await this.prisma.coefficients_emissions_factors_gwp.findMany()
+    const map = { co2: 1, ch4: 28, n2o: 265 }
+    for (const row of rows) {
+      const name = row.coef_em_factor_gwp_name_en?.toLowerCase() ?? ''
+      if (name.includes('co2') && !name.includes('ch4') && !name.includes('n2o')) {
+        map.co2 = row.coef_em_factor_gwp_value ?? map.co2
+      } else if (name.includes('ch4')) {
+        map.ch4 = row.coef_em_factor_gwp_value ?? map.ch4
+      } else if (name.includes('n2o')) {
+        map.n2o = row.coef_em_factor_gwp_value ?? map.n2o
+      }
+    }
+    return map
+  }
+
+  private scoreEmissionFactorCandidate(queue: any, ef: any) {
+    const resourceNames = this.getCarbonQueueResourceNames(queue).map((value) => this.normalizeSearchText(value))
+    const primaryName = resourceNames[0] ?? ''
+    const candidateText = this.normalizeSearchText([
+      ef.coef_em_factor_idCode,
+      ef.coef_em_factor_name,
+      ef.coef_em_factor_info,
+      ef.groups_emissions_factors?.group_emission_factor_idCode,
+      ef.groups_emissions_factors?.group_emission_factor_name_short,
+      ef.groups_emissions_factors?.group_emission_factor_name,
+      ef.groups_emissions_factors?.group_emission_factor_info,
+    ].filter(Boolean).join(' '))
+
+    if (!candidateText) return 0
+
+    let score = 0
+    if (primaryName && primaryName.length > 2 && candidateText.includes(primaryName)) score += 50
+
+    for (const name of resourceNames) {
+      if (name && name.length > 2 && candidateText.includes(name)) score += 20
+      const tokens = name.split(' ').filter((token) => token.length > 1)
+      for (const token of tokens) {
+        if (candidateText.includes(token)) score += 3
+      }
+    }
+
+    return score
+  }
+
+  private getEmissionFactorInputUnitCandidates(ef: any) {
+    return [
+      {
+        key: 'total',
+        label: 'EF_total',
+        value: ef.coef_em_factor_value_total,
+        unitId: ef.unit_id ?? ef.unit_id_total,
+        unitPrefixId: ef.unit_prefix_id ?? ef.unit_prefix_id_total,
+      },
+      {
+        key: 'co2',
+        label: 'CO2',
+        value: ef.coef_em_factor_value_co2,
+        unitId: ef.unit_id ?? ef.unit_id_co2,
+        unitPrefixId: ef.unit_prefix_id ?? ef.unit_prefix_id_co2,
+      },
+      {
+        key: 'ch4foss',
+        label: 'CH4 fossil',
+        value: ef.coef_em_factor_value_ch4foss,
+        unitId: ef.unit_id ?? ef.unit_id_ch4foss,
+        unitPrefixId: ef.unit_prefix_id ?? ef.unit_prefix_id_ch4foss,
+      },
+      {
+        key: 'ch4',
+        label: 'CH4',
+        value: ef.coef_em_factor_value_ch4,
+        unitId: ef.unit_id ?? ef.unit_id_ch4,
+        unitPrefixId: ef.unit_prefix_id ?? ef.unit_prefix_id_ch4,
+      },
+      {
+        key: 'n2o',
+        label: 'N2O',
+        value: ef.coef_em_factor_value_n2o,
+        unitId: ef.unit_id ?? ef.unit_id_n2o,
+        unitPrefixId: ef.unit_prefix_id ?? ef.unit_prefix_id_n2o,
+      },
+    ].filter((item) => item.value != null && item.unitId != null)
+  }
+
+  private emissionFactorCandidateMatchesAmountInput(
+    candidate: { unitId?: number | null; unitPrefixId?: number | null },
+    amountInput: QueueAmountInput,
+  ) {
+    if (candidate.unitId == null || amountInput.unitId == null) return false
+    if (candidate.unitId !== amountInput.unitId) return false
+    if (
+      amountInput.unitPrefixId != null
+      && candidate.unitPrefixId != null
+      && candidate.unitPrefixId !== amountInput.unitPrefixId
+    ) {
+      return false
+    }
+    return true
+  }
+
+  private async getUnitDisplayLabel(unitId?: number | null, unitPrefixId?: number | null) {
+    if (!unitId) return '—'
+
+    const [unit, prefix] = await Promise.all([
+      this.prisma.units.findUnique({
+        where: { unit_id: unitId },
+        select: { unit_name: true, unit_initial: true },
+      }),
+      unitPrefixId
+        ? this.prisma.units_prefixs.findUnique({
+            where: { unit_prefix_id: unitPrefixId },
+            select: { unit_prefix_name: true, unit_prefix_initial: true },
+          })
+        : Promise.resolve(null),
+    ])
+
+    const unitLabel = unit?.unit_initial?.trim() || unit?.unit_name?.trim() || `#${unitId}`
+    const prefixLabel = prefix?.unit_prefix_initial?.trim() || prefix?.unit_prefix_name?.trim()
+    return [prefixLabel, unitLabel].filter(Boolean).join(' ')
+  }
+
+  private async findEmissionFactorForQueue(
+    queue: any,
+    amountInput: QueueAmountInput,
+    options?: { selectedEfId?: number },
+  ) {
+    if (!amountInput.unitId) {
+      throw new BadRequestException('ยังไม่มีหน่วยหลังเตรียมสำหรับใช้ค้นหา EF')
+    }
+
+    if (options?.selectedEfId != null) {
+      const selectedEf = await this.prisma.coefficients_emissions_factors.findUnique({
+        where: { coefficient_emission_factor_id: options.selectedEfId },
+        include: {
+          groups_emissions_factors: true,
+        },
+      })
+
+      if (!selectedEf) {
+        throw new BadRequestException(`ไม่พบ EF ที่เลือก (#${options.selectedEfId})`)
+      }
+
+      const matchingCandidate = this.getEmissionFactorInputUnitCandidates(selectedEf)
+        .find((candidate) => this.emissionFactorCandidateMatchesAmountInput(candidate, amountInput))
+
+      if (!matchingCandidate) {
+        const activityUnitLabel = await this.getUnitDisplayLabel(amountInput.unitId, amountInput.unitPrefixId)
+        const efUnitLabels = await Promise.all(
+          this.getEmissionFactorInputUnitCandidates(selectedEf).map(async (candidate) => (
+            `${candidate.label}: ${await this.getUnitDisplayLabel(candidate.unitId, candidate.unitPrefixId)}`
+          )),
+        )
+        throw new BadRequestException(
+          `EF "${selectedEf.coef_em_factor_name ?? selectedEf.coefficient_emission_factor_id}" ใช้คนละหน่วยกับ activity amount ของรายการนี้`
+          + ` (activity amount: ${activityUnitLabel}; EF units: ${efUnitLabels.join(', ') || '—'})`,
+        )
+      }
+
+      return selectedEf
+    }
+
+    const candidates = await this.prisma.coefficients_emissions_factors.findMany({
+      where: {
+        OR: [
+          { unit_id: amountInput.unitId },
+          { unit_id_total: amountInput.unitId },
+        ],
+      },
+      include: {
+        groups_emissions_factors: true,
+      },
+      orderBy: { coefficient_emission_factor_id: 'asc' },
+    })
+
+    const unitMatched = candidates.filter((ef) => (
+      this.getEmissionFactorInputUnitCandidates(ef).some((candidate) => (
+        this.emissionFactorCandidateMatchesAmountInput(candidate, amountInput)
+      ))
+    ))
+
+    if (!unitMatched.length) {
+      throw new BadRequestException(`ไม่พบ EF ที่ตรงกับหน่วย input #${amountInput.unitId}`)
+    }
+
+    const scored = unitMatched
+      .map((ef) => ({
+        ef,
+        score: this.scoreEmissionFactorCandidate(queue, ef)
+          + (amountInput.unitPrefixId != null && ef.unit_prefix_id === amountInput.unitPrefixId ? 5 : 0),
+      }))
+      .sort((left, right) => right.score - left.score)
+
+    if (scored[0]?.score > 0) return scored[0].ef
+    if (unitMatched.length === 1) return unitMatched[0]
+
+    const resourceName = this.getCarbonQueueResourceNames(queue)[0] ?? this.getCarbonQueueResourceText(queue)
+    throw new BadRequestException(`พบ EF หน่วยเดียวกันหลายรายการ แต่ยังเลือกให้ "${resourceName || 'รายการนี้'}" ไม่ได้ กรุณาตรวจชื่อ EF หรือกลุ่ม EF`)
+  }
+
+  private async findResultUnitId(aliases: string[]) {
+    const normalizedAliases = aliases.map((value) => this.normalizeSearchText(value).replace(/\s+/g, ''))
+    const units = await this.prisma.units.findMany({
+      select: { unit_id: true, unit_name: true, unit_initial: true },
+      orderBy: { unit_id: 'asc' },
+    })
+
+    return units.find((unit) => {
+      const names = [unit.unit_name, unit.unit_initial]
+        .map((value) => this.normalizeSearchText(value).replace(/\s+/g, ''))
+      return names.some((name) => normalizedAliases.includes(name))
+    })?.unit_id
+  }
+
+  private async isKgUnit(unitId?: number) {
+    if (!unitId) return false
+    const unit = await this.prisma.units.findUnique({
+      where: { unit_id: unitId },
+      select: { unit_name: true, unit_initial: true },
+    })
+    const names = [unit?.unit_name, unit?.unit_initial]
+      .map((value) => this.normalizeSearchText(value).replace(/\s+/g, ''))
+    return names.some((name) => ['kg', 'kilogram', 'kilograms', 'กิโลกรัม'].includes(name))
+  }
+
+  private resolveFootprintResultUnitKindFromNames(names: Array<string | null | undefined>): FootprintResultUnitKind | null {
+    const normalized = names
+      .map((value) => this.normalizeSearchText(value).replace(/\s+/g, ''))
+      .filter(Boolean)
+
+    if (normalized.some((value) => ['kgco2e', 'kilogramco2e', 'กิโลกรัมco2e'].includes(value))) return 'kgco2e'
+    if (normalized.some((value) => ['tco2e', 'tonco2e', 'tonneco2e', 'ตันco2e'].includes(value))) return 'tco2e'
+    return null
+  }
+
+  private getDefaultFootprintResultUnitKind(formulaMode: CarbonFormulaMode): FootprintResultUnitKind | null {
+    if (formulaMode === 'generic_ef') return 'kgco2e'
+    if (formulaMode === 'fertilizer_n2o') return 'tco2e'
+    return null
+  }
+
+  private async resolveFootprintResultUnitKindFromUnitId(unitId?: number | null, fallbackMode?: CarbonFormulaMode) {
+    if (!unitId) return fallbackMode ? this.getDefaultFootprintResultUnitKind(fallbackMode) : null
+
+    const unit = await this.prisma.units.findUnique({
+      where: { unit_id: unitId },
+      select: { unit_name: true, unit_initial: true },
+    })
+
+    return this.resolveFootprintResultUnitKindFromNames([unit?.unit_name, unit?.unit_initial])
+      ?? (fallbackMode ? this.getDefaultFootprintResultUnitKind(fallbackMode) : null)
+  }
+
+  private convertFootprintResultUnitValue(value: number, from: FootprintResultUnitKind, to: FootprintResultUnitKind) {
+    if (from === to) return value
+    if (from === 'kgco2e' && to === 'tco2e') return value / 1000
+    if (from === 'tco2e' && to === 'kgco2e') return value * 1000
+    return value
+  }
+
+  private async applyRequestedFootprintResultUnit(
+    result: GenericEfCalculationResult,
+    requestedUnitId?: number,
+  ): Promise<GenericEfCalculationResult> {
+    if (!requestedUnitId) return result
+
+    const requestedUnit = await this.prisma.units.findUnique({
+      where: { unit_id: requestedUnitId },
+      select: { unit_id: true, unit_name: true, unit_initial: true },
+    })
+
+    if (!requestedUnit) {
+      throw new BadRequestException(`ไม่พบหน่วยผลลัพธ์ที่เลือก (#${requestedUnitId})`)
+    }
+
+    const targetKind = this.resolveFootprintResultUnitKindFromNames([requestedUnit.unit_name, requestedUnit.unit_initial])
+    if (!targetKind) {
+      throw new BadRequestException(`หน่วย "${requestedUnit.unit_initial ?? requestedUnit.unit_name ?? requestedUnitId}" ยังไม่รองรับสำหรับผลลัพธ์ Carbon`)
+    }
+
+    const sourceKind = await this.resolveFootprintResultUnitKindFromUnitId(result.resultUnitId, result.formulaMode)
+    if (!sourceKind) {
+      throw new BadRequestException('ไม่สามารถระบุหน่วยผลลัพธ์ตั้งต้นของสูตรนี้เพื่อแปลงหน่วยได้')
+    }
+
+    return {
+      ...result,
+      resultValue: this.convertFootprintResultUnitValue(result.resultValue, sourceKind, targetKind),
+      resultUnitId: requestedUnit.unit_id,
+      resultUnitPrefixId: null,
+      breakdown: {
+        ...result.breakdown,
+        requestedResultUnitId: requestedUnit.unit_id,
+        requestedResultUnitKind: targetKind,
+        sourceResultUnitKind: sourceKind,
+      },
+    }
+  }
+
+  private async calculateGenericEfForQueue(
+    queue: any,
+    amountInput: QueueAmountInput,
+    options?: { selectedEfId?: number },
+  ): Promise<GenericEfCalculationResult> {
+    const ef = await this.findEmissionFactorForQueue(queue, amountInput, options)
+    const gwp = await this.getGwpMapForCalculation()
+    const hasTotalEf = ef.coef_em_factor_value_total != null
+    const hasGasSplitEf = (
+      ef.coef_em_factor_value_co2 != null
+      || ef.coef_em_factor_value_ch4 != null
+      || ef.coef_em_factor_value_ch4foss != null
+      || ef.coef_em_factor_value_n2o != null
+    )
+
+    if (!hasTotalEf && !hasGasSplitEf) {
+      throw new BadRequestException(`EF "${ef.coef_em_factor_name ?? ef.coefficient_emission_factor_id}" ยังไม่มีค่า factor สำหรับคำนวณ`)
+    }
+
+    if (hasTotalEf) {
+      const resultValue = amountInput.amount * Number(ef.coef_em_factor_value_total)
+      return {
+        formulaMode: 'generic_ef',
+        resultValue,
+        resultUnitId: ef.unit_id_total ?? await this.findResultUnitId(['kgCO2e', 'kg CO2e', 'กิโลกรัม CO2e']),
+        resultUnitPrefixId: ef.unit_prefix_id_total ?? null,
+        breakdown: {
+          formulaMode: 'generic_ef',
+          formula: 'activity_amount * EF_total',
+          amount: amountInput.amount,
+          inputUnitId: amountInput.unitId,
+          efId: ef.coefficient_emission_factor_id,
+          efTotal: ef.coef_em_factor_value_total,
+          resultValue,
+        },
+      }
+    }
+
+    const co2Value = (ef.coef_em_factor_value_co2 ?? 0) * amountInput.amount
+    const ch4Value = ((ef.coef_em_factor_value_ch4 ?? 0) + (ef.coef_em_factor_value_ch4foss ?? 0)) * amountInput.amount
+    const n2oValue = (ef.coef_em_factor_value_n2o ?? 0) * amountInput.amount
+    const co2Contrib = co2Value * gwp.co2
+    const ch4Contrib = ch4Value * gwp.ch4
+    const n2oContrib = n2oValue * gwp.n2o
+    const resultValue = co2Contrib + ch4Contrib + n2oContrib
+
+    return {
+      formulaMode: 'generic_ef',
+      resultValue,
+      resultUnitId: ef.unit_id_total ?? await this.findResultUnitId(['kgCO2e', 'kg CO2e', 'กิโลกรัม CO2e']),
+      resultUnitPrefixId: ef.unit_prefix_id_total ?? null,
+      breakdown: {
+        formulaMode: 'generic_ef',
+        formula: '(CO2 * GWP_CO2) + (CH4 * GWP_CH4) + (N2O * GWP_N2O)',
+        amount: amountInput.amount,
+        inputUnitId: amountInput.unitId,
+        efId: ef.coefficient_emission_factor_id,
+        gwp,
+        co2Contrib,
+        ch4Contrib,
+        n2oContrib,
+        resultValue,
+      },
+    }
+  }
+
+  private resolveFertilizerType(queue: any) {
+    const info = this.parseCarbonPreparationInfo(queue?.carbon_process_queue_info)
+    const preparedType = this.normalizeSearchText(String(info.fertilizerPrepareType ?? ''))
+    if (/chemical|เคมี/.test(preparedType)) return 'chemical' as const
+    if (/organic|อินทรีย์/.test(preparedType)) return 'organic' as const
+
+    const inferred = this.inferFertilizerNitrogenFromName(
+      queue?.log_activities_detail?.activities_fertilizers?.act_fertilizer_name,
+    )
+    return inferred.kind
+  }
+
+  private async calculateFertilizerN2OForQueue(queue: any, amountInput: QueueAmountInput): Promise<GenericEfCalculationResult> {
+    if (!await this.isKgUnit(amountInput.unitId)) {
+      throw new BadRequestException('สูตรปุ๋ย/N2O ต้องใช้ปริมาณหลังเตรียมเป็นหน่วย kg ก่อนคำนวณ')
+    }
+
+    const info = this.parseCarbonPreparationInfo(queue?.carbon_process_queue_info)
+    const nPercent = this.toFiniteNumberOrUndefined(queue?.N) ?? this.toFiniteNumberOrUndefined(info.soilN)
+    if (nPercent == null) {
+      throw new BadRequestException('ปุ๋ยรายการนี้ยังไม่มีค่า N จึงยังคำนวณ N2O ไม่ได้')
+    }
+
+    const fertilizerType = this.resolveFertilizerType(queue)
+    if (fertilizerType !== 'chemical' && fertilizerType !== 'organic') {
+      throw new BadRequestException('ยังไม่ทราบประเภทปุ๋ย กรุณายืนยันว่าเป็นปุ๋ยเคมีหรือปุ๋ยอินทรีย์ก่อนคำนวณ')
+    }
+
+    const fertilizerNTon = amountInput.amount * (nPercent / 100) / 1000
+    const fsn = fertilizerType === 'chemical' ? fertilizerNTon : 0
+    const fon = fertilizerType === 'organic' ? fertilizerNTon : 0
+    const fnfix = 0
+    const constants = FERTILIZER_N2O_CONSTANTS
+    const n2oDirect = (fsn + fon + fnfix) * constants.EF_DIRECT * constants.MW_RATIO_N2O_N * constants.GWP_N2O
+    const n2oAtd = ((fsn * constants.FRAC_GASF) + (fon * constants.FRAC_GASM)) * constants.EF_ATD * constants.MW_RATIO_N2O_N * constants.GWP_N2O
+    const n2oLeaching = (fsn + fon) * constants.FRAC_LEACH * constants.EF_LEACH * constants.MW_RATIO_N2O_N * constants.GWP_N2O
+    const n2oIndirect = n2oAtd + n2oLeaching
+    const resultValue = n2oDirect + n2oIndirect
+
+    return {
+      formulaMode: 'fertilizer_n2o',
+      resultValue,
+      resultUnitId: await this.findResultUnitId(['tCO2e', 'tonCO2e', 'ton CO2e', 'ตัน CO2e']),
+      resultUnitPrefixId: null,
+      breakdown: {
+        formulaMode: 'fertilizer_n2o',
+        fertilizerType,
+        fertilizerKg: amountInput.amount,
+        nPercent,
+        fertilizerNTon,
+        fsn,
+        fon,
+        fnfix,
+        n2oDirect,
+        n2oAtd,
+        n2oLeaching,
+        n2oIndirect,
+        resultValue,
+        constants,
+      },
+    }
+  }
+
+  private async calculateCarbonQueueResult(queue: any, payload?: CarbonQueueCalculationPayload) {
+    const formulaMode = this.resolveCarbonFormulaMode(queue)
+    const amountInput = this.resolveQueueAmountInput(queue)
+    const requestedResultUnitId = this.toOptionalNumber(payload?.resultUnitId)
+    const selectedEfId = this.toOptionalNumber(payload?.selectedEfId)
+
+    if (formulaMode === 'fertilizer_n2o') {
+      const result = await this.calculateFertilizerN2OForQueue(queue, amountInput)
+      return this.applyRequestedFootprintResultUnit(result, requestedResultUnitId)
+    }
+
+    if (formulaMode === 'generic_ef') {
+      const result = await this.calculateGenericEfForQueue(queue, amountInput, { selectedEfId })
+      return this.applyRequestedFootprintResultUnit(result, requestedResultUnitId)
+    }
+
+    throw new BadRequestException(`สูตร ${formulaMode} ถูกเตรียม mode ไว้แล้ว แต่ยังไม่เปิดคำนวณในรอบนี้`)
+  }
+
+  private async markCarbonQueueCalculationFailed(id: number, queue: any | null, startedAt: Date, message: string) {
+    const now = new Date()
+    const errorStatusId = await this.getCalStatusId(CAL_STATUS_NAMES.error)
+    const currentQueue = queue ?? await this.prisma.carbon_process_queue.findUnique({
+      where: { carbon_process_queue_id: id },
+      select: {
+        log_act_detail_id: true,
+        carbon_process_queue_retry_count: true,
+      },
+    })
+
+    if (!currentQueue) return null
+
+    return this.prisma.$transaction(async (tx) => {
+      if (currentQueue.log_act_detail_id != null) {
+        await tx.log_activities_detail.update({
+          where: { log_act_detail_id: currentQueue.log_act_detail_id },
+          data: { log_act_detail_calStatus_id: errorStatusId },
+        })
+      }
+
+      return tx.carbon_process_queue.update({
+        where: { carbon_process_queue_id: id },
+        data: {
+          log_act_detail_calStatus_id: errorStatusId,
+          carbon_process_queue_resultValue: null,
+          unit_id_resultValue: null,
+          unit_prefix_id_resultValue: null,
+          carbon_process_queue_retry_count: (currentQueue.carbon_process_queue_retry_count ?? 0) + 1,
+          carbon_process_queue_error_message: message,
+          carbon_process_queue_started_at: startedAt,
+          carbon_process_queue_ended_at: now,
+          carbon_process_queue_updated_at: now,
+        },
+        include: this.getCarbonProcessQueueInclude(),
+      })
+    })
+  }
+
+  async calculateCarbonProcessQueueItem(id: number, payload?: CarbonQueueCalculationPayload) {
+    const startedAt = new Date()
+    let queue: any | null = null
+
+    try {
+      queue = await this.prisma.carbon_process_queue.findUnique({
+        where: { carbon_process_queue_id: id },
+        include: this.getCarbonProcessQueueInclude(),
+      })
+
+      if (!queue || !queue.log_activities_detail) {
+        throw new BadRequestException(`Carbon process queue ${id} not found`)
+      }
+
+      const currentStatusName = this.getDetailStatusName(queue)
+      if (
+        currentStatusName
+        && currentStatusName !== CAL_STATUS_NAMES.ready
+        && currentStatusName !== CAL_STATUS_NAMES.error
+      ) {
+        throw new BadRequestException(`รายการนี้ต้องอยู่ในสถานะ "${CAL_STATUS_NAMES.ready}" หรือ "${CAL_STATUS_NAMES.error}" ก่อนคำนวณ`)
+      }
+
+      await this.prisma.carbon_process_queue.update({
+        where: { carbon_process_queue_id: id },
+        data: {
+          carbon_process_queue_started_at: startedAt,
+          carbon_process_queue_ended_at: null,
+          carbon_process_queue_error_message: null,
+          carbon_process_queue_updated_at: startedAt,
+        },
+      })
+
+      const result = await this.calculateCarbonQueueResult(queue, payload)
+      const nextStatusId = await this.getCalStatusId(CAL_STATUS_NAMES.standardDone)
+      const endedAt = new Date()
+
+      return this.prisma.$transaction(async (tx) => {
+        if (queue?.log_act_detail_id != null) {
+          await tx.log_activities_detail.update({
+            where: { log_act_detail_id: queue.log_act_detail_id },
+            data: { log_act_detail_calStatus_id: nextStatusId },
+          })
+        }
+
+        return tx.carbon_process_queue.update({
+          where: { carbon_process_queue_id: id },
+          data: this.cleanData({
+            log_act_detail_calStatus_id: nextStatusId,
+            carbon_process_queue_resultValue: this.roundNumber(result.resultValue, 4),
+            unit_id_resultValue: result.resultUnitId ?? null,
+            unit_prefix_id_resultValue: result.resultUnitPrefixId ?? null,
+            carbon_process_queue_error_message: null,
+            carbon_process_queue_started_at: startedAt,
+            carbon_process_queue_ended_at: endedAt,
+            carbon_process_queue_updated_at: endedAt,
+          }),
+          include: this.getCarbonProcessQueueInclude(),
+        })
+      })
+    } catch (error) {
+      const message = this.getErrorMessage(error)
+      await this.markCarbonQueueCalculationFailed(id, queue, startedAt, message)
+      throw new BadRequestException(message)
+    }
+  }
+
+  async calculateCarbonProcessQueueItems(ids: number[]) {
+    if (!ids.length) throw new BadRequestException('No queue IDs provided')
+
+    const results = []
+    for (const id of ids) {
+      try {
+        const item = await this.calculateCarbonProcessQueueItem(id)
+        results.push({
+          id,
+          success: true,
+          status: item.log_act_detail_calStatus?.log_act_detail_calStatus_name,
+          resultValue: item.carbon_process_queue_resultValue,
+        })
+      } catch (error) {
+        results.push({
+          id,
+          success: false,
+          error: this.getErrorMessage(error),
+        })
+      }
+    }
+
+    return {
+      updated: results.filter((item) => item.success).length,
+      failed: results.filter((item) => !item.success).length,
+      results,
+    }
+  }
+
   private getCarbonProcessQueueInclude() {
     return {
       log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
@@ -960,7 +1717,13 @@ export class ActivitiesService {
     return this.prisma.$transaction(async (tx) => {
       const queue = await tx.carbon_process_queue.findUnique({
         where: { carbon_process_queue_id: id },
-        include: { log_activities_detail: true },
+        include: {
+          log_activities_detail: {
+            include: {
+              activities_fertilizers: { select: { act_fertilizer_name: true } },
+            },
+          },
+        },
       })
 
       if (!queue || !queue.log_activities_detail) {
@@ -1006,6 +1769,15 @@ export class ActivitiesService {
         ...normalized,
         preparedUnitId,
       }
+      const hasSoilNField = Object.prototype.hasOwnProperty.call(data, 'soilN')
+      const inferredFertilizerN = detail.act_fertilizer_id != null
+        ? this.inferFertilizerNitrogenFromName(detail.activities_fertilizers?.act_fertilizer_name)
+        : { kind: 'unknown' as const, value: undefined }
+      const resolvedSoilN = normalized.soilN != null
+        ? normalized.soilN
+        : hasSoilNField
+          ? null
+          : inferredFertilizerN.value
       const preparationInfo = this.buildCarbonPreparationInfo(
         resolvedPreparation,
         detail,
@@ -1025,7 +1797,7 @@ export class ActivitiesService {
       return tx.carbon_process_queue.update({
         where: { carbon_process_queue_id: id },
         data: this.cleanData({
-          N: normalized.soilN,
+          N: resolvedSoilN,
           carbon_process_queue_info: preparationInfo,
           unit_id_resultValue: null,
           unit_prefix_id_resultValue: null,
@@ -1971,5 +2743,3 @@ export class ActivitiesService {
     return results
   }
 }
-
-

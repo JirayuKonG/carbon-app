@@ -7,6 +7,7 @@ type FilterLevel = 'all' | 'region' | 'province' | 'district' | 'subdistrict' | 
 type EmissionRow = {
   year: number | null
   co2e: number | null
+  input_amount: number | null
   area_work: number | null
   process: string | null
   activity: string | null
@@ -291,9 +292,10 @@ export class AnalyticsService {
     const machineEmission = currentRows
       .filter((row) => /เครื่อง|fuel|น้ำมัน|diesel|รถ|machine/i.test(`${row.process ?? ''} ${row.activity ?? ''}`))
       .reduce((sum, row) => sum + n(row.co2e), 0)
-    const inputEmission = currentRows
+    const fertilizerRows = currentRows
       .filter((row) => /ปุ๋ย|สาร|chemical|fertilizer|input/i.test(`${row.process ?? ''} ${row.activity ?? ''}`))
-      .reduce((sum, row) => sum + n(row.co2e), 0)
+    const inputEmission = fertilizerRows.reduce((sum, row) => sum + n(row.co2e), 0)
+    const fertilizerAmountKg = fertilizerRows.reduce((sum, row) => sum + n(row.input_amount), 0)
     const farmers = new Set(currentRows.map((row) => row.farmer_id).filter(Boolean)).size
     const fields = new Set(currentRows.map((row) => row.land_id).filter(Boolean)).size
     const totalArea = this.uniqueArea(currentRows)
@@ -304,6 +306,9 @@ export class AnalyticsService {
       currentYear: meta.currentYear ? yearLabel(meta.currentYear) : '-',
       machineEmission: round(machineEmission),
       inputEmission: round(inputEmission),
+      fertilizerAmountKg: round(fertilizerAmountKg, 1),
+      fertilizerEmission: round(inputEmission),
+      areaRai: round(totalArea),
       yieldTon: 0,
       co2ePerTon: totalArea ? round(currentEmission / totalArea, 3) : 0,
       farmers,
@@ -510,7 +515,17 @@ export class AnalyticsService {
     return this.prisma.$queryRaw<EmissionRow[]>`
       SELECT
         EXTRACT(YEAR FROM ah."activities_header_startDate")::int AS year,
-        COALESCE(ld."log_act_detail_volumeAll", 0) AS co2e,
+        CASE
+          WHEN cpq."carbon_process_queue_resultValue" IS NULL THEN 0
+          WHEN LOWER(COALESCE(ru.unit_initial, ru.unit_name, '')) LIKE '%kg%' THEN cpq."carbon_process_queue_resultValue"::numeric / 1000
+          WHEN LOWER(COALESCE(ru.unit_initial, ru.unit_name, '')) LIKE '%กิโล%' THEN cpq."carbon_process_queue_resultValue"::numeric / 1000
+          ELSE cpq."carbon_process_queue_resultValue"::numeric
+        END AS co2e,
+        COALESCE(
+          ld."log_act_detail_volumeAll",
+          ld."log_act_detail_quatity" * ld."log_act_detail_volumePerUnit",
+          0
+        ) AS input_amount,
         COALESCE(ld."log_act_detail_areawork", 0) AS area_work,
         COALESCE(ht."act_header_type_name_th", ht."act_header_type_name_en", 'ไม่ระบุกระบวนการ') AS process,
         COALESCE(hdt."act_header_detail_type_name_th", 'อื่นๆ') AS activity,
@@ -539,6 +554,10 @@ export class AnalyticsService {
         sd.longitude::text AS subdistrict_lng
       FROM log_activities_detail ld
       JOIN activities_header ah ON ah.activities_header_id = ld.activities_header_id
+      JOIN carbon_process_queue cpq
+        ON cpq.log_act_detail_id = ld.log_act_detail_id
+        AND cpq."carbon_process_queue_resultValue" IS NOT NULL
+      LEFT JOIN units ru ON ru.unit_id = cpq."unit_id_resultValue"
       LEFT JOIN activities_header_type ht ON ht.act_header_type_id = COALESCE(ld.act_header_type_id, ah.act_header_type_id)
       LEFT JOIN activities_header_detail_type hdt ON hdt.act_header_detail_type_id = ld.act_header_detail_type_id
       LEFT JOIN lands l ON l.land_id = ah.land_id
@@ -548,7 +567,7 @@ export class AnalyticsService {
       LEFT JOIN districts d ON d.districts_id = sd.district_code
       LEFT JOIN provinces p ON p.provinces_id = d.province_code
       LEFT JOIN geographies g ON g.geographies_id = p.geography_id
-      WHERE ld."log_act_detail_calStatus_id" IN (${Prisma.join(calculatedStatusIds)})
+      WHERE COALESCE(cpq."log_act_detail_calStatus_id", ld."log_act_detail_calStatus_id") IN (${Prisma.join(calculatedStatusIds)})
         AND ah."activities_header_startDate" IS NOT NULL
     `
   }
@@ -682,7 +701,7 @@ export class AnalyticsService {
         .filter((row) => row.year != null && years.includes(row.year))
         .filter((row) => labelOr(row.process, '') === process)
         .filter((row) => re.test(`${row.process ?? ''} ${row.activity ?? ''}`))
-        .reduce((total, row) => total + n(row.co2e), 0)
+        .reduce((total, row) => total + n(row.input_amount), 0)
       return years.length > 1 ? sum / years.length : sum
     }
 

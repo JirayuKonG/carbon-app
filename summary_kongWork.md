@@ -1,10 +1,10 @@
 # Summary Kong Work
 
-Last updated: 2026-06-09
+Last updated: 2026-06-10
 
 ## Project
 
-Carbon Footprint Management & Traceability System เป็นระบบสำหรับจัดการข้อมูลคาร์บอนฟุตพริ้นท์ในอุตสาหกรรมอ้อย ครอบคลุมการจัดการข้อมูลเกษตรกร พื้นที่เพาะปลูก กิจกรรมการเพาะปลูก ปัจจัยการปล่อยคาร์บอน การคำนวณ และหน้าสรุปผลเชิงวิเคราะห์
+Carbon Footprint Management & Traceability System เป็นระบบสำหรับจัดการข้อมูลคาร์บอนฟุตพริ้นท์ในอุตสาหกรรมอ้อย ครอบคลุมข้อมูลเกษตรกร พื้นที่เพาะปลูก กิจกรรมการเกษตร ปัจจัยการผลิต การคำนวณคาร์บอน และหน้ารายงานเชิงวิเคราะห์
 
 เทคโนโลยีหลักของโปรเจกต์:
 
@@ -16,14 +16,20 @@ Carbon Footprint Management & Traceability System เป็นระบบสำ
 
 ## My Main Responsibility
 
-งานที่รับผิดชอบหลักคือส่วน Carbon Dashboard / Carbon Analytics และเอกสารสรุปรายงาน โดยเน้นการออกแบบหน้าแสดงผล การเชื่อมโยงข้อมูล การจัดโครงสร้างหน้ารายงาน และการทำ workflow ที่ช่วยให้ผู้ใช้วิเคราะห์ข้อมูลได้ง่ายขึ้น
+งานที่รับผิดชอบหลักครอบคลุม 2 กลุ่มใหญ่:
+
+- Carbon Dashboard / Carbon Analytics
+- Activities Management / Carbon Calculation workflow
+
+ภาพรวมของงานไม่ใช่แค่ทำ UI แต่รวมถึงการเชื่อมข้อมูลระหว่าง frontend และ backend, การออกแบบ workflow สำหรับผู้ใช้, การรองรับ import ข้อมูล, และการจัดโครงสร้างข้อมูลให้พร้อมต่อการคำนวณคาร์บอนในขั้นถัดไป
 
 พื้นที่งานที่เกี่ยวข้องหลัก:
 
 - `frontend/src/features/cf-dashboard/`
+- `frontend/src/features/activities/`
+- `frontend/src/components/layout/Sidebar.tsx`
 - `backend/src/modules/analytics/`
-- routing และ navigation ที่เกี่ยวข้องกับหน้า dashboard
-- report preview / export flow
+- `backend/src/modules/activities/`
 
 ## Main Work Completed
 
@@ -31,96 +37,107 @@ Carbon Footprint Management & Traceability System เป็นระบบสำ
 
 พัฒนาและปรับปรุงหน้าหลักของ Carbon Analytics ได้แก่:
 
-- `/overview` สำหรับภาพรวม Carbon
-- `/process` สำหรับวิเคราะห์กระบวนการเพาะปลูก
+- `/overview` สำหรับภาพรวม Carbon Credit
+- `/process` สำหรับ Carbon Footprint / process analysis
 - `/spatial` สำหรับแผนที่และการ drill-down รายพื้นที่
 - `/report` สำหรับรายงาน Premium T-VER
+- `/footprint-report` สำหรับรายงานคาร์บอนฟุตพริ้นท์
 - `/calculate/footprint` สำหรับ workflow การคำนวณ Carbon Footprint
 - `/calculate/credit` สำหรับหน้าเปรียบเทียบ Carbon Credit
 
 ### 2. Dashboard UX / UI Improvements
 
-งานที่ทำในส่วน UX/UI มีทั้งการจัด layout, filter, drill-down และการแยก flow ให้ผู้ใช้เข้าใจข้อมูลได้ง่ายขึ้น เช่น:
+งานที่ทำในส่วน dashboard UX/UI มีทั้งการจัด layout, filter, navigation และการแยก flow ให้ผู้ใช้เข้าใจข้อมูลได้ง่ายขึ้น เช่น:
 
-- ปรับเมนูและโครงสร้างหน้า Carbon Analytics ให้ใช้งานง่ายขึ้น
+- ปรับโครงสร้างเมนู Carbon Analytics และ sidebar navigation
 - แยกหน้า Spatial ออกจากหน้าภาพรวม เพื่อให้ข้อมูลแผนที่ชัดเจนขึ้น
 - เพิ่ม leaderboard, KPI, grouped charts, trend comparisons และ summary cards
 - ปรับ filter ในหลายหน้าให้สอดคล้องกับบริบทของแต่ละรายงาน
 - เพิ่ม `DashboardVisibilityMenu` เพื่อให้ผู้ใช้เลือกแสดงหรือซ่อน summary cards ได้
+- ปรับ report preview / export flow ให้ใช้งานแยกจากหน้า summary ปกติ
 
-### 3. Reporting Flow
+### 3. Activities Management Pages
 
-พัฒนาระบบรายงานให้ผู้ใช้สามารถดูข้อมูลบนหน้าเว็บและสร้างเอกสารได้อย่างเป็นขั้นตอน:
+พัฒนาและขยายหน้าจัดการกิจกรรมในฝั่ง frontend โดยเฉพาะที่ `ActivitiesPage.tsx`:
 
-- แยกข้อมูล summary บนหน้าเว็บออกจาก preview/download document
-- เพิ่มปุ่ม Generate Report เพื่อให้ preview ใช้ snapshot ตาม filter ล่าสุด
-- รองรับ preview/download หลายรูปแบบ เช่น PDF, Word และ Excel ในบางหน้ารายงาน
-- ปรับหน้า Premium T-VER และ Footprint Report ให้เหมาะกับการใช้งานเชิงนำเสนอและการส่งออกเอกสาร
+- รองรับการจัดการ `activities_header` และ `log_activities_detail` ในหน้าเดียว
+- เพิ่ม modal/floor form สำหรับ create, edit และ delete ทั้งหัวข้อกิจกรรมและรายการบันทึกกิจกรรม
+- เพิ่มการกรองข้อมูลตามช่วงวันที่, camp, land, activity type, detail type, resource type และ calculation status
+- ปรับการแสดงรายการที่เชื่อมโยง land, camp, sugarcane type และข้อมูลประกอบอื่น ๆ ให้ดูง่ายขึ้น
+- เพิ่มสถานะ calculation badge เพื่อให้ผู้ใช้เห็น workflow ของรายการกิจกรรมได้ชัดขึ้น
 
-### 4. Spatial And Drill-Down Experience
+### 4. CSV Import And Large-File Workflow
 
-งานด้านแผนที่และรายละเอียดพื้นที่ที่พัฒนาเพิ่มเติม:
+พัฒนา workflow การนำเข้าข้อมูลกิจกรรมจาก CSV ให้พร้อมกับข้อมูลจริงมากขึ้น:
 
-- ปรับหน้า `/spatial` ให้รองรับ filter ที่สัมพันธ์กับข้อมูลแผนที่
-- เพิ่มการ drill-down ตามระดับพื้นที่
-- เพิ่มข้อมูลสรุปเชิงพื้นที่ เช่น camp, land details, SOC, carbon comparison
-- เพิ่ม visualization เช่น Net Zero progress และ correlation chart
+- ใช้ `CsvMappingWizard` เพื่อให้ผู้ใช้ map คอลัมน์จากไฟล์จริงเข้าสู่ target schema
+- ปรับ target columns ให้รองรับรูปแบบไฟล์กิจกรรมที่ใช้จริง
+- เพิ่ม chunked import โดยแบ่ง payload เป็นก้อนย่อยก่อนส่งเข้า backend
+- ลดความเสี่ยง payload ใหญ่เกิน limit ของ server หรือ browser memory
+- ปรับ error message ให้ระบุ row number กลับไปยังแถวจริงของไฟล์ต้นฉบับ
+- รองรับการสร้างข้อมูลอ้างอิงบางส่วนอัตโนมัติระหว่าง import เช่น camp, land, header type, detail type, unit และ resource item
 
-### 5. Carbon Footprint / Carbon Credit Presentation
+### 5. Activity Resources Management
 
-มีการปรับหน้าแสดงผล Carbon Footprint ให้เล่าเรื่องข้อมูลได้ชัดขึ้น:
+พัฒนาหน้า `ActivityResourcesPage.tsx` สำหรับจัดการ master data ของปัจจัยการผลิต:
 
-- แยกมุมมอง `การปล่อยคาร์บอน` และ `การกักเก็บ / SOC & Credits`
-- ปรับ charts ให้หน่วยข้อมูลสอดคล้องกันมากขึ้น
-- เพิ่ม comparison ระหว่าง baseline และ project year
-- เพิ่ม Top/Bottom camp analysis และ drill-down ไปยังรายงานละเอียด
+- แยกการจัดการ `resource_used_type`, `fertilizers`, `equipments`, และ `resourceOthers`
+- รองรับ create, edit และ delete ของแต่ละ resource group
+- เพิ่ม merged resource table เพื่อดูข้อมูลหลายประเภทในมุมรวม
+- เพิ่ม filter ตาม `resource_used_type`
+- เพิ่ม preference persistence ผ่าน `localStorage` เพื่อจำการตั้งค่าปุ่ม/ตัวกรองของผู้ใช้
+- รองรับการกำหนดว่าในหน้านี้จะแสดงปุ่ม ปุ๋ย, น้ำมัน, รายการอื่น ๆ และประเภทปัจจัยใดบ้าง
 
-## Related Project Improvements Found In Docs
+### 6. Backend Activities Service And Data Normalization
 
-จากเอกสารใน repo งานรอบเดียวกันยังมีผลต่อภาพรวมระบบดังนี้:
+ในฝั่ง backend มีการขยาย `activities.service.ts` เพื่อรองรับ workflow ที่ซับซ้อนขึ้น:
 
-- ปรับ Prisma schema ให้สอดคล้องกับ live Aiven PostgreSQL เมื่อ 2026-06-08
-- เพิ่มความเข้ากันได้ของ backend create flows หลัง schema sync
-- ปรับ activity import ให้รองรับไฟล์ใหญ่ขึ้นและ import แบบ chunk
-- เพิ่ม import history สำหรับ activities
-- ปรับ route, sidebar behavior และ CRUD บางส่วนของ lands / geo / infra
+- เพิ่ม normalization helper สำหรับ number, text และ date เพื่อลดปัญหา raw input
+- แยก payload handling สำหรับ header, detail, import file, resource item และ carbon preparation
+- เพิ่ม logic สำหรับ calculation status map และการจัดการชื่อสถานะให้เป็นมาตรฐานเดียวกัน
+- เพิ่ม workflow validation สำหรับการเปลี่ยนสถานะ calculation
+- เพิ่มการ sync สถานะกับ `carbon_process_queue`
+- เพิ่ม logic รองรับการสร้างข้อมูลอ้างอิงอัตโนมัติระหว่าง import
+- รองรับ placeholder land สำหรับกรณีมี camp แต่ยังไม่มี land code
+
+### 7. Carbon Preparation / Calculation Readiness
+
+งานส่วน activities ไม่ได้จบแค่บันทึกข้อมูล แต่เชื่อมไปถึงการเตรียมข้อมูลก่อนคำนวณ:
+
+- รองรับสถานะ `imported`, `preparing`, `ready`, `standardDone`, `cfpDone`, `error`
+- เพิ่ม carbon preparation payload สำหรับ unit conversion, fertilizer prep, soil data และ note
+- ช่วยให้ activity detail สามารถเข้าสู่ process queue เพื่อไปต่อใน carbon calculation pipeline ได้
+
+### 8. Navigation And System Integration
+
+มีการปรับ sidebar และ route structure ให้ workflow หลักของระบบเชื่อมกันมากขึ้น:
+
+- เพิ่มเมนู `จัดการกิจกรรม`
+- เพิ่มเมนู `รายการบันทึกกิจกรรม`
+- เพิ่มเมนู `เตรียมข้อมูล Carbon`
+- เพิ่มเมนู `ปุ๋ย / น้ำมัน`
+- จัดกลุ่มเมนู Carbon Analytics, Carbon operations, ข้อมูลเกษตรกร และตั้งค่าระบบให้ชัดขึ้น
 
 ## Current Project Status
 
-สถานะปัจจุบันของโปรเจกต์จากเอกสาร:
+สถานะปัจจุบันของโปรเจกต์จากโค้ดและเอกสารใน repo:
 
-- ระบบหลักเป็น monorepo ขนาดเล็ก แยก `frontend/`, `backend/`, `shared/`
+- ระบบหลักเป็น monorepo แยก `frontend/`, `backend/`, `shared/`
+- ฝั่ง dashboard และฝั่ง activities ถูกพัฒนาควบคู่กันและเริ่มเชื่อมต่อกันมากขึ้น
+- activities module ตอนนี้ครอบคลุมทั้ง master data, import, CRUD, calculation status และ preparation workflow
 - Swagger พร้อมใช้งานที่ `http://localhost:3000/api/docs`
-- คำสั่ง build หลักของ frontend และ backend ผ่านแล้วตามบันทึกล่าสุด
-- ฐานข้อมูลอ้างอิงปัจจุบันคือ `backend/src/prisma/schema.prisma`
-
-หมายเหตุสำคัญ:
-
-- เอกสาร `CONTEXT.md` ระบุว่า Carbon Analytics frontend บางส่วนยังอยู่ใน mock preview mode ผ่าน `ENABLE_API_DASHBOARD = false`
-- แต่ `DASHBOARD_WORK_SUMMARY.md` ยังบันทึกประวัติการพัฒนา dashboard ในมุมที่เน้น behavior และหน้าจอเป็นหลัก
-- ดังนั้นหากจะทำงานต่อใน dashboard ควรตรวจสอบก่อนว่า task ถัดไปต้องการใช้ mock data ต่อ หรือจะเปิด real API integration
-
-## Verification
-
-คำสั่งที่ถูกบันทึกว่าตรวจสอบผ่านในเอกสาร:
-
-```bash
-npm run prisma:generate --workspace=backend
-npm run build --workspace=backend
-npm run build --workspace=frontend
-npm run build
-```
+- schema อ้างอิงปัจจุบันยังอยู่ที่ `backend/src/prisma/schema.prisma`
 
 ## Open Risks / Next Focus
 
-ประเด็นที่ยังควรติดตามต่อจาก `BUG_LOG.md` และ `CONTEXT.md`:
+ประเด็นที่ยังควรติดตามต่อ:
 
 - บางตารางยังไม่มี database-generated primary key
 - หลาย service ยังมีความเสี่ยงจากการใช้ `MAX(id) + 1`
-- บาง controller ยังรับค่า raw body โดยไม่ normalize type ให้ชัดเจน
-- Weather manual-entry modal ยัง wiring ไม่ครบ
-- การ persist ผลคำนวณ CO2e สำหรับ analytics ยังต้องยืนยันแนวทางให้ชัด
-- Dashboard data source ควรสรุปให้ชัดว่าจะใช้ mock หรือ real API เป็น source of truth
+- import flow ยังต้องทดสอบกับข้อมูลจริงหลายรูปแบบเพิ่มเติม
+- activity calculation pipeline ยังควรยืนยัน source of truth ระหว่าง raw activity, prepared data และ analytics outputs
+- dashboard data source บางส่วนยังควรสรุปให้ชัดว่าจะใช้ mock หรือ real API เป็นหลัก
+- workflow ของ CO2e persistence และการเชื่อมผลคำนวณกลับมาสู่หน้า analytics ยังต้องยืนยันให้ครบ
 
 ## Useful Reference Docs
 
@@ -135,4 +152,4 @@ npm run build
 
 ## Short Summary
 
-สรุปงานของ Kong ในโปรเจกต์นี้คือการพัฒนาและปรับปรุงส่วน Carbon Dashboard / Carbon Analytics เป็นหลัก ครอบคลุมหน้าภาพรวม กระบวนการเพาะปลูก แผนที่พื้นที่ รายงาน Premium T-VER และหน้า Carbon Footprint / Carbon Credit โดยเน้นทั้งการจัดโครงสร้างข้อมูล การออกแบบประสบการณ์ผู้ใช้ การทำ filter / drill-down / report flow และการทำให้หน้าสรุปผลพร้อมใช้งานสำหรับการวิเคราะห์และการนำเสนอ
+สรุปงานของ Kong ในโปรเจกต์นี้คือการพัฒนาทั้งฝั่ง Carbon Dashboard / Carbon Analytics และฝั่ง Activities Management ที่เชื่อมกับการคำนวณคาร์บอน โดยงานหลักครอบคลุมการออกแบบหน้าใช้งาน, การจัด navigation และ filter, การนำเข้าข้อมูลกิจกรรมจาก CSV, การจัดการ resource master data, การทำ CRUD และ workflow ของ activity log, รวมถึงการเตรียมข้อมูลและสถานะต่าง ๆ ให้พร้อมเข้าสู่กระบวนการคำนวณ Carbon Footprint และ Carbon Credit ต่อไป

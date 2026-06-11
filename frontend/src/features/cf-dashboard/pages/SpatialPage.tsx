@@ -10,6 +10,7 @@ import { MapPinned } from "lucide-react";
 import "../cf-dashboard.css";
 
 type SpatialPreviewTab = "pdf" | "excel";
+type SpatialProcessPeriod = "baseline" | "current";
 
 interface SpatialExcelRows {
   campRows: Record<string, unknown>[];
@@ -35,6 +36,15 @@ function sumInputs(inputs: ProcessInputComparison[]) {
 
 function inputPct(base: number, current: number) {
   return base ? ((base - current) / base) * 100 : 0;
+}
+
+function hasInputComparisonRows(rows?: ProcessInputComparison[]) {
+  return Boolean(rows?.some((row) =>
+    row.baselineFertilizerKg > 0
+    || row.currentFertilizerKg > 0
+    || row.baselineFuelLiter > 0
+    || row.currentFuelLiter > 0,
+  ));
 }
 
 const spatialOrder: Exclude<SpatialLevel, "country">[] = ["region", "province", "district", "subdistrict", "field"];
@@ -66,6 +76,19 @@ function aggregateProcessBreakdown(fields: CampFieldCarbonDetail[]) {
     field.processBreakdown.forEach((item) => grouped.set(item.name, (grouped.get(item.name) ?? 0) + item.emission));
   });
   return Array.from(grouped.entries()).map(([name, emission]) => ({ name, emission }));
+}
+
+function scaleProcessBreakdown(rows: SpatialSummaryNode["processBreakdown"], targetTotal: number) {
+  const total = rows.reduce((sum, item) => sum + item.emission, 0);
+  if (!total) return rows;
+  return rows.map((item) => ({
+    name: item.name,
+    emission: Number(((item.emission / total) * targetTotal).toFixed(2)),
+  }));
+}
+
+function emptySpatialFilters(): Record<Exclude<SpatialLevel, "country">, string> {
+  return { region: "", province: "", district: "", subdistrict: "", field: "" };
 }
 
 function filtersFromNode(nodes: SpatialSummaryNode[], nodeId: string, rootId: string) {
@@ -310,18 +333,13 @@ export function CfSpatialPage() {
   const [selectedCampId, setSelectedCampId] = useState<number | "all">("all");
   const [selectedBoundaryFieldId, setSelectedBoundaryFieldId] = useState("");
   const [showAllCampRows, setShowAllCampRows] = useState(false);
+  const [processPeriod, setProcessPeriod] = useState<SpatialProcessPeriod>("current");
   const [generatedDocument, setGeneratedDocument] = useState<{ title: string; fields: CampFieldCarbonDetail[]; camps: CampCarbonSummary[] } | null>(null);
   const [activePreviewTab, setActivePreviewTab] = useState<SpatialPreviewTab>("pdf");
   const [documentRenderId, setDocumentRenderId] = useState(0);
   const [generatingDocument, setGeneratingDocument] = useState(false);
   const [documentNotice, setDocumentNotice] = useState("");
-  const [filters, setFilters] = useState<Record<Exclude<SpatialLevel, "country">, string>>({
-    region: "",
-    province: "",
-    district: "",
-    subdistrict: "",
-    field: "",
-  });
+  const [filters, setFilters] = useState<Record<Exclude<SpatialLevel, "country">, string>>(emptySpatialFilters);
   const rootId = nodes.find((node) => !node.parentId)?.id ?? "thailand";
 
   useEffect(() => {
@@ -338,13 +356,20 @@ export function CfSpatialPage() {
 
   useEffect(() => {
     if (selectedCampId === "all") return;
-    setSelectedBoundaryFieldId("");
-    const parentId = campFieldResult.data.find((field) => field.campId === selectedCampId)?.parentId;
+    const campFields = campFieldResult.data.filter((field) => field.campId === selectedCampId);
+    const selectedField = selectedBoundaryFieldId ? campFields.find((field) => field.id === selectedBoundaryFieldId) : undefined;
+    if (selectedField) {
+      setSelectedId(selectedField.id);
+      setFilters(filtersFromNode(nodes, selectedField.id, rootId));
+      return;
+    }
+    setSelectedBoundaryFieldId((current) => current && campFields.some((field) => field.id === current) ? current : "");
+    const parentId = campFields[0]?.parentId;
     if (parentId) {
       setSelectedId(parentId);
       setFilters(filtersFromNode(nodes, parentId, rootId));
     }
-  }, [campFieldResult.data, nodes, rootId, selectedCampId]);
+  }, [campFieldResult.data, nodes, rootId, selectedBoundaryFieldId, selectedCampId]);
 
   const selected = nodes.find((node) => node.id === selectedId) ?? nodes[0];
   const scopedCampFields = useMemo(() => {
@@ -407,12 +432,18 @@ export function CfSpatialPage() {
       baselineEmission: scopedCampFields.reduce((sum, field) => sum + field.baselineEmission, 0),
       currentEmission: scopedCampFields.reduce((sum, field) => sum + field.currentEmission, 0),
       processBreakdown: aggregateProcessBreakdown(scopedCampFields),
-      processInputComparisons: inputRows,
+      processInputComparisons: hasInputComparisonRows(inputRows) ? inputRows : selected.processInputComparisons,
     };
   }, [scopedCampFields, selected, selectedBoundaryField, selectedCamp]);
   const focusNode = selectedBoundaryField ?? selectedCampNode ?? scopedNode ?? selected;
   const diff = focusNode ? focusNode.baselineEmission - focusNode.currentEmission : 0;
+  const diffPercent = focusNode?.baselineEmission ? (diff / focusNode.baselineEmission) * 100 : 0;
   const carbonCredit = focusNode ? creditSummary(focusNode.baselineEmission, focusNode.currentEmission) : creditSummary(0, 0);
+  const baselineProcessBreakdown = focusNode ? scaleProcessBreakdown(focusNode.processBreakdown, focusNode.baselineEmission) : [];
+  const currentProcessBreakdown = focusNode?.processBreakdown ?? [];
+  const processBreakdownForPeriod = processPeriod === "baseline" ? baselineProcessBreakdown : currentProcessBreakdown;
+  const processComparisonBreakdown = processPeriod === "baseline" ? currentProcessBreakdown : baselineProcessBreakdown;
+  const processPeriodLabel = processPeriod === "baseline" ? "ปีฐาน" : "ปีดำเนินการ";
   const spatialInputs = focusNode?.processInputComparisons ?? [];
   const inputTotals = sumInputs(spatialInputs);
   const fertilizerDiff = inputTotals.baselineFertilizerKg - inputTotals.currentFertilizerKg;
@@ -576,7 +607,31 @@ export function CfSpatialPage() {
   };
 
   const selectBoundaryField = (id: string) => {
+    if (!id) {
+      const parentId = selectedCampFields[0]?.parentId;
+      if (parentId) {
+        setSelectedId(parentId);
+        setFilters(filtersFromNode(nodes, parentId, rootId));
+      }
+      setSelectedBoundaryFieldId("");
+      markSpatialFilterChanged();
+      return;
+    }
+    const field = campFieldResult.data.find((item) => item.id === id);
+    if (field) {
+      setSelectedCampId(field.campId);
+      setSelectedId(field.id);
+      setFilters(filtersFromNode(nodes, field.id, rootId));
+    }
     setSelectedBoundaryFieldId(id);
+    markSpatialFilterChanged();
+  };
+
+  const resetSpatialFilters = () => {
+    setSelectedId(rootId);
+    setFilters(emptySpatialFilters());
+    setSelectedCampId("all");
+    setSelectedBoundaryFieldId("");
     markSpatialFilterChanged();
   };
 
@@ -606,6 +661,9 @@ export function CfSpatialPage() {
                 </span>
               ))}
             </div>
+            <button type="button" className="run-btn spatial-reset-btn" onClick={resetSpatialFilters}>
+              Reset Filter
+            </button>
           </div>
           <div className="spatial-select-grid">
             <label>
@@ -646,7 +704,7 @@ export function CfSpatialPage() {
           </div>
         </section>
 
-        <section className="card full-span">
+        <section className="card full-span spatial-camp-fields-card">
           <div className="card-title-row">
             <div className="card-title">รายแปลงในแคมป์</div>
           </div>
@@ -657,8 +715,14 @@ export function CfSpatialPage() {
                 value={selectedCampId}
                 onChange={(event) => {
                   const value = event.target.value;
-                  setSelectedCampId(value === "all" ? "all" : Number(value));
+                  const nextCampId = value === "all" ? "all" : Number(value);
+                  const firstField = nextCampId === "all" ? undefined : campFieldResult.data.find((field) => field.campId === nextCampId);
+                  setSelectedCampId(nextCampId);
                   setSelectedBoundaryFieldId("");
+                  if (firstField?.parentId) {
+                    setSelectedId(firstField.parentId);
+                    setFilters(filtersFromNode(nodes, firstField.parentId, rootId));
+                  }
                   markSpatialFilterChanged();
                 }}
               >
@@ -882,6 +946,7 @@ export function CfSpatialPage() {
               </div>
             </div>
             <div className="carbon-compare spatial-carbon-compare">
+              <div><span>เทียบกับปีฐาน</span><strong className={diff >= 0 ? "green-text" : "red-text"}>{diff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(diffPercent).toFixed(1)}%</strong></div>
               <div><span>Carbon Footprint ปีฐาน</span><strong>{focusNode.baselineEmission.toLocaleString()} tCO2e</strong></div>
               <div><span>Carbon Footprint ปีดำเนินการ</span><strong>{focusNode.currentEmission.toLocaleString()} tCO2e</strong></div>
               <div><span>ผลต่าง Footprint</span><strong className={diff >= 0 ? "green-text" : "red-text"}>{carbonCredit.direction} {formatNumber(Math.abs(diff), 2)} tCO2e</strong></div>
@@ -914,8 +979,22 @@ export function CfSpatialPage() {
           </article>
 
           <article className="card">
-            <div className="card-title">แผนภูมิวงกลม · สัดส่วนกระบวนการในพื้นที่</div>
-            <ProcessDoughnut data={focusNode.processBreakdown} />
+            <div className="card-title-row">
+              <div className="card-title">แผนภูมิวงกลม · สัดส่วนกระบวนการในพื้นที่</div>
+              <div className="period-switch spatial-period-switch" role="group" aria-label="เลือกปีข้อมูลแผนภูมิวงกลม">
+                <button type="button" className={processPeriod === "baseline" ? "active" : ""} onClick={() => setProcessPeriod("baseline")}>
+                  ปีฐาน
+                </button>
+                <button type="button" className={processPeriod === "current" ? "active" : ""} onClick={() => setProcessPeriod("current")}>
+                  ปีดำเนินการ
+                </button>
+              </div>
+            </div>
+            <ProcessDoughnut
+              title={`${focusNode.name} · ${processPeriodLabel}`}
+              data={processBreakdownForPeriod}
+              comparisonData={processComparisonBreakdown}
+            />
           </article>
         </section>
 
