@@ -1496,8 +1496,11 @@
   max-width: 100%;
 }
 
-.cf-dash .spatial-doc-preview-card {
+.cf-dash .card.spatial-doc-preview-card {
+  position: relative;
   overflow: hidden;
+  z-index: 1;
+  margin-bottom: 18px;
 }
 
 .cf-dash .spatial-doc-preview {
@@ -2253,6 +2256,7 @@
   grid-template-columns: minmax(0, 1fr) minmax(0, 0.85fr);
   grid-auto-flow: row dense;
   align-items: start;
+  /* Allow columns to determine their own alignment */
 }
 
 .cf-dash .footprint-report-page > * {
@@ -2292,11 +2296,21 @@
   flex-direction: column;
   gap: 12px;
   align-items: stretch;
+  /* Stretch to match left column height so sticky is bounded within it */
+  align-self: stretch;
 }
 
 .cf-dash .footprint-report-right-column .report-preview-panel {
   width: 100%;
   min-width: 0;
+  /* Override global sticky and re-apply correctly within right column */
+  position: sticky;
+  top: 24px;
+  /* align-self: flex-start allows sticky to work in a flex column container */
+  align-self: flex-start;
+  /* Ensure it never overflows the right column boundary */
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
 }
 
 .cf-dash .footprint-report-page > .footprint-net-result-block {
@@ -2682,7 +2696,17 @@
   .cf-dash .footprint-report-page > .footprint-report-left-column,
   .cf-dash .footprint-report-page > .footprint-report-right-column {
     grid-column: 1 / -1;
+    align-self: auto;
   }
+  /* Disable sticky for preview panel when stacked in single column */
+  .cf-dash .footprint-report-right-column .report-preview-panel {
+    position: relative;
+    top: auto;
+    align-self: stretch;
+    max-height: none;
+    overflow-y: visible;
+  }
+
   .cf-dash .footprint-report-page > .footprint-report-toolbar,
   .cf-dash .footprint-report-page > .report-generate-notice,
   .cf-dash .footprint-report-page > .footprint-context-grid,

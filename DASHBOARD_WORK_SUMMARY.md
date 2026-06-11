@@ -6,6 +6,52 @@ Branch ที่ทำงาน: `idea`
 
 Commit ล่าสุดที่อัปขึ้น Git: `Add footprint emissions and sequestration tabs`
 
+## อัปเดตงานเพิ่มเติม วันที่ 9-11 มิถุนายน 2569 - สรุปจากประวัติ Git
+
+ส่วนนี้เติมย้อนหลังจากประวัติ Git หลังจากไฟล์สรุปไม่ได้จดต่อครบทุกวัน โดยอิงจาก commit ใน branch `idea` ตั้งแต่วันที่ 9 มิถุนายน 2569 ถึงวันที่ 11 มิถุนายน 2569
+
+### วันที่ 9 มิถุนายน 2569
+
+- ปรับหน้า Carbon Dashboard หลายส่วนให้พร้อมใช้งานมากขึ้น ได้แก่หน้า Overview, Process และ Spatial โดยเน้นการจัดข้อมูลให้สัมพันธ์กับ flow การวิเคราะห์คาร์บอน
+- ปรับหน้า `รายงานคาร์บอนฟุตพริ้นท์ ไร่บริษัทกลุ่มมิตรผล` หลายรอบ เช่น export รายงาน, ลำดับ KPI, การจัดข้อมูลในรายงาน และการลดข้อความหัวข้อที่ซ้ำใน Excel report
+- ปรับหน้า Process และ Spatial ให้สอดคล้องกับข้อมูลรายงานมากขึ้น รวมถึงปรับ CSS ของ dashboard เพื่อให้ layout อ่านง่ายขึ้น
+- มีงานจากฝั่งเพื่อน/ทีมเข้ามาช่วงเย็นใน commit `update prepair data for calculate` โดยเกี่ยวกับการเตรียมข้อมูลสำหรับการคำนวณ เช่นหน้า Calculate, Carbon Credit และ Carbon Footprint Queue ซึ่งเป็นฐานข้อมูล/flow ที่ใช้ต่อกับงานฝั่ง dashboard ได้
+
+### วันที่ 10 มิถุนายน 2569
+
+- ปรับหน้า `รายงานคาร์บอนฟุตพริ้นท์ ไร่บริษัทกลุ่มมิตรผล` ต่อเนื่องหลายรอบ ทั้งการจัดหน้าใหม่, แปล/ปรับ card เป็นภาษาไทย, ย้ายตำแหน่งปุ่มดาวน์โหลด, ปรับ layout รายงาน และแก้ปัญหาหน้าขาวจากส่วน Excel/report preview
+- ปรับ mock data ของ Carbon Dashboard เพื่อให้ข้อมูลในกราฟและหน้ารายงานแสดงภาพรวมได้ครบขึ้นระหว่างที่ข้อมูลจริงยังไม่ครบทุกจุด
+- ปรับหน้าแผนที่ประเทศไทยและรายละเอียดรายพื้นที่ เพิ่มข้อมูลสำหรับ filter และปรับ `ThailandMap`/CSS ให้การแสดงผลพื้นที่และรายละเอียดอ่านง่ายขึ้น
+- ปรับหน้า Carbon Credit / Premium T-VER Report โดยแก้ layout และ UI ของหน้า report ให้เหมาะกับการดูข้อมูลและเตรียมเอกสารมากขึ้น
+- มีงานจากฝั่งเพื่อน/ทีมใน commit `update page carbon footprint` และ merge PR ที่เกี่ยวข้องกับหน้า Carbon Footprint Queue, backend activities, emission factors และเอกสารสรุปการคำนวณ ซึ่งเป็นส่วนที่ช่วยให้ฝั่ง dashboard ดึงข้อมูลคำนวณจริงมาใช้ต่อได้
+
+### วันที่ 11 มิถุนายน 2569
+
+- ปรับความสวยงามของ block preview และแก้ config ฝั่ง TypeScript (`tsconfig.json`) เพื่อให้โปรเจกต์ build ผ่านหลังมีโค้ด/option ใหม่เข้ามา
+- รวม branch `origin/block_dev` เข้ากับ `idea` เพื่อดึงงานเพื่อนเข้ามาเทียบและเชื่อมกับงาน dashboard ปัจจุบัน
+- ปรับการเชื่อมข้อมูล Backend และ Frontend ในส่วน analytics โดยให้ backend สร้างข้อมูลจากผลคำนวณจริงที่อยู่ใน `carbon_process_queue_resultValue` และให้ frontend เรียก API ก่อน ถ้า API ยังไม่มีข้อมูลครบจึง fallback ไปใช้ mock
+- ปรับกราฟ `Correlation · ปุ๋ยเคมี vs SOC` ให้แสดงเส้น trend/เส้นกราฟร่วมกับจุดข้อมูล เพื่อให้เห็นความสัมพันธ์ของปุ๋ยเคมีกับค่า SOC ชัดขึ้น
+- เพิ่ม/ปรับ mock spatial data ให้หน้าแผนที่มีข้อมูลระดับ camp/field มากขึ้น เช่นข้อมูลปุ๋ยและน้ำมันรายพื้นที่, การผูก child node ของ `pa-sang-ext` และ fallback ใน `SpatialPage` เพื่อให้เลือกแปลงย่อยแล้วยังเห็นตารางสรุปการใช้ปุ๋ยและน้ำมัน
+
+### สถานะข้อมูลจริงและ Mock จากรอบล่าสุด
+
+- ข้อมูลจริงที่เริ่มดึงจาก backend แล้ว: ผลคำนวณจาก queue/result ใน analytics เช่น emission, sequestration, process inputs และข้อมูลที่ backend คำนวณรวมให้ frontend ใช้ต่อ
+- ข้อมูลที่ยังใช้ mock/fallback: รายละเอียดบางส่วนของ spatial node ระดับแปลง, ตารางสรุปปุ๋ย/น้ำมันบางพื้นที่, label/ข้อมูลประกอบของแผนที่ และข้อมูลตัวอย่างที่ใช้ให้หน้า dashboard แสดงภาพรวมครบตอน API ยังไม่มีข้อมูลจริง
+- แนวทางที่ทำไว้คือให้ API เป็นแหล่งข้อมูลหลักก่อนเสมอ แล้วใช้ mock เฉพาะจุดที่ฐานข้อมูลยังไม่มีหรือผลคำนวณยังไม่ส่งค่ากลับมา เพื่อไม่ให้หน้าเว็บว่างหรือแสดง 0 ผิดบริบท
+
+### ไฟล์หลักที่เกี่ยวข้องในช่วงวันที่ 9-11 มิถุนายน 2569
+
+- `frontend/src/features/cf-dashboard/pages/FootprintReportPage.tsx`
+- `frontend/src/features/cf-dashboard/pages/SpatialPage.tsx`
+- `frontend/src/features/cf-dashboard/pages/ReportPage.tsx`
+- `frontend/src/features/cf-dashboard/data/mockDashboard.ts`
+- `frontend/src/features/cf-dashboard/services/dashboardApi.ts`
+- `frontend/src/features/cf-dashboard/components/charts/SocCorrelationChart.tsx`
+- `frontend/src/features/cf-dashboard/components/map/ThailandMap.tsx`
+- `frontend/src/features/cf-dashboard/cf-dashboard.css`
+- `backend/src/modules/analytics/analytics.service.ts`
+- `frontend/tsconfig.json`
+
 ## อัปเดตล่าสุด วันที่ 8 มิถุนายน 2569 - แยกหน้า Carbon Footprint เป็นแท็บการปล่อยและการกักเก็บ
 
 รอบนี้ปรับหน้า `Carbon Footprint ไร่บริษัทกลุ่มมิตรผล` ให้แยกเรื่องหลักเป็น 2 มุมมองผ่าน Segmented Tabs เพื่อให้ผู้ใช้ดูข้อมูลได้ชัดขึ้น ไม่ต้องเลื่อนหน้ายาว และไม่สับสนระหว่างข้อมูล “การปล่อยคาร์บอน” กับ “การกักเก็บ / SOC & Credits”
