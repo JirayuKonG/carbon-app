@@ -696,6 +696,133 @@
   font-weight: 800;
 }
 
+.cf-dash .camp-comparison-module {
+  display: grid;
+  gap: 16px;
+}
+
+.cf-dash .camp-comparison-module .group-mode-switch {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cf-dash .camp-benchmark-chart {
+  overflow-x: auto;
+}
+
+.cf-dash .comparison-ranking-grid,
+.cf-dash .comparison-summary-grid,
+.cf-dash .comparison-process-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.cf-dash .comparison-ranking-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.cf-dash .comparison-rank-card,
+.cf-dash .comparison-summary-card,
+.cf-dash .comparison-process-panel {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fff, #f8fbfe);
+  padding: 14px;
+}
+
+.cf-dash .comparison-rank-card {
+  display: grid;
+  gap: 5px;
+}
+
+.cf-dash .comparison-rank-card strong,
+.cf-dash .comparison-summary-card strong {
+  color: var(--text);
+  font-weight: 850;
+}
+
+.cf-dash .comparison-rank-card span,
+.cf-dash .comparison-rank-card small,
+.cf-dash .comparison-summary-card span,
+.cf-dash .comparison-summary-card small,
+.cf-dash .comparison-summary-card em {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.cf-dash .comparison-rank-card b {
+  color: var(--accent-dark);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.cf-dash .comparison-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.cf-dash .comparison-filter-panel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface2);
+  padding: 12px;
+}
+
+.cf-dash .comparison-filter-panel > strong {
+  grid-column: 1 / -1;
+  color: var(--accent-dark);
+}
+
+.cf-dash .comparison-filter-panel label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.cf-dash .comparison-filter-panel select {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+  padding: 9px 10px;
+}
+
+.cf-dash .comparison-summary-card {
+  display: grid;
+  gap: 8px;
+}
+
+.cf-dash .comparison-summary-card > p {
+  margin: 0;
+  font-weight: 850;
+}
+
+.cf-dash .comparison-summary-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.cf-dash .comparison-summary-metrics div {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px;
+}
+
+.cf-dash .comparison-summary-metrics b,
+.cf-dash .comparison-summary-metrics em {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
 .cf-dash .premium-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0,1fr));
@@ -1080,7 +1207,7 @@
   position: relative;
   width: 78px;
   height: 58px;
-  filter: drop-shadow(0 8px 14px rgba(28, 54, 84, .22));
+  filter: none;
   transform: translateY(-2px);
 }
 .carbon-location-marker .carbon-marker-pin {
@@ -1150,7 +1277,7 @@
 .carbon-location-marker.is-selected {
   z-index: 2;
   transform: translateY(-5px) scale(1.08);
-  filter: drop-shadow(0 12px 20px rgba(28, 54, 84, .28));
+  filter: none;
 }
 .carbon-location-marker.is-selected .carbon-marker-pin {
   border-width: 3px;
@@ -2765,6 +2892,9 @@
   .cf-dash .overview-kpi-row.top { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .cf-dash .process-summary-grid,
   .cf-dash .premium-summary-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .cf-dash .comparison-filter-grid,
+  .cf-dash .comparison-summary-grid,
+  .cf-dash .comparison-process-grid { grid-template-columns: 1fr; }
   .cf-dash .footprint-area-filter { grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); }
   .cf-dash .footprint-exec-grid,
   .cf-dash .footprint-order-grid,
@@ -2798,6 +2928,9 @@
   .cf-dash .group-mode-switch {
     min-width: 0;
   }
+  .cf-dash .comparison-filter-panel {
+    grid-template-columns: 1fr;
+  }
   .cf-dash .input-table {
     min-width: 720px;
   }
@@ -2823,7 +2956,8 @@
   }
   .cf-dash .overview-kpi-row.top, .cf-dash .overview-kpi-row.secondary,
   .cf-dash .process-scope-panel, .cf-dash .process-executive-filter, .cf-dash .process-summary-grid,
-  .cf-dash .premium-summary-grid { grid-template-columns: 1fr; }
+  .cf-dash .premium-summary-grid,
+  .cf-dash .comparison-summary-metrics { grid-template-columns: 1fr; }
   .cf-dash .leaderboard-row,
   .cf-dash .leaderboard-list.compact .leaderboard-row {
     grid-template-columns: auto minmax(0, 1fr);

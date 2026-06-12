@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { Bar } from "react-chartjs-2";
 import { ActivityGroupedBar } from "../components/charts/ActivityGroupedBar";
 import { NetZeroProgressBar } from "../components/charts/NetZeroProgressBar";
-import { sortProcessLabels } from "../components/charts/ChartRegistry";
+import { chartOptions, chartPalette, sortProcessLabels } from "../components/charts/ChartRegistry";
 import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
 import { SocCorrelationChart } from "../components/charts/SocCorrelationChart";
 import { CaneTypeSummaryPanel } from "../components/common/CaneTypeSummaryPanel";
@@ -13,8 +14,14 @@ import "../cf-dashboard.css";
 type PeriodMode = "baseline_avg" | "project";
 type ScopeValue = "all" | `camp-${number}`;
 type DonutMode = "camp" | "activity" | "field";
+type ActivityChartMode = "both" | "baseline" | "current";
 type CaneScope = "all" | "new" | "ratoon" | "fallow";
 type FootprintView = "emissions" | "sequestration" | "net";
+type ComparisonTab = "benchmark" | "pair";
+type ComparisonTargetType = "camp" | "field";
+
+const FOOTPRINT_UNIT = "kgCO2e";
+const CHEMICAL_ACTIVITY_NAME = "สารเคมี/ยาป้องกันกำจัดศัตรูพืช";
 
 interface ScopeComparisonRow {
   id: string;
@@ -61,7 +68,7 @@ function ProcessSummary({ baseline, current }: { baseline: ProcessActivityBreakd
         <div key={row.process}>
           <span>{row.process}</span>
           <strong className={row.diff <= 0 ? "green-text" : "red-text"}>
-            {row.diff <= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(row.diff).toFixed(2)} tCO2e
+            {row.diff <= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(row.diff).toLocaleString(undefined, { maximumFractionDigits: 2 })} {FOOTPRINT_UNIT}
           </strong>
         </div>
       ))}
@@ -74,11 +81,51 @@ function sumEmission(rows: ProcessActivityBreakdown[]) {
   return rows.reduce((sum, row) => sum + row.totalEmission, 0);
 }
 
-function processEmissionValues(rows: ProcessActivityBreakdown[]): ActivityValue[] {
-  return sortProcessLabels(rows.map((row) => row.process)).map((process) => {
-    const emission = rows.find((row) => row.process === process)?.totalEmission ?? 0;
-    return { name: process, emission: Number(emission.toFixed(2)) };
+function withChemicalActivities(rows: ProcessActivityBreakdown[]): ProcessActivityBreakdown[] {
+  return rows.map((row) => {
+    if (row.activities.some((activity) => activity.name === CHEMICAL_ACTIVITY_NAME)) return row;
+    const chemicalShare = row.year === "baseline_avg" ? 0.08 : 0.07;
+    const chemicalEmission = Number((row.totalEmission * chemicalShare).toFixed(2));
+    const activityScale = row.totalEmission ? Math.max(row.totalEmission - chemicalEmission, 0) / row.totalEmission : 1;
+    return {
+      ...row,
+      activities: [
+        ...row.activities.map((activity) => ({
+          ...activity,
+          emission: Number((activity.emission * activityScale).toFixed(2)),
+        })),
+        { name: CHEMICAL_ACTIVITY_NAME, emission: chemicalEmission },
+      ],
+    };
   });
+}
+
+interface FootprintComparisonTarget {
+  id: string;
+  name: string;
+  detail: string;
+  areaRai: number;
+  fieldCount: number;
+  soilType: string;
+  baseline: number;
+  current: number;
+  baselineRows: ProcessActivityBreakdown[];
+  currentRows: ProcessActivityBreakdown[];
+}
+
+function toKgProcessRows(rows: ProcessActivityBreakdown[]): ProcessActivityBreakdown[] {
+  return rows.map((row) => ({
+    ...row,
+    totalEmission: Number((row.totalEmission * 1000).toFixed(2)),
+    activities: row.activities.map((activity) => ({
+      ...activity,
+      emission: Number((activity.emission * 1000).toFixed(2)),
+    })),
+  }));
+}
+
+function kgCo2e(value: number) {
+  return value * 1000;
 }
 
 function fieldProcessRows(field: CampFieldCarbonDetail, year: string, totalEmission: number): ProcessActivityBreakdown[] {
@@ -145,6 +192,99 @@ function scaleCampRows(rows: CampCarbonSummary[], factor: number): CampCarbonSum
   }));
 }
 
+function campBenchmarkValue(value: number, areaRai: number) {
+  return areaRai ? Number((kgCo2e(value) / areaRai).toFixed(2)) : 0;
+}
+
+function CampBenchmarkBar({ rows }: { rows: ScopeComparisonRow[] }) {
+  const labels = rows.map((row) => row.name);
+  return (
+    <div className="chart-box md camp-benchmark-chart">
+      <Bar
+        data={{
+          labels,
+          datasets: [
+            {
+              label: `ปีฐาน (${FOOTPRINT_UNIT}/ไร่)`,
+              data: rows.map((row) => campBenchmarkValue(row.baseline, row.areaRai)),
+              backgroundColor: chartPalette.baseline.bg,
+              borderColor: chartPalette.baseline.border,
+              borderWidth: 1,
+            },
+            {
+              label: `ปีดำเนินการ (${FOOTPRINT_UNIT}/ไร่)`,
+              data: rows.map((row) => campBenchmarkValue(row.current, row.areaRai)),
+              backgroundColor: chartPalette.project.bg,
+              borderColor: chartPalette.project.border,
+              borderWidth: 1,
+            },
+          ],
+        }}
+        options={chartOptions}
+      />
+    </div>
+  );
+}
+
+function campComparisonTarget(camp: CampCarbonSummary | undefined): FootprintComparisonTarget | undefined {
+  if (!camp) return undefined;
+  return {
+    id: `camp-${camp.campId}`,
+    name: camp.campName,
+    detail: "ภาพรวมแคมป์",
+    areaRai: camp.areaRai,
+    fieldCount: camp.fieldCount,
+    soilType: "-",
+    baseline: camp.baselineCo2eTotal,
+    current: camp.currentCo2eTotal,
+    baselineRows: withChemicalActivities(camp.baselineProcessActivities),
+    currentRows: withChemicalActivities(camp.currentProcessActivities),
+  };
+}
+
+function fieldComparisonTarget(field: CampFieldCarbonDetail | undefined, currentYear: string, factor: number): FootprintComparisonTarget | undefined {
+  if (!field) return undefined;
+  const baselineRows = withChemicalActivities(scaleProcessRows(fieldProcessRows(field, "baseline_avg", field.baselineEmission), factor));
+  const currentRows = withChemicalActivities(scaleProcessRows(fieldProcessRows(field, currentYear || "project", field.currentEmission), factor));
+  return {
+    id: field.id,
+    name: field.fieldName,
+    detail: `${field.fieldCode} · ${field.campName}`,
+    areaRai: field.areaRai,
+    fieldCount: 1,
+    soilType: field.soilType || "-",
+    baseline: field.baselineEmission * factor,
+    current: field.currentEmission * factor,
+    baselineRows,
+    currentRows,
+  };
+}
+
+function ComparisonSummaryCard({ label, target }: { label: string; target?: FootprintComparisonTarget }) {
+  if (!target) {
+    return <div className="comparison-summary-card empty-state">{label}: ยังไม่มีข้อมูลสำหรับเปรียบเทียบ</div>;
+  }
+  const diff = target.baseline - target.current;
+  const diffPct = target.baseline ? (diff / target.baseline) * 100 : 0;
+  const perRai = campBenchmarkValue(target.current, target.areaRai);
+  return (
+    <div className="comparison-summary-card">
+      <span>{label}</span>
+      <strong>{target.name}</strong>
+      <small>{target.detail}</small>
+      <div className="comparison-summary-metrics">
+        <div><b>{target.areaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })}</b><em>ไร่</em></div>
+        <div><b>{target.fieldCount.toLocaleString()}</b><em>แปลง</em></div>
+        <div><b>{target.soilType}</b><em>ชนิดดิน</em></div>
+        <div><b>{perRai.toLocaleString(undefined, { maximumFractionDigits: 1 })}</b><em>{FOOTPRINT_UNIT}/ไร่</em></div>
+      </div>
+      <p className={diff >= 0 ? "green-text" : "red-text"}>
+        {diff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(kgCo2e(diff)).toLocaleString(undefined, { maximumFractionDigits: 0 })} {FOOTPRINT_UNIT} ({Math.abs(diffPct).toFixed(1)}%)
+      </p>
+    </div>
+  );
+}
+
 function nodeIsWithin(nodes: SpatialSummaryNode[], nodeId: string | undefined, scopeId: string | undefined) {
   if (!scopeId || !nodeId) return false;
   if (scopeId === nodeId) return true;
@@ -172,15 +312,6 @@ function aggregateCampActivities(camps: CampCarbonSummary[], key: "baselineProce
   return Array.from(grouped.values());
 }
 
-function comparisonRowsToActivities(rows: ScopeComparisonRow[], year: string, key: "baseline" | "current"): ProcessActivityBreakdown[] {
-  return rows.map((row) => ({
-    year,
-    process: row.name,
-    totalEmission: key === "baseline" ? row.baseline : row.current,
-    activities: [{ name: row.name, emission: key === "baseline" ? row.baseline : row.current }],
-  }));
-}
-
 function PeriodSwitch({ value, currentYear, onChange }: { value: PeriodMode; currentYear: string; onChange: (next: PeriodMode) => void }) {
   return (
     <div className="period-switch" role="group" aria-label="เลือกช่วงข้อมูล">
@@ -197,7 +328,14 @@ function PeriodSwitch({ value, currentYear, onChange }: { value: PeriodMode; cur
 export function CfProcessPage() {
   const [period, setPeriod] = useState<PeriodMode>("project");
   const [activeView, setActiveView] = useState<FootprintView>("emissions");
-  const [donutMode, setDonutMode] = useState<DonutMode>("activity");
+  const [activityChartMode, setActivityChartMode] = useState<ActivityChartMode>("both");
+  const [comparisonTab, setComparisonTab] = useState<ComparisonTab>("benchmark");
+  const [compareAType, setCompareAType] = useState<ComparisonTargetType>("camp");
+  const [compareBType, setCompareBType] = useState<ComparisonTargetType>("camp");
+  const [compareACampId, setCompareACampId] = useState("");
+  const [compareBCampId, setCompareBCampId] = useState("");
+  const [compareAFieldId, setCompareAFieldId] = useState("");
+  const [compareBFieldId, setCompareBFieldId] = useState("");
   const [socContributionMode, setSocContributionMode] = useState<DonutMode>("activity");
   const [caneScope, setCaneScope] = useState<CaneScope>("all");
   const [scope, setScope] = useState<ScopeValue>("all");
@@ -254,48 +392,32 @@ export function CfProcessPage() {
   const chartBaselineRaw = selectedField ? fieldBaseline : selectedCamp ? selectedCamp.baselineProcessActivities : scopedCamps.length ? aggregateCampActivities(scopedCamps, "baselineProcessActivities") : baseline;
   const chartCurrentRaw = selectedField ? fieldCurrent : selectedCamp ? selectedCamp.currentProcessActivities : scopedCamps.length ? aggregateCampActivities(scopedCamps, "currentProcessActivities") : current;
   const caneMeta = caneScopeInfo(caneTypeResult.data, caneScope);
-  const selectedByCane = scaleProcessRows(selected, caneMeta.factor);
-  const chartBaseline = scaleProcessRows(chartBaselineRaw, caneMeta.factor);
-  const chartCurrent = scaleProcessRows(chartCurrentRaw, caneMeta.factor);
+  const selectedByCane = withChemicalActivities(scaleProcessRows(selected, caneMeta.factor));
+  const chartBaseline = withChemicalActivities(scaleProcessRows(chartBaselineRaw, caneMeta.factor));
+  const chartCurrent = withChemicalActivities(scaleProcessRows(chartCurrentRaw, caneMeta.factor));
+  const selectedByCaneKg = toKgProcessRows(selectedByCane);
+  const chartBaselineKg = toKgProcessRows(chartBaseline);
+  const chartCurrentKg = toKgProcessRows(chartCurrent);
   const campRows = scaleCampRows(scopedCamps, caneMeta.factor);
   const baselineTotal = (selectedField ? selectedField.baselineEmission : selectedCamp ? selectedCamp.baselineCo2eTotal : scopedCamps.length ? scopedCamps.reduce((sum, camp) => sum + camp.baselineCo2eTotal, 0) : sumEmission(baseline)) * caneMeta.factor;
   const currentTotal = (selectedField ? selectedField.currentEmission : selectedCamp ? selectedCamp.currentCo2eTotal : scopedCamps.length ? scopedCamps.reduce((sum, camp) => sum + camp.currentCo2eTotal, 0) : sumEmission(current)) * caneMeta.factor;
+  const baselineTotalKg = baselineTotal * 1000;
+  const currentTotalKg = currentTotal * 1000;
   const summaryAreaRai = selectedField ? selectedField.areaRai : selectedCamp ? selectedCamp.areaRai : scopedCamps.length ? scopedCamps.reduce((sum, camp) => sum + camp.areaRai, 0) : overviewKpi?.areaRai ?? campResult.data.reduce((sum, camp) => sum + camp.areaRai, 0);
   const summaryFieldCount = selectedField ? 1 : selectedCamp ? selectedCamp.fieldCount : scopedCamps.length ? scopedCamps.reduce((sum, camp) => sum + camp.fieldCount, 0) : overviewKpi?.fields ?? campResult.data.reduce((sum, camp) => sum + camp.fieldCount, 0);
   const summaryBaselineYears = baselineYearRange(emissions, overviewKpi?.baselineYears ?? []);
   const totalDiff = baselineTotal - currentTotal;
+  const totalDiffKg = totalDiff * 1000;
   const totalDiffPct = baselineTotal ? (totalDiff / baselineTotal) * 100 : 0;
   const topCurrentProcess = [...chartCurrent]
     .sort((a, b) => b.totalEmission - a.totalEmission)[0];
-  const currentScopeRows = chartCurrent;
-  const groupDonutData: ActivityValue[] = donutMode === "camp"
-    ? selectedField
-      ? [{ name: selectedField.campName, emission: Number((selectedField.currentEmission * caneMeta.factor).toFixed(2)) }]
-      : selectedCamp
-      ? [{ name: selectedCamp.campName, emission: Number((selectedCamp.currentCo2eTotal * caneMeta.factor).toFixed(2)) }]
-      : scopedCamps.map((camp) => ({ name: camp.campName, emission: Number((camp.currentCo2eTotal * caneMeta.factor).toFixed(2)) }))
-    : donutMode === "field"
-    ? selectedField
-      ? [{ name: selectedField.fieldName, emission: Number((selectedField.currentEmission * caneMeta.factor).toFixed(2)) }]
-      : (selectedCampId ? fieldsInCamp : fieldsInRegion).map((field) => ({ name: field.fieldName, emission: Number((field.co2eTotal * caneMeta.factor).toFixed(2)) }))
-    : processEmissionValues(currentScopeRows);
   const chartBaselineTotal = sumEmission(chartBaseline);
   const chartCurrentTotal = sumEmission(chartCurrent);
   const chartDiff = chartBaselineTotal - chartCurrentTotal;
+  const chartBaselineTotalKg = chartBaselineTotal * 1000;
+  const chartCurrentTotalKg = chartCurrentTotal * 1000;
+  const chartDiffKg = chartDiff * 1000;
   const selectedRegion = regionOptions.find((node) => node.id === regionId);
-  const regionComparisonRows: ScopeComparisonRow[] = regionOptions.map((region) => {
-    const regionFields = fieldResult.data.filter((field) => nodeIsWithin(spatialNodes, field.parentId, region.id) || nodeIsWithin(spatialNodes, field.id, region.id));
-    const regionCampIds = new Set(regionFields.map((field) => field.campId));
-    const regionCamps = campResult.data.filter((camp) => regionCampIds.has(camp.campId));
-    return {
-      id: region.id,
-      name: region.name,
-      baseline: regionCamps.reduce((sum, camp) => sum + camp.baselineCo2eTotal, 0),
-      current: regionCamps.reduce((sum, camp) => sum + camp.currentCo2eTotal, 0),
-      areaRai: regionCamps.reduce((sum, camp) => sum + camp.areaRai, 0),
-      fieldCount: regionCamps.reduce((sum, camp) => sum + camp.fieldCount, 0),
-    };
-  }).filter((row) => row.fieldCount > 0);
   const campComparisonRows: ScopeComparisonRow[] = campRows.map((camp) => ({
     id: `camp-${camp.campId}`,
     name: camp.campName,
@@ -305,9 +427,25 @@ export function CfProcessPage() {
     fieldCount: camp.fieldCount,
     camp,
   }));
-  const comparisonRows = selectedCamp ? campComparisonRows : regionId === "all" ? regionComparisonRows : campComparisonRows;
-  const comparisonBaseline = comparisonRowsToActivities(comparisonRows, "baseline_avg", "baseline");
-  const comparisonCurrent = comparisonRowsToActivities(comparisonRows, currentYear || "project", "current");
+  const campIdOptions = campRows.map((camp) => String(camp.campId));
+  const defaultCompareACampId = campIdOptions[0] ?? "";
+  const defaultCompareBCampId = campIdOptions[1] ?? campIdOptions[0] ?? "";
+  const effectiveCompareACampId = campIdOptions.includes(compareACampId) ? compareACampId : defaultCompareACampId;
+  const effectiveCompareBCampId = campIdOptions.includes(compareBCampId) ? compareBCampId : defaultCompareBCampId;
+  const compareAFieldOptions = effectiveCompareACampId ? fieldsInRegion.filter((field) => String(field.campId) === effectiveCompareACampId) : [];
+  const compareBFieldOptions = effectiveCompareBCampId ? fieldsInRegion.filter((field) => String(field.campId) === effectiveCompareBCampId) : [];
+  const effectiveCompareAFieldId = compareAFieldOptions.some((field) => field.id === compareAFieldId) ? compareAFieldId : compareAFieldOptions[0]?.id ?? "";
+  const effectiveCompareBFieldId = compareBFieldOptions.some((field) => field.id === compareBFieldId) ? compareBFieldId : compareBFieldOptions[0]?.id ?? "";
+  const compareACamp = campRows.find((camp) => String(camp.campId) === effectiveCompareACampId);
+  const compareBCamp = campRows.find((camp) => String(camp.campId) === effectiveCompareBCampId);
+  const compareAField = compareAFieldOptions.find((field) => field.id === effectiveCompareAFieldId);
+  const compareBField = compareBFieldOptions.find((field) => field.id === effectiveCompareBFieldId);
+  const compareATarget = compareAType === "field"
+    ? fieldComparisonTarget(compareAField, currentYear, caneMeta.factor)
+    : campComparisonTarget(compareACamp);
+  const compareBTarget = compareBType === "field"
+    ? fieldComparisonTarget(compareBField, currentYear, caneMeta.factor)
+    : campComparisonTarget(compareBCamp);
   const sequestrationRows = campComparisonRows.map((row) => {
     const reduction = Math.max(row.baseline - row.current, 0);
     const fertilizerKg = row.camp?.processInputComparisons.reduce((sum, item) => sum + item.currentFertilizerKg, 0) ?? 0;
@@ -507,26 +645,26 @@ export function CfProcessPage() {
             <>
               <article>
                 <span>Total Emission</span>
-                <strong>{currentTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
-                <small>tCO2e</small>
+                <strong>{currentTotalKg.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
+                <small>{FOOTPRINT_UNIT}</small>
                 <em>{summaryFieldCount.toLocaleString(undefined, { maximumFractionDigits: 0 })} แปลง · {summaryAreaRai.toLocaleString(undefined, { maximumFractionDigits: 0 })} ไร่</em>
               </article>
               <article>
                 <span>Baseline</span>
-                <strong>{baselineTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
-                <small>tCO2e</small>
+                <strong>{baselineTotalKg.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
+                <small>{FOOTPRINT_UNIT}</small>
                 <em>{summaryBaselineYears}</em>
               </article>
               <article>
                 <span>Project</span>
-                <strong>{currentTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
-                <small>tCO2e</small>
+                <strong>{currentTotalKg.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
+                <small>{FOOTPRINT_UNIT}</small>
                 <em>{currentYear || overviewKpi?.currentYear || "-"}</em>
               </article>
               <article>
                 <span>Reduction %</span>
                 <strong className={totalDiff >= 0 ? "green-text" : "red-text"}>{totalDiffPct.toFixed(1)}%</strong>
-                <small>{Math.abs(totalDiff).toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</small>
+                <small>{Math.abs(totalDiffKg).toLocaleString(undefined, { maximumFractionDigits: 0 })} {FOOTPRINT_UNIT}</small>
                 <em>{totalDiff >= 0 ? "ลดลงจากปีฐาน" : "เพิ่มขึ้นจากปีฐาน"}</em>
               </article>
             </>
@@ -626,7 +764,7 @@ export function CfProcessPage() {
           <div className="section-head">
             <div>
               <span className="section-kicker">Carbon Emissions</span>
-              <h2>การปล่อยคาร์บอนและแหล่งที่ทำให้ Emission เปลี่ยนแปลง</h2>
+              <h2>การปล่อยคาร์บอน</h2>
               <p className="muted">ดู Total Emission, Baseline, Project, Reduction และกราฟเปรียบเทียบเพื่อเห็นแหล่งปล่อยหลักของพื้นที่ที่เลือก</p>
             </div>
           </div>
@@ -637,80 +775,64 @@ export function CfProcessPage() {
         <section className="process-summary-grid">
           <article>
             <span>ปีฐานรวมทั้งหมด</span>
-            <strong>{baselineTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
-            <small>tCO2e</small>
+            <strong>{baselineTotalKg.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
+            <small>{FOOTPRINT_UNIT}</small>
           </article>
           <article>
             <span>ปีดำเนินการ</span>
-            <strong>{currentTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
-            <small>tCO2e</small>
+            <strong>{currentTotalKg.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
+            <small>{FOOTPRINT_UNIT}</small>
           </article>
           <article>
             <span>{totalDiff >= 0 ? "ลดลงจากปีฐาน" : "เพิ่มขึ้นจากปีฐาน"}</span>
             <strong className={totalDiff >= 0 ? "green-text" : "red-text"}>
-              {Math.abs(totalDiff).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              {Math.abs(totalDiffKg).toLocaleString(undefined, { maximumFractionDigits: 0 })}
             </strong>
-            <small>{Math.abs(totalDiffPct).toFixed(1)}% · tCO2e</small>
+            <small>{Math.abs(totalDiffPct).toFixed(1)}% · {FOOTPRINT_UNIT}</small>
           </article>
           <article>
             <span>กระบวนการที่ปล่อยสูงสุด</span>
             <strong>{topCurrentProcess?.process ?? "-"}</strong>
-            <small>{topCurrentProcess ? `${topCurrentProcess.totalEmission.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e` : "-"}</small>
+            <small>{topCurrentProcess ? `${(topCurrentProcess.totalEmission * 1000).toLocaleString(undefined, { maximumFractionDigits: 0 })} ${FOOTPRINT_UNIT}` : "-"}</small>
           </article>
         </section>
 
-        <section className="grid2">
-          <article className="card">
-            <div className="card-title-row">
-              <div className="card-title">CO2e ตามกลุ่ม · {selectedField?.fieldName ?? selectedCamp?.campName ?? `ปีดำเนินการ ${currentYear || "-"}`}</div>
-              <div className="group-mode-switch" role="group" aria-label="เลือกกลุ่มข้อมูลโดนัท">
-                {[
-                  ["activity", "ตามกิจกรรม"],
-                  ["camp", "ตามแคมป์"],
-                  ["field", "ตามแปลง"],
-                ].map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    className={donutMode === value ? "active" : ""}
-                    onClick={() => setDonutMode(value as DonutMode)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+        <section className="card full-span">
+          <div className="card-title-row">
+            <div>
+              <div className="card-title">การปล่อยคาร์บอนรายกระบวนการ · {selectedField?.fieldName ?? selectedCamp?.campName ?? `ปีดำเนินการ ${currentYear || "-"}`}</div>
             </div>
-            <ProcessDoughnut data={groupDonutData} />
-          </article>
-          <article className="card">
-            <div className="card-title">Grouped Bar · ปีฐาน vs ปีดำเนินการตาม{selectedCamp ? "กระบวนการของแคมป์" : regionId === "all" ? "รายกลุ่มไร่หลัก" : "รายแคมป์"}</div>
-            <ActivityGroupedBar baseline={selectedCamp ? chartBaseline : comparisonBaseline} current={selectedCamp ? chartCurrent : comparisonCurrent} />
-            {selectedField ? (
-              <div className="summary-list">
-                <div><span>ปีฐาน</span><strong>{chartBaselineTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
-                <div><span>ปีดำเนินการ</span><strong>{chartCurrentTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
-                <div>
-                  <span>ผลต่าง</span>
-                  <strong className={chartDiff >= 0 ? "green-text" : "red-text"}>
-                    {Math.abs(chartDiff).toFixed(2)} tCO2e
-                  </strong>
-                </div>
+            <div className="group-mode-switch" role="group" aria-label="เลือกช่วงเปรียบเทียบรายกระบวนการ">
+              {[
+                ["both", "ปีฐาน VS ปีดำเนินการ"],
+                ["baseline", "ปีฐาน"],
+                ["current", "ปีดำเนินการ"],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={activityChartMode === value ? "active" : ""}
+                  onClick={() => setActivityChartMode(value as ActivityChartMode)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <ActivityGroupedBar baseline={chartBaselineKg} current={chartCurrentKg} mode={activityChartMode} unit={FOOTPRINT_UNIT} />
+          <div className="summary-list">
+            {activityChartMode !== "current" && <div><span>ปีฐาน</span><strong>{chartBaselineTotalKg.toLocaleString(undefined, { maximumFractionDigits: 0 })} {FOOTPRINT_UNIT}</strong></div>}
+            {activityChartMode !== "baseline" && <div><span>ปีดำเนินการ</span><strong>{chartCurrentTotalKg.toLocaleString(undefined, { maximumFractionDigits: 0 })} {FOOTPRINT_UNIT}</strong></div>}
+            {activityChartMode === "both" && (
+              <div>
+                <span>ผลต่าง</span>
+                <strong className={chartDiff >= 0 ? "green-text" : "red-text"}>
+                  {Math.abs(chartDiffKg).toLocaleString(undefined, { maximumFractionDigits: 0 })} {FOOTPRINT_UNIT}
+                </strong>
               </div>
-            ) : selectedCamp ? (
-              <div className="summary-list">
-                <div><span>ปีฐาน</span><strong>{chartBaselineTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
-                <div><span>ปีดำเนินการ</span><strong>{chartCurrentTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
-                <div>
-                  <span>ผลต่าง</span>
-                  <strong className={chartDiff >= 0 ? "green-text" : "red-text"}>
-                    {Math.abs(chartDiff).toFixed(2)} tCO2e
-                  </strong>
-                </div>
-              </div>
-            ) : (
-              <ProcessSummary baseline={chartBaseline} current={chartCurrent} />
             )}
-          </article>
+          </div>
+          {activityChartMode === "both" && <ProcessSummary baseline={chartBaselineKg} current={chartCurrentKg} />}
         </section>
 
         <section className="card full-span">
@@ -719,14 +841,15 @@ export function CfProcessPage() {
             <PeriodSwitch value={period} currentYear={currentYear} onChange={setPeriod} />
           </div>
           <div className="sub-pie-grid">
-            {selectedByCane.map((item) => {
-              const comparisonActivities = (period === "baseline_avg" ? chartCurrent : chartBaseline).find((row) => row.process === item.process)?.activities;
+            {selectedByCaneKg.map((item) => {
+              const comparisonActivities = (period === "baseline_avg" ? chartCurrentKg : chartBaselineKg).find((row) => row.process === item.process)?.activities;
               return (
                 <article className="card sub-card" key={`${item.year}-${item.process}`}>
                   <ProcessDoughnut
                     title={selectedField ? `${item.process} · ${selectedField.fieldCode}` : selectedCamp ? `${item.process} · ${periodLabel(period, currentYear)}` : `${item.process} · ${yearName(item.year)}`}
                     data={item.activities}
                     comparisonData={comparisonActivities}
+                    unit={FOOTPRINT_UNIT}
                   />
                 </article>
               );
@@ -757,9 +880,9 @@ export function CfProcessPage() {
                     <td>{camp.campName}</td>
                     <td>{camp.fieldCount.toLocaleString()}</td>
                     <td>{camp.areaRai.toLocaleString()} ไร่</td>
-                    <td>{camp.baselineCo2eTotal.toLocaleString()} tCO2e</td>
-                    <td>{camp.currentCo2eTotal.toLocaleString()} tCO2e</td>
-                    <td>{camp.co2ePerRai.toFixed(3)} tCO2e/ไร่</td>
+                    <td>{(camp.baselineCo2eTotal * 1000).toLocaleString(undefined, { maximumFractionDigits: 0 })} {FOOTPRINT_UNIT}</td>
+                    <td>{(camp.currentCo2eTotal * 1000).toLocaleString(undefined, { maximumFractionDigits: 0 })} {FOOTPRINT_UNIT}</td>
+                    <td>{(camp.co2ePerRai * 1000).toFixed(1)} {FOOTPRINT_UNIT}/ไร่</td>
                     <td>{camp.topActivity}</td>
                     <td><Link className="run-btn drilldown-link" to={`/footprint-report?campId=${camp.campId}`}>ดูรายงานละเอียด</Link></td>
                   </tr>
@@ -767,6 +890,152 @@ export function CfProcessPage() {
               </tbody>
             </table>
           </div>
+        </section>
+
+        <section className="card full-span camp-comparison-module">
+          <div className="card-title-row">
+            <div>
+              <div className="card-title">เปรียบเทียบแคมป์และรายแปลง</div>
+              <p className="muted">ดู benchmark ทุกแคมป์ หรือเลือกพื้นที่ A/B เพื่อเทียบระดับแคมป์และรายแปลงในขอบเขตตัวกรองปัจจุบัน</p>
+            </div>
+            <div className="group-mode-switch" role="tablist" aria-label="เลือกมุมมองเปรียบเทียบ">
+              {[
+                ["benchmark", "ภาพรวมทุกแคมป์"],
+                ["pair", "เปรียบเทียบ A/B"],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={comparisonTab === value ? "active" : ""}
+                  onClick={() => setComparisonTab(value as ComparisonTab)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {comparisonTab === "benchmark" ? (
+            <>
+              {campComparisonRows.length > 1 ? (
+                <CampBenchmarkBar rows={campComparisonRows} />
+              ) : (
+                <div className="empty-state">ต้องมีอย่างน้อย 2 แคมป์เพื่อเปรียบเทียบ</div>
+              )}
+              <div className="comparison-ranking-grid">
+                {campComparisonRows.map((row) => {
+                  const baselinePerRai = campBenchmarkValue(row.baseline, row.areaRai);
+                  const currentPerRai = campBenchmarkValue(row.current, row.areaRai);
+                  const diff = baselinePerRai - currentPerRai;
+                  return (
+                    <div key={`benchmark-${row.id}`} className="comparison-rank-card">
+                      <strong>{row.name}</strong>
+                      <span>{row.fieldCount.toLocaleString()} แปลง · {row.areaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })} ไร่</span>
+                      <b>{currentPerRai.toLocaleString(undefined, { maximumFractionDigits: 1 })} {FOOTPRINT_UNIT}/ไร่</b>
+                      <small className={diff >= 0 ? "green-text" : "red-text"}>
+                        {diff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(diff).toLocaleString(undefined, { maximumFractionDigits: 1 })} {FOOTPRINT_UNIT}/ไร่ จากปีฐาน {baselinePerRai.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                      </small>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
+            <>
+              {campRows.length > 1 ? (
+                <>
+                  <div className="comparison-filter-grid">
+                    {[
+                      {
+                        side: "A",
+                        type: compareAType,
+                        setType: setCompareAType,
+                        campId: effectiveCompareACampId,
+                        setCampId: setCompareACampId,
+                        fieldId: effectiveCompareAFieldId,
+                        setFieldId: setCompareAFieldId,
+                        fieldOptions: compareAFieldOptions,
+                      },
+                      {
+                        side: "B",
+                        type: compareBType,
+                        setType: setCompareBType,
+                        campId: effectiveCompareBCampId,
+                        setCampId: setCompareBCampId,
+                        fieldId: effectiveCompareBFieldId,
+                        setFieldId: setCompareBFieldId,
+                        fieldOptions: compareBFieldOptions,
+                      },
+                    ].map((item) => (
+                      <div className="comparison-filter-panel" key={`compare-${item.side}`}>
+                        <strong>พื้นที่ {item.side}</strong>
+                        <label>
+                          ระดับข้อมูล
+                          <select value={item.type} onChange={(event) => item.setType(event.target.value as ComparisonTargetType)}>
+                            <option value="camp">แคมป์</option>
+                            <option value="field">รายแปลง</option>
+                          </select>
+                        </label>
+                        <label>
+                          แคมป์
+                          <select
+                            value={item.campId}
+                            onChange={(event) => {
+                              item.setCampId(event.target.value);
+                              item.setFieldId("");
+                            }}
+                          >
+                            {campRows.map((camp) => (
+                              <option key={`${item.side}-${camp.campId}`} value={String(camp.campId)}>{camp.campName}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          แปลง
+                          <select
+                            value={item.fieldId}
+                            disabled={item.type !== "field" || !item.fieldOptions.length}
+                            onChange={(event) => item.setFieldId(event.target.value)}
+                          >
+                            <option value="">{item.fieldOptions.length ? "เลือกแปลงในแคมป์" : "ยังไม่มีข้อมูลรายแปลง"}</option>
+                            {item.fieldOptions.map((field) => (
+                              <option key={`${item.side}-${field.id}`} value={field.id}>{field.fieldCode} · {field.fieldName}</option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="comparison-summary-grid">
+                    <ComparisonSummaryCard label="พื้นที่ A" target={compareATarget} />
+                    <ComparisonSummaryCard label="พื้นที่ B" target={compareBTarget} />
+                  </div>
+
+                  <div className="comparison-process-grid">
+                    <article className="comparison-process-panel">
+                      <div className="card-title">กระบวนการพื้นที่ A</div>
+                      <ActivityGroupedBar
+                        baseline={toKgProcessRows(compareATarget?.baselineRows ?? [])}
+                        current={toKgProcessRows(compareATarget?.currentRows ?? [])}
+                        unit={FOOTPRINT_UNIT}
+                      />
+                    </article>
+                    <article className="comparison-process-panel">
+                      <div className="card-title">กระบวนการพื้นที่ B</div>
+                      <ActivityGroupedBar
+                        baseline={toKgProcessRows(compareBTarget?.baselineRows ?? [])}
+                        current={toKgProcessRows(compareBTarget?.currentRows ?? [])}
+                        unit={FOOTPRINT_UNIT}
+                      />
+                    </article>
+                  </div>
+                </>
+              ) : (
+                <div className="empty-state">ต้องมีอย่างน้อย 2 แคมป์เพื่อเปรียบเทียบ</div>
+              )}
+            </>
+          )}
         </section>
           </>
         )}

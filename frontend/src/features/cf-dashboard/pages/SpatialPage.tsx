@@ -51,6 +51,8 @@ function hasInputComparisonRows(rows?: ProcessInputComparison[]) {
 
 const spatialOrder: Exclude<SpatialLevel, "country">[] = ["region", "province", "district", "subdistrict", "field"];
 const knownGeoValue = (value?: string) => Boolean(value && value !== "-");
+const MAP_FIELD_RENDER_LIMIT = 160;
+const MAP_CAMP_FIELD_RENDER_LIMIT = 220;
 const projectProcessLabels = [
   "1. การเตรียมดินและปลูก",
   "2. การใช้ปุ๋ย",
@@ -649,7 +651,15 @@ export function CfSpatialPage() {
   const fuelDiff = inputTotals.baselineFuelLiter - inputTotals.currentFuelLiter;
   const socRemoval = focusNode ? Math.max(focusNode.baselineEmission - focusNode.currentEmission, 0) * 0.35 : 0;
   const socIndex = focusNode?.areaRai ? (socRemoval / focusNode.areaRai) * 100 : 0;
-  const mapBoundaryFields = selectedCamp ? selectedCampFields : displayCampFields.length ? displayCampFields : isField(selected) ? [selected] : [];
+  const mapFieldRenderLimit = selectedCamp ? MAP_CAMP_FIELD_RENDER_LIMIT : MAP_FIELD_RENDER_LIMIT;
+  const hasFocusedProjectPlot = selectedProjectPlotCode !== "all";
+  const hasScopedProjectArea = Boolean(filters.province || filters.district || filters.subdistrict || selectedCamp || hasFocusedProjectPlot);
+  const projectMapFields = hasFocusedProjectPlot
+    ? displayCampFields
+    : hasScopedProjectArea && displayCampFields.length <= mapFieldRenderLimit
+    ? displayCampFields
+    : [];
+  const mapBoundaryFields = projectMapFields.length ? projectMapFields : isField(selected) ? [selected] : [];
   const mapActiveBoundaryFieldId = activeBoundaryFieldId || (isField(selected) ? selected.id : undefined);
   const documentFields = displayCampFields;
   const documentTitle = selectedCamp
