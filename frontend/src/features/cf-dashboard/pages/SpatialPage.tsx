@@ -58,6 +58,7 @@ const projectProcessLabels = [
   "4. การเก็บเกี่ยว",
 ];
 const projectProcessShares = [0.18, 0.26, 0.35, 0.21];
+const projectReductionBands = [-0.08, 0.02, 0.04, 0.07, 0.1, 0.13, 0.16, 0.19, 0.23, 0.28];
 
 function projectPlotId(plotCode: string) {
   return `project-${plotCode.toLowerCase()}`;
@@ -70,6 +71,20 @@ function projectCampId(campName: string, farmGroup: string) {
     hash = ((hash * 31) + key.charCodeAt(index)) % 900000;
   }
   return 100000 + hash;
+}
+
+function projectStableIndex(key: string, modulo: number) {
+  let hash = 0;
+  for (let index = 0; index < key.length; index += 1) {
+    hash = ((hash * 33) + key.charCodeAt(index)) % 1000003;
+  }
+  return hash % modulo;
+}
+
+function projectReductionPct(plot: SpatialProjectPlot, campName: string) {
+  const baseIndex = projectStableIndex(`${plot.plotCode}:${campName}`, projectReductionBands.length);
+  const farmShift = plot.farmGroup === "dan-chang" ? 1 : 0;
+  return projectReductionBands[(baseIndex + farmShift) % projectReductionBands.length];
 }
 
 function utmToLatLng(easting: number, northing: number, farmGroup: string) {
@@ -110,9 +125,9 @@ function projectPlotToField(plot: SpatialProjectPlot): CampFieldCarbonDetail {
   const campName = normalizeProjectCampName(plot.campName);
   const geo = getSpatialProjectGeo(plot.campName);
   const { lat, lng } = utmToLatLng(plot.x, plot.y, plot.farmGroup);
-  const baselineEmission = Number((plot.projectAreaRai * (0.042 + (plot.sequence % 7) * 0.0018)).toFixed(2));
-  const reductionFactor = plot.farmGroup === "dan-chang" ? 0.13 : 0.09;
-  const currentEmission = Number((baselineEmission * (1 - reductionFactor + (plot.sequence % 5) * 0.006)).toFixed(2));
+  const baselineEmission = Number((plot.projectAreaRai * (0.08 + (plot.sequence % 9) * 0.006)).toFixed(2));
+  const reductionFactor = projectReductionPct(plot, campName);
+  const currentEmission = Number((baselineEmission * (1 - reductionFactor)).toFixed(2));
   const processBreakdown = projectProcessLabels.map((name, index) => ({
     name,
     emission: Number((currentEmission * projectProcessShares[index]).toFixed(2)),
