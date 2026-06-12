@@ -1,5 +1,9 @@
 # CONCLUSION_CARBON_CAL_TABLE
 
+Last updated: 2026-06-11
+
+หมายเหตุ: เอกสารนี้เป็น design note สำหรับ logic การคำนวณและโครงสร้างข้อมูล ไม่ใช่สเปก schema ปัจจุบันแบบหนึ่งต่อหนึ่งกับ `backend/src/prisma/schema.prisma`
+
 เอกสารนี้สรุปจากไฟล์ต้นทาง 6 ไฟล์ที่นำเข้ามาเพื่อใช้เป็นฐานคิดสำหรับทำระบบคำนวณ Carbon Footprint และ Carbon Credit บนเว็บ หลังจากสรุปแล้วระบบไม่ควรผูกกับไฟล์ Excel/PowerPoint เหล่านี้โดยตรง แต่ควรถอดข้อมูลสำคัญออกมาเป็นสูตร, constant, input schema, result schema และฐานข้อมูลที่ตรวจสอบย้อนหลังได้
 
 ## 1. ไฟล์ที่นำมาสรุป

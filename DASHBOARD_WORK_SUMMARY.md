@@ -1,10 +1,14 @@
 # สรุปงานส่วน Carbon Dashboard และรายงาน Premium T-VER
 
+Last updated: 2026-06-11
+
 ผู้รับผิดชอบงานส่วนนี้: งานหน้าสรุปผล Carbon Dashboard, การแสดงผลเชิงวิเคราะห์, แผนที่สรุปพื้นที่ และรายงานสำหรับเตรียมยื่น Premium T-VER
 
-Branch ที่ทำงาน: `idea`
+Current local branch ตอน review เอกสารนี้: `kong_dev`
 
-Commit ล่าสุดที่อัปขึ้น Git: `Add footprint emissions and sequestration tabs`
+Current local HEAD ตอน review เอกสารนี้: `8b212f4 Merge pull request #26 from JirayuKonG/idea`
+
+หมายเหตุ: เนื้อหาส่วนใหญ่ด้านล่างเป็นบันทึกประวัติการทำงานบน branch `idea` และยังคงเก็บไว้เป็น timeline ของงาน dashboard
 
 ## อัปเดตงานเพิ่มเติม วันที่ 9-11 มิถุนายน 2569 - สรุปจากประวัติ Git
 

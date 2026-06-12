@@ -1,10 +1,12 @@
 # Security Policy / นโยบายความปลอดภัย
 
-Last updated: 2026-06-01
+Last updated: 2026-06-11
 
 This document explains how to report security issues for the Carbon Footprint Management & Traceability System and what contributors should keep in mind when handling sensitive data.
 
 เอกสารนี้อธิบายวิธีรายงานช่องโหว่ด้านความปลอดภัยของระบบ Carbon Footprint Management & Traceability System รวมถึงแนวทางที่ผู้พัฒนาควรใช้เมื่อทำงานกับข้อมูลสำคัญหรือข้อมูลที่มีความอ่อนไหว
+
+For setup, routing, or implementation notes, use `README.md`, `GUIDE.md`, `COMPONENT_PJ.md`, and `CONTEXT.md` instead of expanding this policy file.
 
 ## Supported Scope / ขอบเขตที่ครอบคลุม
 
