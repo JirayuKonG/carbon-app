@@ -259,7 +259,7 @@ type FootprintResultUnitKind = 'kgco2e' | 'tco2e'
 type BulkPreparationPopupState =
   | { kind: 'hidden' }
   | { kind: 'loading'; current: number; total: number; currentLabel: string }
-  | { kind: 'success'; itemCount: number; countdown: number }
+  | { kind: 'success'; itemCount: number; countdown: number; movedToReadyCount?: number }
 
 type StatusTransitionPopupState =
   | { kind: 'hidden' }
@@ -871,6 +871,7 @@ export function CarbonFootprintQueuePage({
   const [bulkFuelPreparedUnitId, setBulkFuelPreparedUnitId] = useState('')
   const [bulkFuelPreparedUnitName, setBulkFuelPreparedUnitName] = useState('')
   const [bulkFuelPreparedUnitInitial, setBulkFuelPreparedUnitInitial] = useState('')
+  const [bulkMovePreparedToReady, setBulkMovePreparedToReady] = useState(false)
   const [bulkOtherConfigs, setBulkOtherConfigs] = useState<Record<string, OtherGroupConfig>>({})
   const [bulkModalError, setBulkModalError] = useState<string | null>(null)
   const [bulkPreparationPopup, setBulkPreparationPopup] = useState<BulkPreparationPopupState>({ kind: 'hidden' })
@@ -885,6 +886,7 @@ export function CarbonFootprintQueuePage({
   const [footprintUnitCreateMode, setFootprintUnitCreateMode] = useState<FootprintFormulaMode | null>(null)
   const [footprintNewUnitName, setFootprintNewUnitName] = useState('')
   const [footprintNewUnitInitial, setFootprintNewUnitInitial] = useState('')
+  const [footprintUnitCreateError, setFootprintUnitCreateError] = useState<string | null>(null)
   const [form, setForm] = useState<PreparationForm>(emptyForm)
 
   const { data: queue = [], isLoading, error: queueError } = useQuery({
@@ -961,6 +963,7 @@ export function CarbonFootprintQueuePage({
   const kgUnit = findUnit(['kg', 'กิโลกรัม', 'kilogram', 'kilograms'])
   const literUnit = findUnit(['l', 'lit', 'liter', 'litre', 'litter', 'ลิตร'])
   const cubicMeterUnit = findUnit(['m3', 'm^3', 'm³', 'cubicmeter', 'cubicmetre', 'ลูกบาศก์เมตร'])
+  const milliliterUnit = findUnit(['ml', 'milliliter', 'millilitre', 'มิลลิลิตร'])
 
   const getDetailUnitText = (detail?: QueueLogDetail) => (
     [detail?.units?.unit_name, detail?.units?.unit_initial, detail?.units_prefixs?.unit_prefix_name, detail?.units_prefixs?.unit_prefix_initial]
@@ -1144,6 +1147,11 @@ export function CarbonFootprintQueuePage({
   const selectedQueueRows = filteredRows.filter((row) => selectedQueueIds.includes(row.id))
   const readyEligibleRows = selectedQueueRows.filter((row) => row.statusKind === 'preparing' && row.isPrepared)
   const readyEligibleDetailIds = readyEligibleRows.map((row) => row.detailId)
+  const bulkReadyTransitionDetailIds = Array.from(new Set(
+    selectedQueueRows
+      .filter((row) => row.statusKind === 'preparing' && row.detailId > 0)
+      .map((row) => row.detailId),
+  ))
   const importedEligibleRows = selectedQueueRows.filter((row) => row.statusKind !== 'imported')
   const importedEligibleDetailIds = importedEligibleRows.map((row) => row.detailId)
   const footprintCalculateRows = selectedQueueRows.filter(canRunFootprintCalculation)
@@ -1232,6 +1240,9 @@ export function CarbonFootprintQueuePage({
     })
   }, [efs, footprintEfFilterCfTypeId, footprintEfFilterGroupId, footprintEfFilterUnitId, footprintEfFilterSearch, cfTypeMap, efGroupMap, unitById])
   const selectableFuelEfs = filteredFuelEfs.filter((item) => item.coef_em_factor_value_total != null)
+  const supportedFootprintResultUnits = useMemo(() => (
+    units.filter((unit) => Boolean(resolveFootprintResultUnitKindFromNames([unit.unit_name, unit.unit_initial])))
+  ), [units])
   const footprintModalFuelRowsMissingEf = footprintModalFuelRows.filter((row) => !footprintSelectedEfIds[row.id])
   const footprintPreviewCodeGroups = useMemo(() => (
     FOOTPRINT_FORMULA_MODES.map((mode) => {
@@ -1369,6 +1380,7 @@ export function CarbonFootprintQueuePage({
     setBulkModalOpen(false)
     setBulkModalError(null)
     setBulkPreparationPopup({ kind: 'hidden' })
+    setBulkMovePreparedToReady(false)
   }
 
   const getRowUnitText = (row: QueueRow) => {
@@ -1566,17 +1578,22 @@ export function CarbonFootprintQueuePage({
     const manualN = toNumberOrUndefined(bulkUnknownFertilizerN)
     return manualN != null ? formatNumber(manualN, 3) : 'null'
   }
-  const getBulkFuelPresetValue = (target: 'liter' | 'm3') => {
+  const getBulkFuelPresetValue = (target: 'liter' | 'milliliter') => {
     const hasLiter = selectedFuelRows.some(isLiterRow)
     const hasCubicMeter = selectedFuelRows.some(isCubicMeterRow)
-    if (target === 'm3') return hasLiter && !hasCubicMeter ? '0.001' : '1'
+    if (target === 'milliliter') return '0.001'
     return hasCubicMeter && !hasLiter ? '1000' : '1'
   }
 
-  const applyBulkFuelPreset = (target: 'liter' | 'm3') => {
-    const targetUnit = target === 'liter' ? literUnit : cubicMeterUnit
+  const applyBulkFuelPreset = (target: 'liter' | 'milliliter') => {
+    const targetUnit = target === 'liter' ? literUnit : milliliterUnit
     setBulkFuelValuePerUnit(getBulkFuelPresetValue(target))
     setBulkFuelPreparedUnitId(targetUnit?.unit_id != null ? String(targetUnit.unit_id) : '')
+    if (target === 'milliliter' && !targetUnit?.unit_id) {
+      setBulkFuelPreparedUnitName('milliliter')
+      setBulkFuelPreparedUnitInitial('ml')
+      return
+    }
     setBulkFuelPreparedUnitName('')
     setBulkFuelPreparedUnitInitial('')
   }
@@ -1643,7 +1660,12 @@ export function CarbonFootprintQueuePage({
         const modeRows = footprintModalRows.filter((row) => row.formulaMode === mode)
         if (!modeRows.length || next[mode]) return
 
-        const existingUnitId = modeRows.find((row) => row.original.unit_id_resultValue != null)?.original.unit_id_resultValue
+        const existingUnitId = modeRows.find((row) => {
+          const unitId = row.original.unit_id_resultValue
+          if (unitId == null) return false
+          const unit = units.find((item) => item.unit_id === unitId)
+          return Boolean(unit && resolveFootprintResultUnitKindFromNames([unit.unit_name, unit.unit_initial]))
+        })?.original.unit_id_resultValue
         const fallbackUnit = units.find((unit) => {
           const names = [unit.unit_name, unit.unit_initial].map(normalizeUnitText)
           return names.some((name) => getFootprintResultUnitAliases(mode).includes(name))
@@ -1658,6 +1680,26 @@ export function CarbonFootprintQueuePage({
       return changed ? next : prev
     })
   }, [footprintCalculationModal.kind, footprintModalRows, isPreparationMode, units])
+
+  useEffect(() => {
+    if (!supportedFootprintResultUnits.length) return
+
+    setFootprintResultUnitSelections((prev) => {
+      let changed = false
+      const next = { ...prev }
+
+      Object.entries(prev).forEach(([mode, unitId]) => {
+        if (!unitId) return
+        const isSupported = supportedFootprintResultUnits.some((unit) => String(unit.unit_id) === unitId)
+        if (!isSupported) {
+          next[mode as FootprintFormulaMode] = ''
+          changed = true
+        }
+      })
+
+      return changed ? next : prev
+    })
+  }, [supportedFootprintResultUnits])
 
   useEffect(() => {
     if (!footprintEfFilterGroupId) return
@@ -1773,7 +1815,15 @@ export function CarbonFootprintQueuePage({
   })
 
   const bulkPreparationMut = useMutation({
-    mutationFn: async ({ items }: { items: BulkConversionPreview[] }) => {
+    mutationFn: async ({
+      items,
+      moveToReady,
+      detailIds,
+    }: {
+      items: BulkConversionPreview[]
+      moveToReady: boolean
+      detailIds: number[]
+    }) => {
       const updated = []
       setBulkModalError(null)
       setBulkPreparationPopup({
@@ -1801,6 +1851,26 @@ export function CarbonFootprintQueuePage({
           throw new Error(`รายการที่ ${index + 1}/${items.length}: ${item.row.headerLabel} · ${item.row.resourceItemName} - ${getErrorMessage(error)}`)
         }
       }
+
+      if (moveToReady && detailIds.length > 0) {
+        setBulkPreparationPopup({
+          kind: 'loading',
+          current: items.length,
+          total: items.length,
+          currentLabel: 'กำลังย้ายสถานะเป็น พร้อมคำนวณมาตรฐาน',
+        })
+
+        try {
+          await (
+            detailIds.length === 1
+              ? post(`/activities/details/${detailIds[0]}/manual-status`, { statusName: ACTIVITY_CAL_STATUS_NAMES.ready })
+              : post('/activities/details/manual-status/bulk', { ids: detailIds, statusName: ACTIVITY_CAL_STATUS_NAMES.ready })
+          )
+        } catch (error) {
+          throw new Error(`บันทึกการเตรียมข้อมูลสำเร็จแล้ว แต่ย้ายสถานะเป็น พร้อมคำนวณมาตรฐาน ไม่สำเร็จ - ${getErrorMessage(error)}`)
+        }
+      }
+
       return updated
     },
     onSuccess: async (_data, variables) => {
@@ -1814,6 +1884,7 @@ export function CarbonFootprintQueuePage({
         kind: 'success',
         itemCount: variables.items.length,
         countdown: 4,
+        movedToReadyCount: variables.moveToReady ? variables.detailIds.length : 0,
       })
     },
     onError: (error) => {
@@ -1888,6 +1959,9 @@ export function CarbonFootprintQueuePage({
   }
 
   const updateFootprintResultUnitSelection = (mode: FootprintFormulaMode, unitId: string) => {
+    if (unitId && !supportedFootprintResultUnits.some((unit) => String(unit.unit_id) === unitId)) {
+      return
+    }
     setFootprintResultUnitSelections((prev) => ({
       ...prev,
       [mode]: unitId,
@@ -1905,12 +1979,20 @@ export function CarbonFootprintQueuePage({
     setFootprintUnitCreateMode(mode)
     setFootprintNewUnitName('')
     setFootprintNewUnitInitial('')
+    setFootprintUnitCreateError(null)
   }
 
   const submitFootprintUnitCreate = (mode: FootprintFormulaMode) => {
     const unitName = footprintNewUnitName.trim()
     const unitInitial = footprintNewUnitInitial.trim()
     if (!unitName) return
+    const resolvedKind = resolveFootprintResultUnitKindFromNames([unitName, unitInitial])
+    if (!resolvedKind) {
+      setFootprintUnitCreateError('เพิ่มได้เฉพาะหน่วยในกลุ่ม kgCO2e หรือ tCO2e เท่านั้น')
+      return
+    }
+
+    setFootprintUnitCreateError(null)
 
     saveFootprintUnitMut.mutate({
       mode,
@@ -2433,6 +2515,7 @@ export function CarbonFootprintQueuePage({
                     onClick={() => {
                       setBulkModalError(null)
                       setBulkPreparationPopup({ kind: 'hidden' })
+                      setBulkMovePreparedToReady(false)
                       setBulkModalOpen(true)
                     }}
                   >
@@ -2670,7 +2753,7 @@ export function CarbonFootprintQueuePage({
                                     onChange={(event) => updateFootprintResultUnitSelection(mode, event.target.value)}
                                   >
                                     <option value="">ใช้ค่า default ของระบบ ({getFootprintExpectedResultUnitLabel(mode)})</option>
-                                    {units.map((unit) => (
+                                    {supportedFootprintResultUnits.map((unit) => (
                                       <option key={unit.unit_id} value={unit.unit_id}>
                                         {unitLabel(unit)}
                                       </option>
@@ -2687,7 +2770,7 @@ export function CarbonFootprintQueuePage({
                                     <Plus size={13} /> เพิ่มหน่วยใหม่
                                   </button>
                                   <span className="text-[11px] text-surface-500">
-                                    ตอนนี้ backend รองรับการแปลงผลลัพธ์สำหรับกลุ่ม `kgCO2e` และ `tCO2e`
+                                    ตอนนี้ตัวเลือกถูกจำกัดไว้เฉพาะหน่วยผลลัพธ์กลุ่ม `kgCO2e` และ `tCO2e`
                                   </span>
                                 </div>
 
@@ -2695,16 +2778,19 @@ export function CarbonFootprintQueuePage({
                                   <div className="mt-3 grid gap-2 rounded-xl border border-dashed border-[#d9e7f2] bg-white px-3 py-3">
                                     <input
                                       className="input"
-                                      placeholder="ชื่อหน่วย เช่น kilogram CO2e"
+                                      placeholder="ชื่อหน่วย เช่น kilogram CO2e หรือ tonne CO2e"
                                       value={footprintNewUnitName}
                                       onChange={(event) => setFootprintNewUnitName(event.target.value)}
                                     />
                                     <input
                                       className="input"
-                                      placeholder="ตัวย่อ เช่น kgCO2e"
+                                      placeholder="ตัวย่อ เช่น kgCO2e หรือ tCO2e"
                                       value={footprintNewUnitInitial}
                                       onChange={(event) => setFootprintNewUnitInitial(event.target.value)}
                                     />
+                                    <p className="text-xs text-surface-500">
+                                      เพิ่มได้เฉพาะ alias ที่ระบบแปลได้เป็น `kgCO2e` หรือ `tCO2e`
+                                    </p>
                                     <div className="flex flex-wrap gap-2">
                                       <button
                                         type="button"
@@ -2722,6 +2808,11 @@ export function CarbonFootprintQueuePage({
                                         ยกเลิก
                                       </button>
                                     </div>
+                                    {footprintUnitCreateError && (
+                                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                                        {footprintUnitCreateError}
+                                      </div>
+                                    )}
                                     {saveFootprintUnitMut.isError && (
                                       <div className="text-[11px] text-red-700">{getErrorMessage(saveFootprintUnitMut.error)}</div>
                                     )}
@@ -3334,7 +3425,7 @@ export function CarbonFootprintQueuePage({
                         </div>
                         <div className="mb-3 flex flex-wrap gap-2">
                           <button type="button" className="btn-secondary btn-sm" onClick={() => applyBulkFuelPreset('liter')}>ใช้ preset L</button>
-                          <button type="button" className="btn-secondary btn-sm" onClick={() => applyBulkFuelPreset('m3')}>ใช้ preset m3</button>
+                          <button type="button" className="btn-secondary btn-sm" onClick={() => applyBulkFuelPreset('milliliter')}>ใช้ preset ml</button>
                         </div>
                         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                           <div>
@@ -3618,13 +3709,33 @@ export function CarbonFootprintQueuePage({
                 </section>
               </div>
 
+              <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-[#cfe3d6] bg-[linear-gradient(180deg,rgba(249,255,251,0.98),rgba(240,249,244,0.98))] px-4 py-3 text-sm text-surface-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 accent-green-600"
+                  checked={bulkMovePreparedToReady}
+                  onChange={(event) => setBulkMovePreparedToReady(event.target.checked)}
+                  disabled={bulkPreparationPopup.kind === 'loading'}
+                />
+                <span>
+                  <span className="block font-medium text-surface-900">เสร็จแล้ว ย้ายสถานะเป็น พร้อมคำนวณมาตรฐาน</span>
+                  <span className="mt-1 block text-xs text-surface-500">
+                    ถ้าไม่ติ๊กไว้ ระบบจะบันทึกการเตรียมข้อมูลอย่างเดียว และคงสถานะเดิมเป็น กำลังเตรียมข้อมูล
+                  </span>
+                </span>
+              </label>
+
               <div className="mt-5 flex flex-col gap-2 sm:flex-row">
                 <button type="button" className="btn-secondary flex-1 justify-center" onClick={closeBulkModal} disabled={bulkPreparationPopup.kind === 'loading'}>ยกเลิก</button>
                 <button
                   type="button"
                   className="btn-primary flex-1 justify-center"
                   disabled={!bulkConversionPreview.length || bulkPreparationMut.isPending}
-                  onClick={() => bulkPreparationMut.mutate({ items: bulkConversionPreview })}
+                  onClick={() => bulkPreparationMut.mutate({
+                    items: bulkConversionPreview,
+                    moveToReady: bulkMovePreparedToReady,
+                    detailIds: bulkReadyTransitionDetailIds,
+                  })}
                 >
                   {bulkPreparationMut.isPending ? 'กำลังบันทึก...' : 'บันทึกการเปลี่ยนหน่วยทั้งหมด'}
                 </button>
@@ -3673,6 +3784,11 @@ export function CarbonFootprintQueuePage({
                         <p className="mt-2 text-sm text-surface-600">
                           อัปเดตข้อมูล {bulkPreparationPopup.itemCount.toLocaleString('th-TH')} รายการในชุดข้อมูลกิจกรรมเรียบร้อยแล้ว
                         </p>
+                        {(bulkPreparationPopup.movedToReadyCount ?? 0) > 0 && (
+                          <p className="mt-2 text-sm font-medium text-green-700">
+                            พร้อมย้ายสถานะ {bulkPreparationPopup.movedToReadyCount?.toLocaleString('th-TH')} รายการเป็น พร้อมคำนวณมาตรฐาน แล้ว
+                          </p>
+                        )}
                         <div className="mt-4 rounded-2xl border border-[#d9e7f2] bg-white/90 px-4 py-3 shadow-sm">
                           <span className="text-xs text-surface-500">หน้าต่างนี้จะปิดอัตโนมัติใน </span>
                           <span className="countdown text-sm">{bulkPreparationPopup.countdown}</span>

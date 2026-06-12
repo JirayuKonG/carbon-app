@@ -1,6 +1,6 @@
 # Project Context Memory
 
-Last updated: 2026-06-11
+Last updated: 2026-06-12
 
 This file is a working memory for the project. It summarizes the current repo state, important decisions, active risks, and where future work should start. Update it when major behavior, routes, architecture, or project status changes.
 
@@ -162,6 +162,23 @@ Important current behavior from code and repo notes:
 - Repo notes say preparation metadata is intentionally stored without adding new database columns, reusing existing queue and result-unit fields.
 - Activity imports now maintain imported-file history through `activities_fileNameUse`.
 - Backend bootstrap in `backend/src/main.ts` installs `50mb` JSON and URL-encoded body parsers to support large import payloads.
+
+Recent workflow update from user prompt on 2026-06-12:
+
+- Prompt summary: update the bulk action card on the Carbon preparation queue page so the fuel preset button labeled `ใช้ preset m3` becomes `ใช้ preset ml`, and add an easy-to-see checkbox that optionally moves processed rows from `กำลังเตรียมข้อมูล` to `พร้อมคำนวณมาตรฐาน` immediately after bulk preparation completes.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now shows `ใช้ preset ml` for bulk fuel preparation and applies the `ml` target with conversion factor `0.001` as explicitly requested by the user. The same bulk modal now includes a checkbox labeled `เสร็จแล้ว ย้ายสถานะเป็น พร้อมคำนวณมาตรฐาน`.
+- Source of truth: the new UI and behavior live in `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Status behavior: when the checkbox is enabled, the bulk preparation flow saves preparation data first and then bulk-updates eligible selected rows from `กำลังเตรียมข้อมูล` to `พร้อมคำนวณมาตรฐาน`. When the checkbox is not enabled, status remains unchanged.
+- Assumption kept intentionally: the new `ml` preset preserves the requested factor `0.001` even though that value is user-defined behavior rather than a generalized unit-conversion rule.
+- Related docs updated: `CONTEXT.md` updated for project memory. No schema or route docs required changes.
+
+Recent result-unit update from user prompt on 2026-06-12:
+
+- Prompt summary: restrict Carbon Footprint result-unit selection so users can choose only `kgCO2e` and `tCO2e`, removing unsupported-unit selection that caused errors such as `kgCO2-eq/unit`.
+- Result: the result-unit dropdown in `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now lists only supported unit-master entries that resolve to `kgCO2e` or `tCO2e`. Existing unsupported saved selections are ignored during modal initialization, and manual selection is guarded so unsupported unit IDs cannot be kept in this flow.
+- Additional behavior: the inline `เพิ่มหน่วยใหม่` form in the same modal now validates unit name/initial input and allows creation only when the unit resolves to the supported `kgCO2e` or `tCO2e` groups.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` controls the selectable result-unit list and the create-unit validation for the Carbon Footprint modal.
+- Related docs updated: `CONTEXT.md` updated for project memory. No database/schema changes were made.
 
 ## Important Feature Areas
 
