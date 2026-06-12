@@ -106,6 +106,16 @@
   grid-template-columns: repeat(2, minmax(220px,360px));
   justify-content: center;
 }
+.cf-dash .overview-farm-filter-card {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(320px, 520px);
+  align-items: center;
+  gap: 16px;
+}
+.cf-dash .overview-farm-toggle {
+  justify-self: end;
+  width: min(100%, 520px);
+}
 .cf-dash .kpi { position: relative; min-height: 140px; overflow: hidden; padding: 16px; transition: all .25s ease; }
 .cf-dash .kpi::before {
   content: "";
