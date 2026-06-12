@@ -854,7 +854,7 @@ export function CarbonFootprintQueuePage({
 }) {
   const isPreparationMode = mode === 'preparation'
   const qc = useQueryClient()
-  const [statusFilter, setStatusFilter] = useState(isPreparationMode ? 'preparing' : '')
+  const [statusFilter, setStatusFilter] = useState(isPreparationMode ? 'preparing' : 'ready')
   const [resourceTypeFilter, setResourceTypeFilter] = useState('')
   const [campFilter, setCampFilter] = useState('')
   const [preparationFilter, setPreparationFilter] = useState('')
@@ -1214,15 +1214,23 @@ export function CarbonFootprintQueuePage({
       const matchesCfType = !footprintEfFilterCfTypeId || item.carbonfootprint_type_id === Number(footprintEfFilterCfTypeId)
       const matchesGroup = !footprintEfFilterGroupId || item.group_emission_factor_id === Number(footprintEfFilterGroupId)
       const matchesUnit = !footprintEfFilterUnitId || getEfInputUnitId(item) === Number(footprintEfFilterUnitId)
+      const inputUnit = unitById[getEfInputUnitId(item) ?? 0]
+      const resultUnit = unitById[getEfTotalResultUnitId(item) ?? 0]
       const matchesSearch = !search || [
         item.coef_em_factor_idCode,
         item.coef_em_factor_name,
         item.coef_em_factor_info,
+        item.carbonfootprint_type_id != null ? cfTypeMap[item.carbonfootprint_type_id] : undefined,
+        item.group_emission_factor_id != null ? efGroupMap[item.group_emission_factor_id] : undefined,
+        inputUnit?.unit_name,
+        inputUnit?.unit_initial,
+        resultUnit?.unit_name,
+        resultUnit?.unit_initial,
       ].some((value) => value?.toLowerCase().includes(search))
 
       return matchesCfType && matchesGroup && matchesUnit && matchesSearch
     })
-  }, [efs, footprintEfFilterCfTypeId, footprintEfFilterGroupId, footprintEfFilterUnitId, footprintEfFilterSearch])
+  }, [efs, footprintEfFilterCfTypeId, footprintEfFilterGroupId, footprintEfFilterUnitId, footprintEfFilterSearch, cfTypeMap, efGroupMap, unitById])
   const selectableFuelEfs = filteredFuelEfs.filter((item) => item.coef_em_factor_value_total != null)
   const footprintModalFuelRowsMissingEf = footprintModalFuelRows.filter((row) => !footprintSelectedEfIds[row.id])
   const footprintPreviewCodeGroups = useMemo(() => (
@@ -2035,7 +2043,7 @@ export function CarbonFootprintQueuePage({
   }
 
   const clearFilters = () => {
-    setStatusFilter(isPreparationMode ? 'preparing' : '')
+    setStatusFilter(isPreparationMode ? 'preparing' : 'ready')
     setResourceTypeFilter('')
     setCampFilter('')
     setPreparationFilter('')
@@ -2775,7 +2783,7 @@ export function CarbonFootprintQueuePage({
                               <label className="label">ค้นหา EF</label>
                               <input
                                 className="input"
-                                placeholder="รหัส EF, ชื่อ EF, รายละเอียด"
+                                placeholder="รหัส EF, ชื่อ EF, รายละเอียด, กลุ่ม หรือหน่วย"
                                 value={footprintEfFilterSearch}
                                 onChange={(event) => setFootprintEfFilterSearch(event.target.value)}
                               />
