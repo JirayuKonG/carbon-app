@@ -10,6 +10,7 @@ import "../cf-dashboard.css";
 type CascadingReportLevel = Exclude<ReportFilterLevel, "all">;
 type PreviewTab = "pdf" | "word" | "excel";
 const reportLevelOrder: CascadingReportLevel[] = ["region", "province", "district", "subdistrict", "field"];
+type ReportCampNode = SpatialSummaryNode & { campId?: number; campName?: string; fieldCode?: string };
 
 function emptyReportPath(): Record<CascadingReportLevel, string> {
   return {
@@ -29,6 +30,18 @@ function diffText(baseline: number, current: number) {
 
 function nodeIdValue(node: SpatialSummaryNode) {
   return node.id.replace(`${node.level}-`, "");
+}
+
+function reportNodeCampId(node: SpatialSummaryNode) {
+  return String((node as ReportCampNode).campId ?? "");
+}
+
+function reportNodeCampName(node: SpatialSummaryNode) {
+  return (node as ReportCampNode).campName ?? "";
+}
+
+function reportNodeFieldCode(node: SpatialSummaryNode) {
+  return (node as ReportCampNode).fieldCode ?? "";
 }
 
 function rowsForSheet<T extends object>(rows: T[]): Record<string, unknown>[] {
@@ -587,6 +600,7 @@ export function CfReportPage() {
   const pddEmissionRef = useRef<HTMLDivElement>(null);
   const [nodes, setNodes] = useState<SpatialSummaryNode[]>([]);
   const [reportPath, setReportPath] = useState<Record<CascadingReportLevel, string>>(emptyReportPath);
+  const [selectedReportCampId, setSelectedReportCampId] = useState("");
   const [report, setReport] = useState<ReportSummary | null>(null);
   const [generatedReport, setGeneratedReport] = useState<ReportSummary | null>(null);
   const [activePreviewTab, setActivePreviewTab] = useState<PreviewTab>("pdf");
@@ -603,7 +617,54 @@ export function CfReportPage() {
       .catch((err) => setError(err instanceof Error ? err.message : "โหลดตัวกรองพื้นที่ไม่สำเร็จ"));
   }, []);
 
+  const reportFieldOptions = useMemo(() => {
+    if (!reportPath.subdistrict) return [];
+    const byId = new Map<string, SpatialSummaryNode>();
+    nodes
+      .filter((node) => node.level === "field" && node.parentId === reportPath.subdistrict && !node.id.startsWith("camp-"))
+      .forEach((node) => {
+        const current = byId.get(node.id);
+        if (!current || (!reportNodeCampName(current) && reportNodeCampName(node))) {
+          byId.set(node.id, node);
+        }
+      });
+    return Array.from(byId.values());
+  }, [nodes, reportPath.subdistrict]);
+
+  const reportCampOptions = useMemo(() => {
+    const byCampId = new Map<string, string>();
+    reportFieldOptions.forEach((node) => {
+      const campId = reportNodeCampId(node);
+      const campName = reportNodeCampName(node);
+      if (campId && campName) byCampId.set(campId, campName);
+    });
+    return Array.from(byCampId.entries())
+      .map(([campId, campName]) => ({ campId, campName }))
+      .sort((a, b) => a.campName.localeCompare(b.campName, "th"));
+  }, [reportFieldOptions]);
+
+  const filteredReportFieldOptions = useMemo(
+    () => selectedReportCampId
+      ? reportFieldOptions.filter((node) => reportNodeCampId(node) === selectedReportCampId)
+      : reportFieldOptions,
+    [reportFieldOptions, selectedReportCampId],
+  );
+
+  const selectedReportCampSummaryNode = useMemo(
+    () => selectedReportCampId
+      ? nodes.find((node) => node.level === "field" && node.id.startsWith("camp-") && reportNodeCampId(node) === selectedReportCampId)
+      : undefined,
+    [nodes, selectedReportCampId],
+  );
+
   const activeReportFilter = useMemo<ReportFilter>(() => {
+    if (reportPath.field) {
+      const node = nodes.find((item) => item.id === reportPath.field);
+      return { level: "field", id: node ? nodeIdValue(node) : reportPath.field };
+    }
+    if (selectedReportCampSummaryNode) {
+      return { level: "field", id: nodeIdValue(selectedReportCampSummaryNode) };
+    }
     const selectedLevel = [...reportLevelOrder].reverse().find((level) => reportPath[level]);
     if (!selectedLevel) return { level: "all" };
     const node = nodes.find((item) => item.id === reportPath[selectedLevel]);
@@ -611,7 +672,7 @@ export function CfReportPage() {
       level: selectedLevel,
       id: node ? nodeIdValue(node) : reportPath[selectedLevel],
     };
-  }, [nodes, reportPath]);
+  }, [nodes, reportPath, selectedReportCampSummaryNode]);
 
   const selectedReportNode = activeReportFilter.level === "all"
     ? undefined
@@ -624,6 +685,12 @@ export function CfReportPage() {
       .catch((err) => setError(err instanceof Error ? err.message : "โหลดรายงานไม่สำเร็จ"))
       .finally(() => setLoading(false));
   }, [activeReportFilter]);
+
+  useEffect(() => {
+    if (selectedReportCampId && !reportCampOptions.some((camp) => camp.campId === selectedReportCampId)) {
+      setSelectedReportCampId("");
+    }
+  }, [reportCampOptions, selectedReportCampId]);
 
   useEffect(() => {
     if (!generatedReport || !pddEmissionRef.current) return;
@@ -667,7 +734,14 @@ export function CfReportPage() {
       next[key] = "";
     });
     setReportPath(next);
+    if (level !== "field") setSelectedReportCampId("");
     setGenerateNotice("ตัวกรองเปลี่ยนแล้ว สรุปด้านซ้ายอัปเดตทันที กดสร้างเอกสารใหม่เมื่อพร้อม");
+  };
+
+  const selectReportCamp = (campId: string) => {
+    setSelectedReportCampId(campId);
+    setReportPath((current) => ({ ...current, field: "" }));
+    setGenerateNotice("ตัวกรองแคมป์เปลี่ยนแล้ว สรุปด้านซ้ายอัปเดตทันที กดสร้างเอกสารใหม่เมื่อพร้อม");
   };
 
   const generateReportPreview = () => {
@@ -772,11 +846,20 @@ export function CfReportPage() {
             </select>
           </label>
           <label>
+            แคมป์
+            <select value={selectedReportCampId} onChange={(event) => selectReportCamp(event.target.value)} disabled={!reportPath.subdistrict || !reportCampOptions.length}>
+              <option value="">ทุกแคมป์ในตำบล</option>
+              {reportCampOptions.map((camp) => (
+                <option key={camp.campId} value={camp.campId}>{camp.campName}</option>
+              ))}
+            </select>
+          </label>
+          <label>
             แปลง
-            <select value={reportPath.field} onChange={(event) => selectReportPath("field", event.target.value)} disabled={!reportPath.subdistrict}>
-              <option value="">ทุกแปลงในตำบล</option>
-              {reportOptionsFor("field", reportPath.subdistrict).map((node) => (
-                <option key={node.id} value={node.id}>{node.name}</option>
+            <select value={reportPath.field} onChange={(event) => selectReportPath("field", event.target.value)} disabled={!reportPath.subdistrict || !filteredReportFieldOptions.length}>
+              <option value="">{selectedReportCampId ? "ทุกแปลงในแคมป์" : "ทุกแปลงในตำบล"}</option>
+              {filteredReportFieldOptions.map((node) => (
+                <option key={node.id} value={node.id}>{reportNodeFieldCode(node) ? `${reportNodeFieldCode(node)} · ${node.name}` : node.name}</option>
               ))}
             </select>
           </label>

@@ -442,7 +442,7 @@ export function CfProcessPage() {
         <section className="card process-scope-panel process-executive-filter">
           <div>
             <div className="card-title">ตัวกรองภาพรวม Carbon Footprint</div>
-            <p className="muted">หน้านี้ใช้ดูภาพรวมระดับผู้บริหาร เลือกปีดำเนินการ กลุ่มไร่หลัก แคมป์ และประเภทอ้อย</p>
+            <p className="muted">หน้านี้ใช้ดูภาพรวมระดับผู้บริหาร เลือกปีดำเนินการ กลุ่มไร่หลัก แคมป์ แปลง และประเภทอ้อย</p>
           </div>
           <label>
             ปีดำเนินการ
@@ -479,6 +479,15 @@ export function CfProcessPage() {
               <option value="all">{selectedRegion ? `ทุกแคมป์ใน ${selectedRegion.name}` : "ทุกแคมป์"}</option>
               {campsInRegion.map((camp) => (
                 <option key={camp.campId} value={`camp-${camp.campId}`}>{camp.campName}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            แปลง
+            <select value={selectedFieldId} disabled={!selectedCampId} onChange={(event) => setSelectedFieldId(event.target.value)}>
+              <option value="all">{selectedCampId ? "ทุกแปลงในแคมป์" : "เลือกแคมป์ก่อน"}</option>
+              {fieldsInCamp.map((field) => (
+                <option key={field.id} value={field.id}>{field.fieldCode} · {field.fieldName}</option>
               ))}
             </select>
           </label>
