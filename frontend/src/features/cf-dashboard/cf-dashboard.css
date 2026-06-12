@@ -557,6 +557,14 @@
   grid-template-columns: minmax(0,1.2fr) repeat(auto-fit, minmax(130px,1fr));
 }
 
+.cf-dash .filter-level-camp {
+  grid-column: span 2;
+}
+
+.cf-dash .filter-level-field {
+  grid-column: span 1;
+}
+
 .cf-dash .period-switch {
   display: inline-grid;
   grid-template-columns: 1fr 1fr;
@@ -2843,6 +2851,10 @@
   }
   .cf-dash .footprint-area-filter {
     grid-template-columns: repeat(2, minmax(0,1fr));
+  }
+  .cf-dash .filter-level-camp,
+  .cf-dash .filter-level-field {
+    grid-column: auto;
   }
   .cf-dash .footprint-report-filter {
     grid-template-columns: 1fr;

@@ -442,7 +442,7 @@ export function CfProcessPage() {
         <section className="card process-scope-panel process-executive-filter">
           <div>
             <div className="card-title">ตัวกรองภาพรวม Carbon Footprint</div>
-            <p className="muted">หน้านี้ใช้ดูภาพรวมระดับผู้บริหาร เลือกเฉพาะปีดำเนินการ ภาค/โซน และศูนย์ส่งเสริมฯ</p>
+            <p className="muted">หน้านี้ใช้ดูภาพรวมระดับผู้บริหาร เลือกปีดำเนินการ กลุ่มไร่หลัก แคมป์ และประเภทอ้อย</p>
           </div>
           <label>
             ปีดำเนินการ
@@ -452,7 +452,7 @@ export function CfProcessPage() {
             </select>
           </label>
           <label>
-            ภาค/โซน
+            กลุ่มไร่หลัก
             <select
               value={regionId}
               onChange={(event) => {
@@ -461,14 +461,14 @@ export function CfProcessPage() {
                 setSelectedFieldId("all");
               }}
             >
-              <option value="all">ทุกภาค/โซน</option>
+              <option value="all">ทุกกลุ่มไร่หลัก</option>
               {regionOptions.map((region) => (
                 <option key={region.id} value={region.id}>{region.name}</option>
               ))}
             </select>
           </label>
           <label>
-            ศูนย์ส่งเสริมฯ (แคมป์)
+            แคมป์
             <select
               value={scope}
               onChange={(event) => {
@@ -674,7 +674,7 @@ export function CfProcessPage() {
             <ProcessDoughnut data={groupDonutData} />
           </article>
           <article className="card">
-            <div className="card-title">Grouped Bar · ปีฐาน vs ปีดำเนินการตาม{selectedCamp ? "กระบวนการของแคมป์" : regionId === "all" ? "รายภาค" : "รายแคมป์"}</div>
+            <div className="card-title">Grouped Bar · ปีฐาน vs ปีดำเนินการตาม{selectedCamp ? "กระบวนการของแคมป์" : regionId === "all" ? "รายกลุ่มไร่หลัก" : "รายแคมป์"}</div>
             <ActivityGroupedBar baseline={selectedCamp ? chartBaseline : comparisonBaseline} current={selectedCamp ? chartCurrent : comparisonCurrent} />
             {selectedField ? (
               <div className="summary-list">

@@ -606,6 +606,18 @@ export function CfSpatialPage() {
     markSpatialFilterChanged();
   };
 
+  const selectCamp = (value: string) => {
+    const nextCampId = value === "all" ? "all" : Number(value);
+    const firstField = nextCampId === "all" ? undefined : campFieldResult.data.find((field) => field.campId === nextCampId);
+    setSelectedCampId(nextCampId);
+    setSelectedBoundaryFieldId("");
+    if (firstField?.parentId) {
+      setSelectedId(firstField.parentId);
+      setFilters(filtersFromNode(nodes, firstField.parentId, rootId));
+    }
+    markSpatialFilterChanged();
+  };
+
   const selectBoundaryField = (id: string) => {
     if (!id) {
       const parentId = selectedCampFields[0]?.parentId;
@@ -625,6 +637,14 @@ export function CfSpatialPage() {
     }
     setSelectedBoundaryFieldId(id);
     markSpatialFilterChanged();
+  };
+
+  const selectFieldFilter = (id: string) => {
+    if (selectedCamp) {
+      selectBoundaryField(id);
+      return;
+    }
+    selectArea("field", id);
   };
 
   const resetSpatialFilters = () => {
@@ -667,7 +687,7 @@ export function CfSpatialPage() {
           </div>
           <div className="spatial-select-grid">
             <label>
-              ภาค
+              กลุ่มไร่หลัก
               <select value={filters.region} onChange={(event) => selectArea("region", event.target.value)}>
                 <option value="">ทั้งหมด</option>
                 {optionsFor("region", rootId).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
@@ -694,11 +714,26 @@ export function CfSpatialPage() {
                 {optionsFor("subdistrict", filters.district).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
               </select>
             </label>
-            <label>
+            <label className="filter-level-camp">
+              แคมป์
+              <select value={selectedCampId} onChange={(event) => selectCamp(event.target.value)}>
+                <option value="all">ภาพรวมทุกแคมป์</option>
+                {scopedCamps.map((camp) => (
+                  <option key={camp.campId} value={camp.campId}>{camp.campName}</option>
+                ))}
+              </select>
+            </label>
+            <label className="filter-level-field">
               แปลง
-              <select value={filters.field} onChange={(event) => selectArea("field", event.target.value)} disabled={!filters.subdistrict}>
+              <select
+                value={selectedCamp ? selectedBoundaryFieldId : filters.field}
+                onChange={(event) => selectFieldFilter(event.target.value)}
+                disabled={selectedCamp ? !selectedCampFields.length : !filters.subdistrict}
+              >
                 <option value="">ทั้งหมด</option>
-                {optionsFor("field", filters.subdistrict).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+                {selectedCamp
+                  ? selectedCampFields.map((field) => <option key={field.id} value={field.id}>{field.fieldCode} · {field.fieldName}</option>)
+                  : optionsFor("field", filters.subdistrict).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
               </select>
             </label>
           </div>
@@ -713,18 +748,7 @@ export function CfSpatialPage() {
               เลือกแคมป์
               <select
                 value={selectedCampId}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  const nextCampId = value === "all" ? "all" : Number(value);
-                  const firstField = nextCampId === "all" ? undefined : campFieldResult.data.find((field) => field.campId === nextCampId);
-                  setSelectedCampId(nextCampId);
-                  setSelectedBoundaryFieldId("");
-                  if (firstField?.parentId) {
-                    setSelectedId(firstField.parentId);
-                    setFilters(filtersFromNode(nodes, firstField.parentId, rootId));
-                  }
-                  markSpatialFilterChanged();
-                }}
+                onChange={(event) => selectCamp(event.target.value)}
               >
                 <option value="all">ภาพรวมทุกแคมป์</option>
                 {scopedCamps.map((camp) => (

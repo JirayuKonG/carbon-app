@@ -736,7 +736,7 @@ export function CfReportPage() {
             <p className="muted">{selectedReportNode ? `กำลังดู: ${selectedReportNode.name}` : "กำลังดู: ภาพรวมทั้งระบบ"}</p>
           </div>
           <label>
-            ภาค
+            กลุ่มไร่หลัก
             <select value={reportPath.region} onChange={(event) => selectReportPath("region", event.target.value)}>
               <option value="">ภาพรวมทั้งระบบ</option>
               {reportOptionsFor("region", nodes.find((node) => !node.parentId)?.id).map((node) => (
@@ -747,32 +747,32 @@ export function CfReportPage() {
           <label>
             จังหวัด
             <select value={reportPath.province} onChange={(event) => selectReportPath("province", event.target.value)} disabled={!reportPath.region}>
-              <option value="">ทุกจังหวัดในภาค</option>
+              <option value="">ทุกจังหวัดในกลุ่มไร่</option>
               {reportOptionsFor("province", reportPath.region).map((node) => (
                 <option key={node.id} value={node.id}>{node.name}</option>
               ))}
             </select>
           </label>
           <label>
-            อำเภอ
+            อำเภอ / เขต
             <select value={reportPath.district} onChange={(event) => selectReportPath("district", event.target.value)} disabled={!reportPath.province}>
-              <option value="">ทุกอำเภอในจังหวัด</option>
+              <option value="">ทุกอำเภอ/เขตในจังหวัด</option>
               {reportOptionsFor("district", reportPath.province).map((node) => (
                 <option key={node.id} value={node.id}>{node.name}</option>
               ))}
             </select>
           </label>
           <label>
-            ตำบล
+            ตำบล / แขวง
             <select value={reportPath.subdistrict} onChange={(event) => selectReportPath("subdistrict", event.target.value)} disabled={!reportPath.district}>
-              <option value="">ทุกตำบลในอำเภอ</option>
+              <option value="">ทุกตำบล/แขวง</option>
               {reportOptionsFor("subdistrict", reportPath.district).map((node) => (
                 <option key={node.id} value={node.id}>{node.name}</option>
               ))}
             </select>
           </label>
           <label>
-            รายแปลง
+            แปลง
             <select value={reportPath.field} onChange={(event) => selectReportPath("field", event.target.value)} disabled={!reportPath.subdistrict}>
               <option value="">ทุกแปลงในตำบล</option>
               {reportOptionsFor("field", reportPath.subdistrict).map((node) => (
