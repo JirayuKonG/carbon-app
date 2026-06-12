@@ -609,11 +609,10 @@ export function CfProcessPage() {
     ? socFieldRows.map((field, index) => organicMaterialAreaFromField(field, index, caneMeta.factor))
     : sequestrationRows.map((row, index) => organicMaterialAreaFromCamp(row, index));
   const organicMaterialSummaryRows = summarizeOrganicMaterials(organicAreaRows, summaryAreaRai);
-  const organicMaterialDoughnutData = organicMaterialSummaryRows.map((row) => ({
-    name: row.material,
-    emission: row.amount,
-  }));
   const socBeforeAfter = socBeforeAfterRows(organicAreaRows.slice(0, 12));
+  const avgBaselineSoc = (socBeforeAfter.baselineRows.reduce((sum, row) => sum + row.totalEmission, 0) / Math.max(socBeforeAfter.baselineRows.length, 1));
+  const avgCurrentSoc = (socBeforeAfter.currentRows.reduce((sum, row) => sum + row.totalEmission, 0) / Math.max(socBeforeAfter.currentRows.length, 1));
+  const avgIncreaseSoc = Math.max(avgCurrentSoc - avgBaselineSoc, 0);
   const waterfallRows = [
     { label: "Gross Emission", value: currentTotal, type: "gross" },
     { label: "SOC Offset", value: -socCredit, type: "offset" },
@@ -1136,84 +1135,117 @@ export function CfProcessPage() {
 
         {activeView === "sequestration" && (
           <section className="carbon-sequestration-section">
-            <div className="section-head">
-              <div>
-                <span className="section-kicker">Soil Organic Carbon</span>
-                <h2>การสะสมคาร์บอนในดิน</h2>
-                <p className="muted">ดู SOC รวม สัดส่วนการใช้วัสดุอินทรีย์ในการปรุงแต่งดิน และแคมป์ที่ทำ SOC ได้ดีตามตัวกรองหลัก</p>
+            <div className="section-head-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "16px", marginBottom: "12px" }}>
+              <div className="section-head">
+                <div>
+                  <span className="section-kicker">Soil Organic Carbon</span>
+                  <h2>การสะสมคาร์บอนในดิน</h2>
+                  <p className="muted">ดู SOC รวม สัดส่วนการใช้วัสดุอินทรีย์ในการปรุงแต่งดิน และแคมป์ที่ทำ SOC ได้ดีตามตัวกรองหลัก</p>
+                </div>
+              </div>
+              <div className="group-mode-switch soc-material-switch" role="group" aria-label="เลือกมุมมองวัสดุอินทรีย์">
+                {[
+                  ["overview", "ภาพรวมพื้นที่"],
+                  ["area", "รายพื้นที่"],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={socMaterialView === value ? "active" : ""}
+                    onClick={() => setSocMaterialView(value as SocMaterialView)}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
 
-            <section className="card full-span soc-material-card">
-              <div className="card-title-row">
-                <div>
-                  <div className="card-title">สัดส่วนการใช้วัสดุอินทรีย์ในการปรุงแต่งดิน</div>
-                  <p className="muted">ข้อมูลจำลองตามขอบเขต filter ปัจจุบัน แสดงพื้นที่ที่ใช้วัสดุ ปริมาณรวม และสัดส่วนต่อไร่</p>
+            {socMaterialView === "overview" ? (
+              <section className="card full-span soc-material-card">
+                <div className="card-title-row">
+                  <div>
+                    <div className="card-title">สัดส่วนการใช้วัสดุอินทรีย์ในการปรุงแต่งดิน</div>
+                    <p className="muted">ข้อมูลจำลองตามขอบเขต filter ปัจจุบัน แสดงพื้นที่ที่ใช้วัสดุ ปริมาณรวม และสัดส่วนต่อไร่</p>
+                  </div>
                 </div>
-                <div className="group-mode-switch soc-material-switch" role="group" aria-label="เลือกมุมมองวัสดุอินทรีย์">
-                  {[
-                    ["overview", "ภาพรวมพื้นที่"],
-                    ["area", "รายพื้นที่"],
-                  ].map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className={socMaterialView === value ? "active" : ""}
-                      onClick={() => setSocMaterialView(value as SocMaterialView)}
-                    >
-                      {label}
-                    </button>
+
+                <div className="soc-material-overview-grid">
+                  {organicMaterialSummaryRows.map((row) => (
+                    <div className="soc-material-cardlet" key={`mat-${row.key}`}>
+                      <span>{row.material}</span>
+                      <strong>
+                        {row.amount.toLocaleString(undefined, { maximumFractionDigits: row.unit === "ตัน" ? 2 : 0 })}
+                        <span className="unit-label"> {row.unit}</span>
+                      </strong>
+                    </div>
                   ))}
                 </div>
-              </div>
 
-              {socMaterialView === "overview" && (
-                <>
-                  <div className="soc-material-overview-grid">
-                    {organicMaterialSummaryRows.map((row) => (
-                      <div className="soc-material-cardlet" key={`mat-${row.key}`}>
-                        <span>{row.material}</span>
-                        <strong>{row.usagePctOfTotalArea.toFixed(1)}%</strong>
-                        <small>{row.usedAreaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })} ไร่ · {row.amount.toLocaleString(undefined, { maximumFractionDigits: row.unit === "ตัน" ? 2 : 0 })} {row.unit}</small>
-                        <em>{row.perRaiPct.toFixed(1)}% ต่อไร่</em>
+                <div className="soc-material-bar-chart-card">
+                  <div className="card-title" style={{ marginBottom: "14px", fontSize: "13px", fontWeight: "700" }}>สัดส่วนการใช้วัสดุอินทรีย์แยกตามประเภท</div>
+                  <div className="soc-material-bar-chart-list">
+                    {organicMaterialSummaryRows.map((row, idx) => (
+                      <div className="soc-material-bar-item" key={row.key}>
+                        <div className="soc-material-bar-label">
+                          <span className="material-name">{row.material}</span>
+                          <span className="material-pct">{row.usagePctOfTotalArea.toFixed(1)}% ของพื้นที่</span>
+                        </div>
+                        <div className="soc-material-bar-track">
+                          <div 
+                            className="soc-material-bar-fill" 
+                            style={{ 
+                              width: `${row.usagePctOfTotalArea}%`,
+                              background: [
+                                chartPalette.baseline.bg,
+                                chartPalette.project.bg,
+                                chartPalette.fertilizerBaseline.bg,
+                                "rgba(253, 186, 116, .82)",
+                              ][idx % 4],
+                            }} 
+                          />
+                        </div>
+                        <div className="soc-material-bar-details">
+                          <span>พื้นที่ใช้: <strong>{row.usedAreaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })} ไร่</strong></span>
+                          <span>ปริมาณรวม: <strong>{row.amount.toLocaleString(undefined, { maximumFractionDigits: row.unit === "ตัน" ? 2 : 0 })} {row.unit}</strong></span>
+                        </div>
                       </div>
                     ))}
                   </div>
-                  <div className="soc-material-doughnut">
-                    <ProcessDoughnut
-                      title="สัดส่วนปริมาณวัสดุอินทรีย์รวม"
-                      data={organicMaterialDoughnutData}
-                      unit="หน่วยรวม"
-                    />
-                  </div>
-                  <div className="input-table-wrap">
-                    <table className="input-table">
-                      <thead>
-                        <tr>
-                          <th>ประเภทวัสดุอินทรีย์</th>
-                          <th>% ของพื้นที่ทั้งหมด</th>
-                          <th>พื้นที่ที่ใช้</th>
-                          <th>ปริมาณรวม</th>
-                          <th>% ต่อไร่</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {organicMaterialSummaryRows.map((row) => (
-                          <tr key={`summary-${row.key}`}>
-                            <td>{row.material}</td>
-                            <td>{row.usagePctOfTotalArea.toFixed(1)}%</td>
-                            <td>{row.usedAreaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })} ไร่</td>
-                            <td>{row.amount.toLocaleString(undefined, { maximumFractionDigits: row.unit === "ตัน" ? 2 : 0 })} {row.unit}</td>
-                            <td>{row.perRaiPct.toFixed(1)}%</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              )}
+                </div>
 
-              {socMaterialView === "area" && (
+                <div className="input-table-wrap">
+                  <table className="input-table">
+                    <thead>
+                      <tr>
+                        <th>ประเภทวัสดุอินทรีย์</th>
+                        <th>% ของพื้นที่ทั้งหมด</th>
+                        <th>พื้นที่ที่ใช้</th>
+                        <th>ปริมาณรวม</th>
+                        <th>% ต่อไร่</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {organicMaterialSummaryRows.map((row) => (
+                        <tr key={`summary-${row.key}`}>
+                          <td>{row.material}</td>
+                          <td>{row.usagePctOfTotalArea.toFixed(1)}%</td>
+                          <td>{row.usedAreaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })} ไร่</td>
+                          <td>{row.amount.toLocaleString(undefined, { maximumFractionDigits: row.unit === "ตัน" ? 2 : 0 })} {row.unit}</td>
+                          <td>{row.perRaiPct.toFixed(1)}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            ) : (
+              <section className="card full-span soc-material-card">
+                <div className="card-title-row">
+                  <div>
+                    <div className="card-title">รายละเอียดการใช้วัสดุอินทรีย์รายพื้นที่</div>
+                    <p className="muted">ตารางข้อมูลการใช้วัสดุอินทรีย์แบ่งตาม แคมป์ และ แปลงปลูก</p>
+                  </div>
+                </div>
                 <div className="input-table-wrap">
                   <table className="input-table soc-material-detail-table">
                     <thead>
@@ -1228,11 +1260,15 @@ export function CfProcessPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {organicAreaRows.flatMap((area) => area.materials.map((material) => (
-                        <tr key={`${area.id}-${material.key}`}>
-                          <td>{area.name}</td>
-                          <td>{area.level}</td>
-                          <td>{area.areaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
+                      {organicAreaRows.flatMap((area) => area.materials.map((material, materialIndex) => (
+                        <tr key={`${area.id}-${material.key}`} className={materialIndex === 0 ? "area-group-start" : undefined}>
+                          {materialIndex === 0 && (
+                            <>
+                              <td className="rowspan-cell soc-area-name-cell" rowSpan={area.materials.length}>{area.name}</td>
+                              <td className="rowspan-cell" rowSpan={area.materials.length}>{area.level}</td>
+                              <td className="rowspan-cell" rowSpan={area.materials.length}>{area.areaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
+                            </>
+                          )}
                           <td>{material.material}</td>
                           <td>{material.amount.toLocaleString(undefined, { maximumFractionDigits: material.unit === "ตัน" ? 2 : 0 })} {material.unit}</td>
                           <td>{material.usagePctOfTotalArea.toFixed(1)}%</td>
@@ -1243,9 +1279,8 @@ export function CfProcessPage() {
                     </tbody>
                   </table>
                 </div>
-              )}
-
-            </section>
+              </section>
+            )}
 
             <section className="card full-span soc-before-after-card">
               <div className="card-title-row">
@@ -1254,12 +1289,23 @@ export function CfProcessPage() {
                   <p className="muted">กราฟแท่งเปรียบเทียบ SOC/SOM ก่อนและหลังใช้วัสดุอินทรีย์ ตามขอบเขต filter ปัจจุบัน</p>
                 </div>
               </div>
-              <ActivityGroupedBar baseline={socBeforeAfter.baselineRows} current={socBeforeAfter.currentRows} unit="% SOC" />
-              <div className="summary-list">
-                <div><span>พื้นที่ในกราฟ</span><strong>{socBeforeAfter.currentRows.length.toLocaleString()} รายการ</strong></div>
-                <div><span>ค่าเฉลี่ยก่อนปรับปรุงดิน</span><strong>{(socBeforeAfter.baselineRows.reduce((sum, row) => sum + row.totalEmission, 0) / Math.max(socBeforeAfter.baselineRows.length, 1)).toFixed(2)}%</strong></div>
-                <div><span>ค่าเฉลี่ยหลังปรับปรุงดิน</span><strong>{(socBeforeAfter.currentRows.reduce((sum, row) => sum + row.totalEmission, 0) / Math.max(socBeforeAfter.currentRows.length, 1)).toFixed(2)}%</strong></div>
+              
+              <div className="soc-avg-kpi-grid">
+                <div className="soc-avg-kpi-card">
+                  <span>ค่าเฉลี่ยก่อนปรับปรุงดิน</span>
+                  <strong>{avgBaselineSoc.toFixed(2)}% <small className="unit">SOC</small></strong>
+                </div>
+                <div className="soc-avg-kpi-card">
+                  <span>ค่าเฉลี่ยหลังปรับปรุงดิน</span>
+                  <strong>{avgCurrentSoc.toFixed(2)}% <small className="unit">SOC</small></strong>
+                </div>
+                <div className="soc-avg-kpi-card highlight">
+                  <span>SOC ที่เพิ่มขึ้นเฉลี่ย</span>
+                  <strong className="green-text">+{avgIncreaseSoc.toFixed(2)}% <small className="unit">SOC</small></strong>
+                </div>
               </div>
+
+              <ActivityGroupedBar baseline={socBeforeAfter.baselineRows} current={socBeforeAfter.currentRows} unit="% SOC" />
             </section>
 
             <section className="card full-span">

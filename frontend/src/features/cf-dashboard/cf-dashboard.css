@@ -301,6 +301,92 @@
 .cf-dash .group-mode-switch.soc-material-switch button {
   padding-inline: 14px;
 }
+.cf-dash .soc-material-bar-chart-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface2);
+  padding: 12px;
+  margin-top: 4px;
+}
+.cf-dash .soc-material-bar-chart-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+.cf-dash .soc-material-bar-item {
+  display: grid;
+  gap: 5px;
+}
+.cf-dash .soc-material-bar-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.cf-dash .soc-material-bar-label .material-name {
+  color: var(--text);
+}
+.cf-dash .soc-material-bar-label .material-pct {
+  color: var(--accent-dark);
+  white-space: nowrap;
+}
+.cf-dash .soc-material-bar-track {
+  height: 8px;
+  background: #EAF1F8;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.cf-dash .soc-material-bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  transition: width 0.4s ease;
+}
+.cf-dash .soc-material-bar-details {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.cf-dash .soc-material-bar-details strong {
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.cf-dash .soc-avg-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 10px;
+  margin-top: 4px;
+}
+.cf-dash .soc-avg-kpi-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--surface2);
+  display: grid;
+  gap: 4px;
+}
+.cf-dash .soc-avg-kpi-card.highlight {
+  border-color: rgba(91, 164, 255, .28);
+  background: var(--accent-soft);
+}
+.cf-dash .soc-avg-kpi-card span {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 700;
+}
+.cf-dash .soc-avg-kpi-card strong {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 18px;
+  color: var(--text);
+}
+.cf-dash .soc-avg-kpi-card .unit {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: inherit;
+}
 .cf-dash .soc-material-overview-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -309,10 +395,10 @@
 .cf-dash .soc-material-cardlet {
   display: grid;
   gap: 4px;
-  border: 1px solid rgba(16, 163, 69, .18);
-  border-radius: 12px;
-  background: linear-gradient(180deg, #fff, #F4FBF7);
-  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface2);
+  padding: 12px;
 }
 .cf-dash .soc-material-cardlet span,
 .cf-dash .soc-material-cardlet small,
@@ -321,9 +407,9 @@
   font-size: 11px;
 }
 .cf-dash .soc-material-cardlet strong {
-  color: #0F8A3C;
+  color: var(--accent-dark);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 24px;
+  font-size: 22px;
 }
 .cf-dash .soc-material-cardlet em {
   font-style: normal;
@@ -335,18 +421,33 @@
   justify-self: center;
 }
 .cf-dash .soc-material-doughnut .doughnut-wrap {
-  border: 1px solid rgba(16, 163, 69, .16);
-  border-radius: 12px;
-  background: #fff;
-  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface2);
+  padding: 12px;
 }
 .cf-dash .soc-material-detail-table {
   min-width: 900px;
 }
+.cf-dash .soc-material-detail-table tr.area-group-start td {
+  border-top: 1px solid var(--border);
+}
+.cf-dash .soc-material-detail-table .soc-area-name-cell {
+  min-width: 150px;
+}
 .cf-dash .soc-before-after-card {
   display: grid;
-  gap: 14px;
-  border-color: rgba(14, 165, 233, .18);
+  gap: 12px;
+  border-color: var(--border);
+}
+.cf-dash .soc-before-after-card .chart-box.md {
+  height: 260px;
+  border-radius: 8px;
+  background: var(--surface2);
+  padding: 8px;
+}
+.cf-dash .soc-before-after-card .green-text {
+  color: var(--accent-dark);
 }
 .cf-dash .insight-copy {
   margin-top: 10px;
@@ -3009,7 +3110,7 @@
   .cf-dash .speedup-card, .cf-dash .benchmark-grid, .cf-dash .mini-stat-grid,
   .cf-dash .carbon-compare, .cf-dash .field-meta, .cf-dash .spatial-select-grid,
   .cf-dash .report-form-grid, .cf-dash .cane-kpi-grid, .cf-dash .cane-legend-grid,
-  .cf-dash .credit-source-grid, .cf-dash .resource-reduction-grid { grid-template-columns: 1fr; }
+  .cf-dash .credit-source-grid, .cf-dash .resource-reduction-grid, .cf-dash .soc-avg-kpi-grid { grid-template-columns: 1fr; }
   .cf-dash .credit-breakdown-head,
   .cf-dash .credit-total-check,
   .cf-dash .credit-breakdown-list div {
