@@ -621,6 +621,7 @@ export function CfProcessPage() {
   ];
   const waterfallMax = Math.max(currentTotal, totalCredits, netEmissions, 1);
   const bestSocCamps = [...sequestrationRows].sort((a, b) => b.socIncrease - a.socIncrease).slice(0, 5);
+  const worstSocCamps = [...sequestrationRows].sort((a, b) => a.socIncrease - b.socIncrease).slice(0, 5);
   const followUpSocCamps = [...sequestrationRows].sort((a, b) => b.netEmission - a.netEmission).slice(0, 5);
 
   return (
@@ -1306,23 +1307,61 @@ export function CfProcessPage() {
               </div>
 
               <ActivityGroupedBar baseline={socBeforeAfter.baselineRows} current={socBeforeAfter.currentRows} unit="% SOC" />
+              
+              <div className="summary-list soc-before-after-summary" style={{ marginTop: "12px" }}>
+                <div><span>พื้นที่ในกราฟ</span><strong>{socBeforeAfter.currentRows.length.toLocaleString()} รายการ</strong></div>
+                <div><span>ค่าเฉลี่ยก่อนปรับปรุงดิน</span><strong>{avgBaselineSoc.toFixed(2)}%</strong></div>
+                <div><span>ค่าเฉลี่ยหลังปรับปรุงดิน</span><strong>{avgCurrentSoc.toFixed(2)}%</strong></div>
+              </div>
             </section>
 
             <section className="card full-span">
-                <div className="card-title">Ranking · Top Camp SOC</div>
-                <div className="soc-camp-bars">
-                  {bestSocCamps.map((row, index) => (
-                    <div className="soc-camp-row" key={`soc-${row.id}`}>
-                      <span className="rank-pill">#{index + 1}</span>
-                      <div>
-                        <strong>{row.name}</strong>
-                        <small>{row.areaRai.toLocaleString()} ไร่ · SOC index {row.socIndex.toFixed(2)}</small>
-                      </div>
-                      <b>{row.socIncrease.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</b>
-                    </div>
-                  ))}
-                  {!bestSocCamps.length && <div className="empty-state">ยังไม่มีข้อมูล SOC ตามตัวกรองนี้</div>}
+              <div className="card-title-row">
+                <div>
+                  <div className="card-title">แคมป์ผลงานการกักเก็บคาร์บอนในดิน</div>
+                  <p className="muted">เปรียบเทียบการสะสมคาร์บอนที่เพิ่มขึ้นระหว่างแคมป์ที่มีการกักเก็บคาร์บอนสูงสุด และแคมป์ที่ควรเร่งปรับปรุงส่งเสริมการดูแลดิน</p>
                 </div>
+              </div>
+
+              <div className="grid2" style={{ marginTop: "14px" }}>
+                <div>
+                  <h3 style={{ fontSize: "14px", fontWeight: "700", marginBottom: "12px", color: "var(--eco-green)" }}>
+                    🟢 5 อันดับแคมป์กักเก็บคาร์บอนสูงสุด
+                  </h3>
+                  <div className="soc-camp-bars">
+                    {bestSocCamps.map((row, index) => (
+                      <div className="soc-camp-row" key={`soc-best-${row.id}`}>
+                        <span className="rank-pill">#{index + 1}</span>
+                        <div>
+                          <strong>{row.name}</strong>
+                          <small>{row.areaRai.toLocaleString()} ไร่ · SOC index {row.socIndex.toFixed(2)}</small>
+                        </div>
+                        <b className="green-text">+{row.socIncrease.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</b>
+                      </div>
+                    ))}
+                    {!bestSocCamps.length && <div className="empty-state">ยังไม่มีข้อมูล SOC ตามตัวกรองนี้</div>}
+                  </div>
+                </div>
+
+                <div>
+                  <h3 style={{ fontSize: "14px", fontWeight: "700", marginBottom: "12px", color: "var(--red)" }}>
+                    🟠 5 อันดับแคมป์ที่ควรปรับปรุงการกักเก็บคาร์บอน
+                  </h3>
+                  <div className="soc-camp-bars">
+                    {worstSocCamps.map((row, index) => (
+                      <div className="soc-camp-row" key={`soc-worst-${row.id}`}>
+                        <span className="rank-pill">#{index + 1}</span>
+                        <div>
+                          <strong>{row.name}</strong>
+                          <small>{row.areaRai.toLocaleString()} ไร่ · SOC index {row.socIndex.toFixed(2)}</small>
+                        </div>
+                        <b className="red-text">{row.socIncrease.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</b>
+                      </div>
+                    ))}
+                    {!worstSocCamps.length && <div className="empty-state">ยังไม่มีข้อมูล SOC ตามตัวกรองนี้</div>}
+                  </div>
+                </div>
+              </div>
             </section>
 
           </section>
