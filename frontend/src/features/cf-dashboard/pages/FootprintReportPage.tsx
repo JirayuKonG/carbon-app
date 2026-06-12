@@ -33,6 +33,10 @@ type FootprintPreviewTab = "pdf" | "word" | "excel";
 type FootprintAreaLevel = Exclude<SpatialLevel, "country">;
 
 const footprintAreaOrder: FootprintAreaLevel[] = ["region", "province", "district", "subdistrict", "field"];
+const farmGroupFilterOptions = [
+  { value: "dan-chang", label: "ไร่ด่านช้าง" },
+  { value: "isan", label: "ไร่อีสาน" },
+] as const;
 
 function emptyFootprintAreaPath(): Record<FootprintAreaLevel, string> {
   return { region: "", province: "", district: "", subdistrict: "", field: "" };
@@ -1141,8 +1145,8 @@ export function CfFootprintReportPage() {
           <label style={{ minWidth: 0 }}>
             กลุ่มไร่หลัก
             <select value={areaPath.region} onChange={(event) => selectAreaPath("region", event.target.value)}>
-              <option value="">ทั้งหมด</option>
-              {areaOptionsFor("region", rootNode?.id).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+              <option value="">ทุกกลุ่มไร่หลัก</option>
+              {farmGroupFilterOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
           <label style={{ minWidth: 0 }}>

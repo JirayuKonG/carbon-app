@@ -61,6 +61,10 @@ const projectProcessLabels = [
 ];
 const projectProcessShares = [0.18, 0.26, 0.35, 0.21];
 const projectReductionBands = [-0.08, 0.02, 0.04, 0.07, 0.1, 0.13, 0.16, 0.19, 0.23, 0.28];
+const farmGroupFilterOptions = [
+  { value: "dan-chang", label: "ไร่ด่านช้าง" },
+  { value: "isan", label: "ไร่อีสาน" },
+] as const;
 
 function projectPlotId(plotCode: string) {
   return `project-${plotCode.toLowerCase()}`;
@@ -790,9 +794,6 @@ export function CfSpatialPage() {
     return list;
   }, [nodes, selected]);
 
-  const optionsFor = (level: Exclude<SpatialLevel, "country">, parentId?: string) =>
-    nodes.filter((node) => node.level === level && (!parentId || node.parentId === parentId));
-
   const selectSpatialNode = (id: string) => {
     const nextId = id || rootId;
     setSelectedId(nextId);
@@ -890,8 +891,8 @@ export function CfSpatialPage() {
             <label>
               กลุ่มไร่หลัก
               <select value={filters.region} onChange={(event) => selectArea("region", event.target.value)}>
-                <option value="">ทั้งหมด</option>
-                {optionsFor("region", rootId).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+                <option value="">ทุกกลุ่มไร่หลัก</option>
+                {farmGroupFilterOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </label>
             <label>

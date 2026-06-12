@@ -21,6 +21,10 @@ type SocMaterialView = "overview" | "area";
 
 const FOOTPRINT_UNIT = "kgCO2e";
 const CHEMICAL_ACTIVITY_NAME = "สารเคมี/ยาป้องกันกำจัดศัตรูพืช";
+const farmGroupFilterOptions = [
+  { id: "dan-chang", name: "ไร่ด่านช้าง" },
+  { id: "isan", name: "ไร่อีสาน" },
+] as const;
 
 interface ScopeComparisonRow {
   id: string;
@@ -498,8 +502,6 @@ export function CfProcessPage() {
 
   const currentYear = currentYearFrom(emissions);
   const selectedCampId = scope === "all" ? undefined : Number(scope.replace("camp-", ""));
-  const rootNode = spatialNodes.find((node) => !node.parentId);
-  const regionOptions = spatialNodes.filter((node) => node.level === "region" && (!rootNode || node.parentId === rootNode.id));
   const fieldsInRegion = regionId === "all"
     ? fieldResult.data
     : fieldResult.data.filter((field) => nodeIsWithin(spatialNodes, field.parentId, regionId) || nodeIsWithin(spatialNodes, field.id, regionId));
@@ -549,7 +551,7 @@ export function CfProcessPage() {
   const chartBaselineTotalKg = chartBaselineTotal * 1000;
   const chartCurrentTotalKg = chartCurrentTotal * 1000;
   const chartDiffKg = chartDiff * 1000;
-  const selectedRegion = regionOptions.find((node) => node.id === regionId);
+  const selectedRegion = farmGroupFilterOptions.find((option) => option.id === regionId);
   const campComparisonRows: ScopeComparisonRow[] = campRows.map((camp) => ({
     id: `camp-${camp.campId}`,
     name: camp.campName,
@@ -694,7 +696,7 @@ export function CfProcessPage() {
               }}
             >
               <option value="all">ทุกกลุ่มไร่หลัก</option>
-              {regionOptions.map((region) => (
+              {farmGroupFilterOptions.map((region) => (
                 <option key={region.id} value={region.id}>{region.name}</option>
               ))}
             </select>

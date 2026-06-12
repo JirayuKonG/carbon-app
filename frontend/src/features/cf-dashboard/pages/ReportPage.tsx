@@ -11,6 +11,10 @@ type CascadingReportLevel = Exclude<ReportFilterLevel, "all">;
 type PreviewTab = "pdf" | "word" | "excel";
 const reportLevelOrder: CascadingReportLevel[] = ["region", "province", "district", "subdistrict", "field"];
 type ReportCampNode = SpatialSummaryNode & { campId?: number; campName?: string; fieldCode?: string };
+const farmGroupFilterOptions = [
+  { value: "dan-chang", label: "ไร่ด่านช้าง" },
+  { value: "isan", label: "ไร่อีสาน" },
+] as const;
 
 function emptyReportPath(): Record<CascadingReportLevel, string> {
   return {
@@ -812,9 +816,9 @@ export function CfReportPage() {
           <label>
             กลุ่มไร่หลัก
             <select value={reportPath.region} onChange={(event) => selectReportPath("region", event.target.value)}>
-              <option value="">ภาพรวมทั้งระบบ</option>
-              {reportOptionsFor("region", nodes.find((node) => !node.parentId)?.id).map((node) => (
-                <option key={node.id} value={node.id}>{node.name}</option>
+              <option value="">ทุกกลุ่มไร่หลัก</option>
+              {farmGroupFilterOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </select>
           </label>
