@@ -1346,6 +1346,7 @@
   display: grid;
   align-content: start;
   gap: 14px;
+  overflow: hidden;
 }
 .cf-dash .spatial-summary-card .card-title {
   margin-bottom: 0;
@@ -1359,12 +1360,17 @@
   align-content: center;
 }
 .cf-dash .spatial-carbon-compare {
-  grid-template-columns: repeat(3, minmax(150px, 1fr));
+  width: 100%;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px 18px;
   padding: 14px;
 }
 .cf-dash .spatial-carbon-compare > div {
   min-width: 0;
+}
+.cf-dash .spatial-summary-stats strong,
+.cf-dash .spatial-carbon-compare strong {
+  overflow-wrap: anywhere;
 }
 .cf-dash .spatial-summary-card .field-detail {
   margin-top: 0;
@@ -2174,6 +2180,18 @@
   background: rgba(91,164,255,.1);
   box-shadow: inset 3px 0 0 var(--accent-dark);
 }
+.cf-dash .spatial-project-table-wrap {
+  max-height: 456px;
+  overflow: auto;
+}
+.cf-dash .spatial-project-table {
+  min-width: 920px;
+}
+.cf-dash .spatial-project-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
 .cf-dash .pdf-preview iframe {
   width: 100%;
   min-height: 720px;
@@ -2695,6 +2713,14 @@
 }
 
 /* Responsive */
+@media (max-width: 1280px) {
+  .cf-dash .spatial-summary-card .spatial-summary-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .cf-dash .spatial-summary-card .spatial-carbon-compare {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 @media (max-width: 1120px) {
   .cf-dash .grid2, .cf-dash .architecture-board, .cf-dash .report-layout, .cf-dash .spatial-picker { grid-template-columns: 1fr; }
   .cf-dash .footprint-report-page {
@@ -2764,6 +2790,12 @@
   }
   .cf-dash .input-table {
     min-width: 720px;
+  }
+}
+@media (max-width: 860px) {
+  .cf-dash .spatial-summary-card .spatial-summary-stats,
+  .cf-dash .spatial-summary-card .spatial-carbon-compare {
+    grid-template-columns: 1fr;
   }
 }
 @media (max-width: 720px) {
