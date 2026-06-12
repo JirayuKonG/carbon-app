@@ -5,20 +5,19 @@ import { ActivityGroupedBar } from "../components/charts/ActivityGroupedBar";
 import { NetZeroProgressBar } from "../components/charts/NetZeroProgressBar";
 import { chartOptions, chartPalette, sortProcessLabels } from "../components/charts/ChartRegistry";
 import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
-import { SocCorrelationChart } from "../components/charts/SocCorrelationChart";
 import { CaneTypeSummaryPanel } from "../components/common/CaneTypeSummaryPanel";
 import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCaneTypeSummaries, getCfProcessActivities, getCfSpatialNodes, getOverviewKpi, getProcessEmissions } from "../services/dashboardApi";
-import type { ActivityValue, CampCarbonSummary, CampFieldCarbonDetail, CaneTypeSummary, DataResult, OverviewKpi, ProcessActivityBreakdown, ProcessEmission, ProcessInputComparison, SpatialSummaryNode } from "../types/dashboard";
+import type { CampCarbonSummary, CampFieldCarbonDetail, CaneTypeSummary, DataResult, OverviewKpi, ProcessActivityBreakdown, ProcessEmission, ProcessInputComparison, SpatialSummaryNode } from "../types/dashboard";
 import "../cf-dashboard.css";
 
 type PeriodMode = "baseline_avg" | "project";
 type ScopeValue = "all" | `camp-${number}`;
-type DonutMode = "camp" | "activity" | "field";
 type ActivityChartMode = "both" | "baseline" | "current";
 type CaneScope = "all" | "new" | "ratoon" | "fallow";
 type FootprintView = "emissions" | "sequestration" | "net";
 type ComparisonTab = "benchmark" | "pair";
 type ComparisonTargetType = "camp" | "field";
+type SocMaterialView = "overview" | "area";
 
 const FOOTPRINT_UNIT = "kgCO2e";
 const CHEMICAL_ACTIVITY_NAME = "สารเคมี/ยาป้องกันกำจัดศัตรูพืช";
@@ -113,6 +112,42 @@ interface FootprintComparisonTarget {
   currentRows: ProcessActivityBreakdown[];
 }
 
+interface OrganicMaterialDefinition {
+  key: string;
+  name: string;
+  unit: string;
+  baseCoveragePct: number;
+  amountPerRai: number;
+  shareWeight: number;
+}
+
+interface OrganicMaterialArea {
+  id: string;
+  name: string;
+  level: "แคมป์" | "แปลง";
+  areaRai: number;
+  socBaselinePct: number;
+  socCurrentPct: number;
+  materials: OrganicMaterialUsage[];
+}
+
+interface OrganicMaterialUsage {
+  key: string;
+  material: string;
+  unit: string;
+  usagePctOfTotalArea: number;
+  usedAreaRai: number;
+  amount: number;
+  perRaiPct: number;
+}
+
+const organicMaterialDefinitions: OrganicMaterialDefinition[] = [
+  { key: "compost", name: "ปุ๋ยอินทรีย์/ปุ๋ยหมัก", unit: "kg", baseCoveragePct: 48, amountPerRai: 120, shareWeight: 34 },
+  { key: "filter-cake", name: "ฟิลเตอร์เค้ก", unit: "ตัน", baseCoveragePct: 32, amountPerRai: 0.42, shareWeight: 24 },
+  { key: "vinasse", name: "น้ำกากส่า/Vinasse", unit: "ลิตร", baseCoveragePct: 28, amountPerRai: 160, shareWeight: 22 },
+  { key: "trash", name: "ใบอ้อยคลุมดิน", unit: "kg", baseCoveragePct: 42, amountPerRai: 95, shareWeight: 20 },
+];
+
 function toKgProcessRows(rows: ProcessActivityBreakdown[]): ProcessActivityBreakdown[] {
   return rows.map((row) => ({
     ...row,
@@ -126,6 +161,103 @@ function toKgProcessRows(rows: ProcessActivityBreakdown[]): ProcessActivityBreak
 
 function kgCo2e(value: number) {
   return value * 1000;
+}
+
+function stablePercentSeed(key: string) {
+  let hash = 0;
+  for (let index = 0; index < key.length; index += 1) {
+    hash = ((hash * 31) + key.charCodeAt(index)) % 9973;
+  }
+  return hash;
+}
+
+function clampValue(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function materialUsagesForArea(id: string, areaRai: number): OrganicMaterialUsage[] {
+  const weights = organicMaterialDefinitions.map((definition, index) => {
+    const seed = stablePercentSeed(`${id}:${definition.key}`);
+    return Math.max(definition.shareWeight + (seed % 11) - 5 + index, 5);
+  });
+  const totalWeight = weights.reduce((sum, value) => sum + value, 0) || 1;
+
+  return organicMaterialDefinitions.map((definition, index) => {
+    const seed = stablePercentSeed(`${id}:${definition.key}`);
+    const usagePctOfTotalArea = clampValue(definition.baseCoveragePct + (seed % 17) - 8, 8, 88);
+    const usedAreaRai = Number((areaRai * usagePctOfTotalArea / 100).toFixed(2));
+    return {
+      key: definition.key,
+      material: definition.name,
+      unit: definition.unit,
+      usagePctOfTotalArea: Number(usagePctOfTotalArea.toFixed(1)),
+      usedAreaRai,
+      amount: Number((usedAreaRai * definition.amountPerRai).toFixed(definition.unit === "ตัน" ? 2 : 1)),
+      perRaiPct: Number(((weights[index] / totalWeight) * 100).toFixed(1)),
+    };
+  });
+}
+
+function organicMaterialAreaFromCamp(row: ScopeComparisonRow & { socIndex?: number }, index: number): OrganicMaterialArea {
+  const baseline = 1.35 + (index % 4) * 0.08;
+  const socIndex = row.socIndex ?? 0;
+  return {
+    id: row.id,
+    name: row.name,
+    level: "แคมป์",
+    areaRai: row.areaRai,
+    socBaselinePct: Number(baseline.toFixed(2)),
+    socCurrentPct: Number((baseline + socIndex / 8 + 0.18).toFixed(2)),
+    materials: materialUsagesForArea(row.id, row.areaRai),
+  };
+}
+
+function organicMaterialAreaFromField(field: CampFieldCarbonDetail, index: number, factor: number): OrganicMaterialArea {
+  const reduction = Math.max(field.baselineEmission - field.currentEmission, 0) * factor;
+  const baseline = 1.25 + (index % 5) * 0.06;
+  return {
+    id: field.id,
+    name: `${field.fieldCode} · ${field.fieldName}`,
+    level: "แปลง",
+    areaRai: field.areaRai,
+    socBaselinePct: Number(baseline.toFixed(2)),
+    socCurrentPct: Number((baseline + reduction / Math.max(field.areaRai, 1) * 0.18 + 0.12).toFixed(2)),
+    materials: materialUsagesForArea(field.id, field.areaRai),
+  };
+}
+
+function summarizeOrganicMaterials(rows: OrganicMaterialArea[], totalAreaRai: number): OrganicMaterialUsage[] {
+  return organicMaterialDefinitions.map((definition) => {
+    const matching = rows.flatMap((row) => row.materials).filter((item) => item.key === definition.key);
+    const usedAreaRai = matching.reduce((sum, item) => sum + item.usedAreaRai, 0);
+    const amount = matching.reduce((sum, item) => sum + item.amount, 0);
+    const perRaiPct = matching.length ? matching.reduce((sum, item) => sum + item.perRaiPct, 0) / matching.length : 0;
+    return {
+      key: definition.key,
+      material: definition.name,
+      unit: definition.unit,
+      usagePctOfTotalArea: totalAreaRai ? Number(((usedAreaRai / totalAreaRai) * 100).toFixed(1)) : 0,
+      usedAreaRai: Number(usedAreaRai.toFixed(2)),
+      amount: Number(amount.toFixed(definition.unit === "ตัน" ? 2 : 1)),
+      perRaiPct: Number(perRaiPct.toFixed(1)),
+    };
+  });
+}
+
+function socBeforeAfterRows(rows: OrganicMaterialArea[]) {
+  const baselineRows: ProcessActivityBreakdown[] = rows.map((row) => ({
+    year: "baseline_avg",
+    process: row.name,
+    totalEmission: row.socBaselinePct,
+    activities: [{ name: "ก่อนปรับปรุงดิน", emission: row.socBaselinePct }],
+  }));
+  const currentRows: ProcessActivityBreakdown[] = rows.map((row) => ({
+    year: "project",
+    process: row.name,
+    totalEmission: row.socCurrentPct,
+    activities: [{ name: "หลังปรับปรุงดิน", emission: row.socCurrentPct }],
+  }));
+  return { baselineRows, currentRows };
 }
 
 function fieldProcessRows(field: CampFieldCarbonDetail, year: string, totalEmission: number): ProcessActivityBreakdown[] {
@@ -336,7 +468,7 @@ export function CfProcessPage() {
   const [compareBCampId, setCompareBCampId] = useState("");
   const [compareAFieldId, setCompareAFieldId] = useState("");
   const [compareBFieldId, setCompareBFieldId] = useState("");
-  const [socContributionMode, setSocContributionMode] = useState<DonutMode>("activity");
+  const [socMaterialView, setSocMaterialView] = useState<SocMaterialView>("overview");
   const [caneScope, setCaneScope] = useState<CaneScope>("all");
   const [scope, setScope] = useState<ScopeValue>("all");
   const [regionId, setRegionId] = useState("all");
@@ -468,49 +600,20 @@ export function CfProcessPage() {
   const socBaselineTotal = Math.max(summaryAreaRai * caneMeta.factor * 0.02, 0);
   const socTotal = socBaselineTotal + totalSocIncrease;
   const socCredit = totalSocIncrease;
-  const socContributionData: ActivityValue[] = [
-    { name: "Vinasse", emission: Number((totalSocIncrease * 0.34).toFixed(2)) },
-    { name: "Filter Cake", emission: Number((totalSocIncrease * 0.28).toFixed(2)) },
-    { name: "Green Manure", emission: Number((totalSocIncrease * 0.22).toFixed(2)) },
-    { name: "Trash Retention", emission: Number((totalSocIncrease * 0.16).toFixed(2)) },
-  ];
   const socFieldRows = selectedField
     ? [selectedField]
     : selectedCampId
     ? fieldsInCamp
     : fieldsInRegion;
-  const socContributionByCamp: ActivityValue[] = sequestrationRows.map((row) => ({
-    name: row.name,
-    emission: row.socIncrease,
+  const organicAreaRows = selectedField || selectedCampId
+    ? socFieldRows.map((field, index) => organicMaterialAreaFromField(field, index, caneMeta.factor))
+    : sequestrationRows.map((row, index) => organicMaterialAreaFromCamp(row, index));
+  const organicMaterialSummaryRows = summarizeOrganicMaterials(organicAreaRows, summaryAreaRai);
+  const organicMaterialDoughnutData = organicMaterialSummaryRows.map((row) => ({
+    name: row.material,
+    emission: row.amount,
   }));
-  const socContributionByField: ActivityValue[] = socFieldRows.map((field) => {
-    const reduction = Math.max(field.baselineEmission - field.currentEmission, 0);
-    return {
-      name: field.fieldName,
-      emission: Number(((reduction * 0.35 + field.areaRai * 0.012) * caneMeta.factor).toFixed(2)),
-    };
-  });
-  const socContributionChartData = socContributionMode === "camp"
-    ? socContributionByCamp
-    : socContributionMode === "field"
-    ? socContributionByField
-    : socContributionData;
-  const socTrendRows = [
-    { label: "Baseline", value: socBaselineTotal },
-    { label: currentYear || "Project", value: socTotal },
-  ];
-  const socTrendBaseline: ProcessActivityBreakdown[] = [{
-    year: "baseline_avg",
-    process: "SOC",
-    totalEmission: socBaselineTotal,
-    activities: [{ name: "SOC", emission: socBaselineTotal }],
-  }];
-  const socTrendCurrent: ProcessActivityBreakdown[] = [{
-    year: currentYear || "project",
-    process: "SOC",
-    totalEmission: socTotal,
-    activities: [{ name: "SOC", emission: socTotal }],
-  }];
+  const socBeforeAfter = socBeforeAfterRows(organicAreaRows.slice(0, 12));
   const waterfallRows = [
     { label: "Gross Emission", value: currentTotal, type: "gross" },
     { label: "SOC Offset", value: -socCredit, type: "offset" },
@@ -520,15 +623,6 @@ export function CfProcessPage() {
   const waterfallMax = Math.max(currentTotal, totalCredits, netEmissions, 1);
   const bestSocCamps = [...sequestrationRows].sort((a, b) => b.socIncrease - a.socIncrease).slice(0, 5);
   const followUpSocCamps = [...sequestrationRows].sort((a, b) => b.netEmission - a.netEmission).slice(0, 5);
-  const socCorrelationData: ProcessInputComparison[] = sequestrationRows.map((row) => ({
-    process: row.name,
-    baselineFertilizerKg: 0,
-    currentFertilizerKg: row.fertilizerKg,
-    baselineFuelLiter: 0,
-    currentFuelLiter: 0,
-  }));
-  const socCorrelationValues = sequestrationRows.map((row) => row.socIndex);
-  const fertilizerInsight = [...sequestrationRows].filter((row) => row.socIncrease > 0).sort((a, b) => a.fertilizerKg - b.fertilizerKg)[0];
 
   return (
     <div className="cf-dash">
@@ -1044,47 +1138,128 @@ export function CfProcessPage() {
           <section className="carbon-sequestration-section">
             <div className="section-head">
               <div>
-                <span className="section-kicker">Carbon Sequestration</span>
-                <h2>การกักเก็บคาร์บอนและแหล่งที่ทำให้ SOC เพิ่มขึ้น</h2>
-                <p className="muted">ดู SOC รวม แหล่ง contribution, แคมป์/ภูมิภาคที่เด่น และความสัมพันธ์ระหว่างปุ๋ยเคมีกับ SOC</p>
+                <span className="section-kicker">Soil Organic Carbon</span>
+                <h2>การสะสมคาร์บอนในดิน</h2>
+                <p className="muted">ดู SOC รวม สัดส่วนการใช้วัสดุอินทรีย์ในการปรุงแต่งดิน และแคมป์ที่ทำ SOC ได้ดีตามตัวกรองหลัก</p>
               </div>
             </div>
 
-            <section className="grid2">
-              <article className="card">
-                <div className="card-title-row">
-                  <div className="card-title">Contribution · SOC Practices</div>
-                  <div className="group-mode-switch" role="group" aria-label="เลือกกลุ่มข้อมูล SOC contribution">
-                    {[
-                      ["activity", "ตามกิจกรรม"],
-                      ["camp", "ตามแคมป์"],
-                      ["field", "ตามแปลง"],
-                    ].map(([value, label]) => (
-                      <button
-                        key={value}
-                        type="button"
-                        className={socContributionMode === value ? "active" : ""}
-                        onClick={() => setSocContributionMode(value as DonutMode)}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
+            <section className="card full-span soc-material-card">
+              <div className="card-title-row">
+                <div>
+                  <div className="card-title">สัดส่วนการใช้วัสดุอินทรีย์ในการปรุงแต่งดิน</div>
+                  <p className="muted">ข้อมูลจำลองตามขอบเขต filter ปัจจุบัน แสดงพื้นที่ที่ใช้วัสดุ ปริมาณรวม และสัดส่วนต่อไร่</p>
                 </div>
-                <ProcessDoughnut data={socContributionChartData} />
-              </article>
-              <article className="card">
-                <div className="card-title">SOC Before vs After · ปีฐาน vs ปีดำเนินการ</div>
-                <ActivityGroupedBar baseline={socTrendBaseline} current={socTrendCurrent} />
-                <div className="summary-list">
-                  {socTrendRows.map((row) => (
-                    <div key={row.label}>
-                      <span>{row.label}</span>
-                      <strong>{row.value.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong>
-                    </div>
+                <div className="group-mode-switch soc-material-switch" role="group" aria-label="เลือกมุมมองวัสดุอินทรีย์">
+                  {[
+                    ["overview", "ภาพรวมพื้นที่"],
+                    ["area", "รายพื้นที่"],
+                  ].map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={socMaterialView === value ? "active" : ""}
+                      onClick={() => setSocMaterialView(value as SocMaterialView)}
+                    >
+                      {label}
+                    </button>
                   ))}
                 </div>
-              </article>
+              </div>
+
+              {socMaterialView === "overview" && (
+                <>
+                  <div className="soc-material-overview-grid">
+                    {organicMaterialSummaryRows.map((row) => (
+                      <div className="soc-material-cardlet" key={`mat-${row.key}`}>
+                        <span>{row.material}</span>
+                        <strong>{row.usagePctOfTotalArea.toFixed(1)}%</strong>
+                        <small>{row.usedAreaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })} ไร่ · {row.amount.toLocaleString(undefined, { maximumFractionDigits: row.unit === "ตัน" ? 2 : 0 })} {row.unit}</small>
+                        <em>{row.perRaiPct.toFixed(1)}% ต่อไร่</em>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="soc-material-doughnut">
+                    <ProcessDoughnut
+                      title="สัดส่วนปริมาณวัสดุอินทรีย์รวม"
+                      data={organicMaterialDoughnutData}
+                      unit="หน่วยรวม"
+                    />
+                  </div>
+                  <div className="input-table-wrap">
+                    <table className="input-table">
+                      <thead>
+                        <tr>
+                          <th>ประเภทวัสดุอินทรีย์</th>
+                          <th>% ของพื้นที่ทั้งหมด</th>
+                          <th>พื้นที่ที่ใช้</th>
+                          <th>ปริมาณรวม</th>
+                          <th>% ต่อไร่</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {organicMaterialSummaryRows.map((row) => (
+                          <tr key={`summary-${row.key}`}>
+                            <td>{row.material}</td>
+                            <td>{row.usagePctOfTotalArea.toFixed(1)}%</td>
+                            <td>{row.usedAreaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })} ไร่</td>
+                            <td>{row.amount.toLocaleString(undefined, { maximumFractionDigits: row.unit === "ตัน" ? 2 : 0 })} {row.unit}</td>
+                            <td>{row.perRaiPct.toFixed(1)}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+
+              {socMaterialView === "area" && (
+                <div className="input-table-wrap">
+                  <table className="input-table soc-material-detail-table">
+                    <thead>
+                      <tr>
+                        <th>พื้นที่</th>
+                        <th>ระดับ</th>
+                        <th>ไร่</th>
+                        <th>ประเภทวัสดุ</th>
+                        <th>ปริมาณ</th>
+                        <th>% พื้นที่ที่ใช้</th>
+                        <th>% ต่อไร่</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {organicAreaRows.flatMap((area) => area.materials.map((material) => (
+                        <tr key={`${area.id}-${material.key}`}>
+                          <td>{area.name}</td>
+                          <td>{area.level}</td>
+                          <td>{area.areaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
+                          <td>{material.material}</td>
+                          <td>{material.amount.toLocaleString(undefined, { maximumFractionDigits: material.unit === "ตัน" ? 2 : 0 })} {material.unit}</td>
+                          <td>{material.usagePctOfTotalArea.toFixed(1)}%</td>
+                          <td>{material.perRaiPct.toFixed(1)}%</td>
+                        </tr>
+                      )))}
+                      {!organicAreaRows.length && <tr><td colSpan={7}>ยังไม่มีข้อมูลวัสดุอินทรีย์ตามตัวกรองนี้</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+            </section>
+
+            <section className="card full-span soc-before-after-card">
+              <div className="card-title-row">
+                <div>
+                  <div className="card-title">ก่อน VS หลัง การปรับปรุงดิน</div>
+                  <p className="muted">กราฟแท่งเปรียบเทียบ SOC/SOM ก่อนและหลังใช้วัสดุอินทรีย์ ตามขอบเขต filter ปัจจุบัน</p>
+                </div>
+              </div>
+              <ActivityGroupedBar baseline={socBeforeAfter.baselineRows} current={socBeforeAfter.currentRows} unit="% SOC" />
+              <div className="summary-list">
+                <div><span>พื้นที่ในกราฟ</span><strong>{socBeforeAfter.currentRows.length.toLocaleString()} รายการ</strong></div>
+                <div><span>ค่าเฉลี่ยก่อนปรับปรุงดิน</span><strong>{(socBeforeAfter.baselineRows.reduce((sum, row) => sum + row.totalEmission, 0) / Math.max(socBeforeAfter.baselineRows.length, 1)).toFixed(2)}%</strong></div>
+                <div><span>ค่าเฉลี่ยหลังปรับปรุงดิน</span><strong>{(socBeforeAfter.currentRows.reduce((sum, row) => sum + row.totalEmission, 0) / Math.max(socBeforeAfter.currentRows.length, 1)).toFixed(2)}%</strong></div>
+              </div>
             </section>
 
             <section className="card full-span">
@@ -1104,15 +1279,6 @@ export function CfProcessPage() {
                 </div>
             </section>
 
-            <section className="card full-span">
-              <div className="card-title">Correlation · ปุ๋ยเคมี vs SOC</div>
-              <SocCorrelationChart data={socCorrelationData} socValues={socCorrelationValues} />
-              <p className="muted insight-copy">
-                {fertilizerInsight
-                  ? `Insight: ${fertilizerInsight.name} มีค่า SOC เพิ่มขึ้น ${fertilizerInsight.socIncrease.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e ในกลุ่มที่ใช้ปุ๋ยเคมีต่ำกว่าแคมป์อื่น ควรใช้เป็นตัวอย่างสำหรับปรับแนวทางลดปุ๋ยเคมีและเพิ่มอินทรียวัตถุ`
-                  : "Insight: ยังไม่มีข้อมูลเพียงพอสำหรับวิเคราะห์ความสัมพันธ์ระหว่างปุ๋ยเคมีกับ SOC"}
-              </p>
-            </section>
           </section>
         )}
 

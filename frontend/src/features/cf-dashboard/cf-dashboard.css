@@ -288,6 +288,66 @@
 .cf-dash .sequestration-kpi-grid article {
   border-color: rgba(16, 163, 69, .2);
 }
+.cf-dash .soc-material-card {
+  display: grid;
+  gap: 16px;
+}
+.cf-dash .group-mode-switch.soc-material-switch {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 220px;
+  width: max-content;
+  justify-self: end;
+}
+.cf-dash .group-mode-switch.soc-material-switch button {
+  padding-inline: 14px;
+}
+.cf-dash .soc-material-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.cf-dash .soc-material-cardlet {
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(16, 163, 69, .18);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fff, #F4FBF7);
+  padding: 14px;
+}
+.cf-dash .soc-material-cardlet span,
+.cf-dash .soc-material-cardlet small,
+.cf-dash .soc-material-cardlet em {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.cf-dash .soc-material-cardlet strong {
+  color: #0F8A3C;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 24px;
+}
+.cf-dash .soc-material-cardlet em {
+  font-style: normal;
+  font-weight: 800;
+}
+.cf-dash .soc-material-doughnut {
+  max-width: 620px;
+  width: 100%;
+  justify-self: center;
+}
+.cf-dash .soc-material-doughnut .doughnut-wrap {
+  border: 1px solid rgba(16, 163, 69, .16);
+  border-radius: 12px;
+  background: #fff;
+  padding: 14px;
+}
+.cf-dash .soc-material-detail-table {
+  min-width: 900px;
+}
+.cf-dash .soc-before-after-card {
+  display: grid;
+  gap: 14px;
+  border-color: rgba(14, 165, 233, .18);
+}
 .cf-dash .insight-copy {
   margin-top: 10px;
   padding: 10px 12px;
@@ -2899,7 +2959,8 @@
   .cf-dash .footprint-exec-grid,
   .cf-dash .footprint-order-grid,
   .cf-dash .footprint-cane-mix-grid,
-  .cf-dash .footprint-doc-block-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .cf-dash .footprint-doc-block-grid,
+  .cf-dash .soc-material-overview-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .cf-dash .cane-scope-card { grid-template-columns: 1fr; }
   .cf-dash .cane-kpi-grid, .cf-dash .cane-legend-grid, .cf-dash .credit-source-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .cf-dash .footprint-report-left-column,
@@ -2925,7 +2986,8 @@
     grid-template-columns: 1fr;
   }
   .cf-dash .cane-scope-switch,
-  .cf-dash .group-mode-switch {
+  .cf-dash .group-mode-switch,
+  .cf-dash .group-mode-switch.soc-material-switch {
     min-width: 0;
   }
   .cf-dash .comparison-filter-panel {
@@ -2974,6 +3036,7 @@
   .cf-dash .footprint-block-grid dl,
   .cf-dash .footprint-cane-mix-grid,
   .cf-dash .footprint-cane-mix-note,
+  .cf-dash .soc-material-overview-grid,
   .cf-dash .footprint-doc-block-grid { grid-template-columns: 1fr; }
   .cf-dash .card-title-row { display: grid; }
   .cf-dash .period-switch,
