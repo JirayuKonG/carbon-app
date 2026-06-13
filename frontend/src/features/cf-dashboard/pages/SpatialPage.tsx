@@ -556,6 +556,121 @@ export function CfSpatialPage() {
       : projectFieldsForDistrict,
     [filters.subdistrict, projectFieldsForDistrict],
   );
+  const projectOverviewMapNodes = useMemo<SpatialSummaryNode[]>(() => {
+    const countryNode = nodes.find((node) => node.id === rootId) ?? nodes.find((node) => node.level === "country");
+    const groupNodes = farmGroupFilterOptions.map((option) => {
+      const fields = projectFields.filter((field) => field.parentId === option.value);
+      const denominator = Math.max(fields.length, 1);
+      const inputRows = aggregateInputs(fields.map((field) => field.processInputComparisons ?? []));
+      return {
+        id: option.value,
+        parentId: "thailand",
+        level: "region" as const,
+        name: option.label,
+        lat: fields.reduce((sum, field) => sum + field.lat, 0) / denominator,
+        lng: fields.reduce((sum, field) => sum + field.lng, 0) / denominator,
+        zoom: 7,
+        fields: fields.reduce((sum, field) => sum + field.fields, 0),
+        farmers: fields.reduce((sum, field) => sum + field.farmers, 0),
+        areaRai: fields.reduce((sum, field) => sum + field.areaRai, 0),
+        baselineEmission: Number(fields.reduce((sum, field) => sum + field.baselineEmission, 0).toFixed(2)),
+        currentEmission: Number(fields.reduce((sum, field) => sum + field.currentEmission, 0).toFixed(2)),
+        processBreakdown: aggregateProcessBreakdown(fields),
+        processInputComparisons: hasInputComparisonRows(inputRows) ? inputRows : [],
+        childrenIds: [],
+      };
+    });
+    return [
+      {
+        ...(countryNode ?? {
+          id: "thailand",
+          level: "country" as const,
+          name: "ประเทศไทย",
+          lat: 15.5,
+          lng: 101.2,
+          zoom: 6,
+          fields: 0,
+          farmers: 0,
+          areaRai: 0,
+          baselineEmission: 0,
+          currentEmission: 0,
+          processBreakdown: [],
+          childrenIds: [],
+        }),
+        id: "thailand",
+        childrenIds: groupNodes.map((node) => node.id),
+      },
+      ...groupNodes,
+    ];
+  }, [nodes, projectFields, rootId]);
+  const projectGroupMapNodes = useMemo<SpatialSummaryNode[]>(() => {
+    if (selectedProjectGroup === "all") return projectOverviewMapNodes;
+    const countryNode = projectOverviewMapNodes.find((node) => node.id === "thailand");
+    const groupOption = farmGroupFilterOptions.find((option) => option.value === selectedProjectGroup);
+    const groupFields = projectFields.filter((field) => field.parentId === selectedProjectGroup);
+    const groupDenominator = Math.max(groupFields.length, 1);
+    const groupInputs = aggregateInputs(groupFields.map((field) => field.processInputComparisons ?? []));
+    const groupNode: SpatialSummaryNode = {
+      id: selectedProjectGroup,
+      parentId: "thailand",
+      level: "region",
+      name: groupOption?.label ?? "กลุ่มไร่หลัก",
+      lat: groupFields.reduce((sum, field) => sum + field.lat, 0) / groupDenominator,
+      lng: groupFields.reduce((sum, field) => sum + field.lng, 0) / groupDenominator,
+      zoom: 8,
+      fields: groupFields.length,
+      farmers: groupFields.reduce((sum, field) => sum + field.farmers, 0),
+      areaRai: Number(groupFields.reduce((sum, field) => sum + field.areaRai, 0).toFixed(2)),
+      baselineEmission: Number(groupFields.reduce((sum, field) => sum + field.baselineEmission, 0).toFixed(2)),
+      currentEmission: Number(groupFields.reduce((sum, field) => sum + field.currentEmission, 0).toFixed(2)),
+      processBreakdown: aggregateProcessBreakdown(groupFields),
+      processInputComparisons: hasInputComparisonRows(groupInputs) ? groupInputs : [],
+      childrenIds: [],
+    };
+    const campNodes = summarizeProjectCamps(groupFields).map((camp) => {
+      const campFields = groupFields.filter((field) => field.campId === camp.campId);
+      const denominator = Math.max(campFields.length, 1);
+      return {
+        id: `project-camp-${camp.campId}`,
+        parentId: selectedProjectGroup,
+        level: "subdistrict" as const,
+        name: camp.campName,
+        lat: campFields.reduce((sum, field) => sum + field.lat, 0) / denominator,
+        lng: campFields.reduce((sum, field) => sum + field.lng, 0) / denominator,
+        zoom: 11,
+        fields: camp.fieldCount,
+        farmers: campFields.reduce((sum, field) => sum + field.farmers, 0),
+        areaRai: camp.areaRai,
+        baselineEmission: camp.baselineCo2eTotal,
+        currentEmission: camp.currentCo2eTotal,
+        processBreakdown: camp.currentActivityBreakdown,
+        processInputComparisons: camp.processInputComparisons,
+        childrenIds: [],
+      };
+    });
+    groupNode.childrenIds = campNodes.map((node) => node.id);
+    return [
+      countryNode
+        ? { ...countryNode, childrenIds: [selectedProjectGroup] }
+        : {
+          id: "thailand",
+          level: "country",
+          name: "ประเทศไทย",
+          lat: 15.5,
+          lng: 101.2,
+          zoom: 6,
+          fields: groupNode.fields,
+          farmers: groupNode.farmers,
+          areaRai: groupNode.areaRai,
+          baselineEmission: groupNode.baselineEmission,
+          currentEmission: groupNode.currentEmission,
+          processBreakdown: groupNode.processBreakdown,
+          childrenIds: [selectedProjectGroup],
+        },
+      groupNode,
+      ...campNodes,
+    ];
+  }, [projectFields, projectOverviewMapNodes, selectedProjectGroup]);
   const scopedCamps = useMemo(() => summarizeProjectCamps(projectFieldsForArea), [projectFieldsForArea]);
   const selectedCamp = selectedProjectCampName === "all"
     ? undefined
@@ -658,13 +773,17 @@ export function CfSpatialPage() {
   const mapFieldRenderLimit = selectedCamp ? MAP_CAMP_FIELD_RENDER_LIMIT : MAP_FIELD_RENDER_LIMIT;
   const hasFocusedProjectPlot = selectedProjectPlotCode !== "all";
   const hasScopedProjectArea = Boolean(filters.province || filters.district || filters.subdistrict || selectedCamp || hasFocusedProjectPlot);
+  const isProjectOverviewMap = selectedProjectGroup === "all" && !hasScopedProjectArea;
+  const isProjectGroupOverviewMap = selectedProjectGroup !== "all" && !hasScopedProjectArea;
   const projectMapFields = hasFocusedProjectPlot
     ? displayCampFields
     : hasScopedProjectArea && displayCampFields.length <= mapFieldRenderLimit
     ? displayCampFields
     : [];
-  const mapBoundaryFields = projectMapFields.length ? projectMapFields : isField(selected) ? [selected] : [];
-  const mapActiveBoundaryFieldId = activeBoundaryFieldId || (isField(selected) ? selected.id : undefined);
+  const mapBoundaryFields = isProjectOverviewMap || isProjectGroupOverviewMap ? [] : projectMapFields.length ? projectMapFields : isField(selected) ? [selected] : [];
+  const mapActiveBoundaryFieldId = isProjectOverviewMap || isProjectGroupOverviewMap ? undefined : activeBoundaryFieldId || (isField(selected) ? selected.id : undefined);
+  const mapNodes = isProjectOverviewMap ? projectOverviewMapNodes : isProjectGroupOverviewMap ? projectGroupMapNodes : nodes;
+  const mapSelectedId = isProjectOverviewMap ? "thailand" : isProjectGroupOverviewMap ? selectedProjectGroup : selected.id;
   const documentFields = displayCampFields;
   const documentTitle = selectedCamp
     ? `รายละเอียดรายแปลง ${selectedCamp.campName}`
@@ -801,6 +920,32 @@ export function CfSpatialPage() {
     setSelectedCampId("all");
     setSelectedBoundaryFieldId("");
     markSpatialFilterChanged();
+  };
+
+  const selectMapNode = (id: string) => {
+    if (id === "dan-chang" || id === "isan") {
+      setFilters({ ...emptySpatialFilters(), region: id });
+      setSelectedId(id);
+      setSelectedCampId("all");
+      setSelectedBoundaryFieldId("");
+      setSelectedProjectCampName("all");
+      setSelectedProjectPlotCode("all");
+      markSpatialFilterChanged();
+      return;
+    }
+    if (id.startsWith("project-camp-")) {
+      const campId = Number(id.replace("project-camp-", ""));
+      const camp = scopedCamps.find((item) => item.campId === campId);
+      if (camp) {
+        setSelectedProjectCampName(camp.campName);
+        setSelectedProjectPlotCode("all");
+        setSelectedBoundaryFieldId("");
+        setSelectedId(selectedProjectGroup === "all" ? rootId : selectedProjectGroup);
+        markSpatialFilterChanged();
+        return;
+      }
+    }
+    selectSpatialNode(id);
   };
 
   const selectArea = (level: keyof typeof filters, id: string) => {
@@ -1010,9 +1155,9 @@ export function CfSpatialPage() {
 
         <section className="card map-card wide-map">
           <ThailandMap
-            nodes={nodes}
-            selectedId={selected.id}
-            onSelect={selectSpatialNode}
+            nodes={mapNodes}
+            selectedId={mapSelectedId}
+            onSelect={selectMapNode}
             boundaryFields={mapBoundaryFields}
             selectedBoundaryFieldId={mapActiveBoundaryFieldId}
             onSelectBoundaryField={selectBoundaryField}
