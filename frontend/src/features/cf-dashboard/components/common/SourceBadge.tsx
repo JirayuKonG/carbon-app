@@ -7,9 +7,11 @@ interface Props {
 }
 
 export function SourceBadge({ source, meta, loading }: Props) {
+  const sourceLabel = source === "api" ? "API data" : "ไร่จริง + คำนวณสมมุติ";
+
   return (
     <div className={`source-badge ${source === "api" ? "api" : "mock"}`}>
-      <span>{loading ? "Loading" : source === "api" ? "API data" : "Mock fallback"}</span>
+      <span>{loading ? "Loading" : sourceLabel}</span>
       {meta && (
         <>
           <span>{meta.route}</span>
