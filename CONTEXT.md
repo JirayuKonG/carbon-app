@@ -180,6 +180,34 @@ Recent result-unit update from user prompt on 2026-06-12:
 - Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` controls the selectable result-unit list and the create-unit validation for the Carbon Footprint modal.
 - Related docs updated: `CONTEXT.md` updated for project memory. No database/schema changes were made.
 
+Recent Carbon Footprint card-page update from user prompt on 2026-06-13:
+
+- Prompt summary: on the `Carbon Footprint -> คำนวณรายการที่เลือก` card page, change the visible/default generic calculation result unit from `kgCO2e` to `tCO2e`, keep the `เพิ่มหน่วยใหม่` button visible but disabled for now, and make the fuel-row EF selector inside the table searchable as well as selectable.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now defaults the `generic_ef` preview/result-unit selection to the `tCO2e` group so the frontend preview and submitted result-unit preference align with tonne-based output instead of showing kilogram-scale values unchanged.
+- Additional behavior: the `เพิ่มหน่วยใหม่` button is still rendered in the result-unit section, but it is disabled with explanatory text because this workflow should use only the existing `kgCO2e` and `tCO2e` units for now.
+- Additional behavior: fuel EF selection in the calculation table now uses a searchable input with browser suggestions (`datalist`) so users can type and choose EF rows directly in-table instead of scrolling a long native select list.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+- Related docs updated: `CONTEXT.md` updated for project memory. No schema or backend API changes were required.
+
+Recent Carbon Footprint preview/unit correction from user prompt on 2026-06-13:
+
+- Prompt summary: on the same `Carbon Footprint -> คำนวณรายการที่เลือก` card page, switch the generic-EF default-system label back to `kgCO2e` and make the frontend preview formula show tonne conversion only when the selected result unit is `tCO2e`, using `(activityAmount * selectedEfTotal) / 1000`.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now treats `generic_ef` default output as `kgCO2e` again, matching the backend generic calculation base unit. If the user selects a `tCO2e` result unit, the frontend preview still converts the preview value from kg to tonne before display and submission.
+- Additional behavior: the fuel preview formula text now reflects the actual conversion path shown to the user, for example `activityAmount x EF_total` for `kgCO2e` and `(activityAmount x EF_total) / 1000` for `tCO2e`.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+- Related docs updated: `CONTEXT.md` updated for project memory. No backend code or schema changes were required.
+
+Recent Carbon Footprint preview/card readability update from user prompt on 2026-06-13:
+
+- Prompt summary: refine the same `Carbon Footprint -> คำนวณรายการที่เลือก` card page so the preview formula clearly follows the selected result unit, and make the EF selection area wide/readable enough to show the full selected text.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now shows the generic-EF preview formula as `activityAmount * selectedEfTotal` for `kgCO2e` and `(activityAmount * selectedEfTotal) / 1000` for `tCO2e`, matching the requested preview wording.
+- Additional behavior: the fuel EF selection table was widened, the searchable EF input now keeps a wrapped full-text summary below the field, and the `EF ที่เลือก` column now wraps long names/details instead of visually cutting them off inside the card/modal.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+- Related docs updated: `CONTEXT.md` updated for project memory. No backend code or schema changes were required.
+
 ## Important Feature Areas
 
 - `geo`: Thailand geography reference data

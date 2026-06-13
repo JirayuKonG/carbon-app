@@ -437,6 +437,25 @@ function getEfTotalResultUnitId(ef: Ef) {
   return ef.unit_id_total ?? null
 }
 
+function getFuelEfOptionLabel(ef: Ef, unitById: Record<number, Unit>) {
+  const inputUnitId = getEfInputUnitId(ef)
+  const resultUnitId = getEfTotalResultUnitId(ef)
+  const inputUnitLabel = inputUnitId != null
+    ? (unitById[inputUnitId] ? unitLabel(unitById[inputUnitId]) : `#${inputUnitId}`)
+    : '—'
+  const resultUnitLabel = resultUnitId != null
+    ? (unitById[resultUnitId] ? unitLabel(unitById[resultUnitId]) : `#${resultUnitId}`)
+    : '—'
+
+  return [
+    ef.coef_em_factor_idCode?.trim() || `EF #${ef.coefficient_emission_factor_id}`,
+    ef.coef_em_factor_name?.trim() || 'ไม่ระบุชื่อ',
+    `EF_total ${formatNumberish(ef.coef_em_factor_value_total, 6)}`,
+    `input ${inputUnitLabel}`,
+    `result ${resultUnitLabel}`,
+  ].join(' | ')
+}
+
 function dateInputValue(value?: string | null) {
   if (!value) return ''
   const parsed = new Date(value)
@@ -574,6 +593,18 @@ function getDefaultFootprintResultUnitKind(mode: FootprintFormulaMode): Footprin
   if (mode === 'generic_ef') return 'kgco2e'
   if (mode === 'fertilizer_n2o') return 'tco2e'
   return null
+}
+
+function getGenericEfPreviewFormulaText(sourceKind: FootprintResultUnitKind | null, targetKind: FootprintResultUnitKind | null) {
+  if (sourceKind === 'kgco2e' && targetKind === 'tco2e') {
+    return '(activityAmount * selectedEfTotal) / 1000'
+  }
+
+  if (sourceKind === 'tco2e' && targetKind === 'kgco2e') {
+    return '(activityAmount * selectedEfTotal) * 1000'
+  }
+
+  return 'activityAmount * selectedEfTotal'
 }
 
 function resolveFootprintResultUnitKindFromNames(names: Array<string | null | undefined>): FootprintResultUnitKind | null {
@@ -827,7 +858,7 @@ function buildFootprintRowPreview({
       previewResultUnitLabel: previewUnitLabel,
       previewStatusLabel: targetKind ? 'Frontend preview' : `Frontend preview · ใช้หน่วย EF/default`,
       previewStatusKind: 'ready',
-      previewFormulaText: `${formatNumberish(amount, 4)} x ${formatNumberish(selectedEf.coef_em_factor_value_total, 6)}`,
+      previewFormulaText: getGenericEfPreviewFormulaText(sourceKind, targetKind),
       note: selectedEf.coef_em_factor_name?.trim() || selectedEf.coef_em_factor_idCode?.trim() || `EF #${selectedEf.coefficient_emission_factor_id}`,
     }
   }
@@ -879,6 +910,7 @@ export function CarbonFootprintQueuePage({
   const [footprintCalculationModal, setFootprintCalculationModal] = useState<FootprintCalculationModalState>({ kind: 'hidden' })
   const [footprintResultUnitSelections, setFootprintResultUnitSelections] = useState<Partial<Record<FootprintFormulaMode, string>>>({})
   const [footprintSelectedEfIds, setFootprintSelectedEfIds] = useState<Record<number, string>>({})
+  const [footprintFuelEfSearchInputs, setFootprintFuelEfSearchInputs] = useState<Record<number, string>>({})
   const [footprintEfFilterCfTypeId, setFootprintEfFilterCfTypeId] = useState('')
   const [footprintEfFilterGroupId, setFootprintEfFilterGroupId] = useState('')
   const [footprintEfFilterUnitId, setFootprintEfFilterUnitId] = useState('')
@@ -1946,6 +1978,7 @@ export function CarbonFootprintQueuePage({
   })
 
   const openFootprintCalculationModal = (rowsToReview: QueueRow[], source: FootprintCalculationSource) => {
+    setFootprintFuelEfSearchInputs({})
     setFootprintCalculationModal({
       kind: 'preview',
       source,
@@ -1955,6 +1988,7 @@ export function CarbonFootprintQueuePage({
 
   const closeFootprintCalculationModal = () => {
     if (footprintCalculationModal.kind === 'running') return
+    setFootprintFuelEfSearchInputs({})
     setFootprintCalculationModal({ kind: 'hidden' })
   }
 
@@ -1973,6 +2007,22 @@ export function CarbonFootprintQueuePage({
       ...prev,
       [rowId]: efId,
     }))
+  }
+
+  const updateFootprintFuelEfSearchInput = (rowId: number, value: string, efOptions: Ef[]) => {
+    setFootprintFuelEfSearchInputs((prev) => ({
+      ...prev,
+      [rowId]: value,
+    }))
+
+    const trimmedValue = value.trim()
+    if (!trimmedValue) {
+      updateFootprintSelectedEf(rowId, '')
+      return
+    }
+
+    const matchedEf = efOptions.find((item) => getFuelEfOptionLabel(item, unitById) === trimmedValue)
+    updateFootprintSelectedEf(rowId, matchedEf ? String(matchedEf.coefficient_emission_factor_id) : '')
   }
 
   const openFootprintUnitCreate = (mode: FootprintFormulaMode) => {
@@ -2766,6 +2816,8 @@ export function CarbonFootprintQueuePage({
                                     type="button"
                                     className="btn-ghost btn-sm"
                                     onClick={() => openFootprintUnitCreate(mode)}
+                                    disabled
+                                    title="ปุ่มนี้โชว์ไว้ก่อน ระบบจะใช้แค่หน่วย kgCO2e และ tCO2e ในรอบนี้"
                                   >
                                     <Plus size={13} /> เพิ่มหน่วยใหม่
                                   </button>
@@ -2886,7 +2938,7 @@ export function CarbonFootprintQueuePage({
                           </div>
 
                           <div className="mt-4 max-h-[360px] overflow-auto rounded-xl border border-[#d9e7f2]">
-                            <table className="w-full min-w-[1500px] text-left text-xs">
+                            <table className="w-full min-w-[1760px] text-left text-xs">
                               <thead className="sticky top-0 bg-[#f3f7fb] text-surface-600">
                                 <tr>
                                   <th className="px-3 py-2 font-semibold">หัวข้อกิจกรรม</th>
@@ -2907,6 +2959,9 @@ export function CarbonFootprintQueuePage({
                               const preview = footprintModalRowPreviewById[row.id]
                               const rowSelectableFuelEfs = selectableFuelEfs.filter((item) => getEfInputUnitId(item) === getRowCalculationUnitId(row))
                               const efOptions = rowSelectableFuelEfs.length > 0 ? rowSelectableFuelEfs : selectableFuelEfs
+                              const datalistId = `fuel-ef-options-${row.id}`
+                              const efSearchValue = footprintFuelEfSearchInputs[row.id]
+                                ?? (selectedEf ? getFuelEfOptionLabel(selectedEf, unitById) : '')
 
                               return (
                                 <tr key={`fuel-ef-${row.id}`}>
@@ -2919,32 +2974,43 @@ export function CarbonFootprintQueuePage({
                                   <td className="px-3 py-2 align-top">{row.resourceItemName}</td>
                                   <td className="px-3 py-2 align-top font-mono">{row.calculationAmountLabel}</td>
                                   <td className="px-3 py-2 align-top">{row.preparedUnitLabel}</td>
-                                  <td className="px-3 py-2 align-top min-w-[360px]">
-                                    <select
-                                      className="select"
-                                      value={selectedEfId}
-                                      onChange={(event) => updateFootprintSelectedEf(row.id, event.target.value)}
-                                    >
-                                      <option value="">-- เลือก EF_total สำหรับรายการนี้ --</option>
+                                  <td className="px-3 py-2 align-top min-w-[560px]">
+                                    <input
+                                      className="input w-full min-w-[560px]"
+                                      list={datalistId}
+                                      value={efSearchValue}
+                                      placeholder="พิมพ์เพื่อค้นหา แล้วเลือก EF_total สำหรับรายการนี้"
+                                      onChange={(event) => updateFootprintFuelEfSearchInput(row.id, event.target.value, efOptions)}
+                                    />
+                                    <datalist id={datalistId}>
                                       {efOptions.map((item) => (
-                                        <option key={item.coefficient_emission_factor_id} value={item.coefficient_emission_factor_id}>
-                                          {(item.coef_em_factor_idCode?.trim() || `EF #${item.coefficient_emission_factor_id}`)} | {(item.coef_em_factor_name?.trim() || 'ไม่ระบุชื่อ')} | EF_total {formatNumberish(item.coef_em_factor_value_total, 6)} | input unit {getEfInputUnitId(item) != null ? (unitById[getEfInputUnitId(item) ?? 0] ? unitLabel(unitById[getEfInputUnitId(item) ?? 0]) : `#${getEfInputUnitId(item)}`) : '—'} | result unit {getEfTotalResultUnitId(item) != null ? (unitById[getEfTotalResultUnitId(item) ?? 0] ? unitLabel(unitById[getEfTotalResultUnitId(item) ?? 0]) : `#${getEfTotalResultUnitId(item)}`) : '—'}
-                                        </option>
+                                        <option
+                                          key={item.coefficient_emission_factor_id}
+                                          value={getFuelEfOptionLabel(item, unitById)}
+                                        />
                                       ))}
-                                    </select>
+                                    </datalist>
+                                    <div className="mt-1 text-[11px] text-surface-500">
+                                      ค้นหาได้จากรหัส EF, ชื่อ, ค่า EF_total และหน่วย ก่อนเลือกจากรายการที่ระบบแนะนำ
+                                    </div>
+                                    {!!efSearchValue && (
+                                      <div className="mt-1 whitespace-normal break-words rounded-lg bg-slate-50 px-2 py-2 text-[11px] leading-5 text-surface-600">
+                                        {efSearchValue}
+                                      </div>
+                                    )}
                                     {rowSelectableFuelEfs.length === 0 && (
                                       <div className="mt-1 text-[11px] text-amber-700">
                                         ไม่พบ EF หน่วยตรง ระบบจึงแสดง EF_total ทั้งหมดที่ผ่าน filter ให้เลือกแทน
                                       </div>
                                     )}
                                   </td>
-                                  <td className="px-3 py-2 align-top">
+                                  <td className="min-w-[460px] px-3 py-2 align-top">
                                     {selectedEf ? (
                                       <div className="space-y-1">
-                                        <div className="font-medium text-emerald-800">
+                                        <div className="whitespace-normal break-words font-medium leading-5 text-emerald-800">
                                           {selectedEf.coef_em_factor_name?.trim() || selectedEf.coef_em_factor_idCode?.trim() || `EF #${selectedEf.coefficient_emission_factor_id}`}
                                         </div>
-                                        <div className="text-[11px] text-surface-500">
+                                        <div className="whitespace-normal break-words text-[11px] leading-5 text-surface-500">
                                           EF_total {formatNumberish(selectedEf.coef_em_factor_value_total, 6)} · input {getEfInputUnitId(selectedEf) != null ? (unitById[getEfInputUnitId(selectedEf) ?? 0] ? unitLabel(unitById[getEfInputUnitId(selectedEf) ?? 0]) : `#${getEfInputUnitId(selectedEf)}`) : '—'} · result {getEfTotalResultUnitId(selectedEf) != null ? (unitById[getEfTotalResultUnitId(selectedEf) ?? 0] ? unitLabel(unitById[getEfTotalResultUnitId(selectedEf) ?? 0]) : `#${getEfTotalResultUnitId(selectedEf)}`) : '—'}
                                         </div>
                                       </div>
@@ -3065,11 +3131,17 @@ export function CarbonFootprintQueuePage({
                                             </div>
                                             <div>
                                               <span className="text-sky-300">const</span>{' '}
+                                              <span className="text-emerald-300">previewFormula</span>{' '}
+                                              <span className="text-slate-300">=</span>{' '}
+                                              <span className="text-orange-300">"{preview?.previewFormulaText ?? 'activityAmount x EF_total'}"</span>
+                                            </div>
+                                            <div>
+                                              <span className="text-sky-300">const</span>{' '}
                                               <span className="text-emerald-300">previewResult</span>{' '}
                                               <span className="text-slate-300">=</span>{' '}
-                                              <span className="text-emerald-300">activityAmount</span>{' '}
-                                              <span className="text-slate-300">*</span>{' '}
-                                              <span className="text-emerald-300">selectedEfTotal</span>
+                                              <span className="text-orange-300">
+                                                {preview?.previewResultLabel ?? '—'}
+                                              </span>
                                             </div>
                                             <div>
                                               <span className="text-sky-300">const</span>{' '}
