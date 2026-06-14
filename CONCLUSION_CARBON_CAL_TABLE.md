@@ -1,6 +1,10 @@
 # CONCLUSION_CARBON_CAL_TABLE
 
-เอกสารนี้สรุปจากไฟล์ต้นทาง 6 ไฟล์ที่นำเข้ามาเพื่อใช้เป็นฐานคิดสำหรับทำระบบคำนวณ Carbon Footprint และ Carbon Credit บนเว็บ หลังจากสรุปแล้วระบบไม่ควรผูกกับไฟล์ Excel/PowerPoint เหล่านี้โดยตรง แต่ควรถอดข้อมูลสำคัญออกมาเป็นสูตร, constant, input schema, result schema และฐานข้อมูลที่ตรวจสอบย้อนหลังได้
+Last updated: 2026-06-13
+
+หมายเหตุ: เอกสารนี้เป็น design note สำหรับ logic การคำนวณและโครงสร้างข้อมูล ไม่ใช่สเปก schema ปัจจุบันแบบหนึ่งต่อหนึ่งกับ `backend/src/prisma/schema.prisma`
+
+เอกสารนี้สรุปจากไฟล์ต้นทาง 7 ไฟล์ที่นำเข้ามาเพื่อใช้เป็นฐานคิดสำหรับทำระบบคำนวณ Carbon Footprint และ Carbon Credit บนเว็บ หลังจากสรุปแล้วระบบไม่ควรผูกกับไฟล์ Excel/PowerPoint เหล่านี้โดยตรง แต่ควรถอดข้อมูลสำคัญออกมาเป็นสูตร, constant, input schema, result schema และฐานข้อมูลที่ตรวจสอบย้อนหลังได้
 
 ## 1. ไฟล์ที่นำมาสรุป
 
@@ -10,6 +14,7 @@
 | `2Jun26_คำนวณการปล่อยไนโตรเจนทางตรงและทางอ้อมตามสมการ_2.xlsx` | สูตรคำนวณ N2O จากปุ๋ยทางตรง/ทางอ้อม, baseline/project, RDC/RES, อ้อยปลูก/อ้อยตอ |
 | `2Jun26_ตัวอย่างไฟล์จากไร่บริษัท การใช้ปุ๋ย_Premium_TVER2.xlsx` | รูปแบบ raw data รายแปลง/รายปี/ชนิดอ้อย/สูตรปุ๋ย และการสรุปเป็นกก./ไร่ |
 | `2Jun26_ได้สูตรปุ๋ยจากไร่บริษัท MPIR มาสรุปปริมาณ_2.xlsx` | ตารางสรุปอัตราการใส่ปุ๋ยและปริมาณสัดส่วน N ต่อไร่ของ RDC/RES |
+| `ts_c2919cb957.xlsx` | template คำนวณ Carbon Footprint ของปุ๋ยเคมีแบบ product/activity level โดยแยก `การได้มา` และ `การใช้ปุ๋ย` พร้อม EF ของแม่ปุ๋ยและตัวอย่างค่าผลลัพธ์ต่อ 1 kg ปุ๋ย |
 | `สรุป สมการ SOC_2.pptx` | สมการ SOC ตาม T-VER-P-TOOL-01-12, การแปลง SOM เป็น SOC, การแปลง Ton C/rai เป็น Ton CO2e/rai |
 | `สรุปการคำนวณปริมาณการปล่อยก๊าซไนตรัสออก_2.pptx` | flow Input -> Process -> Output สำหรับ N2O, constant ที่ควรเก็บในระบบ, สูตร FSN/FON/FNfix/Direct/Indirect |
 
@@ -139,6 +144,153 @@ reduction_percent = reduction / baseline_average * 100
 ```
 
 ระบบควรเก็บ `scenario` และ `production_year` แยกกัน ไม่ควรเก็บเป็น column แบบ Excel เพราะอนาคตอาจมีปีเพิ่ม
+
+### 3.8 สูตร Carbon Footprint ของปุ๋ยเคมีจาก `ts_c2919cb957.xlsx`
+
+ไฟล์นี้ให้มุมมองอีกแบบหนึ่งจากชุดสูตร N2O เดิม โดยเน้นการคำนวณ `Carbon Footprint ของปุ๋ยเคมีต่อปริมาณปุ๋ยที่ใช้` แบบแยก 2 ส่วน:
+
+1. `การได้มา (upstream / cradle-to-gate ของการผลิตปุ๋ย)`
+2. `การใช้ปุ๋ย (use phase / N2O จากการใส่ปุ๋ย)`
+
+จุดสำคัญคือไฟล์นี้เหมาะเป็น reference สำหรับทำ `product/activity emission calculator` ของปุ๋ยในโปรแกรม ไม่ใช่แทนที่สูตร field-scale N2O แบบละเอียดใน section 3.6 แต่ควรเก็บเป็นอีก formula mode หรืออีก calculation template ที่ชัดเจน
+
+#### 3.8.1 สมมติฐานและ EF แม่ปุ๋ยจากไฟล์
+
+| องค์ประกอบ | EF | หน่วย | ความหมาย |
+|---|---:|---|---|
+| ยูเรีย `as N` | `3.3036` | `kgCO2eq/kg nutrient` | ใช้คำนวณส่วน N ของการผลิตปุ๋ย |
+| DAP `as P2O5` | `1.5716` | `kgCO2eq/kg nutrient` | ใช้คำนวณส่วน P ของการผลิตปุ๋ย |
+| โพแทสเซียมคลอไรด์ `as K2O` | `0.4974` | `kgCO2eq/kg nutrient` | ใช้คำนวณส่วน K ของการผลิตปุ๋ย |
+| Filler | `0` | `kgCO2eq/kg filler` | ไฟล์ตั้งสมมติฐานว่า filler ไม่มี EF |
+
+ข้อสังเกตที่ควรเก็บในโปรแกรม:
+
+- P ในสูตรปุ๋ยตีความเป็น `P2O5`
+- K ในสูตรปุ๋ยตีความเป็น `K2O`
+- สูตรนี้อิง `แม่ปุ๋ยหลักในประเทศไทย` ตามคำอธิบายในชีต `คำอธิบาย`
+- ถ้าภายหลังเปลี่ยนฐานข้อมูล EF ของแม่ปุ๋ย ต้องทำเป็น version ใหม่ ไม่ควร overwrite ของเดิม
+
+#### 3.8.2 สูตรการได้มา (การผลิตปุ๋ย)
+
+ให้คำนวณจากสัดส่วน N-P2O5-K2O-Filler ในปุ๋ยผสม
+
+```text
+fertilizer_upstream_kgco2e =
+  (n_fraction * EF_UREA_AS_N)
+  + (p2o5_fraction * EF_DAP_AS_P2O5)
+  + (k2o_fraction * EF_KCL_AS_K2O)
+  + (filler_fraction * EF_FILLER)
+```
+
+ถ้ามีปริมาณปุ๋ยที่ใช้มากกว่า 1 kg:
+
+```text
+fertilizer_upstream_total_kgco2e = fertilizer_mass_kg * fertilizer_upstream_kgco2e_per_kg
+```
+
+ตัวอย่างจากไฟล์ `15-15-15`, ปริมาณ `1 kg`
+
+```text
+N = 0.15
+P2O5 = 0.15
+K2O = 0.15
+Filler = 0.55
+
+upstream = (0.15 * 3.3036) + (0.15 * 1.5716) + (0.15 * 0.4974) + (0.55 * 0)
+         = 0.8059 kgCO2eq
+```
+
+#### 3.8.3 สูตรการใช้ปุ๋ย (use phase N2O)
+
+ไฟล์นี้ใช้แนวคิดแบบง่ายว่า `N ที่ใส่ลงดิน 1% กลายเป็น N2O-N` แล้วแปลงเป็น `N2O` ด้วยอัตราส่วนโมเลกุล `44/28` จากนั้นคูณ `GWP`
+
+```text
+n_applied_kg = fertilizer_mass_kg * n_fraction
+n2o_kg = n_applied_kg * 0.01 * (44 / 28)
+use_phase_kgco2e = n2o_kg * 298
+```
+
+ถ้าระบบจะเก็บเป็น constant set:
+
+| Key | Value | หมายเหตุ |
+|---|---:|---|
+| `EF_N_TO_N2O_N_SIMPLE` | `0.01` | เทียบเท่า 1% ของ N applied |
+| `MW_RATIO_N2O_N` | `44/28` | แปลง N2O-N เป็น N2O |
+| `GWP_N2O` | `298` | ตามค่าที่ใช้ในไฟล์ |
+
+ตัวอย่างจากไฟล์ `15-15-15`, ปริมาณ `1 kg`
+
+```text
+n_applied_kg = 1 * 0.15 = 0.15 kg N
+n2o_kg = 0.15 * 0.01 * (44/28) = 0.0024 kg N2O
+use_phase_kgco2e = 0.0024 * 298 = 0.7024 kgCO2eq
+```
+
+#### 3.8.4 สูตรรวม Carbon Footprint ของปุ๋ย
+
+```text
+fertilizer_total_kgco2e =
+  fertilizer_upstream_kgco2e
+  + use_phase_kgco2e
+```
+
+ตัวอย่างจากไฟล์ `15-15-15`, ปริมาณ `1 kg`
+
+```text
+total = 0.8059 + 0.7024 = 1.5083 kgCO2eq
+```
+
+#### 3.8.5 ค่าตัวอย่างสูตรปุ๋ยที่ไฟล์ให้มา
+
+| สูตรปุ๋ย | Total GHG | หน่วย |
+|---|---:|---|
+| `15-15-15` | `1.5083` | `kgCO2eq/kg fertilizer` |
+| `16-20-0` | `1.5922` | `kgCO2eq/kg fertilizer` |
+| `13-13-21` | `1.3470` | `kgCO2eq/kg fertilizer` |
+
+ตัวเลขชุดนี้เหมาะใช้เป็น `reference check` หรือ `unit test golden values` ตอน implement โปรแกรม
+
+#### 3.8.6 ข้อเสนอการนำไปใช้ในโปรแกรม
+
+ถ้าจะเอาสูตรจากไฟล์นี้ไปใช้จริงในระบบ ควรแยกเป็น formula ใหม่ ไม่ปนกับสูตร N2O field/project แบบ detailed
+
+เสนอชื่อ formula mode:
+
+```text
+fertilizer_cfp_simple
+```
+
+input ขั้นต่ำ:
+
+| Field | ความหมาย |
+|---|---|
+| `fertilizer_formula_label` | เช่น `15-15-15` |
+| `fertilizer_mass_kg` | ปริมาณปุ๋ยที่ใช้เป็น kg |
+| `n_percent` | %N |
+| `p2o5_percent` | %P2O5 |
+| `k2o_percent` | %K2O |
+| `filler_percent` | %Filler |
+| `constant_set_version` | version ของ EF และ GWP |
+
+output ที่ควรเก็บ:
+
+| Field | ความหมาย |
+|---|---|
+| `upstream_kgco2e` | การได้มาของปุ๋ย |
+| `use_phase_n2o_kg` | N2O จากการใช้ปุ๋ย |
+| `use_phase_kgco2e` | GHG จากการใช้ปุ๋ย |
+| `total_kgco2e` | ผลรวมทั้งหมด |
+| `result_unit` | ควรเป็น `kgCO2e` |
+
+#### 3.8.7 ข้อควรระวังเชิงวิธีวิทยา
+
+สูตรในไฟล์นี้เป็น `simple template` ที่ดีสำหรับเริ่มทำ feature ในโปรแกรม แต่มีข้อจำกัดที่ต้องระบุไว้ชัด
+
+1. มันใช้ค่า `EF = 1%` สำหรับการปล่อย N2O จาก N applied ซึ่งง่ายกว่า model detailed ใน section 3.6 ที่แยก Direct / ATD / Leaching
+2. มันคิดการได้มาของปุ๋ยจากแม่ปุ๋ย 3 ตัวหลักและ filler = 0 ซึ่งเป็น assumption ไม่ใช่ค่าที่ใช้ได้ทุกประเทศหรือทุก supplier
+3. มันเหมาะกับการคำนวณ `CF ของผลิตภัณฑ์ปุ๋ย/กิจกรรมใส่ปุ๋ย` มากกว่า `Carbon Credit baseline-project comparison`
+4. ถ้าจะใช้ในโปรแกรมร่วมกับสูตร N2O detailed ต้องมี field บอก `calculation_method` ชัดเจน เช่น `simple_cfp_template` กับ `ipcc_tver_detailed`
+5. สำหรับการพัฒนา phase ถัดไป ควรมีหน้าเปรียบเทียบผลของ `simple template` กับ `detailed field model` เพื่อไม่ให้ผู้ใช้สับสนว่าค่าทั้งสองชุดตั้งใจใช้คนละบริบท
 
 ## 4. สูตร Fnfix
 

@@ -1,6 +1,6 @@
 # Project Component Map
 
-Last updated: 2026-06-09
+Last updated: 2026-06-11
 
 Use this file to quickly find where a page, component, layout element, or related API code lives.
 
@@ -10,15 +10,15 @@ Use this file to quickly find where a page, component, layout element, or relate
 | --- | --- | --- |
 | React entry point | `frontend/src/main.tsx` | Mounts the React app. |
 | App routes | `frontend/src/App.tsx` | Defines all frontend pages and redirects. |
-| API helper | `frontend/src/lib/api.ts` | Axios instance, base URL `/api`, generic `get/post/put/del`. |
-| Global styles | `frontend/src/index.css` | Tailwind and shared CSS classes like cards, buttons, tables. |
+| API helper | `frontend/src/lib/api.ts` | Axios instance using `VITE_API_BASE_URL`, plus generic `get/post/put/del` helpers. |
+| Global styles | `frontend/src/index.css` | Tailwind and shared CSS classes like cards, buttons, and tables. |
 
 ## Main Layout
 
 | UI Part | File | Notes |
 | --- | --- | --- |
 | Page shell / layout wrapper | `frontend/src/components/layout/AppLayout.tsx` | Wraps pages with sidebar, topbar, mobile nav, and outlet. |
-| Left navigation sidebar | `frontend/src/components/layout/Sidebar.tsx` | Desktop nav menu and route links. Current group order is `CARBON ANALYTICS`, `CARBON`, `ข้อมูลเกษตรกร`, `ตั้งค่าระบบ`. Supports nested Carbon Analytics and activity links. |
+| Left navigation sidebar | `frontend/src/components/layout/Sidebar.tsx` | Desktop nav menu and route links. |
 | Top bar | `frontend/src/components/layout/Topbar.tsx` | Header area above page content. |
 | Mobile bottom navigation | `frontend/src/components/layout/MobileNav.tsx` | Mobile nav menu for small screens. |
 
@@ -26,10 +26,10 @@ Use this file to quickly find where a page, component, layout element, or relate
 
 | Group | Items | Notes |
 | --- | --- | --- |
-| `CARBON ANALYTICS` | `ภาพรวม Carbon`, `แผนที่พื้นที่` | `ภาพรวม Carbon` expands to `ข้อมูลสรุป`, `กระบวนการเพาะปลูก`, and `รายงาน Premium T-VER`. |
+| `CARBON ANALYTICS` | `ข้อมูลสรุปคาร์บอนเครดิต`, `ข้อมูลสรุปคาร์บอนฟุตพริ้นท์`, `แผนที่พื้นที่` | `ข้อมูลสรุปคาร์บอนเครดิต` expands to `คาร์บอนเครดิต` and `รายงาน Premium T-VER`; `ข้อมูลสรุปคาร์บอนฟุตพริ้นท์` expands to `คาร์บอนฟุตพริ้นท์` and `รายงานคาร์บอนฟุตพริ้นท์`. |
 | `CARBON` | `บันทึกกิจกรรม`, `คำนวณ Carbon` | `บันทึกกิจกรรม` expands to `จัดการกิจกรรม` and `รายการบันทึกกิจกรรม`; `คำนวณ Carbon` expands to `เตรียมข้อมูล Carbon`, `Carbon Footprint`, and `Carbon Credit`. |
 | `ข้อมูลเกษตรกร` | `จัดการเกษตรกร`, `พื้นที่เพาะปลูก`, `ข้อมูลสภาพอากาศ` | Farmer and land-related operational pages. |
-| `ตั้งค่าระบบ` | `พื้นที่ในประเทศไทย`, `โรงงาน / บริการ`, `จัดการผู้ใช้`, `EF / GWP / หน่วย`, `ปุ๋ย / น้ำมัน` | System reference data and supporting setup pages. |
+| `ตั้งค่าระบบ` | `พื้นที่ในประเทศไทย`, `โรงงาน / บริการ`, `จัดการผู้ใช้`, `EF / GWP / หน่วย`, `ปุ๋ย / น้ำมัน` | System reference data, user management, and activity-resource setup pages. |
 
 ## Shared UI Components
 
@@ -37,7 +37,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | --- | --- | --- |
 | Data table | `frontend/src/components/ui/DataTable.tsx` | Reusable searchable/paginated table. |
 | CSV mapping wizard | `frontend/src/components/ui/CsvMappingWizard.tsx` | CSV import column matching flow. Used by weather and activities imports. |
-| Dashboard visibility menu | `frontend/src/components/ui/DashboardVisibilityMenu.tsx` | Small header control for choosing which summary cards are shown on a page. Used by the activity pages. |
+| Dashboard visibility menu | `frontend/src/components/ui/DashboardVisibilityMenu.tsx` | Small header control for choosing which summary cards are shown on a page. |
 | Confirm dialog | `frontend/src/components/ui/ConfirmDialog.tsx` | Delete confirmation modal. |
 | Toast | `frontend/src/components/ui/Toast.tsx` | Toast notification UI. |
 
@@ -46,11 +46,11 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Part | File/Folder | Notes |
 | --- | --- | --- |
 | Carbon Analytics pages | `frontend/src/features/cf-dashboard/pages/` | Contains the active Carbon Analytics route pages. |
-| Dashboard API adapter | `frontend/src/features/cf-dashboard/services/dashboardApi.ts` | Handles Carbon Analytics data loading and the mock/API switch. |
-| Dashboard mock data | `frontend/src/features/cf-dashboard/data/mockDashboard.ts` | Temporary preview data used while API mode is disabled. |
+| Dashboard API adapter | `frontend/src/features/cf-dashboard/services/dashboardApi.ts` | Loads API data first and falls back to mock data when needed. |
+| Dashboard mock data | `frontend/src/features/cf-dashboard/data/mockDashboard.ts` | Mock/fallback data for preview and partial API gaps. |
 | Shared dashboard styles | `frontend/src/features/cf-dashboard/cf-dashboard.css` | Feature-specific styling for analytics pages. |
 | Shared charts | `frontend/src/features/cf-dashboard/components/charts/` | Chart building blocks and chart registry/palette setup. |
-| Shared dashboard UI | `frontend/src/features/cf-dashboard/components/common/` | Reusable cards, KPI blocks, filters, and other shared dashboard UI parts. |
+| Shared dashboard UI | `frontend/src/features/cf-dashboard/components/common/` | Reusable cards, KPI blocks, filters, and shared dashboard UI parts. |
 | Spatial map UI | `frontend/src/features/cf-dashboard/components/map/` | Map and spatial drill-down related components. |
 
 ## Feature Pages
@@ -61,41 +61,38 @@ Use this file to quickly find where a page, component, layout element, or relate
 | `/process` | `frontend/src/features/cf-dashboard/pages/ProcessPage.tsx` | Cultivation-process analytics focused on process breakdowns and comparisons. |
 | `/spatial` | `frontend/src/features/cf-dashboard/pages/SpatialPage.tsx` | Area map, drill-down, and spatial detail summaries. |
 | `/report` | `frontend/src/features/cf-dashboard/pages/ReportPage.tsx` | Premium T-VER summary, preview, and export/download flow. |
+| `/footprint-report` | `frontend/src/features/cf-dashboard/pages/FootprintReportPage.tsx` | Carbon footprint report page and export-oriented presentation. |
+| `/pipeline` | `frontend/src/features/cf-dashboard/pages/PipelinePage.tsx` | Carbon Analytics pipeline view that still exists as a direct route. |
 | `/calculate` | `frontend/src/App.tsx` | Redirects to `/calculate/prepare`. |
 | `/calculate/prepare` | `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` | Carbon data preparation page that moves imported activity details into `carbon_process_queue`. |
 | `/calculate/footprint` | `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` | Carbon Footprint queue page for unit/volume preparation, fertilizer/fuel conversions, soil/SOC inputs, ready status, and calculation actions. |
 | `/calculate/credit` | `frontend/src/features/cf-dashboard/pages/CarbonCreditPage.tsx` | Read-only Carbon Credit analysis page with 4 baseline years, 1 project year, and plot-level fertilizer/fuel comparison. |
-| `/dashboard` | `frontend/src/features/dashboard/DashboardPage.tsx` | GHG dashboard, charts, summaries. |
-| `/geo` | `frontend/src/features/geo/GeoPage.tsx` | Geographies, provinces, districts, subdistricts. |
-| `/infra` | `frontend/src/features/infra/InfraPage.tsx` | Factories, service areas, departments. |
+| `/dashboard` | `frontend/src/features/dashboard/DashboardPage.tsx` | Older GHG dashboard page kept as a separate route. |
+| `/geo` | `frontend/src/features/geo/GeoPage.tsx` | Geographies, provinces, districts, and subdistricts. |
+| `/infra` | `frontend/src/features/infra/InfraPage.tsx` | Factories, service areas, and departments. |
 | `/users` | `frontend/src/features/users/UsersPage.tsx` | Users and roles. |
 | `/farmers` | `frontend/src/features/farmers/FarmersPage.tsx` | Farmer records. |
 | `/lands` | `frontend/src/features/lands/LandsPage.tsx` | Lands, camps, landmaps, grouped land form, and geo-assisted location selection. |
 | `/lands/weather` | `frontend/src/features/weather/WeatherPage.tsx` | Weather station records and CSV import. |
-| `/emission-factors` | `frontend/src/features/emission-factors/EmissionFactorsPage.tsx` | Emission factors, GWP, units/reference data. |
-| `/activities/resources` | `frontend/src/features/activities/ActivityResourcesPage.tsx` | Read-only activity resource reference lists for fertilizers, chemicals, and equipments. |
+| `/emission-factors` | `frontend/src/features/emission-factors/EmissionFactorsPage.tsx` | Emission factors, GWP, units, and reference data. |
 | `/activities` | `frontend/src/App.tsx` | Redirects to `/activities/logs`. |
-| `/activities/logs` | `frontend/src/features/activities/ActivityLogListPage.tsx` | Simpler daily-use list for `log_activities_detail` with filters and add/edit/delete. |
-| `/activities/manage` | `frontend/src/features/activities/ActivitiesPage.tsx` | Advanced activity management page with headers, import, full workflow tools, and imported-file history from `activities_fileNameUse`. |
-| `/activities/logs/new` | `frontend/src/App.tsx` | Redirect helper that preserves query string and sends users to `/activities/manage`. |
+| `/activities/logs` | `frontend/src/features/activities/ActivityLogListPage.tsx` | Daily-use list for `log_activities_detail` with filters and add/edit/delete. |
+| `/activities/resources` | `frontend/src/features/activities/ActivityResourcesPage.tsx` | Read-only activity resource reference lists for fertilizers, chemicals, and equipments. |
+| `/activities/manage` | `frontend/src/features/activities/ActivitiesPage.tsx` | Advanced activity management page with headers, import, workflow tools, and imported-file history. |
+| `/activities/logs/new` | `frontend/src/App.tsx` | Redirect helper that preserves the query string and sends users to `/activities/manage`. |
 
 ## Route Notes
 
 - The app default route redirects to `/overview`.
-- The current sidebar navigation order is:
-  - `CARBON ANALYTICS`
-  - `CARBON`
-  - `ข้อมูลเกษตรกร`
-  - `ตั้งค่าระบบ`
 - The older `/dashboard` page still exists as a route, but it is no longer listed in the main sidebar navigation.
-- The Carbon Analytics pipeline page file still exists at `frontend/src/features/cf-dashboard/pages/PipelinePage.tsx`, but its route is currently commented out in `frontend/src/App.tsx`.
-- A `TransportPage.tsx` file also still exists under `frontend/src/features/cf-dashboard/pages/`, but there is no active `/transport` route in the current router.
+- The `/pipeline` route is active in `frontend/src/App.tsx`, but it is not surfaced in the current main sidebar navigation.
+- A `TransportPage.tsx` file still exists under `frontend/src/features/cf-dashboard/pages/`, but there is no active `/transport` route in the current router.
 
 ## Backend/API Counterparts
 
 | Frontend Feature | Backend Files | API Base |
 | --- | --- | --- |
-| Carbon Analytics (`/overview`, `/process`, `/spatial`, `/report`) | `backend/src/modules/analytics/*` | `/api/analytics` |
+| Carbon Analytics (`/overview`, `/process`, `/spatial`, `/report`, `/footprint-report`, `/pipeline`) | `backend/src/modules/analytics/*` | `/api/analytics` |
 | Legacy dashboard (`/dashboard`) | `backend/src/modules/analytics/*` | `/api/analytics` |
 | Geo | `backend/src/modules/geo/*` | `/api/geo` |
 | Infra | `backend/src/modules/infra/*` | `/api/infra` |
@@ -104,7 +101,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Lands | `backend/src/modules/lands/*` | `/api/lands` |
 | Weather | `backend/src/modules/weather/*` | `/api/lands/weather` |
 | Emission factors | `backend/src/modules/emission-factors/*` | `/api/emission-factors` |
-| Activities | `backend/src/modules/activities/*` | `/api/activities` including activity headers/details, CSV import, imported-file history endpoints such as `/api/activities/import-files`, and carbon queue endpoints such as `/api/activities/carbon-process-queue`. |
+| Activities | `backend/src/modules/activities/*` | `/api/activities` including headers/details, CSV import, import-history endpoints, and carbon queue endpoints such as `/api/activities/carbon-process-queue`. |
 | Prisma database access | `backend/src/modules/prisma/*` | Used by all backend services. |
 
 ## Database And Schema
@@ -112,9 +109,10 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Part | File | Notes |
 | --- | --- | --- |
 | Prisma schema | `backend/src/prisma/schema.prisma` | Database models and PostgreSQL datasource. |
-| Prisma service | `backend/src/modules/prisma/prisma.service.ts` | Creates/disconnects Prisma client. |
+| Prisma service | `backend/src/modules/prisma/prisma.service.ts` | Creates and disconnects the Prisma client. |
 | Backend config | `backend/.env` | Contains `DATABASE_URL`; do not commit secrets. |
 | Backend env example | `backend/.env.example` | Template for database connection config. |
+| SQL snapshot | `managementDataSystem_forCalculate_2.0_06082026_postgres.sql` | Repo bootstrap snapshot for local or fresh environment setup. |
 
 ## Common Debug Lookup
 
@@ -123,13 +121,14 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Where is the nav bar? | `frontend/src/components/layout/Sidebar.tsx`, `MobileNav.tsx`, `Topbar.tsx` |
 | Where are routes defined? | `frontend/src/App.tsx` |
 | Where is Carbon Analytics data loading? | `frontend/src/features/cf-dashboard/services/dashboardApi.ts` |
-| Where is the mock-vs-API dashboard switch? | `frontend/src/features/cf-dashboard/services/dashboardApi.ts` |
+| Where is API-to-mock fallback logic? | `frontend/src/features/cf-dashboard/services/dashboardApi.ts` |
 | Where are Carbon Analytics pages? | `frontend/src/features/cf-dashboard/pages/` |
 | Where are Carbon Analytics charts/components? | `frontend/src/features/cf-dashboard/components/` |
 | Where is the table component? | `frontend/src/components/ui/DataTable.tsx` |
 | Where is CSV import UI? | `frontend/src/components/ui/CsvMappingWizard.tsx` |
 | Where is weather manual/import page? | `frontend/src/features/weather/WeatherPage.tsx` |
-| Where is the simpler activity log page? | `frontend/src/features/activities/ActivityLogListPage.tsx` |
+| Where is the activity log page? | `frontend/src/features/activities/ActivityLogListPage.tsx` |
+| Where is the advanced activity management page? | `frontend/src/features/activities/ActivitiesPage.tsx` |
 | Where are `/lands/camps` routes handled? | `backend/src/modules/lands/lands.controller.ts` |
 | Where is PostgreSQL/Prisma schema? | `backend/src/prisma/schema.prisma` |
 | Where are API requests configured? | `frontend/src/lib/api.ts` |
@@ -137,5 +136,5 @@ Use this file to quickly find where a page, component, layout element, or relate
 ## Tracking Notes
 
 - Keep this file updated when adding a new page, route, or shared component.
-- If a component has a frontend page and backend module, list both.
+- If a feature has both frontend and backend touchpoints, list both.
 - For active bugs, use `BUG_LOG.md`; for file locations, use this component map.

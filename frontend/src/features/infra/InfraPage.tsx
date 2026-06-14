@@ -1,7 +1,7 @@
 import { type FormEvent, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
-import { DataTable, Column } from '@/components/ui/DataTable'
+import { DataTable, Column, ExpandableTextCell } from '@/components/ui/DataTable'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { get, post, put, del } from '@/lib/api'
 import { Factory, Plus, Pencil, Trash2 } from 'lucide-react'
@@ -89,13 +89,13 @@ export function InfraPage() {
   const factoryColumns: Column<FactoryRow>[] = [
     { key: 'factory_id', header: 'ID', width: '60px' },
     { key: 'initial',    header: 'รหัส', width: '80px' },
-    { key: 'name',       header: 'ชื่อโรงงาน' },
-    { key: 'note',       header: 'หมายเหตุ', render: (r) => <span className="text-surface-400">{r.note || '—'}</span> },
+    { key: 'name',       header: 'ชื่อโรงงาน', width: '220px', minWidth: '180px', resizable: true },
+    { key: 'note',       header: 'หมายเหตุ', width: '300px', minWidth: '220px', resizable: true, render: (r) => <ExpandableTextCell text={r.note} title="หมายเหตุโรงงาน" className="text-surface-400" /> },
   ]
   const serviceColumns: Column<ServiceArea>[] = [
     { key: 'service_area_id', header: 'ID', width: '60px' },
     { key: 'code',            header: 'รหัส', width: '80px' },
-    { key: 'name',            header: 'ชื่อพื้นที่บริการ' },
+    { key: 'name',            header: 'ชื่อพื้นที่บริการ', width: '220px', minWidth: '180px', resizable: true },
     { key: 'factory_id',      header: 'โรงงาน', render: (r) => <span>{factories.find(f => f.factory_id === r.factory_id)?.name ?? r.factory_id}</span> },
   ]
   const deptColumns: Column<Department>[] = [

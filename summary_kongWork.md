@@ -1,6 +1,10 @@
 # Summary Kong Work
 
-Last updated: 2026-06-10
+Last updated: 2026-06-11
+
+Current local branch ตอน review เอกสารนี้: `kong_dev`
+
+Current local HEAD ตอน review เอกสารนี้: `8b212f4 Merge pull request #26 from JirayuKonG/idea`
 
 ## Project
 
@@ -42,6 +46,8 @@ Carbon Footprint Management & Traceability System เป็นระบบสำ
 - `/spatial` สำหรับแผนที่และการ drill-down รายพื้นที่
 - `/report` สำหรับรายงาน Premium T-VER
 - `/footprint-report` สำหรับรายงานคาร์บอนฟุตพริ้นท์
+- `/pipeline` สำหรับ flow ของ Carbon Analytics ที่ยังเข้าผ่าน route ตรงได้
+- `/calculate/prepare` สำหรับเตรียมข้อมูลก่อนเข้าสู่คิวคำนวณ
 - `/calculate/footprint` สำหรับ workflow การคำนวณ Carbon Footprint
 - `/calculate/credit` สำหรับหน้าเปรียบเทียบ Carbon Credit
 

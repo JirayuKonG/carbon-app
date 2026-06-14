@@ -2,7 +2,7 @@ import { type FormEvent, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
-import { DataTable, Column } from '@/components/ui/DataTable'
+import { DataTable, Column, ExpandableTextCell } from '@/components/ui/DataTable'
 import { del, get, post, put } from '@/lib/api'
 import { ChevronDown, ChevronUp, FlaskConical, Pencil, Plus, Settings2, Trash2 } from 'lucide-react'
 
@@ -336,13 +336,19 @@ export function ActivityResourcesPage() {
       key: 'resc_used_type_name',
       header: 'ชื่อประเภทปัจจัย',
       sortable: true,
+      width: '220px',
+      minWidth: '180px',
+      resizable: true,
       render: (row) => row.resc_used_type_name?.trim() || '-',
     },
     {
       key: 'resc_used_type_info',
       header: 'ข้อมูลเพิ่มเติม',
       sortable: true,
-      render: (row) => row.resc_used_type_info?.trim() || '-',
+      width: '300px',
+      minWidth: '220px',
+      resizable: true,
+      render: (row) => <ExpandableTextCell text={row.resc_used_type_info} title="ข้อมูลเพิ่มเติมประเภทปัจจัย" />,
     },
   ]
 
@@ -351,6 +357,10 @@ export function ActivityResourcesPage() {
       key: 'name',
       header: 'ชื่อรายการ',
       sortable: true,
+      width: '240px',
+      minWidth: '180px',
+      resizable: true,
+      render: (row) => <ExpandableTextCell text={row.name} title="ชื่อรายการ" previewChars={72} />,
     },
     {
       key: 'resourceUsedTypeName',
@@ -376,7 +386,10 @@ export function ActivityResourcesPage() {
       key: 'info',
       header: 'ข้อมูลเพิ่มเติม',
       sortable: true,
-      render: (row) => row.info || '-',
+      width: '320px',
+      minWidth: '220px',
+      resizable: true,
+      render: (row) => <ExpandableTextCell text={row.info} title="ข้อมูลเพิ่มเติมรายการปัจจัย" />,
     },
   ]
 

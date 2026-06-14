@@ -1,6 +1,6 @@
 # Bug Tracking Log
 
-Last updated: 2026-06-05
+Last updated: 2026-06-11
 
 Use the checkboxes to track what is fixed. Keep new findings here so future work can restart quickly.
 

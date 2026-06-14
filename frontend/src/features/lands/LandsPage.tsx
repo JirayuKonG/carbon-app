@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
-import { DataTable, Column } from '@/components/ui/DataTable'
+import { DataTable, Column, ExpandableTextCell } from '@/components/ui/DataTable'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { del, get, post, put } from '@/lib/api'
 import { LandLocationPicker } from '@/features/lands/LandLocationPicker'
@@ -291,10 +291,10 @@ export function LandsPage() {
   const campColumns: Column<LandCamp>[] = [
     { key: 'land_camp_id', header: 'ID', width: '60px' },
     { key: 'land_camp_idCode', header: 'รหัสแคมป์' },
-    { key: 'land_camp_name', header: 'ชื่อแคมป์' },
+    { key: 'land_camp_name', header: 'ชื่อแคมป์', width: '220px', minWidth: '180px', resizable: true },
     { key: 'land_camp_latitude', header: 'Lat', render: (row) => row.land_camp_latitude?.toFixed(6) ?? '-' },
     { key: 'land_camp_longitude', header: 'Lng', render: (row) => row.land_camp_longitude?.toFixed(6) ?? '-' },
-    { key: 'land_camp_info', header: 'หมายเหตุ', render: (row) => <span className="text-surface-400">{row.land_camp_info || '-'}</span> },
+    { key: 'land_camp_info', header: 'หมายเหตุ', width: '300px', minWidth: '220px', resizable: true, render: (row) => <ExpandableTextCell text={row.land_camp_info} title="หมายเหตุแคมป์" className="text-surface-400" /> },
   ]
 
   const landmapColumns: Column<Landmap>[] = [
@@ -305,7 +305,7 @@ export function LandsPage() {
     { key: 'landmap_unit_id', header: 'หน่วยนับ', render: (row) => row.landmap_unit_id ? unitMap[row.landmap_unit_id] ?? row.landmap_unit_id : '-' },
     { key: 'landmap_latitude', header: 'Lat', render: (row) => row.landmap_latitude?.toFixed(6) ?? '-' },
     { key: 'landmap_longitude', header: 'Lng', render: (row) => row.landmap_longitude?.toFixed(6) ?? '-' },
-    { key: 'landmap_info', header: 'หมายเหตุ', render: (row) => <span className="text-surface-400">{row.landmap_info || '-'}</span> },
+    { key: 'landmap_info', header: 'หมายเหตุ', width: '300px', minWidth: '220px', resizable: true, render: (row) => <ExpandableTextCell text={row.landmap_info} title="หมายเหตุโฉนด" className="text-surface-400" /> },
   ]
 
   const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [

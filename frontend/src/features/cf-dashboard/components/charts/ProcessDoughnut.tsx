@@ -3,7 +3,7 @@ import type { ActivityValue } from "../../types/dashboard";
 import { chartColors } from "./ChartRegistry";
 import "./ChartRegistry";
 
-export function ProcessDoughnut({ title, data, comparisonData }: { title?: string; data: ActivityValue[]; comparisonData?: ActivityValue[] }) {
+export function ProcessDoughnut({ title, data, comparisonData, unit = "tCO2e" }: { title?: string; data: ActivityValue[]; comparisonData?: ActivityValue[]; unit?: string }) {
   const total = data.reduce((sum, item) => sum + item.emission, 0);
   const totalLabel = total.toLocaleString(undefined, { maximumFractionDigits: 2 });
   const growthFor = (name: string, value: number) => {
@@ -41,7 +41,7 @@ export function ProcessDoughnut({ title, data, comparisonData }: { title?: strin
                   label: (context) => {
                     const value = Number(context.parsed || 0);
                     const growth = growthFor(String(context.label), value);
-                    const lines = [`${context.label}: ${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e`];
+                    const lines = [`${context.label}: ${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${unit}`];
                     if (growth !== undefined) {
                       lines.push(`Delta/Growth: ${growth >= 0 ? "+" : ""}${growth.toFixed(1)}%`);
                     }
@@ -52,10 +52,10 @@ export function ProcessDoughnut({ title, data, comparisonData }: { title?: strin
             },
           }}
         />
-        <div className="doughnut-center-label" aria-label={`ปริมาณการปล่อยรวม ${totalLabel} tCO2e`}>
+        <div className="doughnut-center-label" aria-label={`ปริมาณการปล่อยรวม ${totalLabel} ${unit}`}>
           <small>ปริมาณการปล่อย</small>
           <strong>{totalLabel}</strong>
-          <span>tCO2e</span>
+          <span>{unit}</span>
         </div>
       </div>
       <div className="value-legend">
@@ -67,7 +67,7 @@ export function ProcessDoughnut({ title, data, comparisonData }: { title?: strin
               <span className="legend-swatch" style={{ background: chartColors[index % chartColors.length] }} />
               <span className="legend-name">{item.name}</span>
               <span className="legend-values">
-                <strong>{item.emission.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong>
+                <strong>{item.emission.toLocaleString(undefined, { maximumFractionDigits: 2 })} {unit}</strong>
                 <small>{pct.toFixed(1)}%</small>
                 {growth !== undefined && (
                   <small className={`growth-pill ${growth <= 0 ? "good" : "bad"}`}>

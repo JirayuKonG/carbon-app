@@ -1,10 +1,21 @@
-import type { CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { CaneTypeSummaryPanel } from "../components/common/CaneTypeSummaryPanel";
 import { TrendLineChart } from "../components/charts/TrendLineChart";
+import { spatialProjectPlots, type SpatialProjectPlot } from "../data/spatialProjectPlots";
 import { useAsyncData } from "../hooks/useAsyncData";
 import { getCaneTypeSummaries, getOverviewKpi, getProcessInputComparisons, getTrend } from "../services/dashboardApi";
-import type { CaneTypeSummary, OverviewKpi, ProcessInputComparison, TrendPoint } from "../types/dashboard";
+import type { CaneTypeSummary, DataResult, OverviewKpi, ProcessInputComparison, TrendPoint } from "../types/dashboard";
 import "../cf-dashboard.css";
+
+type OverviewFarmGroup = "all" | "dan-chang" | "isan";
+
+const farmGroupOptions: { value: OverviewFarmGroup; label: string }[] = [
+  { value: "all", label: "ทั้งหมด" },
+  { value: "dan-chang", label: "ไร่ด่านช้าง" },
+  { value: "isan", label: "ไร่อีสาน" },
+];
+
+const overviewReductionBands = [-0.08, 0.02, 0.04, 0.07, 0.1, 0.13, 0.16, 0.19, 0.23, 0.28];
 
 const emptyKpi: OverviewKpi = {
   baselineAvgEmission: 0,
@@ -39,22 +50,151 @@ function formatNumber(value: number, maximumFractionDigits = 2) {
   return value.toLocaleString(undefined, { maximumFractionDigits });
 }
 
+function stableIndex(key: string, modulo: number) {
+  let hash = 0;
+  for (let index = 0; index < key.length; index += 1) {
+    hash = ((hash * 33) + key.charCodeAt(index)) % 1000003;
+  }
+  return hash % modulo;
+}
+
+function projectCarbonForPlot(plot: SpatialProjectPlot) {
+  const baseline = plot.projectAreaRai * (0.08 + (plot.sequence % 9) * 0.006);
+  const farmShift = plot.farmGroup === "dan-chang" ? 1 : 0;
+  const reduction = overviewReductionBands[(stableIndex(`${plot.plotCode}:${plot.campName}`, overviewReductionBands.length) + farmShift) % overviewReductionBands.length];
+  return {
+    baseline,
+    current: baseline * (1 - reduction),
+  };
+}
+
+function buildGroupedInputs(areaRai: number, group: OverviewFarmGroup): ProcessInputComparison[] {
+  const groupFactor = group === "dan-chang" ? 0.96 : 1.04;
+  const rows = [
+    { process: "การเตรียมดินและปลูก", fertilizer: 8, fuel: 3.4, fertilizerSaving: 0.11, fuelSaving: 0.15 },
+    { process: "การใช้ปุ๋ย", fertilizer: 16, fuel: 2.6, fertilizerSaving: 0.14, fuelSaving: 0.13 },
+    { process: "การให้น้ำและกำจัดวัชพืช", fertilizer: 22, fuel: 1.6, fertilizerSaving: 0.16, fuelSaving: 0.08 },
+    { process: "การเก็บเกี่ยว", fertilizer: 0, fuel: 4.2, fertilizerSaving: 0, fuelSaving: 0.17 },
+  ];
+
+  return rows.map((row) => {
+    const baselineFertilizerKg = areaRai * row.fertilizer * groupFactor;
+    const baselineFuelLiter = areaRai * row.fuel * groupFactor;
+    return {
+      process: row.process,
+      baselineFertilizerKg: Number(baselineFertilizerKg.toFixed(1)),
+      currentFertilizerKg: Number((baselineFertilizerKg * (1 - row.fertilizerSaving)).toFixed(1)),
+      baselineFuelLiter: Number(baselineFuelLiter.toFixed(1)),
+      currentFuelLiter: Number((baselineFuelLiter * (1 - row.fuelSaving)).toFixed(1)),
+    };
+  });
+}
+
+function buildGroupedTrend(currentEmission: number, baselineEmission: number, sourceTrend: TrendPoint[]): TrendPoint[] {
+  const baselineYears = sourceTrend.filter((item) => item.isBaseline);
+  const projectYears = sourceTrend.filter((item) => !item.isBaseline);
+  const baselineSource = baselineYears.length
+    ? baselineYears
+    : [{ year: "2563/64", isBaseline: true }, { year: "2564/65", isBaseline: true }, { year: "2565/66", isBaseline: true }];
+  const projectSource = projectYears.length ? projectYears : [{ year: "2566/67", isBaseline: false }];
+  const baselineAverage = Number(baselineEmission.toFixed(2));
+
+  return [
+    ...baselineSource.map((item, index) => ({
+      year: item.year,
+      isBaseline: true,
+      baselineAverage,
+      emission: Number((baselineEmission * [0.96, 1.03, 1.01, 0.99][index % 4]).toFixed(2)),
+    })),
+    ...projectSource.map((item, index) => ({
+      year: item.year,
+      isBaseline: false,
+      baselineAverage,
+      emission: Number((currentEmission * (1 + index * 0.015)).toFixed(2)),
+    })),
+  ];
+}
+
+function buildGroupedCaneTypes(areaRai: number, currentEmission: number, group: OverviewFarmGroup): CaneTypeSummary[] {
+  const shares = group === "dan-chang"
+    ? [
+      { name: "อ้อยปลูก", percent: 48 },
+      { name: "อ้อยตอ", percent: 40 },
+      { name: "พื้นที่พักดิน", percent: 12 },
+    ]
+    : [
+      { name: "อ้อยปลูก", percent: 43 },
+      { name: "อ้อยตอ", percent: 47 },
+      { name: "พื้นที่พักดิน", percent: 10 },
+    ];
+
+  return shares.map((item) => ({
+    ...item,
+    areaRai: Number((areaRai * item.percent / 100).toFixed(1)),
+    co2eTotal: Number((currentEmission * item.percent / 100).toFixed(2)),
+  }));
+}
+
+function buildGroupedOverview(group: OverviewFarmGroup, sourceKpi: OverviewKpi, sourceTrend: TrendPoint[]) {
+  const plots = spatialProjectPlots.filter((plot) => plot.farmGroup === group);
+  const areaRai = plots.reduce((sum, plot) => sum + plot.projectAreaRai, 0);
+  const emissions = plots.map(projectCarbonForPlot);
+  const baselineAvgEmission = emissions.reduce((sum, item) => sum + item.baseline, 0);
+  const currentEmission = emissions.reduce((sum, item) => sum + item.current, 0);
+  const fertilizerAmountKg = areaRai * (group === "dan-chang" ? 38 : 43);
+  const fertilizerEmission = fertilizerAmountKg * 0.00245;
+  const machineEmission = areaRai * (group === "dan-chang" ? 0.0065 : 0.0074);
+  const yieldTon = areaRai * (group === "dan-chang" ? 0.064 : 0.057);
+  const kpi: OverviewKpi = {
+    ...sourceKpi,
+    baselineAvgEmission: Number(baselineAvgEmission.toFixed(2)),
+    currentEmission: Number(currentEmission.toFixed(2)),
+    machineEmission: Number(machineEmission.toFixed(2)),
+    inputEmission: Number((fertilizerEmission + machineEmission).toFixed(2)),
+    fertilizerAmountKg: Number(fertilizerAmountKg.toFixed(1)),
+    fertilizerEmission: Number(fertilizerEmission.toFixed(2)),
+    areaRai: Number(areaRai.toFixed(2)),
+    yieldTon: Number(yieldTon.toFixed(1)),
+    co2ePerTon: yieldTon ? Number((currentEmission / yieldTon).toFixed(2)) : 0,
+    farmers: Math.max(Math.round(plots.length * (group === "dan-chang" ? 0.72 : 0.66)), 1),
+    fields: plots.length,
+  };
+
+  return {
+    kpi,
+    inputs: buildGroupedInputs(areaRai, group),
+    trend: buildGroupedTrend(kpi.currentEmission, kpi.baselineAvgEmission, sourceTrend),
+    caneTypes: buildGroupedCaneTypes(kpi.areaRai, kpi.currentEmission, group),
+  };
+}
+
 export function CfOverviewPage() {
+  const [selectedFarmGroup, setSelectedFarmGroup] = useState<OverviewFarmGroup>("all");
   const kpi = useAsyncData<OverviewKpi>(getOverviewKpi, emptyKpi);
   const trend = useAsyncData<TrendPoint[]>(getTrend, []);
   const inputs = useAsyncData<ProcessInputComparison[]>(getProcessInputComparisons, []);
   const caneTypes = useAsyncData<CaneTypeSummary[]>(getCaneTypeSummaries, []);
-  const inputTotals = sumInputs(inputs.data);
+  const groupedOverview = useMemo(
+    () => selectedFarmGroup === "all" ? null : buildGroupedOverview(selectedFarmGroup, kpi.data, trend.data),
+    [kpi.data, selectedFarmGroup, trend.data],
+  );
+  const overviewKpi = groupedOverview?.kpi ?? kpi.data;
+  const overviewInputs = groupedOverview?.inputs ?? inputs.data;
+  const overviewTrend = groupedOverview?.trend ?? trend.data;
+  const overviewCaneTypes: DataResult<CaneTypeSummary[]> = groupedOverview
+    ? { ...caneTypes, data: groupedOverview.caneTypes, source: "mock" }
+    : caneTypes;
+  const inputTotals = sumInputs(overviewInputs);
   const fertilizerDiff = inputTotals.baselineFertilizerKg - inputTotals.currentFertilizerKg;
   const fuelDiff = inputTotals.baselineFuelLiter - inputTotals.currentFuelLiter;
   const fertilizerRatio = inputTotals.currentFertilizerKg ? inputTotals.baselineFertilizerKg / inputTotals.currentFertilizerKg : 1;
   const fuelRatio = inputTotals.currentFuelLiter ? inputTotals.baselineFuelLiter / inputTotals.currentFuelLiter : 1;
-  const n2oProject = kpi.data.fertilizerEmission;
+  const n2oProject = overviewKpi.fertilizerEmission;
   const n2oReduction = Math.max(n2oProject * fertilizerRatio - n2oProject, 0);
-  const fuelProject = kpi.data.machineEmission;
+  const fuelProject = overviewKpi.machineEmission;
   const fuelReduction = Math.max(fuelProject * fuelRatio - fuelProject, 0);
-  const socRemoval = Math.max(kpi.data.baselineAvgEmission - kpi.data.currentEmission, 0) * 0.35;
-  const socBaseline = Math.max(kpi.data.areaRai * 0.02, 0);
+  const socRemoval = Math.max(overviewKpi.baselineAvgEmission - overviewKpi.currentEmission, 0) * 0.35;
+  const socBaseline = Math.max(overviewKpi.areaRai * 0.02, 0);
   const socProject = socBaseline + socRemoval;
   const socDiff = socProject - socBaseline;
   const creditTotal = n2oReduction + fuelReduction + socRemoval;
@@ -86,7 +226,7 @@ export function CfOverviewPage() {
   ];
   const creditSourceTotal = creditSources.reduce((sum, item) => sum + item.value, 0);
   
-  const baselineYears = trend.data.filter((item) => item.isBaseline).map((item) => item.year);
+  const baselineYears = overviewTrend.filter((item) => item.isBaseline).map((item) => item.year);
   const lastBaselineYear = baselineYears[baselineYears.length - 1];
   const baselineLabel = baselineYears.length > 1 ? `${baselineYears[0]} - ${lastBaselineYear}` : baselineYears[0] ?? "-";
 
@@ -99,6 +239,26 @@ export function CfOverviewPage() {
           </div>
         </div>
 
+        <section className="card overview-farm-filter-card">
+          <div>
+            <div className="card-title">กลุ่มไร่หลัก</div>
+          </div>
+          <div className="footprint-view-tabs overview-farm-toggle" role="tablist" aria-label="ตัวกรองกลุ่มไร่หลัก">
+            {farmGroupOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={selectedFarmGroup === option.value ? "active" : ""}
+                onClick={() => setSelectedFarmGroup(option.value)}
+                role="tab"
+                aria-selected={selectedFarmGroup === option.value}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </section>
+
         {(kpi.error || trend.error || inputs.error || caneTypes.error) && (
           <div className="error-panel">
             ไม่สามารถโหลดข้อมูลจริงบางส่วนได้: {kpi.error ?? trend.error ?? inputs.error ?? caneTypes.error}
@@ -108,10 +268,10 @@ export function CfOverviewPage() {
         <section className="overview-kpi-stack">
           <div className="overview-kpi-row top">
             {[
-              ["พื้นที่โครงการ", kpi.data.areaRai.toLocaleString(), "ไร่", `${kpi.data.fields.toLocaleString()} แปลง`],
+              ["พื้นที่โครงการ", overviewKpi.areaRai.toLocaleString(), "ไร่", `${overviewKpi.fields.toLocaleString()} แปลง`],
               ["Credit รวม", creditTotal.toFixed(0), "tCO2e", "รวม N2O + น้ำมัน + SOC"],
-              ["ปีที่ดำเนินโครงการ", kpi.data.currentYear, "Project year", `${kpi.data.currentEmission.toLocaleString()} tCO2e`],
-              ["ปีฐาน Baseline", baselineLabel, "Baseline years", `เฉลี่ย ${kpi.data.baselineAvgEmission.toLocaleString()} tCO2e`],
+              ["ปีที่ดำเนินโครงการ", overviewKpi.currentYear, "Project year", `${overviewKpi.currentEmission.toLocaleString()} tCO2e`],
+              ["ปีฐาน Baseline", baselineLabel, "Baseline years", `เฉลี่ย ${overviewKpi.baselineAvgEmission.toLocaleString()} tCO2e`],
             ].map(([label, value, unit, delta]) => {
               const displayLabel = label.includes("Credit")
                 ? "เครดิตที่คาดว่าจะได้"
@@ -123,7 +283,7 @@ export function CfOverviewPage() {
               const displayDelta = label.includes("Credit")
                 ? "คำนวณจากส่วนต่าง emission"
                 : unit === "Baseline years"
-                ? `เฉลี่ย ${kpi.data.baselineAvgEmission.toLocaleString()} tCO2e`
+                ? `เฉลี่ย ${overviewKpi.baselineAvgEmission.toLocaleString()} tCO2e`
                 : delta;
               return (
               <article className="kpi" key={displayLabel}>
@@ -137,7 +297,7 @@ export function CfOverviewPage() {
           </div>
         </section>
 
-        <CaneTypeSummaryPanel result={caneTypes} showSource={false} creditTotal={creditTotal} />
+        <CaneTypeSummaryPanel result={overviewCaneTypes} showSource={false} creditTotal={creditTotal} />
 
         <section className="card full-span credit-source-card">
           <div className="card-title">แหล่งที่มา Credit</div>
@@ -195,7 +355,7 @@ export function CfOverviewPage() {
 
         <section className="card full-span">
           <div className="card-title">แนวโน้ม Carbon Credit</div>
-          <TrendLineChart data={trend.data} />
+          <TrendLineChart data={overviewTrend} />
         </section>
 
         <section className="card full-span">
