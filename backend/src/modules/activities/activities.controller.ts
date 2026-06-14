@@ -89,7 +89,14 @@ export class ActivitiesController {
   @Post('carbon-process-queue/:id/calculate')
   calculateCarbonProcessQueueItem(
     @Param('id', ParseIntPipe) id: number,
-    @Body() b: { resultUnitId?: number; selectedEfId?: number },
+    @Body() b: {
+      resultUnitId?: number
+      selectedEfId?: number
+      fertilizerUreaEfId?: number
+      fertilizerDapEfId?: number
+      fertilizerKclEfId?: number
+      fertilizerGwpId?: number
+    },
   ) {
     return this.svc.calculateCarbonProcessQueueItem(id, b)
   }

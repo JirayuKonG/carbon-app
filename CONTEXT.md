@@ -208,6 +208,100 @@ Recent Carbon Footprint preview/card readability update from user prompt on 2026
 - Verification: `npm run build --workspace=frontend`.
 - Related docs updated: `CONTEXT.md` updated for project memory. No backend code or schema changes were required.
 
+Recent Carbon Footprint fuel-preview formatting update from user prompt on 2026-06-13:
+
+- Prompt summary: make the fuel preview on `Carbon Footprint -> คำนวณรายการที่เลือก` show unit-specific numeric output such as `0.002302 tCO2e` or `2.302 kgCO2e`, and ensure the EF chooser shows full option text instead of clipping it.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now formats generic fuel-preview results with 6 decimals for `tCO2e` and 3 decimals for `kgCO2e`, so the preview card better matches the requested examples.
+- Additional behavior: the EF chooser no longer relies on the browser `datalist`; it now renders an in-app searchable suggestion panel with wrapped full labels, which makes long EF names/details readable and selectable inside the modal.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+- Related docs updated: `CONTEXT.md` updated for project memory. No backend code or schema changes were required.
+
+Recent Carbon Footprint split-pane update from user prompt on 2026-06-13:
+
+- Prompt summary: on the same `Carbon Footprint -> คำนวณรายการที่เลือก` card page, keep the preview-result behavior aligned with the selected unit and make the left-hand card area adjustable because it felt too narrow.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now keeps the generic fuel preview result formatted by selected unit and adds a draggable vertical divider between the left control panel and the right preview panel in the calculation modal.
+- Additional behavior: drag-resize is active on extra-large viewports only, with the left pane clamped to a safe width range so the modal remains usable while still letting users widen the EF-selection side.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+- Related docs updated: `CONTEXT.md` updated for project memory. No backend code or schema changes were required.
+
+Recent Carbon Footprint preview-reason update from user prompt on 2026-06-13:
+
+- Prompt summary: clarify why `preview result` may or may not change numerically when the user switches between `kgCO2e` and `tCO2e` in the `คำนวณรายการที่เลือก` modal.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now adds a note in the generic fuel preview that explains whether the preview value was converted between `kgCO2e` and `tCO2e`, or whether no `/1000` conversion was needed because the selected EF already uses `tCO2e` as its source result unit.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+- Related docs updated: `CONTEXT.md` updated for project memory. No backend code or schema changes were required.
+
+Recent Carbon Footprint generic-EF unit normalization update from user prompt on 2026-06-13:
+
+- Prompt summary: fix the `คำนวณรายการที่เลือก` card page so changing the selected result unit between `kgCO2e` and `tCO2e` actually changes both `preview result` and the frontend formula as expected.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now treats generic `EF_total` preview calculations as `kgCO2e`-based before converting to the selected result unit, so values like `2.302 kgCO2e` become `0.002302 tCO2e` when the user switches to `tCO2e`.
+- Additional backend alignment: `backend/src/modules/activities/activities.service.ts` now normalizes generic `EF_total` calculation outputs to `kgCO2e` as the source unit before any requested result-unit conversion is applied, keeping the saved calculation result aligned with the frontend preview instead of relying on inconsistent EF result-unit metadata.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` and `backend/src/modules/activities/activities.service.ts`.
+- Verification: `npm run build --workspace=frontend`; `npm run build --workspace=backend`.
+- Assumption: for this Carbon Footprint generic-EF workflow, `coef_em_factor_value_total` should be interpreted from a `kgCO2e` base for conversion purposes.
+- Related docs updated: `CONTEXT.md` updated for project memory. No schema changes were required.
+
+Recent Carbon Footprint page simplification from user prompt on 2026-06-13:
+
+- Prompt summary: remove the dashboard summary cards shown on the main `คำนวณ Carbon -> Carbon Footprint` page.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` no longer renders the top dashboard/stat-card section on the non-preparation Carbon Footprint page, leaving the page header, filters, queue table, and calculation modal intact.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+- Related docs updated: `CONTEXT.md` updated for project memory. No backend or schema changes were required.
+
+Recent Carbon Footprint fertilizer sub-filter update from user prompt on 2026-06-13:
+
+- Prompt summary: on the `คำนวณ Carbon -> Carbon Footprint` page, add a more detailed fertilizer filter under `ประเภทปัจจัย` so fertilizer rows can be narrowed by fertilizer type.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now shows an extra `ประเภทปุ๋ย` filter whenever the selected `ประเภทปัจจัย` resolves to fertilizer rows.
+- Filter behavior: the new fertilizer sub-filter supports `ปุ๋ยเคมี (มีค่า N)`, `ปุ๋ยอินทรีย์ (ไม่มี N)`, and `ยังไม่ทราบ / ขาดค่า N`, reusing the page’s existing fertilizer-profile detection logic.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+- Related docs updated: `CONTEXT.md` updated for project memory. No backend or schema changes were required.
+
+Recent fertilizer-calculation documentation update from user prompt on 2026-06-13:
+
+- Prompt summary: summarize the newly added fertilizer Carbon Footprint workbook into `CONCLUSION_CARBON_CAL_TABLE.md` so it can be used as a development/reference document, then remove the original Excel file `ts_c2919cb957.xlsx`.
+- Result: `CONCLUSION_CARBON_CAL_TABLE.md` now includes an additional fertilizer Carbon Footprint section covering the workbook’s two-part method: upstream fertilizer production from N-P2O5-K2O master fertilizer EF values, and a simple use-phase N2O calculation using a 1% N-to-N2O-N assumption plus `44/28` and `GWP = 298`.
+- Additional behavior: the summary explicitly distinguishes this `simple fertilizer CFP template` from the repo’s existing detailed field/project fertilizer N2O method so future implementation can keep the two calculation modes separate.
+- File cleanup: the source workbook `ts_c2919cb957.xlsx` was removed after the summary was captured in the markdown document.
+- Source of truth: `CONCLUSION_CARBON_CAL_TABLE.md`.
+- Related docs updated: `CONTEXT.md` updated for project memory. No schema or code changes were made.
+
+Recent Carbon Footprint fertilizer formula update from user prompt on 2026-06-13:
+
+- Prompt summary: on `Carbon Footprint -> คำนวณรายการที่เลือก`, switch the fertilizer calculation flow to use the fertilizer Carbon Footprint method summarized in `CONCLUSION_CARBON_CAL_TABLE.md`, make the default system result unit `kgCO2e`, and update the frontend preview to reflect the real formula with example-style values.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` and `backend/src/modules/activities/activities.service.ts` now treat the fertilizer modal flow as a simple fertilizer CFP calculation based on parsed fertilizer formulas such as `15-15-15`, using `upstream + use phase` from the document instead of the previous detailed N2O-only preview/calc path.
+- Formula behavior: the system now computes fertilizer results from `((N/100)*3.3036) + ((P2O5/100)*1.5716) + ((K2O/100)*0.4974)` for upstream plus `((N/100)*0.01*(44/28)*298)` for use phase, with all fertilizer results normalized to a `kgCO2e` base before optional conversion to `tCO2e`.
+- Preview behavior: the preview code card now shows parsed fertilizer formula values, upstream/use-phase example numbers, and changes `preview result` numerically when users switch between `kgCO2e` and `tCO2e`.
+- Limitation: this fertilizer CFP path currently requires a fertilizer name that contains an `N-P2O5-K2O` pattern such as `15-15-15`; organic fertilizer names or names without a parseable formula are blocked with an explicit message instead of using guessed values.
+- Source of truth: `CONCLUSION_CARBON_CAL_TABLE.md`, `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`, and `backend/src/modules/activities/activities.service.ts`.
+- Verification: `npm run build --workspace=frontend` and `npm run build --workspace=backend`.
+- Related docs updated: `CONTEXT.md` updated for project memory. `README.md`, `GUIDE.md`, `COMPONENT_PJ.md`, and `BUG_LOG.md` were not changed in this task.
+
+Recent long-text table readability update from user prompt on 2026-06-13:
+
+- Prompt summary: on `EF / GWP / หน่วย`, make long-detail columns start in a compact width, allow their widths to be resized, and let users open the full text in a popup; apply the same pattern to other pages with similarly long detail/note columns.
+- Result: `frontend/src/components/ui/DataTable.tsx` now supports per-column resizing on desktop tables and exports a shared `ExpandableTextCell` helper that shows long content in a compact preview with a `ดูรายละเอียด` popup for the full text.
+- Applied pages: the new long-text behavior is now wired into `frontend/src/features/emission-factors/EmissionFactorsPage.tsx`, `frontend/src/features/activities/ActivityResourcesPage.tsx`, `frontend/src/features/infra/InfraPage.tsx`, `frontend/src/features/lands/LandsPage.tsx`, and `frontend/src/features/activities/ActivitiesPage.tsx` for `รายละเอียด`, `หมายเหตุ`, `ข้อมูลเพิ่มเติม`, and other long-name columns.
+- UI behavior: long text now appears short by default, can be expanded by popup when needed, and selected desktop columns can be dragged wider or narrower from the table header.
+- Source of truth: `frontend/src/components/ui/DataTable.tsx` for the shared interaction, plus the page-level column configs in the feature files above.
+- Verification: `npm run build --workspace=frontend`.
+- Related docs updated: `CONTEXT.md` updated for project memory. `COMPONENT_PJ.md`, `README.md`, `GUIDE.md`, and `BUG_LOG.md` were not changed in this task.
+
+Recent fertilizer factor-selection update from user prompt on 2026-06-13:
+
+- Prompt summary: on `Carbon Footprint -> คำนวณรายการที่เลือก`, keep the fertilizer CFP formula but make its variable constants user-selectable from master data: `Emission Factor value total` for `ยูเรีย as N`, `DAP as P2O5`, `KCl as K2O`, plus a selectable `GWP` value for `N2O`, and make sure frontend preview uses those selected values correctly.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now shows a dedicated fertilizer-factor selection section inside the calculation modal, with searchable pickers for the three EF_total inputs and the `GWP N2O` row.
+- Preview behavior: the fertilizer frontend preview now recalculates immediately from the currently selected EF/GWP values, and the preview code card also shows the selected factor values alongside upstream/use-phase breakdowns.
+- Backend alignment: `backend/src/modules/activities/activities.service.ts` and `backend/src/modules/activities/activities.controller.ts` now accept the selected fertilizer EF/GWP IDs in the calculate payload and use those chosen values for the persisted calculation instead of always forcing the hard-coded defaults.
+- Fallback behavior: if a specific fertilizer EF or GWP is not selected, the system still falls back to the document constants (`3.3036`, `1.5716`, `0.4974`, `298`) so the flow stays usable, but the modal auto-select logic now tries to match likely default rows from the master data when fertilizer rows are present.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`, `backend/src/modules/activities/activities.service.ts`, and `backend/src/modules/activities/activities.controller.ts`.
+- Verification: `npm run build --workspace=frontend` and `npm run build --workspace=backend`.
+- Related docs updated: `CONTEXT.md` updated for project memory. No schema changes were made.
+
 ## Important Feature Areas
 
 - `geo`: Thailand geography reference data

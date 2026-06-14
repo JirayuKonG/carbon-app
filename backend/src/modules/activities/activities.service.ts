@@ -134,19 +134,22 @@ type GenericEfCalculationResult = {
 type CarbonQueueCalculationPayload = {
   resultUnitId?: number | string | null
   selectedEfId?: number | string | null
+  fertilizerUreaEfId?: number | string | null
+  fertilizerDapEfId?: number | string | null
+  fertilizerKclEfId?: number | string | null
+  fertilizerGwpId?: number | string | null
 }
 
 type FootprintResultUnitKind = 'kgco2e' | 'tco2e'
 
-const FERTILIZER_N2O_CONSTANTS = {
-  EF_DIRECT: 0.005,
+const FERTILIZER_CFP_SIMPLE_CONSTANTS = {
+  EF_UREA_AS_N: 3.3036,
+  EF_DAP_AS_P2O5: 1.5716,
+  EF_KCL_AS_K2O: 0.4974,
+  EF_FILLER: 0,
+  EF_N_TO_N2O_N_SIMPLE: 0.01,
   GWP_N2O: 298,
   MW_RATIO_N2O_N: 44 / 28,
-  FRAC_GASF: 0.11,
-  FRAC_GASM: 0.21,
-  FRAC_LEACH: 0.24,
-  EF_ATD: 0.01,
-  EF_LEACH: 0.011,
 } as const
 
 @Injectable()
@@ -326,11 +329,19 @@ export class ActivitiesService {
     const rawName = (name ?? '').trim()
     const normalized = rawName.toLowerCase()
 
-    const chemicalFormulaMatch = rawName.match(/(\d+(?:\.\d+)?)\s*[-xX]\s*\d+(?:\.\d+)?\s*[-xX]\s*\d+(?:\.\d+)?/)
+    const chemicalFormulaMatch = rawName.match(/(\d+(?:\.\d+)?)\s*[-xX]\s*(\d+(?:\.\d+)?)\s*[-xX]\s*(\d+(?:\.\d+)?)/)
     if (chemicalFormulaMatch) {
+      const nPercent = Number(chemicalFormulaMatch[1])
+      const p2o5Percent = Number(chemicalFormulaMatch[2])
+      const k2oPercent = Number(chemicalFormulaMatch[3])
       return {
         kind: 'chemical' as const,
-        value: Number(chemicalFormulaMatch[1]),
+        value: nPercent,
+        nPercent,
+        p2o5Percent,
+        k2oPercent,
+        fillerPercent: Math.max(0, 100 - nPercent - p2o5Percent - k2oPercent),
+        formulaLabel: chemicalFormulaMatch[0],
       }
     }
 
@@ -349,12 +360,22 @@ export class ActivitiesService {
       return {
         kind: 'organic' as const,
         value: null,
+        nPercent: null,
+        p2o5Percent: null,
+        k2oPercent: null,
+        fillerPercent: null,
+        formulaLabel: null,
       }
     }
 
     return {
       kind: 'unknown' as const,
       value: undefined,
+      nPercent: undefined,
+      p2o5Percent: undefined,
+      k2oPercent: undefined,
+      fillerPercent: undefined,
+      formulaLabel: undefined,
     }
   }
 
@@ -1313,7 +1334,7 @@ export class ActivitiesService {
 
   private getDefaultFootprintResultUnitKind(formulaMode: CarbonFormulaMode): FootprintResultUnitKind | null {
     if (formulaMode === 'generic_ef') return 'kgco2e'
-    if (formulaMode === 'fertilizer_n2o') return 'tco2e'
+    if (formulaMode === 'fertilizer_n2o') return 'kgco2e'
     return null
   }
 
@@ -1399,8 +1420,8 @@ export class ActivitiesService {
       return {
         formulaMode: 'generic_ef',
         resultValue,
-        resultUnitId: ef.unit_id_total ?? await this.findResultUnitId(['kgCO2e', 'kg CO2e', 'กิโลกรัม CO2e']),
-        resultUnitPrefixId: ef.unit_prefix_id_total ?? null,
+        resultUnitId: await this.findResultUnitId(['kgCO2e', 'kg CO2e', 'กิโลกรัม CO2e']),
+        resultUnitPrefixId: null,
         breakdown: {
           formulaMode: 'generic_ef',
           formula: 'activity_amount * EF_total',
@@ -1408,6 +1429,7 @@ export class ActivitiesService {
           inputUnitId: amountInput.unitId,
           efId: ef.coefficient_emission_factor_id,
           efTotal: ef.coef_em_factor_value_total,
+          efResultUnitId: ef.unit_id_total ?? null,
           resultValue,
         },
       }
@@ -1424,14 +1446,15 @@ export class ActivitiesService {
     return {
       formulaMode: 'generic_ef',
       resultValue,
-      resultUnitId: ef.unit_id_total ?? await this.findResultUnitId(['kgCO2e', 'kg CO2e', 'กิโลกรัม CO2e']),
-      resultUnitPrefixId: ef.unit_prefix_id_total ?? null,
+      resultUnitId: await this.findResultUnitId(['kgCO2e', 'kg CO2e', 'กิโลกรัม CO2e']),
+      resultUnitPrefixId: null,
       breakdown: {
         formulaMode: 'generic_ef',
         formula: '(CO2 * GWP_CO2) + (CH4 * GWP_CH4) + (N2O * GWP_N2O)',
         amount: amountInput.amount,
         inputUnitId: amountInput.unitId,
         efId: ef.coefficient_emission_factor_id,
+        efResultUnitId: ef.unit_id_total ?? null,
         gwp,
         co2Contrib,
         ch4Contrib,
@@ -1441,65 +1464,175 @@ export class ActivitiesService {
     }
   }
 
-  private resolveFertilizerType(queue: any) {
-    const info = this.parseCarbonPreparationInfo(queue?.carbon_process_queue_info)
-    const preparedType = this.normalizeSearchText(String(info.fertilizerPrepareType ?? ''))
-    if (/chemical|เคมี/.test(preparedType)) return 'chemical' as const
-    if (/organic|อินทรีย์/.test(preparedType)) return 'organic' as const
+  private async resolveFertilizerSelectedEfValue(selectedEfId: number | undefined, defaultValue: number, label: string) {
+    if (selectedEfId == null) {
+      return { value: defaultValue, selectedEf: null as any }
+    }
 
-    const inferred = this.inferFertilizerNitrogenFromName(
-      queue?.log_activities_detail?.activities_fertilizers?.act_fertilizer_name,
-    )
-    return inferred.kind
+    const selectedEf = await this.prisma.coefficients_emissions_factors.findUnique({
+      where: { coefficient_emission_factor_id: selectedEfId },
+      select: {
+        coefficient_emission_factor_id: true,
+        coef_em_factor_idCode: true,
+        coef_em_factor_name: true,
+        coef_em_factor_value_total: true,
+      },
+    })
+
+    if (!selectedEf) {
+      throw new BadRequestException(`ไม่พบ EF ที่เลือกสำหรับ ${label} (#${selectedEfId})`)
+    }
+
+    if (selectedEf.coef_em_factor_value_total == null) {
+      throw new BadRequestException(`EF "${selectedEf.coef_em_factor_name ?? selectedEf.coef_em_factor_idCode ?? selectedEf.coefficient_emission_factor_id}" ยังไม่มีค่า EF_total สำหรับ ${label}`)
+    }
+
+    return { value: Number(selectedEf.coef_em_factor_value_total), selectedEf }
   }
 
-  private async calculateFertilizerN2OForQueue(queue: any, amountInput: QueueAmountInput): Promise<GenericEfCalculationResult> {
+  private async resolveFertilizerSelectedGwpValue(selectedGwpId?: number) {
+    if (selectedGwpId == null) {
+      return { value: FERTILIZER_CFP_SIMPLE_CONSTANTS.GWP_N2O, selectedGwp: null as any }
+    }
+
+    const selectedGwp = await this.prisma.coefficients_emissions_factors_gwp.findUnique({
+      where: { coefficients_emissions_factors_gwp_id: selectedGwpId },
+      select: {
+        coefficients_emissions_factors_gwp_id: true,
+        coef_em_factor_gwp_name: true,
+        coef_em_factor_gwp_name_en: true,
+        coef_em_factor_gwp_value: true,
+      },
+    })
+
+    if (!selectedGwp) {
+      throw new BadRequestException(`ไม่พบ GWP ที่เลือก (#${selectedGwpId})`)
+    }
+
+    if (selectedGwp.coef_em_factor_gwp_value == null) {
+      throw new BadRequestException(`GWP "${selectedGwp.coef_em_factor_gwp_name ?? selectedGwp.coef_em_factor_gwp_name_en ?? selectedGwp.coefficients_emissions_factors_gwp_id}" ยังไม่มีค่าให้ใช้คำนวณ`)
+    }
+
+    return { value: Number(selectedGwp.coef_em_factor_gwp_value), selectedGwp }
+  }
+
+  private async calculateFertilizerCfpSimpleBreakdown(queue: any, fertilizerKg: number, options?: {
+    fertilizerUreaEfId?: number
+    fertilizerDapEfId?: number
+    fertilizerKclEfId?: number
+    fertilizerGwpId?: number
+  }) {
+    const fertilizerProfile = this.inferFertilizerNitrogenFromName(
+      queue?.log_activities_detail?.activities_fertilizers?.act_fertilizer_name,
+    )
+
+    if (
+      fertilizerProfile.kind !== 'chemical'
+      || fertilizerProfile.nPercent == null
+      || fertilizerProfile.p2o5Percent == null
+      || fertilizerProfile.k2oPercent == null
+      || fertilizerProfile.fillerPercent == null
+    ) {
+      throw new BadRequestException('สูตร Carbon Footprint ปุ๋ยนี้ต้องมีสูตร N-P2O5-K2O ในชื่อรายการ เช่น 15-15-15')
+    }
+
+    const [
+      ureaEf,
+      dapEf,
+      kclEf,
+      selectedGwp,
+    ] = await Promise.all([
+      this.resolveFertilizerSelectedEfValue(options?.fertilizerUreaEfId, FERTILIZER_CFP_SIMPLE_CONSTANTS.EF_UREA_AS_N, 'ยูเรีย as N'),
+      this.resolveFertilizerSelectedEfValue(options?.fertilizerDapEfId, FERTILIZER_CFP_SIMPLE_CONSTANTS.EF_DAP_AS_P2O5, 'DAP as P2O5'),
+      this.resolveFertilizerSelectedEfValue(options?.fertilizerKclEfId, FERTILIZER_CFP_SIMPLE_CONSTANTS.EF_KCL_AS_K2O, 'โพแทสเซียมคลอไรด์ as K2O'),
+      this.resolveFertilizerSelectedGwpValue(options?.fertilizerGwpId),
+    ])
+
+    const constants = {
+      ...FERTILIZER_CFP_SIMPLE_CONSTANTS,
+      EF_UREA_AS_N: ureaEf.value,
+      EF_DAP_AS_P2O5: dapEf.value,
+      EF_KCL_AS_K2O: kclEf.value,
+      GWP_N2O: selectedGwp.value,
+    }
+    const nFraction = fertilizerProfile.nPercent / 100
+    const p2o5Fraction = fertilizerProfile.p2o5Percent / 100
+    const k2oFraction = fertilizerProfile.k2oPercent / 100
+    const fillerFraction = fertilizerProfile.fillerPercent / 100
+    const upstreamPerKg = (
+      (nFraction * constants.EF_UREA_AS_N)
+      + (p2o5Fraction * constants.EF_DAP_AS_P2O5)
+      + (k2oFraction * constants.EF_KCL_AS_K2O)
+      + (fillerFraction * constants.EF_FILLER)
+    )
+    const upstreamKgco2e = fertilizerKg * upstreamPerKg
+    const nAppliedKg = fertilizerKg * nFraction
+    const n2oKg = nAppliedKg * constants.EF_N_TO_N2O_N_SIMPLE * constants.MW_RATIO_N2O_N
+    const usePhaseKgco2e = n2oKg * constants.GWP_N2O
+    const totalKgco2e = upstreamKgco2e + usePhaseKgco2e
+
+    return {
+      fertilizerProfile,
+      fertilizerKg,
+      selectedUreaEf: ureaEf.selectedEf,
+      selectedDapEf: dapEf.selectedEf,
+      selectedKclEf: kclEf.selectedEf,
+      selectedGwp: selectedGwp.selectedGwp,
+      nFraction,
+      p2o5Fraction,
+      k2oFraction,
+      fillerFraction,
+      upstreamPerKg,
+      upstreamKgco2e,
+      nAppliedKg,
+      n2oKg,
+      usePhaseKgco2e,
+      totalKgco2e,
+      constants,
+    }
+  }
+
+  private async calculateFertilizerN2OForQueue(queue: any, amountInput: QueueAmountInput, options?: {
+    fertilizerUreaEfId?: number
+    fertilizerDapEfId?: number
+    fertilizerKclEfId?: number
+    fertilizerGwpId?: number
+  }): Promise<GenericEfCalculationResult> {
     if (!await this.isKgUnit(amountInput.unitId)) {
-      throw new BadRequestException('สูตรปุ๋ย/N2O ต้องใช้ปริมาณหลังเตรียมเป็นหน่วย kg ก่อนคำนวณ')
+      throw new BadRequestException('สูตร Carbon Footprint ปุ๋ยต้องใช้ปริมาณหลังเตรียมเป็นหน่วย kg ก่อนคำนวณ')
     }
-
-    const info = this.parseCarbonPreparationInfo(queue?.carbon_process_queue_info)
-    const nPercent = this.toFiniteNumberOrUndefined(queue?.N) ?? this.toFiniteNumberOrUndefined(info.soilN)
-    if (nPercent == null) {
-      throw new BadRequestException('ปุ๋ยรายการนี้ยังไม่มีค่า N จึงยังคำนวณ N2O ไม่ได้')
-    }
-
-    const fertilizerType = this.resolveFertilizerType(queue)
-    if (fertilizerType !== 'chemical' && fertilizerType !== 'organic') {
-      throw new BadRequestException('ยังไม่ทราบประเภทปุ๋ย กรุณายืนยันว่าเป็นปุ๋ยเคมีหรือปุ๋ยอินทรีย์ก่อนคำนวณ')
-    }
-
-    const fertilizerNTon = amountInput.amount * (nPercent / 100) / 1000
-    const fsn = fertilizerType === 'chemical' ? fertilizerNTon : 0
-    const fon = fertilizerType === 'organic' ? fertilizerNTon : 0
-    const fnfix = 0
-    const constants = FERTILIZER_N2O_CONSTANTS
-    const n2oDirect = (fsn + fon + fnfix) * constants.EF_DIRECT * constants.MW_RATIO_N2O_N * constants.GWP_N2O
-    const n2oAtd = ((fsn * constants.FRAC_GASF) + (fon * constants.FRAC_GASM)) * constants.EF_ATD * constants.MW_RATIO_N2O_N * constants.GWP_N2O
-    const n2oLeaching = (fsn + fon) * constants.FRAC_LEACH * constants.EF_LEACH * constants.MW_RATIO_N2O_N * constants.GWP_N2O
-    const n2oIndirect = n2oAtd + n2oLeaching
-    const resultValue = n2oDirect + n2oIndirect
+    const breakdown = await this.calculateFertilizerCfpSimpleBreakdown(queue, amountInput.amount, options)
+    const resultValue = breakdown.totalKgco2e
 
     return {
       formulaMode: 'fertilizer_n2o',
       resultValue,
-      resultUnitId: await this.findResultUnitId(['tCO2e', 'tonCO2e', 'ton CO2e', 'ตัน CO2e']),
+      resultUnitId: await this.findResultUnitId(['kgCO2e', 'kg CO2e', 'กิโลกรัม CO2e']),
       resultUnitPrefixId: null,
       breakdown: {
         formulaMode: 'fertilizer_n2o',
-        fertilizerType,
+        calculationMethod: 'fertilizer_cfp_simple',
+        fertilizerFormulaLabel: breakdown.fertilizerProfile.formulaLabel ?? null,
         fertilizerKg: amountInput.amount,
-        nPercent,
-        fertilizerNTon,
-        fsn,
-        fon,
-        fnfix,
-        n2oDirect,
-        n2oAtd,
-        n2oLeaching,
-        n2oIndirect,
+        fertilizerUreaEfId: breakdown.selectedUreaEf?.coefficient_emission_factor_id ?? null,
+        fertilizerUreaEfName: breakdown.selectedUreaEf?.coef_em_factor_name ?? breakdown.selectedUreaEf?.coef_em_factor_idCode ?? null,
+        fertilizerDapEfId: breakdown.selectedDapEf?.coefficient_emission_factor_id ?? null,
+        fertilizerDapEfName: breakdown.selectedDapEf?.coef_em_factor_name ?? breakdown.selectedDapEf?.coef_em_factor_idCode ?? null,
+        fertilizerKclEfId: breakdown.selectedKclEf?.coefficient_emission_factor_id ?? null,
+        fertilizerKclEfName: breakdown.selectedKclEf?.coef_em_factor_name ?? breakdown.selectedKclEf?.coef_em_factor_idCode ?? null,
+        fertilizerGwpId: breakdown.selectedGwp?.coefficients_emissions_factors_gwp_id ?? null,
+        fertilizerGwpName: breakdown.selectedGwp?.coef_em_factor_gwp_name ?? breakdown.selectedGwp?.coef_em_factor_gwp_name_en ?? null,
+        nPercent: breakdown.fertilizerProfile.nPercent,
+        p2o5Percent: breakdown.fertilizerProfile.p2o5Percent,
+        k2oPercent: breakdown.fertilizerProfile.k2oPercent,
+        fillerPercent: breakdown.fertilizerProfile.fillerPercent,
+        upstreamPerKg: breakdown.upstreamPerKg,
+        upstreamKgco2e: breakdown.upstreamKgco2e,
+        nAppliedKg: breakdown.nAppliedKg,
+        n2oKg: breakdown.n2oKg,
+        usePhaseKgco2e: breakdown.usePhaseKgco2e,
         resultValue,
-        constants,
+        constants: breakdown.constants,
       },
     }
   }
@@ -1509,9 +1642,18 @@ export class ActivitiesService {
     const amountInput = this.resolveQueueAmountInput(queue)
     const requestedResultUnitId = this.toOptionalNumber(payload?.resultUnitId)
     const selectedEfId = this.toOptionalNumber(payload?.selectedEfId)
+    const fertilizerUreaEfId = this.toOptionalNumber(payload?.fertilizerUreaEfId)
+    const fertilizerDapEfId = this.toOptionalNumber(payload?.fertilizerDapEfId)
+    const fertilizerKclEfId = this.toOptionalNumber(payload?.fertilizerKclEfId)
+    const fertilizerGwpId = this.toOptionalNumber(payload?.fertilizerGwpId)
 
     if (formulaMode === 'fertilizer_n2o') {
-      const result = await this.calculateFertilizerN2OForQueue(queue, amountInput)
+      const result = await this.calculateFertilizerN2OForQueue(queue, amountInput, {
+        fertilizerUreaEfId,
+        fertilizerDapEfId,
+        fertilizerKclEfId,
+        fertilizerGwpId,
+      })
       return this.applyRequestedFootprintResultUnit(result, requestedResultUnitId)
     }
 

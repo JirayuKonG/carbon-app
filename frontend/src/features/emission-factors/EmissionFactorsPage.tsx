@@ -2,7 +2,7 @@ import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
-import { Column, DataTable } from '@/components/ui/DataTable'
+import { Column, DataTable, ExpandableTextCell } from '@/components/ui/DataTable'
 import { formatBangkokDateTime } from '@/lib/datetime'
 import { del, get, post, put } from '@/lib/api'
 import { FlaskConical, Pencil, Plus, Trash2 } from 'lucide-react'
@@ -97,6 +97,10 @@ type DeleteTarget =
 function formatText(value?: string | null) {
   const text = value?.trim()
   return text ? text : '—'
+}
+
+function expandableText(value?: string | null, title?: string) {
+  return <ExpandableTextCell text={value} title={title} />
 }
 
 function formatNumber(value?: number | null) {
@@ -550,9 +554,20 @@ export function EmissionFactorsPage() {
       key: 'coef_em_factor_name',
       header: efHeaderChip('ชื่อ EF', 'bg-fuchsia-100 text-fuchsia-800 ring-1 ring-fuchsia-200'),
       sortable: true,
-      render: (row) => efText(formatText(row.coef_em_factor_name), 'font-medium text-fuchsia-800'),
+      width: '240px',
+      minWidth: '180px',
+      resizable: true,
+      render: (row) => <div className="font-medium text-fuchsia-800"><ExpandableTextCell text={row.coef_em_factor_name} title="ชื่อ EF" previewChars={72} /></div>,
     },
-    { key: 'coef_em_factor_info', header: 'รายละเอียด', sortable: true, render: (row) => formatText(row.coef_em_factor_info) },
+    {
+      key: 'coef_em_factor_info',
+      header: 'รายละเอียด',
+      sortable: true,
+      width: '300px',
+      minWidth: '220px',
+      resizable: true,
+      render: (row) => expandableText(row.coef_em_factor_info, 'รายละเอียด EF'),
+    },
     {
       key: 'unit_prefix_id',
       header: efHeaderChip('Prefix ตั้งต้น', 'bg-amber-100 text-amber-800 ring-1 ring-amber-200'),
@@ -663,10 +678,10 @@ export function EmissionFactorsPage() {
   ]
 
   const gwpCols: Column<Gwp>[] = [
-    { key: 'coef_em_factor_gwp_name', header: 'ชื่อ GWP', sortable: true, render: (row) => formatText(row.coef_em_factor_gwp_name) },
-    { key: 'coef_em_factor_gwp_name_en', header: 'Name (EN)', sortable: true, render: (row) => formatText(row.coef_em_factor_gwp_name_en) },
+    { key: 'coef_em_factor_gwp_name', header: 'ชื่อ GWP', sortable: true, width: '220px', minWidth: '180px', resizable: true, render: (row) => expandableText(row.coef_em_factor_gwp_name, 'ชื่อ GWP') },
+    { key: 'coef_em_factor_gwp_name_en', header: 'Name (EN)', sortable: true, width: '220px', minWidth: '180px', resizable: true, render: (row) => expandableText(row.coef_em_factor_gwp_name_en, 'ชื่อ GWP ภาษาอังกฤษ') },
     { key: 'coef_em_factor_gwp_value', header: 'ค่า GWP', sortable: true, render: (row) => <span className="font-mono font-semibold text-accent-700">{formatNumber(row.coef_em_factor_gwp_value)}</span> },
-    { key: 'coef_em_factor_gwp_info', header: 'รายละเอียด', sortable: true, render: (row) => formatText(row.coef_em_factor_gwp_info) },
+    { key: 'coef_em_factor_gwp_info', header: 'รายละเอียด', sortable: true, width: '300px', minWidth: '220px', resizable: true, render: (row) => expandableText(row.coef_em_factor_gwp_info, 'รายละเอียด GWP') },
     { key: 'coef_em_factor_gwp_ref', header: 'Ref', sortable: true, render: (row) => row.coef_em_factor_gwp_ref ?? '—' },
     { key: 'coef_em_factor_gwp_update_uid', header: 'ผู้แก้ไขล่าสุด', sortable: true, render: (row) => row.coef_em_factor_gwp_update_uid ?? '—' },
     { key: 'coef_em_factor_gwp_create_at', header: 'สร้างเมื่อ', sortable: true, render: (row) => formatBangkokDateTime(row.coef_em_factor_gwp_create_at) },
@@ -674,30 +689,30 @@ export function EmissionFactorsPage() {
   ]
 
   const cfTypeCols: Column<CfType>[] = [
-    { key: 'cf_type_name_short', header: 'ชื่อย่อ', sortable: true, render: (row) => formatText(row.cf_type_name_short) },
-    { key: 'cf_type_name_th', header: 'ชื่อ (ไทย)', sortable: true, render: (row) => formatText(row.cf_type_name_th) },
-    { key: 'cf_type_name_en', header: 'ชื่อ (EN)', sortable: true, render: (row) => formatText(row.cf_type_name_en) },
+    { key: 'cf_type_name_short', header: 'ชื่อย่อ', sortable: true, width: '180px', minWidth: '150px', resizable: true, render: (row) => expandableText(row.cf_type_name_short, 'ชื่อย่อ CF Type') },
+    { key: 'cf_type_name_th', header: 'ชื่อ (ไทย)', sortable: true, width: '220px', minWidth: '180px', resizable: true, render: (row) => expandableText(row.cf_type_name_th, 'ชื่อ CF Type (ไทย)') },
+    { key: 'cf_type_name_en', header: 'ชื่อ (EN)', sortable: true, width: '220px', minWidth: '180px', resizable: true, render: (row) => expandableText(row.cf_type_name_en, 'ชื่อ CF Type (EN)') },
     { key: 'cf_type_create_at', header: 'สร้างเมื่อ', sortable: true, render: (row) => formatBangkokDateTime(row.cf_type_create_at) },
     { key: 'cf_type_update_at', header: 'อัปเดตเมื่อ', sortable: true, render: (row) => formatBangkokDateTime(row.cf_type_update_at) },
   ]
 
   const groupCols: Column<EfGroup>[] = [
     { key: 'group_emission_factor_idCode', header: 'รหัส', sortable: true, render: (row) => formatText(row.group_emission_factor_idCode) },
-    { key: 'group_emission_factor_name_short', header: 'ชื่อย่อ', sortable: true, render: (row) => formatText(row.group_emission_factor_name_short) },
-    { key: 'group_emission_factor_name', header: 'ชื่อกลุ่ม EF', sortable: true, render: (row) => formatText(row.group_emission_factor_name) },
-    { key: 'group_emission_factor_info', header: 'รายละเอียด', sortable: true, render: (row) => formatText(row.group_emission_factor_info) },
+    { key: 'group_emission_factor_name_short', header: 'ชื่อย่อ', sortable: true, width: '180px', minWidth: '150px', resizable: true, render: (row) => expandableText(row.group_emission_factor_name_short, 'ชื่อย่อกลุ่ม EF') },
+    { key: 'group_emission_factor_name', header: 'ชื่อกลุ่ม EF', sortable: true, width: '240px', minWidth: '180px', resizable: true, render: (row) => expandableText(row.group_emission_factor_name, 'ชื่อกลุ่ม EF') },
+    { key: 'group_emission_factor_info', header: 'รายละเอียด', sortable: true, width: '300px', minWidth: '220px', resizable: true, render: (row) => expandableText(row.group_emission_factor_info, 'รายละเอียดกลุ่ม EF') },
     { key: 'carbonfootprint_type_id', header: 'CF Type', sortable: true, render: (row) => row.carbonfootprint_type_id ? (cfTypeMap[row.carbonfootprint_type_id] ?? `#${row.carbonfootprint_type_id}`) : '—' },
   ]
 
   const unitCols: Column<Unit>[] = [
-    { key: 'unit_name', header: 'ชื่อหน่วย', sortable: true, render: (row) => formatText(row.unit_name) },
+    { key: 'unit_name', header: 'ชื่อหน่วย', sortable: true, width: '220px', minWidth: '180px', resizable: true, render: (row) => expandableText(row.unit_name, 'ชื่อหน่วย') },
     { key: 'unit_initial', header: 'ตัวย่อ', sortable: true, render: (row) => formatText(row.unit_initial) },
     { key: 'unit_updated_uid', header: 'ผู้แก้ไขล่าสุด', sortable: true, render: (row) => row.unit_updated_uid ?? '—' },
     { key: 'unit_updated_at', header: 'อัปเดตเมื่อ', sortable: true, render: (row) => formatBangkokDateTime(row.unit_updated_at) },
   ]
 
   const unitPfxCols: Column<UnitPrefix>[] = [
-    { key: 'unit_prefix_name', header: 'ชื่อ Prefix', sortable: true, render: (row) => formatText(row.unit_prefix_name) },
+    { key: 'unit_prefix_name', header: 'ชื่อ Prefix', sortable: true, width: '220px', minWidth: '180px', resizable: true, render: (row) => expandableText(row.unit_prefix_name, 'ชื่อ Prefix') },
     { key: 'unit_prefix_initial', header: 'ตัวย่อ', sortable: true, render: (row) => formatText(row.unit_prefix_initial) },
     { key: 'unit_prefix_value', header: 'ค่าตัวคูณ', sortable: true, render: (row) => <span className="font-mono">{formatNumber(row.unit_prefix_value)}</span> },
     { key: 'unit_prefix_updated_uid', header: 'ผู้แก้ไขล่าสุด', sortable: true, render: (row) => row.unit_prefix_updated_uid ?? '—' },
