@@ -72,7 +72,7 @@ function getCarbonTier(baseline: number, current: number): "green" | "yellow" | 
   if (!baseline) return "yellow";
   const pctReduction = ((baseline - current) / baseline) * 100;
   if (pctReduction >= 15) return "green";
-  if (pctReduction < -5) return "red";
+  if (pctReduction < 5) return "red";
   return "yellow";
 }
 
@@ -211,7 +211,7 @@ export function ThailandMap({ nodes, selectedId, onSelect, boundaryFields = [], 
         <div className="legend-tier-group">
           <span><i className="legend-tier-swatch green" /> ดีเยี่ยม (ลด ≥ 15%)</span>
           <span><i className="legend-tier-swatch yellow" /> ปานกลาง</span>
-          <span><i className="legend-tier-swatch red" /> ต้องแก้ไข (เพิ่ม &gt; 5%)</span>
+          <span><i className="legend-tier-swatch red" /> ต้องแก้ไข (ลด &lt; 5%)</span>
         </div>
         <span><i className="legend-arrow good">↓</i> Carbon ลดลง</span>
         <span><i className="legend-arrow bad">↑</i> Carbon เพิ่มขึ้น</span>

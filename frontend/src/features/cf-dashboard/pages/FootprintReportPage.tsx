@@ -33,6 +33,10 @@ type FootprintPreviewTab = "pdf" | "word" | "excel";
 type FootprintAreaLevel = Exclude<SpatialLevel, "country">;
 
 const footprintAreaOrder: FootprintAreaLevel[] = ["region", "province", "district", "subdistrict", "field"];
+const farmGroupFilterOptions = [
+  { value: "dan-chang", label: "ไร่ด่านช้าง" },
+  { value: "isan", label: "ไร่อีสาน" },
+] as const;
 
 function emptyFootprintAreaPath(): Record<FootprintAreaLevel, string> {
   return { region: "", province: "", district: "", subdistrict: "", field: "" };
@@ -1080,7 +1084,18 @@ export function CfFootprintReportPage() {
     markFilterChanged();
   };
 
-  const scopeSelectValue = selectedField ? `field:${selectedField.id}` : scope;
+  const selectFieldScope = (fieldId: string) => {
+    if (fieldId === "all") {
+      setSelectedFieldId("all");
+      markFilterChanged();
+      return;
+    }
+    const field = fieldsInArea.find((item) => item.id === fieldId);
+    setScope(field ? `camp-${field.campId}` : scope);
+    setSelectedFieldId(fieldId);
+    markFilterChanged();
+  };
+
   const renderKpiCard = (label: string, value: ReactNode, meta: ReactNode, primary = false) => (
     <article key={label} className={`footprint-kpi-card${primary ? " footprint-kpi-card--primary" : ""}`}>
       <span className="footprint-kpi-card__label">{label}</span>
@@ -1128,10 +1143,10 @@ export function CfFootprintReportPage() {
             <p className="muted">เลือกพื้นที่ตามลำดับ แล้วเลือกแคมป์หรือรายแปลงก่อนกดสร้างเอกสาร ประเภทอ้อยเลือกได้ทุกระดับฟิลเตอร์</p>
           </div>
           <label style={{ minWidth: 0 }}>
-            ภาค
+            กลุ่มไร่หลัก
             <select value={areaPath.region} onChange={(event) => selectAreaPath("region", event.target.value)}>
-              <option value="">ทั้งหมด</option>
-              {areaOptionsFor("region", rootNode?.id).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+              <option value="">ทุกกลุ่มไร่หลัก</option>
+              {farmGroupFilterOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
           <label style={{ minWidth: 0 }}>
@@ -1142,32 +1157,31 @@ export function CfFootprintReportPage() {
             </select>
           </label>
           <label style={{ minWidth: 0 }}>
-            อำเภอ
+            อำเภอ / เขต
             <select value={areaPath.district} onChange={(event) => selectAreaPath("district", event.target.value)} disabled={!areaPath.province}>
-              <option value="">ทุกอำเภอ</option>
+              <option value="">ทุกอำเภอ/เขต</option>
               {areaOptionsFor("district", areaPath.province).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
             </select>
           </label>
           <label style={{ minWidth: 0 }}>
-            ตำบล
+            ตำบล / แขวง
             <select value={areaPath.subdistrict} onChange={(event) => selectAreaPath("subdistrict", event.target.value)} disabled={!areaPath.district}>
-              <option value="">ทุกตำบล</option>
+              <option value="">ทุกตำบล/แขวง</option>
               {areaOptionsFor("subdistrict", areaPath.district).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
             </select>
           </label>
-          <label style={{ minWidth: 0 }}>
-            แปลง
-            <select value={areaPath.field} onChange={(event) => selectAreaPath("field", event.target.value)} disabled={!areaPath.subdistrict}>
-              <option value="">ทุกแปลง</option>
-              {areaOptionsFor("field", areaPath.subdistrict).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+          <label className="filter-level-camp" style={{ minWidth: 0 }}>
+            แคมป์
+            <select value={scope} onChange={(event) => selectScopeValue(event.target.value)}>
+              <option value="all">ภาพรวมตามพื้นที่ที่เลือก</option>
+              {campsInArea.map((camp) => <option key={camp.campId} value={`camp-${camp.campId}`}>{camp.campName}</option>)}
             </select>
           </label>
-          <label style={{ minWidth: 0 }}>
-            รายแปลงในแคมป์
-            <select value={scopeSelectValue} onChange={(event) => selectScopeValue(event.target.value)}>
-              <option value="all">ภาพรวมตามพื้นที่/แปลงที่เลือก</option>
-              {campsInArea.map((camp) => <option key={camp.campId} value={`camp-${camp.campId}`}>{camp.campName}</option>)}
-              {(selectedCamp ? fieldsInCamp : fieldsInArea).map((field) => <option key={field.id} value={`field:${field.id}`}>{field.fieldCode} · {field.fieldName}</option>)}
+          <label className="filter-level-field" style={{ minWidth: 0 }}>
+            แปลง
+            <select value={selectedFieldId} onChange={(event) => selectFieldScope(event.target.value)} disabled={!areaPath.subdistrict && !selectedCamp}>
+              <option value="all">{selectedCamp ? "ทุกแปลงในแคมป์" : "ทุกแปลงตามพื้นที่"}</option>
+              {(selectedCamp ? fieldsInCamp : fieldsInArea).map((field) => <option key={field.id} value={field.id}>{field.fieldCode} · {field.fieldName}</option>)}
             </select>
           </label>
         </section>
@@ -1344,7 +1358,7 @@ export function CfFootprintReportPage() {
               <p className="muted">
                 {shouldLazyScopeRows
                   ? "เลือกทั้งหมดจะแสดงแคมป์ 10 รายการแรกก่อน แล้วกดดูเพิ่มเติมเมื่อจำเป็น"
-                  : "ข้อมูลตารางเปลี่ยนตามภาค จังหวัด อำเภอ ตำบล แปลง และรายแปลงในแคมป์ที่เลือก"}
+                  : "ข้อมูลตารางเปลี่ยนตามกลุ่มไร่หลัก จังหวัด อำเภอ/เขต ตำบล/แขวง แคมป์ และแปลงที่เลือก"}
               </p>
             </div>
             <strong>{formatNumber(footprintScopeRows.length, 0)} รายการ</strong>
