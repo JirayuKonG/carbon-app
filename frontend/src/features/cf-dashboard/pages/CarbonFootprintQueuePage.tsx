@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ActivitySquare, Calculator, CheckCircle2, CircleAlert, Clock3, Code2, Edit3, Leaf, LoaderCircle, Plus, Wand2, X } from 'lucide-react'
+import { Calculator, CheckCircle2, CircleAlert, Code2, Edit3, LoaderCircle, Plus, Wand2, X } from 'lucide-react'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import {
@@ -52,6 +52,14 @@ interface Ef {
   coef_em_factor_value_n2o?: number | null
   unit_prefix_id_n2o?: number | null
   unit_id_n2o?: number | null
+}
+
+interface Gwp {
+  coefficients_emissions_factors_gwp_id: number
+  coef_em_factor_gwp_name?: string | null
+  coef_em_factor_gwp_name_en?: string | null
+  coef_em_factor_gwp_value?: number | null
+  coef_em_factor_gwp_info?: string | null
 }
 
 interface CfType {
@@ -243,23 +251,50 @@ const FOOTPRINT_FORMULA_MODES: FootprintFormulaMode[] = [
   ...FOOTPRINT_UNSUPPORTED_FORMULA_MODES,
 ]
 
-const FERTILIZER_N2O_CONSTANTS = {
-  EF_DIRECT: 0.005,
+const FERTILIZER_CFP_SIMPLE_CONSTANTS = {
+  EF_UREA_AS_N: 3.3036,
+  EF_DAP_AS_P2O5: 1.5716,
+  EF_KCL_AS_K2O: 0.4974,
+  EF_FILLER: 0,
+  EF_N_TO_N2O_N_SIMPLE: 0.01,
   GWP_N2O: 298,
   MW_RATIO_N2O_N: 44 / 28,
-  FRAC_GASF: 0.11,
-  FRAC_GASM: 0.21,
-  FRAC_LEACH: 0.24,
-  EF_ATD: 0.01,
-  EF_LEACH: 0.011,
 } as const
 
 type FootprintResultUnitKind = 'kgco2e' | 'tco2e'
+type FertilizerFactorKey = 'ureaAsN' | 'dapAsP2O5' | 'kclAsK2O'
+
+type FertilizerFactorSelections = {
+  ureaAsNEfId: string
+  dapAsP2O5EfId: string
+  kclAsK2OEfId: string
+  gwpN2OId: string
+}
+
+type ResolvedFertilizerFactorValues = {
+  ureaAsNValue: number
+  dapAsP2O5Value: number
+  kclAsK2OValue: number
+  gwpN2OValue: number
+  ureaAsNEf?: Ef
+  dapAsP2O5Ef?: Ef
+  kclAsK2OEf?: Ef
+  gwpN2O?: Gwp
+}
+
+type FertilizerFactorFieldConfig = {
+  key: FertilizerFactorKey
+  selectionKey: keyof FertilizerFactorSelections
+  label: string
+  placeholder: string
+  defaultValue: number
+  keywords: string[]
+}
 
 type BulkPreparationPopupState =
   | { kind: 'hidden' }
   | { kind: 'loading'; current: number; total: number; currentLabel: string }
-  | { kind: 'success'; itemCount: number; countdown: number }
+  | { kind: 'success'; itemCount: number; countdown: number; movedToReadyCount?: number }
 
 type StatusTransitionPopupState =
   | { kind: 'hidden' }
@@ -289,6 +324,40 @@ type FootprintRowPreview = {
   previewFormulaText: string
   note?: string
 }
+
+const EMPTY_FERTILIZER_FACTOR_SELECTIONS: FertilizerFactorSelections = {
+  ureaAsNEfId: '',
+  dapAsP2O5EfId: '',
+  kclAsK2OEfId: '',
+  gwpN2OId: '',
+}
+
+const FERTILIZER_FACTOR_FIELD_CONFIGS: FertilizerFactorFieldConfig[] = [
+  {
+    key: 'ureaAsN',
+    selectionKey: 'ureaAsNEfId',
+    label: 'EF ยูเรีย as N',
+    placeholder: 'ค้นหา EF_total สำหรับยูเรีย as N',
+    defaultValue: FERTILIZER_CFP_SIMPLE_CONSTANTS.EF_UREA_AS_N,
+    keywords: ['urea', 'ยูเรีย', ' as n', ' asn', 'nitrogen'],
+  },
+  {
+    key: 'dapAsP2O5',
+    selectionKey: 'dapAsP2O5EfId',
+    label: 'EF DAP as P2O5',
+    placeholder: 'ค้นหา EF_total สำหรับ DAP as P2O5',
+    defaultValue: FERTILIZER_CFP_SIMPLE_CONSTANTS.EF_DAP_AS_P2O5,
+    keywords: ['dap', 'diammonium', 'p2o5'],
+  },
+  {
+    key: 'kclAsK2O',
+    selectionKey: 'kclAsK2OEfId',
+    label: 'EF โพแทสเซียมคลอไรด์ as K2O',
+    placeholder: 'ค้นหา EF_total สำหรับ KCl as K2O',
+    defaultValue: FERTILIZER_CFP_SIMPLE_CONSTANTS.EF_KCL_AS_K2O,
+    keywords: ['kcl', 'potassium chloride', 'โพแทสเซียมคลอไรด์', 'k2o'],
+  },
+]
 
 type FootprintCalculationModalState =
   | { kind: 'hidden' }
@@ -325,6 +394,10 @@ type BulkConversionPreview = {
 type FertilizerNitrogenProfile = {
   kind: 'chemical' | 'organic' | 'unknown'
   detectedN: number | null
+  detectedP2O5?: number | null
+  detectedK2O?: number | null
+  fillerPercent?: number | null
+  formulaLabel?: string | null
   label: string
   reason: string
 }
@@ -437,6 +510,45 @@ function getEfTotalResultUnitId(ef: Ef) {
   return ef.unit_id_total ?? null
 }
 
+function getFuelEfOptionLabel(ef: Ef, unitById: Record<number, Unit>) {
+  const inputUnitId = getEfInputUnitId(ef)
+  const resultUnitId = getEfTotalResultUnitId(ef)
+  const inputUnitLabel = inputUnitId != null
+    ? (unitById[inputUnitId] ? unitLabel(unitById[inputUnitId]) : `#${inputUnitId}`)
+    : '—'
+  const resultUnitLabel = resultUnitId != null
+    ? (unitById[resultUnitId] ? unitLabel(unitById[resultUnitId]) : `#${resultUnitId}`)
+    : '—'
+
+  return [
+    ef.coef_em_factor_idCode?.trim() || `EF #${ef.coefficient_emission_factor_id}`,
+    ef.coef_em_factor_name?.trim() || 'ไม่ระบุชื่อ',
+    `EF_total ${formatNumberish(ef.coef_em_factor_value_total, 6)}`,
+    `input ${inputUnitLabel}`,
+    `result ${resultUnitLabel}`,
+  ].join(' | ')
+}
+
+function getGwpOptionLabel(gwp: Gwp) {
+  return [
+    gwp.coef_em_factor_gwp_name?.trim() || `GWP #${gwp.coefficients_emissions_factors_gwp_id}`,
+    gwp.coef_em_factor_gwp_name_en?.trim() || undefined,
+    `value ${formatNumberish(gwp.coef_em_factor_gwp_value, 6)}`,
+  ].filter(Boolean).join(' | ')
+}
+
+function getGenericEfPreviewResultDigits(unitKind: FootprintResultUnitKind | null) {
+  if (unitKind === 'tco2e') return 6
+  if (unitKind === 'kgco2e') return 3
+  return 4
+}
+
+function getFootprintResultUnitKindLabel(kind: FootprintResultUnitKind | null) {
+  if (kind === 'tco2e') return 'tCO2e'
+  if (kind === 'kgco2e') return 'kgCO2e'
+  return 'หน่วยที่ยังไม่รองรับ'
+}
+
 function dateInputValue(value?: string | null) {
   if (!value) return ''
   const parsed = new Date(value)
@@ -485,11 +597,19 @@ function getFertilizerNitrogenProfile(name?: string | null): FertilizerNitrogenP
   const rawName = (name ?? '').trim()
   const normalized = rawName.toLowerCase()
 
-  const chemicalFormulaMatch = rawName.match(/(\d+(?:\.\d+)?)\s*[-xX]\s*\d+(?:\.\d+)?\s*[-xX]\s*\d+(?:\.\d+)?/)
+  const chemicalFormulaMatch = rawName.match(/(\d+(?:\.\d+)?)\s*[-xX]\s*(\d+(?:\.\d+)?)\s*[-xX]\s*(\d+(?:\.\d+)?)/)
   if (chemicalFormulaMatch) {
+    const detectedN = Number(chemicalFormulaMatch[1])
+    const detectedP2O5 = Number(chemicalFormulaMatch[2])
+    const detectedK2O = Number(chemicalFormulaMatch[3])
+    const fillerPercent = Math.max(0, 100 - detectedN - detectedP2O5 - detectedK2O)
     return {
       kind: 'chemical',
-      detectedN: Number(chemicalFormulaMatch[1]),
+      detectedN,
+      detectedP2O5,
+      detectedK2O,
+      fillerPercent,
+      formulaLabel: chemicalFormulaMatch[0],
       label: 'ปุ๋ยเคมี',
       reason: `พบสูตรปุ๋ย ${chemicalFormulaMatch[0]}`,
     }
@@ -510,6 +630,10 @@ function getFertilizerNitrogenProfile(name?: string | null): FertilizerNitrogenP
     return {
       kind: 'organic',
       detectedN: null,
+      detectedP2O5: null,
+      detectedK2O: null,
+      fillerPercent: null,
+      formulaLabel: null,
       label: 'ปุ๋ยอินทรีย์',
       reason: 'พบคำที่สื่อว่าเป็นปุ๋ยอินทรีย์',
     }
@@ -518,6 +642,10 @@ function getFertilizerNitrogenProfile(name?: string | null): FertilizerNitrogenP
   return {
     kind: 'unknown',
     detectedN: null,
+    detectedP2O5: null,
+    detectedK2O: null,
+    fillerPercent: null,
+    formulaLabel: null,
     label: 'ปุ๋ยประเภทอื่น',
     reason: rawName ? 'ยังไม่พบสูตรหรือคำสำคัญที่ใช้ระบุ N อัตโนมัติ' : 'ยังไม่มีชื่อปุ๋ยสำหรับวิเคราะห์',
   }
@@ -548,21 +676,21 @@ function getFootprintFormulaMode(rowType: PreparationRowType, resourceText: stri
 }
 
 function getFootprintFormulaModeLabel(mode: FootprintFormulaMode) {
-  if (mode === 'fertilizer_n2o') return 'ปุ๋ย / N2O'
+  if (mode === 'fertilizer_n2o') return 'ปุ๋ย / CFP Simple'
   if (mode === 'generic_ef') return 'EF ทั่วไป'
   if (mode === 'fnfix_group') return 'Fnfix'
   return 'SOC'
 }
 
 function getFootprintExpectedResultUnitLabel(mode: FootprintFormulaMode) {
-  if (mode === 'fertilizer_n2o') return 'tCO2e'
+  if (mode === 'fertilizer_n2o') return 'kgCO2e'
   if (mode === 'generic_ef') return 'kgCO2e'
   return 'ยังไม่กำหนด'
 }
 
 function getFootprintResultUnitAliases(mode: FootprintFormulaMode) {
   if (mode === 'fertilizer_n2o') {
-    return ['tco2e', 'tonco2e', 'tonneco2e', 'ตันco2e']
+    return ['kgco2e', 'kilogramco2e', 'กิโลกรัมco2e']
   }
   if (mode === 'generic_ef') {
     return ['kgco2e', 'kilogramco2e', 'กิโลกรัมco2e']
@@ -572,8 +700,20 @@ function getFootprintResultUnitAliases(mode: FootprintFormulaMode) {
 
 function getDefaultFootprintResultUnitKind(mode: FootprintFormulaMode): FootprintResultUnitKind | null {
   if (mode === 'generic_ef') return 'kgco2e'
-  if (mode === 'fertilizer_n2o') return 'tco2e'
+  if (mode === 'fertilizer_n2o') return 'kgco2e'
   return null
+}
+
+function getGenericEfPreviewFormulaText(sourceKind: FootprintResultUnitKind | null, targetKind: FootprintResultUnitKind | null) {
+  if (sourceKind === 'kgco2e' && targetKind === 'tco2e') {
+    return '(activityAmount * selectedEfTotal) / 1000'
+  }
+
+  if (sourceKind === 'tco2e' && targetKind === 'kgco2e') {
+    return '(activityAmount * selectedEfTotal) * 1000'
+  }
+
+  return 'activityAmount * selectedEfTotal'
 }
 
 function resolveFootprintResultUnitKindFromNames(names: Array<string | null | undefined>): FootprintResultUnitKind | null {
@@ -591,6 +731,85 @@ function convertFootprintResultUnitValue(value: number, from: FootprintResultUni
   if (from === 'kgco2e' && to === 'tco2e') return value / 1000
   if (from === 'tco2e' && to === 'kgco2e') return value * 1000
   return value
+}
+
+function getFertilizerPreviewResultDigits(unitKind: FootprintResultUnitKind | null) {
+  if (unitKind === 'tco2e') return 6
+  if (unitKind === 'kgco2e') return 4
+  return 4
+}
+
+function resolveFertilizerFactorValues(
+  selections: FertilizerFactorSelections | undefined,
+  efById: Record<number, Ef>,
+  gwpById: Record<number, Gwp>,
+): ResolvedFertilizerFactorValues {
+  const ureaAsNEf = selections?.ureaAsNEfId ? efById[Number(selections.ureaAsNEfId)] : undefined
+  const dapAsP2O5Ef = selections?.dapAsP2O5EfId ? efById[Number(selections.dapAsP2O5EfId)] : undefined
+  const kclAsK2OEf = selections?.kclAsK2OEfId ? efById[Number(selections.kclAsK2OEfId)] : undefined
+  const gwpN2O = selections?.gwpN2OId ? gwpById[Number(selections.gwpN2OId)] : undefined
+
+  return {
+    ureaAsNValue: ureaAsNEf?.coef_em_factor_value_total != null ? Number(ureaAsNEf.coef_em_factor_value_total) : FERTILIZER_CFP_SIMPLE_CONSTANTS.EF_UREA_AS_N,
+    dapAsP2O5Value: dapAsP2O5Ef?.coef_em_factor_value_total != null ? Number(dapAsP2O5Ef.coef_em_factor_value_total) : FERTILIZER_CFP_SIMPLE_CONSTANTS.EF_DAP_AS_P2O5,
+    kclAsK2OValue: kclAsK2OEf?.coef_em_factor_value_total != null ? Number(kclAsK2OEf.coef_em_factor_value_total) : FERTILIZER_CFP_SIMPLE_CONSTANTS.EF_KCL_AS_K2O,
+    gwpN2OValue: gwpN2O?.coef_em_factor_gwp_value != null ? Number(gwpN2O.coef_em_factor_gwp_value) : FERTILIZER_CFP_SIMPLE_CONSTANTS.GWP_N2O,
+    ureaAsNEf,
+    dapAsP2O5Ef,
+    kclAsK2OEf,
+    gwpN2O,
+  }
+}
+
+function calculateFertilizerCfpSimplePreview({
+  fertilizerKg,
+  fertilizerProfile,
+  factorValues,
+}: {
+  fertilizerKg: number
+  fertilizerProfile: FertilizerNitrogenProfile
+  factorValues: ResolvedFertilizerFactorValues
+}) {
+  if (
+    fertilizerProfile.kind !== 'chemical'
+    || fertilizerProfile.detectedN == null
+    || fertilizerProfile.detectedP2O5 == null
+    || fertilizerProfile.detectedK2O == null
+    || fertilizerProfile.fillerPercent == null
+  ) {
+    return null
+  }
+
+  const nFraction = fertilizerProfile.detectedN / 100
+  const p2o5Fraction = fertilizerProfile.detectedP2O5 / 100
+  const k2oFraction = fertilizerProfile.detectedK2O / 100
+  const fillerFraction = fertilizerProfile.fillerPercent / 100
+  const upstreamPerKg = (
+    (nFraction * factorValues.ureaAsNValue)
+    + (p2o5Fraction * factorValues.dapAsP2O5Value)
+    + (k2oFraction * factorValues.kclAsK2OValue)
+    + (fillerFraction * FERTILIZER_CFP_SIMPLE_CONSTANTS.EF_FILLER)
+  )
+  const upstreamKgco2e = fertilizerKg * upstreamPerKg
+  const nAppliedKg = fertilizerKg * nFraction
+  const n2oKg = nAppliedKg * FERTILIZER_CFP_SIMPLE_CONSTANTS.EF_N_TO_N2O_N_SIMPLE * FERTILIZER_CFP_SIMPLE_CONSTANTS.MW_RATIO_N2O_N
+  const usePhaseKgco2e = n2oKg * factorValues.gwpN2OValue
+  const totalKgco2e = upstreamKgco2e + usePhaseKgco2e
+
+  return {
+    formulaLabel: fertilizerProfile.formulaLabel ?? `${fertilizerProfile.detectedN}-${fertilizerProfile.detectedP2O5}-${fertilizerProfile.detectedK2O}`,
+    nFraction,
+    p2o5Fraction,
+    k2oFraction,
+    fillerFraction,
+    upstreamPerKg,
+    upstreamKgco2e,
+    nAppliedKg,
+    n2oKg,
+    usePhaseKgco2e,
+    totalKgco2e,
+    factorValues,
+  }
 }
 
 function getFootprintPreviewStatusClass(kind: FootprintPreviewStatusKind) {
@@ -612,7 +831,7 @@ function getFootprintInputStatus({
   resourceItemName,
   amount,
   unitLabelText,
-  nValue,
+  nValue: _nValue,
 }: {
   formulaMode: FootprintFormulaMode
   rowType: PreparationRowType
@@ -638,13 +857,10 @@ function getFootprintInputStatus({
     if (!isKgUnitLabel(unitLabelText)) {
       return { kind: 'blocked', label: 'ต้องเตรียมปุ๋ยเป็น kg' }
     }
-    if (nValue == null) {
-      return { kind: 'blocked', label: 'ขาดค่า N' }
+    if (profile.kind !== 'chemical' || profile.detectedP2O5 == null || profile.detectedK2O == null) {
+      return { kind: 'blocked', label: 'ต้องมีสูตรปุ๋ย N-P2O5-K2O เช่น 15-15-15' }
     }
-    if (profile.kind === 'unknown') {
-      return { kind: 'blocked', label: 'ต้องยืนยันประเภทปุ๋ย' }
-    }
-    return { kind: 'ready', label: rowType === 'fertilizer' ? 'พร้อมคำนวณ N2O' : 'พร้อมคำนวณ' }
+    return { kind: 'ready', label: rowType === 'fertilizer' ? 'พร้อมคำนวณ Carbon Footprint ปุ๋ย' : 'พร้อมคำนวณ' }
   }
 
   return { kind: 'warning', label: 'พร้อมตรวจ EF' }
@@ -677,11 +893,13 @@ function buildFootprintRowPreview({
   row,
   selectedResultUnit,
   selectedEf,
+  fertilizerFactorValues,
   unitById,
 }: {
   row: QueueRow
   selectedResultUnit?: Unit
   selectedEf?: Ef
+  fertilizerFactorValues: ResolvedFertilizerFactorValues
   unitById: Record<number, Unit>
 }): FootprintRowPreview {
   const defaultUnitLabel = getFootprintExpectedResultUnitLabel(row.formulaMode)
@@ -726,53 +944,65 @@ function buildFootprintRowPreview({
       previewStatusLabel: row.inputStatusLabel,
       previewStatusKind: 'blocked',
       previewFormulaText: row.formulaMode === 'fertilizer_n2o'
-        ? 'ปุ๋ยต้องมี kg และ N ก่อนคำนวณ'
+        ? 'ปุ๋ยต้องมี kg และสูตร N-P2O5-K2O เช่น 15-15-15'
         : 'ข้อมูลที่ใช้คำนวณยังไม่ครบ',
     }
   }
 
   if (row.formulaMode === 'fertilizer_n2o') {
     const amount = row.calculationAmount
-    const nValue = row.nValue
-    if (amount == null || !Number.isFinite(amount) || nValue == null || !Number.isFinite(nValue)) {
+    const fertilizerProfile = getFertilizerNitrogenProfile(row.resourceItemName)
+    const sourceKind = getDefaultFootprintResultUnitKind(row.formulaMode)
+    if (amount == null || !Number.isFinite(amount)) {
       return {
         rowId: row.id,
         formulaLabel: row.formulaModeLabel,
         inputSummary: `${row.calculationAmountLabel} ${row.preparedUnitLabel}`,
         previewResultLabel: '—',
         previewResultUnitLabel: selectedUnitLabel,
-        previewStatusLabel: 'ขาดค่าที่ใช้คำนวณปุ๋ย/N2O',
+        previewStatusLabel: 'ขาดปริมาณที่ใช้คำนวณปุ๋ย',
         previewStatusKind: 'blocked',
-        previewFormulaText: 'fertilizerKg x (N / 100) / 1000',
+        previewFormulaText: 'fertilizerKg x fertilizerTotalKgCO2ePerKg',
       }
     }
 
-    const fertilizerNTon = amount * (nValue / 100) / 1000
-    const fertilizerProfile = getFertilizerNitrogenProfile(row.resourceItemName)
-    const fsn = fertilizerProfile.kind === 'chemical' ? fertilizerNTon : 0
-    const fon = fertilizerProfile.kind === 'organic' ? fertilizerNTon : 0
-    const resultBase = (
-      (fsn + fon) * FERTILIZER_N2O_CONSTANTS.EF_DIRECT * FERTILIZER_N2O_CONSTANTS.MW_RATIO_N2O_N * FERTILIZER_N2O_CONSTANTS.GWP_N2O
-      + ((fsn * FERTILIZER_N2O_CONSTANTS.FRAC_GASF) + (fon * FERTILIZER_N2O_CONSTANTS.FRAC_GASM)) * FERTILIZER_N2O_CONSTANTS.EF_ATD * FERTILIZER_N2O_CONSTANTS.MW_RATIO_N2O_N * FERTILIZER_N2O_CONSTANTS.GWP_N2O
-      + (fsn + fon) * FERTILIZER_N2O_CONSTANTS.FRAC_LEACH * FERTILIZER_N2O_CONSTANTS.EF_LEACH * FERTILIZER_N2O_CONSTANTS.MW_RATIO_N2O_N * FERTILIZER_N2O_CONSTANTS.GWP_N2O
-    )
-    const sourceKind = getDefaultFootprintResultUnitKind(row.formulaMode)
+    const fertilizerBreakdown = calculateFertilizerCfpSimplePreview({
+      fertilizerKg: amount,
+      fertilizerProfile,
+      factorValues: fertilizerFactorValues,
+    })
+    if (!fertilizerBreakdown) {
+      return {
+        rowId: row.id,
+        formulaLabel: row.formulaModeLabel,
+        inputSummary: `${row.calculationAmountLabel} ${row.preparedUnitLabel}`,
+        previewResultLabel: '—',
+        previewResultUnitLabel: selectedUnitLabel,
+        previewStatusLabel: 'ต้องมีสูตรปุ๋ย N-P2O5-K2O เช่น 15-15-15',
+        previewStatusKind: 'blocked',
+        previewFormulaText: 'fertilizerKg x [upstream + use phase]',
+      }
+    }
+
     const convertedResult = sourceKind && targetKind
-      ? convertFootprintResultUnitValue(resultBase, sourceKind, targetKind)
-      : resultBase
+      ? convertFootprintResultUnitValue(fertilizerBreakdown.totalKgco2e, sourceKind, targetKind)
+      : fertilizerBreakdown.totalKgco2e
     const previewUnitLabel = targetKind ? selectedUnitLabel : defaultUnitLabel
+    const previewUnitKind = targetKind ?? sourceKind
+    const previewDigits = getFertilizerPreviewResultDigits(previewUnitKind)
+    const baseFormulaText = `fertilizerKg * [((N/100)*${formatNumberish(fertilizerFactorValues.ureaAsNValue, 6)}) + ((P2O5/100)*${formatNumberish(fertilizerFactorValues.dapAsP2O5Value, 6)}) + ((K2O/100)*${formatNumberish(fertilizerFactorValues.kclAsK2OValue, 6)}) + ((N/100)*0.01*(44/28)*${formatNumberish(fertilizerFactorValues.gwpN2OValue, 6)})]`
 
     return {
       rowId: row.id,
       formulaLabel: row.formulaModeLabel,
-      inputSummary: `${formatNumberish(amount, 4)} ${row.preparedUnitLabel} · N ${formatNumberish(nValue, 3)}%`,
+      inputSummary: `${formatNumberish(amount, 4)} ${row.preparedUnitLabel} · สูตร ${fertilizerBreakdown.formulaLabel}`,
       previewResultValue: convertedResult,
-      previewResultLabel: formatNumberish(convertedResult, 4),
+      previewResultLabel: formatNumberish(convertedResult, previewDigits),
       previewResultUnitLabel: previewUnitLabel,
-      previewStatusLabel: targetKind ? 'Frontend preview' : `Frontend preview · ใช้หน่วย default ${defaultUnitLabel}`,
+      previewStatusLabel: targetKind ? 'Frontend preview · สูตรปุ๋ย CFP simple' : `Frontend preview · ใช้หน่วย default ${defaultUnitLabel}`,
       previewStatusKind: 'ready',
-      previewFormulaText: `(${formatNumberish(amount, 4)} x ${formatNumberish(nValue, 3)} / 100 / 1000) -> Direct + Indirect N2O`,
-      note: 'แสดงค่าประมาณจากสูตรเดียวกับ backend ก่อนกดบันทึกจริง',
+      previewFormulaText: previewUnitKind === 'tco2e' ? `(${baseFormulaText}) / 1000` : baseFormulaText,
+      note: `สูตร ${fertilizerBreakdown.formulaLabel} · Urea as N ${formatNumberish(fertilizerFactorValues.ureaAsNValue, 6)} + DAP as P2O5 ${formatNumberish(fertilizerFactorValues.dapAsP2O5Value, 6)} + KCl as K2O ${formatNumberish(fertilizerFactorValues.kclAsK2OValue, 6)} + GWP N2O ${formatNumberish(fertilizerFactorValues.gwpN2OValue, 6)} · upstream ${formatNumberish(fertilizerBreakdown.upstreamKgco2e, 4)} kgCO2e + use phase ${formatNumberish(fertilizerBreakdown.usePhaseKgco2e, 4)} kgCO2e`,
     }
   }
 
@@ -808,12 +1038,12 @@ function buildFootprintRowPreview({
     const efResultUnit = getEfTotalResultUnitId(selectedEf) != null
       ? unitById[getEfTotalResultUnitId(selectedEf) ?? 0]
       : undefined
-    const sourceKind = efResultUnit
-      ? resolveFootprintResultUnitKindFromNames([efResultUnit.unit_name, efResultUnit.unit_initial])
-      : getDefaultFootprintResultUnitKind(row.formulaMode)
+    const sourceKind = getDefaultFootprintResultUnitKind(row.formulaMode)
     const convertedResult = sourceKind && targetKind
       ? convertFootprintResultUnitValue(baseResult, sourceKind, targetKind)
       : baseResult
+    const previewUnitKind = targetKind ?? sourceKind
+    const previewDigits = getGenericEfPreviewResultDigits(previewUnitKind)
     const previewUnitLabel = targetKind
       ? selectedUnitLabel
       : (efResultUnit ? unitLabel(efResultUnit) : defaultUnitLabel)
@@ -823,12 +1053,24 @@ function buildFootprintRowPreview({
       formulaLabel: row.formulaModeLabel,
       inputSummary: `${formatNumberish(amount, 4)} ${row.preparedUnitLabel}`,
       previewResultValue: convertedResult,
-      previewResultLabel: formatNumberish(convertedResult, 4),
+      previewResultLabel: formatNumberish(convertedResult, previewDigits),
       previewResultUnitLabel: previewUnitLabel,
       previewStatusLabel: targetKind ? 'Frontend preview' : `Frontend preview · ใช้หน่วย EF/default`,
       previewStatusKind: 'ready',
-      previewFormulaText: `${formatNumberish(amount, 4)} x ${formatNumberish(selectedEf.coef_em_factor_value_total, 6)}`,
-      note: selectedEf.coef_em_factor_name?.trim() || selectedEf.coef_em_factor_idCode?.trim() || `EF #${selectedEf.coefficient_emission_factor_id}`,
+      previewFormulaText: getGenericEfPreviewFormulaText(sourceKind, targetKind),
+      note: (() => {
+        const selectedEfLabel = selectedEf.coef_em_factor_name?.trim() || selectedEf.coef_em_factor_idCode?.trim() || `EF #${selectedEf.coefficient_emission_factor_id}`
+        if (sourceKind && targetKind && sourceKind !== targetKind) {
+          return `${selectedEfLabel} · preview นี้ใช้ EF_total ฐาน ${getFootprintResultUnitKindLabel(sourceKind)} แล้วแปลงเป็น ${getFootprintResultUnitKindLabel(targetKind)}`
+        }
+        if (sourceKind && targetKind === sourceKind && targetKind === 'kgco2e') {
+          return `${selectedEfLabel} · EF_total ที่เลือกมีหน่วยผลลัพธ์ต้นทางเป็น kgCO2e อยู่แล้ว จึงใช้ค่า activityAmount x selectedEfTotal ได้ตรง ๆ`
+        }
+        if (efResultUnit) {
+          return `${selectedEfLabel} · ระบบ preview ใช้สูตร frontend ฐาน kgCO2e แม้ EF จะแสดง result unit เป็น ${unitLabel(efResultUnit)}`
+        }
+        return selectedEfLabel
+      })(),
     }
   }
 
@@ -854,8 +1096,9 @@ export function CarbonFootprintQueuePage({
 }) {
   const isPreparationMode = mode === 'preparation'
   const qc = useQueryClient()
-  const [statusFilter, setStatusFilter] = useState(isPreparationMode ? 'preparing' : '')
+  const [statusFilter, setStatusFilter] = useState(isPreparationMode ? 'preparing' : 'ready')
   const [resourceTypeFilter, setResourceTypeFilter] = useState('')
+  const [fertilizerKindFilter, setFertilizerKindFilter] = useState('')
   const [campFilter, setCampFilter] = useState('')
   const [preparationFilter, setPreparationFilter] = useState('')
   const [selectedQueueIds, setSelectedQueueIds] = useState<number[]>([])
@@ -871,6 +1114,7 @@ export function CarbonFootprintQueuePage({
   const [bulkFuelPreparedUnitId, setBulkFuelPreparedUnitId] = useState('')
   const [bulkFuelPreparedUnitName, setBulkFuelPreparedUnitName] = useState('')
   const [bulkFuelPreparedUnitInitial, setBulkFuelPreparedUnitInitial] = useState('')
+  const [bulkMovePreparedToReady, setBulkMovePreparedToReady] = useState(false)
   const [bulkOtherConfigs, setBulkOtherConfigs] = useState<Record<string, OtherGroupConfig>>({})
   const [bulkModalError, setBulkModalError] = useState<string | null>(null)
   const [bulkPreparationPopup, setBulkPreparationPopup] = useState<BulkPreparationPopupState>({ kind: 'hidden' })
@@ -878,6 +1122,14 @@ export function CarbonFootprintQueuePage({
   const [footprintCalculationModal, setFootprintCalculationModal] = useState<FootprintCalculationModalState>({ kind: 'hidden' })
   const [footprintResultUnitSelections, setFootprintResultUnitSelections] = useState<Partial<Record<FootprintFormulaMode, string>>>({})
   const [footprintSelectedEfIds, setFootprintSelectedEfIds] = useState<Record<number, string>>({})
+  const [footprintFertilizerFactorSelections, setFootprintFertilizerFactorSelections] = useState<FertilizerFactorSelections>(EMPTY_FERTILIZER_FACTOR_SELECTIONS)
+  const [footprintFuelEfSearchInputs, setFootprintFuelEfSearchInputs] = useState<Record<number, string>>({})
+  const [footprintFuelEfFocusedRowId, setFootprintFuelEfFocusedRowId] = useState<number | null>(null)
+  const [footprintFertilizerFactorSearchInputs, setFootprintFertilizerFactorSearchInputs] = useState<Record<string, string>>({})
+  const [footprintFertilizerFactorFocusedKey, setFootprintFertilizerFactorFocusedKey] = useState<string | null>(null)
+  const [footprintModalLeftPaneWidth, setFootprintModalLeftPaneWidth] = useState(42)
+  const [isFootprintModalResizing, setIsFootprintModalResizing] = useState(false)
+  const [isFootprintPreviewWide, setIsFootprintPreviewWide] = useState(false)
   const [footprintEfFilterCfTypeId, setFootprintEfFilterCfTypeId] = useState('')
   const [footprintEfFilterGroupId, setFootprintEfFilterGroupId] = useState('')
   const [footprintEfFilterUnitId, setFootprintEfFilterUnitId] = useState('')
@@ -885,7 +1137,9 @@ export function CarbonFootprintQueuePage({
   const [footprintUnitCreateMode, setFootprintUnitCreateMode] = useState<FootprintFormulaMode | null>(null)
   const [footprintNewUnitName, setFootprintNewUnitName] = useState('')
   const [footprintNewUnitInitial, setFootprintNewUnitInitial] = useState('')
+  const [footprintUnitCreateError, setFootprintUnitCreateError] = useState<string | null>(null)
   const [form, setForm] = useState<PreparationForm>(emptyForm)
+  const footprintPreviewLayoutRef = useRef<HTMLDivElement | null>(null)
 
   const { data: queue = [], isLoading, error: queueError } = useQuery({
     queryKey: ['carbon-process-queue'],
@@ -914,6 +1168,10 @@ export function CarbonFootprintQueuePage({
   const { data: cfTypes = [], error: cfTypesError } = useQuery({
     queryKey: ['cf-types-carbon-footprint'],
     queryFn: () => get<CfType[]>('/emission-factors/cf-types'),
+  })
+  const { data: gwps = [], error: gwpsError } = useQuery({
+    queryKey: ['gwps-carbon-footprint'],
+    queryFn: () => get<Gwp[]>('/emission-factors/gwp'),
   })
   const { data: efGroups = [], error: efGroupsError } = useQuery({
     queryKey: ['ef-groups-carbon-footprint'],
@@ -952,6 +1210,10 @@ export function CarbonFootprintQueuePage({
     () => Object.fromEntries(efs.map((item) => [item.coefficient_emission_factor_id, item])),
     [efs],
   )
+  const gwpById = useMemo(
+    () => Object.fromEntries(gwps.map((item) => [item.coefficients_emissions_factors_gwp_id, item])),
+    [gwps],
+  )
 
   const findUnit = (aliases: string[]) => units.find((unit) => {
     const names = [unit.unit_name, unit.unit_initial].map(normalizeUnitText)
@@ -961,6 +1223,7 @@ export function CarbonFootprintQueuePage({
   const kgUnit = findUnit(['kg', 'กิโลกรัม', 'kilogram', 'kilograms'])
   const literUnit = findUnit(['l', 'lit', 'liter', 'litre', 'litter', 'ลิตร'])
   const cubicMeterUnit = findUnit(['m3', 'm^3', 'm³', 'cubicmeter', 'cubicmetre', 'ลูกบาศก์เมตร'])
+  const milliliterUnit = findUnit(['ml', 'milliliter', 'millilitre', 'มิลลิลิตร'])
 
   const getDetailUnitText = (detail?: QueueLogDetail) => (
     [detail?.units?.unit_name, detail?.units?.unit_initial, detail?.units_prefixs?.unit_prefix_name, detail?.units_prefixs?.unit_prefix_initial]
@@ -1126,9 +1389,18 @@ export function CarbonFootprintQueuePage({
     ? rows
     : rows.filter((row) => ['ready', 'standardDone', 'cfpDone', 'error'].includes(row.statusKind))
 
+  const selectedResourceTypeRows = resourceTypeFilter
+    ? scopedRows.filter((row) => row.resourceTypeId === resourceTypeFilter)
+    : []
+  const showFertilizerKindFilter = selectedResourceTypeRows.some((row) => row.rowType === 'fertilizer')
+
   const filteredRows = scopedRows.filter((row) =>
     (!statusFilter || row.statusKind === statusFilter)
     && (!resourceTypeFilter || row.resourceTypeId === resourceTypeFilter)
+    && (!fertilizerKindFilter || (
+      row.rowType === 'fertilizer'
+      && getFertilizerNitrogenProfile(row.resourceItemName).kind === fertilizerKindFilter
+    ))
     && (!campFilter || row.campId === campFilter)
     && (!preparationFilter || (
       preparationFilter === 'prepared'
@@ -1144,6 +1416,11 @@ export function CarbonFootprintQueuePage({
   const selectedQueueRows = filteredRows.filter((row) => selectedQueueIds.includes(row.id))
   const readyEligibleRows = selectedQueueRows.filter((row) => row.statusKind === 'preparing' && row.isPrepared)
   const readyEligibleDetailIds = readyEligibleRows.map((row) => row.detailId)
+  const bulkReadyTransitionDetailIds = Array.from(new Set(
+    selectedQueueRows
+      .filter((row) => row.statusKind === 'preparing' && row.detailId > 0)
+      .map((row) => row.detailId),
+  ))
   const importedEligibleRows = selectedQueueRows.filter((row) => row.statusKind !== 'imported')
   const importedEligibleDetailIds = importedEligibleRows.map((row) => row.detailId)
   const footprintCalculateRows = selectedQueueRows.filter(canRunFootprintCalculation)
@@ -1160,11 +1437,17 @@ export function CarbonFootprintQueuePage({
   const pendingCount = scopedRows.filter((row) => !row.isPrepared).length
   const preparedCount = scopedRows.filter((row) => row.isPrepared).length
   const changedCount = scopedRows.filter((row) => row.hasPreparedChange).length
-  const soilCount = scopedRows.filter((row) => row.hasSoilData).length
-  const readyCount = scopedRows.filter((row) => row.statusKind === 'ready').length
-  const errorCount = scopedRows.filter((row) => row.statusKind === 'error').length
   const isFootprintCalculating = footprintCalculationModal.kind === 'running'
   const footprintModalRows = footprintCalculationModal.kind === 'hidden' ? [] : footprintCalculationModal.rows
+  const fertilizerModalRows = footprintModalRows.filter((row) => row.formulaMode === 'fertilizer_n2o')
+  const fertilizerFactorSelectableEfs = useMemo(
+    () => efs.filter((item) => item.coef_em_factor_value_total != null),
+    [efs],
+  )
+  const resolvedFertilizerFactorValues = useMemo(
+    () => resolveFertilizerFactorValues(footprintFertilizerFactorSelections, efById, gwpById),
+    [efById, footprintFertilizerFactorSelections, gwpById],
+  )
   const footprintModalRowPreviewById = useMemo<Record<number, FootprintRowPreview>>(() => (
     Object.fromEntries(footprintModalRows.map((row) => {
       const selectedResultUnitId = footprintResultUnitSelections[row.formulaMode]
@@ -1177,11 +1460,12 @@ export function CarbonFootprintQueuePage({
           row,
           selectedResultUnit,
           selectedEf,
+          fertilizerFactorValues: resolvedFertilizerFactorValues,
           unitById,
         }),
       ]
     }))
-  ), [efById, footprintModalRows, footprintResultUnitSelections, footprintSelectedEfIds, unitById])
+  ), [efById, footprintModalRows, footprintResultUnitSelections, footprintSelectedEfIds, resolvedFertilizerFactorValues, unitById])
   const {
     readyRows: footprintModalReadyRows,
     blockedRows: footprintModalBlockedRows,
@@ -1214,16 +1498,27 @@ export function CarbonFootprintQueuePage({
       const matchesCfType = !footprintEfFilterCfTypeId || item.carbonfootprint_type_id === Number(footprintEfFilterCfTypeId)
       const matchesGroup = !footprintEfFilterGroupId || item.group_emission_factor_id === Number(footprintEfFilterGroupId)
       const matchesUnit = !footprintEfFilterUnitId || getEfInputUnitId(item) === Number(footprintEfFilterUnitId)
+      const inputUnit = unitById[getEfInputUnitId(item) ?? 0]
+      const resultUnit = unitById[getEfTotalResultUnitId(item) ?? 0]
       const matchesSearch = !search || [
         item.coef_em_factor_idCode,
         item.coef_em_factor_name,
         item.coef_em_factor_info,
+        item.carbonfootprint_type_id != null ? cfTypeMap[item.carbonfootprint_type_id] : undefined,
+        item.group_emission_factor_id != null ? efGroupMap[item.group_emission_factor_id] : undefined,
+        inputUnit?.unit_name,
+        inputUnit?.unit_initial,
+        resultUnit?.unit_name,
+        resultUnit?.unit_initial,
       ].some((value) => value?.toLowerCase().includes(search))
 
       return matchesCfType && matchesGroup && matchesUnit && matchesSearch
     })
-  }, [efs, footprintEfFilterCfTypeId, footprintEfFilterGroupId, footprintEfFilterUnitId, footprintEfFilterSearch])
+  }, [efs, footprintEfFilterCfTypeId, footprintEfFilterGroupId, footprintEfFilterUnitId, footprintEfFilterSearch, cfTypeMap, efGroupMap, unitById])
   const selectableFuelEfs = filteredFuelEfs.filter((item) => item.coef_em_factor_value_total != null)
+  const supportedFootprintResultUnits = useMemo(() => (
+    units.filter((unit) => Boolean(resolveFootprintResultUnitKindFromNames([unit.unit_name, unit.unit_initial])))
+  ), [units])
   const footprintModalFuelRowsMissingEf = footprintModalFuelRows.filter((row) => !footprintSelectedEfIds[row.id])
   const footprintPreviewCodeGroups = useMemo(() => (
     FOOTPRINT_FORMULA_MODES.map((mode) => {
@@ -1237,31 +1532,23 @@ export function CarbonFootprintQueuePage({
           const preview = footprintModalRowPreviewById[row.id]
           const selectedEfId = footprintSelectedEfIds[row.id]
           const selectedEf = selectedEfId ? efById[Number(selectedEfId)] : undefined
-          return { row, preview, selectedEf }
+          return { row, preview, selectedEf, fertilizerFactorValues: resolvedFertilizerFactorValues }
         }),
         hiddenCount: Math.max(modeRows.length - 2, 0),
       }
     }).filter(Boolean)
-  ), [efById, footprintModalRowPreviewById, footprintModalRows, footprintSelectedEfIds])
+  ), [efById, footprintModalRowPreviewById, footprintModalRows, footprintSelectedEfIds, resolvedFertilizerFactorValues])
 
   const pageQueryItems = [
     { label: 'Carbon process queue', error: queueError },
     { label: 'Emission Factors', error: efsError },
+    { label: 'GWP', error: gwpsError },
     { label: 'CF Types', error: cfTypesError },
     { label: 'กลุ่ม EF', error: efGroupsError },
     { label: 'หน่วยนับ', error: unitsError },
     { label: 'ประเภทกิจกรรม', error: headerTypesError },
     { label: 'รายละเอียดกิจกรรม', error: detailTypesError },
     { label: 'Prefix หน่วย', error: unitPrefixesError },
-  ]
-
-  const dashboardCards = [
-    { key: 'total', label: 'รายการใน Queue', icon: <ActivitySquare size={14} className="text-primary-500" />, value: rows.length, className: 'text-primary-700' },
-    { key: 'pending', label: 'รอเตรียมข้อมูล', icon: <Clock3 size={14} className="text-accent-500" />, value: pendingCount, className: 'text-accent-700' },
-    { key: 'prepared', label: 'เตรียมหน่วยแล้ว', icon: <CheckCircle2 size={14} className="text-primary-500" />, value: preparedCount, className: 'text-primary-700' },
-    { key: 'soil', label: 'มีข้อมูลตรวจดิน/SOC', icon: <Leaf size={14} className="text-green-600" />, value: soilCount, className: 'text-green-700' },
-    { key: 'ready', label: 'พร้อมคำนวณ', icon: <Calculator size={14} className="text-cyan-600" />, value: readyCount, className: 'text-cyan-700' },
-    { key: 'error', label: 'ผิดพลาด', icon: <CircleAlert size={14} className="text-red-500" />, value: errorCount, className: 'text-red-700' },
   ]
 
   const setFormValue = (key: keyof PreparationForm, value: string) => {
@@ -1361,6 +1648,7 @@ export function CarbonFootprintQueuePage({
     setBulkModalOpen(false)
     setBulkModalError(null)
     setBulkPreparationPopup({ kind: 'hidden' })
+    setBulkMovePreparedToReady(false)
   }
 
   const getRowUnitText = (row: QueueRow) => {
@@ -1558,17 +1846,22 @@ export function CarbonFootprintQueuePage({
     const manualN = toNumberOrUndefined(bulkUnknownFertilizerN)
     return manualN != null ? formatNumber(manualN, 3) : 'null'
   }
-  const getBulkFuelPresetValue = (target: 'liter' | 'm3') => {
+  const getBulkFuelPresetValue = (target: 'liter' | 'milliliter') => {
     const hasLiter = selectedFuelRows.some(isLiterRow)
     const hasCubicMeter = selectedFuelRows.some(isCubicMeterRow)
-    if (target === 'm3') return hasLiter && !hasCubicMeter ? '0.001' : '1'
+    if (target === 'milliliter') return '0.001'
     return hasCubicMeter && !hasLiter ? '1000' : '1'
   }
 
-  const applyBulkFuelPreset = (target: 'liter' | 'm3') => {
-    const targetUnit = target === 'liter' ? literUnit : cubicMeterUnit
+  const applyBulkFuelPreset = (target: 'liter' | 'milliliter') => {
+    const targetUnit = target === 'liter' ? literUnit : milliliterUnit
     setBulkFuelValuePerUnit(getBulkFuelPresetValue(target))
     setBulkFuelPreparedUnitId(targetUnit?.unit_id != null ? String(targetUnit.unit_id) : '')
+    if (target === 'milliliter' && !targetUnit?.unit_id) {
+      setBulkFuelPreparedUnitName('milliliter')
+      setBulkFuelPreparedUnitInitial('ml')
+      return
+    }
     setBulkFuelPreparedUnitName('')
     setBulkFuelPreparedUnitInitial('')
   }
@@ -1625,6 +1918,52 @@ export function CarbonFootprintQueuePage({
   }, [footprintCalculationModal])
 
   useEffect(() => {
+    const media = window.matchMedia('(min-width: 1280px)')
+    const applyViewportMode = () => {
+      setIsFootprintPreviewWide(media.matches)
+      if (!media.matches) {
+        setIsFootprintModalResizing(false)
+      }
+    }
+
+    applyViewportMode()
+    media.addEventListener('change', applyViewportMode)
+    return () => media.removeEventListener('change', applyViewportMode)
+  }, [])
+
+  useEffect(() => {
+    if (!isFootprintModalResizing || !isFootprintPreviewWide) return undefined
+
+    const handlePointerMove = (event: MouseEvent) => {
+      const container = footprintPreviewLayoutRef.current
+      if (!container) return
+
+      const rect = container.getBoundingClientRect()
+      if (!rect.width) return
+
+      const nextWidthPercent = ((event.clientX - rect.left) / rect.width) * 100
+      const clampedWidthPercent = Math.min(62, Math.max(32, nextWidthPercent))
+      setFootprintModalLeftPaneWidth(clampedWidthPercent)
+    }
+
+    const handlePointerUp = () => {
+      setIsFootprintModalResizing(false)
+    }
+
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    window.addEventListener('mousemove', handlePointerMove)
+    window.addEventListener('mouseup', handlePointerUp)
+
+    return () => {
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      window.removeEventListener('mousemove', handlePointerMove)
+      window.removeEventListener('mouseup', handlePointerUp)
+    }
+  }, [isFootprintModalResizing, isFootprintPreviewWide])
+
+  useEffect(() => {
     if (isPreparationMode || footprintCalculationModal.kind === 'hidden' || !units.length) return
 
     setFootprintResultUnitSelections((prev) => {
@@ -1635,7 +1974,12 @@ export function CarbonFootprintQueuePage({
         const modeRows = footprintModalRows.filter((row) => row.formulaMode === mode)
         if (!modeRows.length || next[mode]) return
 
-        const existingUnitId = modeRows.find((row) => row.original.unit_id_resultValue != null)?.original.unit_id_resultValue
+        const existingUnitId = modeRows.find((row) => {
+          const unitId = row.original.unit_id_resultValue
+          if (unitId == null) return false
+          const unit = units.find((item) => item.unit_id === unitId)
+          return Boolean(unit && resolveFootprintResultUnitKindFromNames([unit.unit_name, unit.unit_initial]))
+        })?.original.unit_id_resultValue
         const fallbackUnit = units.find((unit) => {
           const names = [unit.unit_name, unit.unit_initial].map(normalizeUnitText)
           return names.some((name) => getFootprintResultUnitAliases(mode).includes(name))
@@ -1650,6 +1994,67 @@ export function CarbonFootprintQueuePage({
       return changed ? next : prev
     })
   }, [footprintCalculationModal.kind, footprintModalRows, isPreparationMode, units])
+
+  useEffect(() => {
+    if (!supportedFootprintResultUnits.length) return
+
+    setFootprintResultUnitSelections((prev) => {
+      let changed = false
+      const next = { ...prev }
+
+      Object.entries(prev).forEach(([mode, unitId]) => {
+        if (!unitId) return
+        const isSupported = supportedFootprintResultUnits.some((unit) => String(unit.unit_id) === unitId)
+        if (!isSupported) {
+          next[mode as FootprintFormulaMode] = ''
+          changed = true
+        }
+      })
+
+      return changed ? next : prev
+    })
+  }, [supportedFootprintResultUnits])
+
+  useEffect(() => {
+    if (isPreparationMode || footprintCalculationModal.kind === 'hidden' || !fertilizerModalRows.length) return
+
+    setFootprintFertilizerFactorSelections((prev) => {
+      const next = { ...prev }
+      let changed = false
+
+      FERTILIZER_FACTOR_FIELD_CONFIGS.forEach((config) => {
+        if (next[config.selectionKey]) return
+        const bestEf = fertilizerFactorSelectableEfs
+          .map((ef) => ({ ef, score: scoreFertilizerFactorEfCandidate(config, ef) }))
+          .sort((left, right) => right.score - left.score)[0]
+
+        if (bestEf?.score > 0) {
+          next[config.selectionKey] = String(bestEf.ef.coefficient_emission_factor_id)
+          changed = true
+        }
+      })
+
+      if (!next.gwpN2OId) {
+        const bestGwp = gwps
+          .map((gwp) => ({ gwp, score: scoreGwpCandidate(gwp) }))
+          .sort((left, right) => right.score - left.score)[0]
+
+        if (bestGwp?.score > 0) {
+          next.gwpN2OId = String(bestGwp.gwp.coefficients_emissions_factors_gwp_id)
+          changed = true
+        }
+      }
+
+      return changed ? next : prev
+    })
+  }, [fertilizerFactorSelectableEfs, footprintCalculationModal.kind, fertilizerModalRows.length, gwps, isPreparationMode])
+
+  useEffect(() => {
+    if (showFertilizerKindFilter) return
+    if (fertilizerKindFilter) {
+      setFertilizerKindFilter('')
+    }
+  }, [fertilizerKindFilter, showFertilizerKindFilter])
 
   useEffect(() => {
     if (!footprintEfFilterGroupId) return
@@ -1765,7 +2170,15 @@ export function CarbonFootprintQueuePage({
   })
 
   const bulkPreparationMut = useMutation({
-    mutationFn: async ({ items }: { items: BulkConversionPreview[] }) => {
+    mutationFn: async ({
+      items,
+      moveToReady,
+      detailIds,
+    }: {
+      items: BulkConversionPreview[]
+      moveToReady: boolean
+      detailIds: number[]
+    }) => {
       const updated = []
       setBulkModalError(null)
       setBulkPreparationPopup({
@@ -1793,6 +2206,26 @@ export function CarbonFootprintQueuePage({
           throw new Error(`รายการที่ ${index + 1}/${items.length}: ${item.row.headerLabel} · ${item.row.resourceItemName} - ${getErrorMessage(error)}`)
         }
       }
+
+      if (moveToReady && detailIds.length > 0) {
+        setBulkPreparationPopup({
+          kind: 'loading',
+          current: items.length,
+          total: items.length,
+          currentLabel: 'กำลังย้ายสถานะเป็น พร้อมคำนวณมาตรฐาน',
+        })
+
+        try {
+          await (
+            detailIds.length === 1
+              ? post(`/activities/details/${detailIds[0]}/manual-status`, { statusName: ACTIVITY_CAL_STATUS_NAMES.ready })
+              : post('/activities/details/manual-status/bulk', { ids: detailIds, statusName: ACTIVITY_CAL_STATUS_NAMES.ready })
+          )
+        } catch (error) {
+          throw new Error(`บันทึกการเตรียมข้อมูลสำเร็จแล้ว แต่ย้ายสถานะเป็น พร้อมคำนวณมาตรฐาน ไม่สำเร็จ - ${getErrorMessage(error)}`)
+        }
+      }
+
       return updated
     },
     onSuccess: async (_data, variables) => {
@@ -1806,6 +2239,7 @@ export function CarbonFootprintQueuePage({
         kind: 'success',
         itemCount: variables.items.length,
         countdown: 4,
+        movedToReadyCount: variables.moveToReady ? variables.detailIds.length : 0,
       })
     },
     onError: (error) => {
@@ -1867,6 +2301,11 @@ export function CarbonFootprintQueuePage({
   })
 
   const openFootprintCalculationModal = (rowsToReview: QueueRow[], source: FootprintCalculationSource) => {
+    setFootprintFuelEfSearchInputs({})
+    setFootprintFuelEfFocusedRowId(null)
+    setFootprintFertilizerFactorSearchInputs({})
+    setFootprintFertilizerFactorFocusedKey(null)
+    setIsFootprintModalResizing(false)
     setFootprintCalculationModal({
       kind: 'preview',
       source,
@@ -1876,10 +2315,18 @@ export function CarbonFootprintQueuePage({
 
   const closeFootprintCalculationModal = () => {
     if (footprintCalculationModal.kind === 'running') return
+    setFootprintFuelEfSearchInputs({})
+    setFootprintFuelEfFocusedRowId(null)
+    setFootprintFertilizerFactorSearchInputs({})
+    setFootprintFertilizerFactorFocusedKey(null)
+    setIsFootprintModalResizing(false)
     setFootprintCalculationModal({ kind: 'hidden' })
   }
 
   const updateFootprintResultUnitSelection = (mode: FootprintFormulaMode, unitId: string) => {
+    if (unitId && !supportedFootprintResultUnits.some((unit) => String(unit.unit_id) === unitId)) {
+      return
+    }
     setFootprintResultUnitSelections((prev) => ({
       ...prev,
       [mode]: unitId,
@@ -1893,16 +2340,150 @@ export function CarbonFootprintQueuePage({
     }))
   }
 
+  const applyFootprintFuelEfSelection = (rowId: number, ef?: Ef) => {
+    updateFootprintSelectedEf(rowId, ef ? String(ef.coefficient_emission_factor_id) : '')
+    setFootprintFuelEfSearchInputs((prev) => ({
+      ...prev,
+      [rowId]: ef ? getFuelEfOptionLabel(ef, unitById) : '',
+    }))
+    setFootprintFuelEfFocusedRowId(null)
+  }
+
+  const updateFootprintFuelEfSearchInput = (rowId: number, value: string, efOptions: Ef[]) => {
+    setFootprintFuelEfSearchInputs((prev) => ({
+      ...prev,
+      [rowId]: value,
+    }))
+
+    const trimmedValue = value.trim()
+    if (!trimmedValue) {
+      applyFootprintFuelEfSelection(rowId)
+      return
+    }
+
+    const matchedEf = efOptions.find((item) => getFuelEfOptionLabel(item, unitById) === trimmedValue)
+    updateFootprintSelectedEf(rowId, matchedEf ? String(matchedEf.coefficient_emission_factor_id) : '')
+  }
+
+  const scoreFertilizerFactorEfCandidate = (config: FertilizerFactorFieldConfig, ef: Ef) => {
+    const text = [
+      ef.coef_em_factor_idCode,
+      ef.coef_em_factor_name,
+      ef.coef_em_factor_info,
+    ].filter(Boolean).join(' ').toLowerCase()
+
+    let score = 0
+    config.keywords.forEach((keyword, index) => {
+      if (text.includes(keyword.toLowerCase())) {
+        score += index === 0 ? 120 : 60
+      }
+    })
+
+    if (ef.coef_em_factor_value_total != null) {
+      const diff = Math.abs(Number(ef.coef_em_factor_value_total) - config.defaultValue)
+      if (diff < 0.000001) score += 140
+      else if (diff < 0.01) score += 40
+    }
+
+    return score
+  }
+
+  const scoreGwpCandidate = (gwp: Gwp) => {
+    const text = [
+      gwp.coef_em_factor_gwp_name,
+      gwp.coef_em_factor_gwp_name_en,
+      gwp.coef_em_factor_gwp_info,
+    ].filter(Boolean).join(' ').toLowerCase()
+
+    let score = 0
+    if (text.includes('n2o')) score += 140
+    if (gwp.coef_em_factor_gwp_value != null) {
+      const diff = Math.abs(Number(gwp.coef_em_factor_gwp_value) - FERTILIZER_CFP_SIMPLE_CONSTANTS.GWP_N2O)
+      if (diff < 0.000001) score += 140
+      else if (diff < 0.1) score += 40
+    }
+    return score
+  }
+
+  const updateFootprintFertilizerFactorSelection = (selectionKey: keyof FertilizerFactorSelections, value: string) => {
+    setFootprintFertilizerFactorSelections((prev) => ({
+      ...prev,
+      [selectionKey]: value,
+    }))
+  }
+
+  const applyFootprintFertilizerFactorEfSelection = (config: FertilizerFactorFieldConfig, ef?: Ef) => {
+    updateFootprintFertilizerFactorSelection(config.selectionKey, ef ? String(ef.coefficient_emission_factor_id) : '')
+    setFootprintFertilizerFactorSearchInputs((prev) => ({
+      ...prev,
+      [config.selectionKey]: ef ? getFuelEfOptionLabel(ef, unitById) : '',
+    }))
+    setFootprintFertilizerFactorFocusedKey(null)
+  }
+
+  const updateFootprintFertilizerFactorEfSearchInput = (config: FertilizerFactorFieldConfig, value: string, efOptions: Ef[]) => {
+    setFootprintFertilizerFactorSearchInputs((prev) => ({
+      ...prev,
+      [config.selectionKey]: value,
+    }))
+
+    const trimmedValue = value.trim()
+    if (!trimmedValue) {
+      applyFootprintFertilizerFactorEfSelection(config)
+      return
+    }
+
+    const matchedEf = efOptions.find((item) => getFuelEfOptionLabel(item, unitById) === trimmedValue)
+    updateFootprintFertilizerFactorSelection(config.selectionKey, matchedEf ? String(matchedEf.coefficient_emission_factor_id) : '')
+  }
+
+  const applyFootprintFertilizerGwpSelection = (gwp?: Gwp) => {
+    updateFootprintFertilizerFactorSelection('gwpN2OId', gwp ? String(gwp.coefficients_emissions_factors_gwp_id) : '')
+    setFootprintFertilizerFactorSearchInputs((prev) => ({
+      ...prev,
+      gwpN2OId: gwp ? getGwpOptionLabel(gwp) : '',
+    }))
+    setFootprintFertilizerFactorFocusedKey(null)
+  }
+
+  const updateFootprintFertilizerGwpSearchInput = (value: string, options: Gwp[]) => {
+    setFootprintFertilizerFactorSearchInputs((prev) => ({
+      ...prev,
+      gwpN2OId: value,
+    }))
+
+    const trimmedValue = value.trim()
+    if (!trimmedValue) {
+      applyFootprintFertilizerGwpSelection()
+      return
+    }
+
+    const matchedGwp = options.find((item) => getGwpOptionLabel(item) === trimmedValue)
+    updateFootprintFertilizerFactorSelection('gwpN2OId', matchedGwp ? String(matchedGwp.coefficients_emissions_factors_gwp_id) : '')
+  }
+
+  const startFootprintModalResize = () => {
+    setIsFootprintModalResizing(true)
+  }
+
   const openFootprintUnitCreate = (mode: FootprintFormulaMode) => {
     setFootprintUnitCreateMode(mode)
     setFootprintNewUnitName('')
     setFootprintNewUnitInitial('')
+    setFootprintUnitCreateError(null)
   }
 
   const submitFootprintUnitCreate = (mode: FootprintFormulaMode) => {
     const unitName = footprintNewUnitName.trim()
     const unitInitial = footprintNewUnitInitial.trim()
     if (!unitName) return
+    const resolvedKind = resolveFootprintResultUnitKindFromNames([unitName, unitInitial])
+    if (!resolvedKind) {
+      setFootprintUnitCreateError('เพิ่มได้เฉพาะหน่วยในกลุ่ม kgCO2e หรือ tCO2e เท่านั้น')
+      return
+    }
+
+    setFootprintUnitCreateError(null)
 
     saveFootprintUnitMut.mutate({
       mode,
@@ -1952,6 +2533,10 @@ export function CarbonFootprintQueuePage({
         const result = await post<CarbonProcessQueueItem>(`/activities/carbon-process-queue/${row.id}/calculate`, {
           resultUnitId: selectedResultUnitId ? Number(selectedResultUnitId) : undefined,
           selectedEfId: selectedEfId ? Number(selectedEfId) : undefined,
+          fertilizerUreaEfId: footprintFertilizerFactorSelections.ureaAsNEfId ? Number(footprintFertilizerFactorSelections.ureaAsNEfId) : undefined,
+          fertilizerDapEfId: footprintFertilizerFactorSelections.dapAsP2O5EfId ? Number(footprintFertilizerFactorSelections.dapAsP2O5EfId) : undefined,
+          fertilizerKclEfId: footprintFertilizerFactorSelections.kclAsK2OEfId ? Number(footprintFertilizerFactorSelections.kclAsK2OEfId) : undefined,
+          fertilizerGwpId: footprintFertilizerFactorSelections.gwpN2OId ? Number(footprintFertilizerFactorSelections.gwpN2OId) : undefined,
         })
         successRows.push({
           row,
@@ -2035,8 +2620,9 @@ export function CarbonFootprintQueuePage({
   }
 
   const clearFilters = () => {
-    setStatusFilter(isPreparationMode ? 'preparing' : '')
+    setStatusFilter(isPreparationMode ? 'preparing' : 'ready')
     setResourceTypeFilter('')
+    setFertilizerKindFilter('')
     setCampFilter('')
     setPreparationFilter('')
   }
@@ -2278,20 +2864,6 @@ export function CarbonFootprintQueuePage({
           onRetry={() => { void qc.refetchQueries({ type: 'active' }) }}
         />
 
-        {!isPreparationMode && (
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-4">
-            {dashboardCards.map((card) => (
-              <div key={card.key} className="stat-card relative overflow-hidden bg-white/90">
-                <div className="flex items-center gap-2">
-                  {card.icon}
-                  <span className="stat-label">{card.label}</span>
-                </div>
-                <p className={`stat-value ${card.className}`}>{card.value}</p>
-              </div>
-            ))}
-          </div>
-        )}
-
         <div className="card min-w-0 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_40px_rgba(91,164,255,0.14)]">
           <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
@@ -2425,6 +2997,7 @@ export function CarbonFootprintQueuePage({
                     onClick={() => {
                       setBulkModalError(null)
                       setBulkPreparationPopup({ kind: 'hidden' })
+                      setBulkMovePreparedToReady(false)
                       setBulkModalOpen(true)
                     }}
                   >
@@ -2494,7 +3067,11 @@ export function CarbonFootprintQueuePage({
           )}
 
           <div className="mb-4 rounded-[20px] border border-[#d9e7f2] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(243,247,251,0.96))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-            <div className={`grid grid-cols-1 gap-3 md:grid-cols-2 ${isPreparationMode ? 'xl:grid-cols-5' : 'xl:grid-cols-4'}`}>
+            <div className={`grid grid-cols-1 gap-3 md:grid-cols-2 ${
+              isPreparationMode
+                ? (showFertilizerKindFilter ? 'xl:grid-cols-6' : 'xl:grid-cols-5')
+                : (showFertilizerKindFilter ? 'xl:grid-cols-5' : 'xl:grid-cols-4')
+            }`}>
               <div>
                 <label className="label">สถานะ</label>
                 <select className="select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
@@ -2513,6 +3090,17 @@ export function CarbonFootprintQueuePage({
                   {resourceTypeOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
                 </select>
               </div>
+              {showFertilizerKindFilter && (
+                <div>
+                  <label className="label">ประเภทปุ๋ย</label>
+                  <select className="select" value={fertilizerKindFilter} onChange={(event) => setFertilizerKindFilter(event.target.value)}>
+                    <option value="">ทั้งหมด</option>
+                    <option value="chemical">ปุ๋ยเคมี (มีค่า N)</option>
+                    <option value="organic">ปุ๋ยอินทรีย์ (ไม่มี N)</option>
+                    <option value="unknown">ยังไม่ทราบ / ขาดค่า N</option>
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="label">แคมป์</label>
                 <select className="select" value={campFilter} onChange={(event) => setCampFilter(event.target.value)}>
@@ -2631,8 +3219,14 @@ export function CarbonFootprintQueuePage({
 
               {footprintCalculationModal.kind === 'preview' && (
                 <div className="space-y-5">
-                  <div className="grid min-h-0 grid-cols-1 gap-5 xl:grid-cols-[minmax(360px,0.95fr)_minmax(0,1.55fr)]">
-                    <div className="space-y-4 xl:max-h-[70vh] xl:overflow-y-auto xl:pr-1">
+                  <div
+                    ref={footprintPreviewLayoutRef}
+                    className="flex min-h-0 flex-col gap-5 xl:flex-row xl:items-stretch xl:gap-0"
+                  >
+                    <div
+                      className="space-y-4 xl:max-h-[70vh] xl:shrink-0 xl:overflow-y-auto xl:pr-3"
+                      style={{ width: isFootprintPreviewWide ? `${footprintModalLeftPaneWidth}%` : undefined }}
+                    >
                       <section className="rounded-xl border border-[#d9e7f2] bg-white/85 p-4">
                         <h4 className="mb-3 text-sm font-semibold">แยกกลุ่มตามสูตรที่จะใช้</h4>
                         <div className="space-y-3">
@@ -2662,7 +3256,7 @@ export function CarbonFootprintQueuePage({
                                     onChange={(event) => updateFootprintResultUnitSelection(mode, event.target.value)}
                                   >
                                     <option value="">ใช้ค่า default ของระบบ ({getFootprintExpectedResultUnitLabel(mode)})</option>
-                                    {units.map((unit) => (
+                                    {supportedFootprintResultUnits.map((unit) => (
                                       <option key={unit.unit_id} value={unit.unit_id}>
                                         {unitLabel(unit)}
                                       </option>
@@ -2675,11 +3269,13 @@ export function CarbonFootprintQueuePage({
                                     type="button"
                                     className="btn-ghost btn-sm"
                                     onClick={() => openFootprintUnitCreate(mode)}
+                                    disabled
+                                    title="ปุ่มนี้โชว์ไว้ก่อน ระบบจะใช้แค่หน่วย kgCO2e และ tCO2e ในรอบนี้"
                                   >
                                     <Plus size={13} /> เพิ่มหน่วยใหม่
                                   </button>
                                   <span className="text-[11px] text-surface-500">
-                                    ตอนนี้ backend รองรับการแปลงผลลัพธ์สำหรับกลุ่ม `kgCO2e` และ `tCO2e`
+                                    ตอนนี้ตัวเลือกถูกจำกัดไว้เฉพาะหน่วยผลลัพธ์กลุ่ม `kgCO2e` และ `tCO2e`
                                   </span>
                                 </div>
 
@@ -2687,16 +3283,19 @@ export function CarbonFootprintQueuePage({
                                   <div className="mt-3 grid gap-2 rounded-xl border border-dashed border-[#d9e7f2] bg-white px-3 py-3">
                                     <input
                                       className="input"
-                                      placeholder="ชื่อหน่วย เช่น kilogram CO2e"
+                                      placeholder="ชื่อหน่วย เช่น kilogram CO2e หรือ tonne CO2e"
                                       value={footprintNewUnitName}
                                       onChange={(event) => setFootprintNewUnitName(event.target.value)}
                                     />
                                     <input
                                       className="input"
-                                      placeholder="ตัวย่อ เช่น kgCO2e"
+                                      placeholder="ตัวย่อ เช่น kgCO2e หรือ tCO2e"
                                       value={footprintNewUnitInitial}
                                       onChange={(event) => setFootprintNewUnitInitial(event.target.value)}
                                     />
+                                    <p className="text-xs text-surface-500">
+                                      เพิ่มได้เฉพาะ alias ที่ระบบแปลได้เป็น `kgCO2e` หรือ `tCO2e`
+                                    </p>
                                     <div className="flex flex-wrap gap-2">
                                       <button
                                         type="button"
@@ -2714,6 +3313,11 @@ export function CarbonFootprintQueuePage({
                                         ยกเลิก
                                       </button>
                                     </div>
+                                    {footprintUnitCreateError && (
+                                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                                        {footprintUnitCreateError}
+                                      </div>
+                                    )}
                                     {saveFootprintUnitMut.isError && (
                                       <div className="text-[11px] text-red-700">{getErrorMessage(saveFootprintUnitMut.error)}</div>
                                     )}
@@ -2727,6 +3331,153 @@ export function CarbonFootprintQueuePage({
                           ตาราง preview ทางขวาเป็น <span className="font-medium text-surface-800">Frontend preview</span> เพื่อให้เห็นค่าประมาณและหน่วยผลลัพธ์ก่อนกดยืนยันจริง
                         </div>
                       </section>
+
+                      {fertilizerModalRows.length > 0 && (
+                        <section className="rounded-xl border border-[#d9e7f2] bg-white/85 p-4">
+                          <div className="mb-3">
+                            <h4 className="text-sm font-semibold">เลือก สปส สำหรับสูตรปุ๋ย</h4>
+                            <p className="mt-1 text-xs text-surface-500">
+                              ระบบจะใช้ค่า `Emission Factor value total` ของ EF ที่เลือกสำหรับ `ยูเรีย as N`, `DAP as P2O5`, `KCl as K2O` และใช้ค่า `GWP` ที่เลือกสำหรับ `N2O` ทั้งใน frontend preview และตอนคำนวณจริง
+                            </p>
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                            {FERTILIZER_FACTOR_FIELD_CONFIGS.map((config) => {
+                              const selectedEfId = footprintFertilizerFactorSelections[config.selectionKey]
+                              const selectedEf = selectedEfId ? efById[Number(selectedEfId)] : undefined
+                              const defaultSuggestions = [...fertilizerFactorSelectableEfs]
+                                .sort((left, right) => scoreFertilizerFactorEfCandidate(config, right) - scoreFertilizerFactorEfCandidate(config, left))
+                              const searchValue = footprintFertilizerFactorSearchInputs[config.selectionKey]
+                                ?? (selectedEf ? getFuelEfOptionLabel(selectedEf, unitById) : '')
+                              const normalizedSearch = searchValue.trim().toLowerCase()
+                              const filteredSuggestions = (
+                                normalizedSearch
+                                  ? defaultSuggestions.filter((item) => getFuelEfOptionLabel(item, unitById).toLowerCase().includes(normalizedSearch))
+                                  : defaultSuggestions
+                              ).slice(0, 8)
+                              const showSuggestionPanel = footprintFertilizerFactorFocusedKey === config.selectionKey && filteredSuggestions.length > 0
+
+                              return (
+                                <div key={config.selectionKey} className="rounded-xl border border-[#d9e7f2] bg-[#f8fbff] p-3">
+                                  <div className="mb-2 text-sm font-semibold text-surface-800">{config.label}</div>
+                                  <div className="relative">
+                                    <input
+                                      className="input w-full"
+                                      value={searchValue}
+                                      placeholder={config.placeholder}
+                                      onFocus={() => setFootprintFertilizerFactorFocusedKey(config.selectionKey)}
+                                      onBlur={() => {
+                                        window.setTimeout(() => {
+                                          setFootprintFertilizerFactorFocusedKey((current) => (current === config.selectionKey ? null : current))
+                                        }, 120)
+                                      }}
+                                      onChange={(event) => updateFootprintFertilizerFactorEfSearchInput(config, event.target.value, defaultSuggestions)}
+                                    />
+                                    {showSuggestionPanel && (
+                                      <div className="absolute z-30 mt-2 max-h-64 w-full overflow-auto rounded-xl border border-[#d9e7f2] bg-white shadow-[0_18px_40px_rgba(35,49,66,0.18)]">
+                                        {filteredSuggestions.map((item) => {
+                                          const optionLabel = getFuelEfOptionLabel(item, unitById)
+                                          const isActive = String(item.coefficient_emission_factor_id) === selectedEfId
+
+                                          return (
+                                            <button
+                                              key={`${config.selectionKey}-${item.coefficient_emission_factor_id}`}
+                                              type="button"
+                                              className={`block w-full border-b border-[#eef3f8] px-3 py-3 text-left text-[11px] leading-5 transition last:border-b-0 ${isActive ? 'bg-emerald-50 text-emerald-900' : 'bg-white text-surface-700 hover:bg-slate-50'}`}
+                                              onMouseDown={(event) => {
+                                                event.preventDefault()
+                                                applyFootprintFertilizerFactorEfSelection(config, item)
+                                              }}
+                                            >
+                                              <div className="font-medium text-surface-800">{item.coef_em_factor_name?.trim() || item.coef_em_factor_idCode?.trim() || `EF #${item.coefficient_emission_factor_id}`}</div>
+                                              <div className="mt-1 whitespace-normal break-words text-surface-500">{optionLabel}</div>
+                                            </button>
+                                          )
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="mt-2 text-[11px] text-surface-500">
+                                    ค่า default จากเอกสารคือ {formatNumberish(config.defaultValue, 6)}
+                                  </div>
+                                  <div className="mt-2 rounded-lg bg-white px-3 py-2 text-[11px] leading-5 text-surface-600">
+                                    {selectedEf
+                                      ? `EF_total ที่ใช้ = ${formatNumberish(selectedEf.coef_em_factor_value_total, 6)}`
+                                      : `ยังไม่ได้เลือก EF ระบบจะ fallback เป็น ${formatNumberish(config.defaultValue, 6)}`}
+                                  </div>
+                                </div>
+                              )
+                            })}
+
+                            {(() => {
+                              const selectedGwp = footprintFertilizerFactorSelections.gwpN2OId
+                                ? gwpById[Number(footprintFertilizerFactorSelections.gwpN2OId)]
+                                : undefined
+                              const defaultSuggestions = [...gwps].sort((left, right) => scoreGwpCandidate(right) - scoreGwpCandidate(left))
+                              const searchValue = footprintFertilizerFactorSearchInputs.gwpN2OId
+                                ?? (selectedGwp ? getGwpOptionLabel(selectedGwp) : '')
+                              const normalizedSearch = searchValue.trim().toLowerCase()
+                              const filteredSuggestions = (
+                                normalizedSearch
+                                  ? defaultSuggestions.filter((item) => getGwpOptionLabel(item).toLowerCase().includes(normalizedSearch))
+                                  : defaultSuggestions
+                              ).slice(0, 8)
+                              const showSuggestionPanel = footprintFertilizerFactorFocusedKey === 'gwpN2OId' && filteredSuggestions.length > 0
+
+                              return (
+                                <div className="rounded-xl border border-[#d9e7f2] bg-[#f8fbff] p-3">
+                                  <div className="mb-2 text-sm font-semibold text-surface-800">GWP N2O</div>
+                                  <div className="relative">
+                                    <input
+                                      className="input w-full"
+                                      value={searchValue}
+                                      placeholder="ค้นหา GWP สำหรับ N2O"
+                                      onFocus={() => setFootprintFertilizerFactorFocusedKey('gwpN2OId')}
+                                      onBlur={() => {
+                                        window.setTimeout(() => {
+                                          setFootprintFertilizerFactorFocusedKey((current) => (current === 'gwpN2OId' ? null : current))
+                                        }, 120)
+                                      }}
+                                      onChange={(event) => updateFootprintFertilizerGwpSearchInput(event.target.value, defaultSuggestions)}
+                                    />
+                                    {showSuggestionPanel && (
+                                      <div className="absolute z-30 mt-2 max-h-64 w-full overflow-auto rounded-xl border border-[#d9e7f2] bg-white shadow-[0_18px_40px_rgba(35,49,66,0.18)]">
+                                        {filteredSuggestions.map((item) => {
+                                          const optionLabel = getGwpOptionLabel(item)
+                                          const isActive = String(item.coefficients_emissions_factors_gwp_id) === footprintFertilizerFactorSelections.gwpN2OId
+
+                                          return (
+                                            <button
+                                              key={`gwp-${item.coefficients_emissions_factors_gwp_id}`}
+                                              type="button"
+                                              className={`block w-full border-b border-[#eef3f8] px-3 py-3 text-left text-[11px] leading-5 transition last:border-b-0 ${isActive ? 'bg-emerald-50 text-emerald-900' : 'bg-white text-surface-700 hover:bg-slate-50'}`}
+                                              onMouseDown={(event) => {
+                                                event.preventDefault()
+                                                applyFootprintFertilizerGwpSelection(item)
+                                              }}
+                                            >
+                                              <div className="font-medium text-surface-800">{item.coef_em_factor_gwp_name?.trim() || item.coef_em_factor_gwp_name_en?.trim() || `GWP #${item.coefficients_emissions_factors_gwp_id}`}</div>
+                                              <div className="mt-1 whitespace-normal break-words text-surface-500">{optionLabel}</div>
+                                            </button>
+                                          )
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="mt-2 text-[11px] text-surface-500">
+                                    ค่า default จากเอกสารคือ {formatNumberish(FERTILIZER_CFP_SIMPLE_CONSTANTS.GWP_N2O, 6)}
+                                  </div>
+                                  <div className="mt-2 rounded-lg bg-white px-3 py-2 text-[11px] leading-5 text-surface-600">
+                                    {selectedGwp
+                                      ? `GWP ที่ใช้ = ${formatNumberish(selectedGwp.coef_em_factor_gwp_value, 6)}`
+                                      : `ยังไม่ได้เลือก GWP ระบบจะ fallback เป็น ${formatNumberish(FERTILIZER_CFP_SIMPLE_CONSTANTS.GWP_N2O, 6)}`}
+                                  </div>
+                                </div>
+                              )
+                            })()}
+                          </div>
+                        </section>
+                      )}
 
                       {footprintModalFuelRows.length > 0 && (
                         <section className="rounded-xl border border-[#d9e7f2] bg-white/85 p-4">
@@ -2775,7 +3526,7 @@ export function CarbonFootprintQueuePage({
                               <label className="label">ค้นหา EF</label>
                               <input
                                 className="input"
-                                placeholder="รหัส EF, ชื่อ EF, รายละเอียด"
+                                placeholder="รหัส EF, ชื่อ EF, รายละเอียด, กลุ่ม หรือหน่วย"
                                 value={footprintEfFilterSearch}
                                 onChange={(event) => setFootprintEfFilterSearch(event.target.value)}
                               />
@@ -2787,7 +3538,7 @@ export function CarbonFootprintQueuePage({
                           </div>
 
                           <div className="mt-4 max-h-[360px] overflow-auto rounded-xl border border-[#d9e7f2]">
-                            <table className="w-full min-w-[1500px] text-left text-xs">
+                            <table className="w-full min-w-[1760px] text-left text-xs">
                               <thead className="sticky top-0 bg-[#f3f7fb] text-surface-600">
                                 <tr>
                                   <th className="px-3 py-2 font-semibold">หัวข้อกิจกรรม</th>
@@ -2808,6 +3559,15 @@ export function CarbonFootprintQueuePage({
                               const preview = footprintModalRowPreviewById[row.id]
                               const rowSelectableFuelEfs = selectableFuelEfs.filter((item) => getEfInputUnitId(item) === getRowCalculationUnitId(row))
                               const efOptions = rowSelectableFuelEfs.length > 0 ? rowSelectableFuelEfs : selectableFuelEfs
+                              const efSearchValue = footprintFuelEfSearchInputs[row.id]
+                                ?? (selectedEf ? getFuelEfOptionLabel(selectedEf, unitById) : '')
+                              const normalizedEfSearchValue = efSearchValue.trim().toLowerCase()
+                              const filteredEfSuggestions = (
+                                normalizedEfSearchValue
+                                  ? efOptions.filter((item) => getFuelEfOptionLabel(item, unitById).toLowerCase().includes(normalizedEfSearchValue))
+                                  : efOptions
+                              ).slice(0, 8)
+                              const showEfSuggestionPanel = footprintFuelEfFocusedRowId === row.id && filteredEfSuggestions.length > 0
 
                               return (
                                 <tr key={`fuel-ef-${row.id}`}>
@@ -2820,32 +3580,65 @@ export function CarbonFootprintQueuePage({
                                   <td className="px-3 py-2 align-top">{row.resourceItemName}</td>
                                   <td className="px-3 py-2 align-top font-mono">{row.calculationAmountLabel}</td>
                                   <td className="px-3 py-2 align-top">{row.preparedUnitLabel}</td>
-                                  <td className="px-3 py-2 align-top min-w-[360px]">
-                                    <select
-                                      className="select"
-                                      value={selectedEfId}
-                                      onChange={(event) => updateFootprintSelectedEf(row.id, event.target.value)}
-                                    >
-                                      <option value="">-- เลือก EF_total สำหรับรายการนี้ --</option>
-                                      {efOptions.map((item) => (
-                                        <option key={item.coefficient_emission_factor_id} value={item.coefficient_emission_factor_id}>
-                                          {(item.coef_em_factor_idCode?.trim() || `EF #${item.coefficient_emission_factor_id}`)} | {(item.coef_em_factor_name?.trim() || 'ไม่ระบุชื่อ')} | EF_total {formatNumberish(item.coef_em_factor_value_total, 6)} | input unit {getEfInputUnitId(item) != null ? (unitById[getEfInputUnitId(item) ?? 0] ? unitLabel(unitById[getEfInputUnitId(item) ?? 0]) : `#${getEfInputUnitId(item)}`) : '—'} | result unit {getEfTotalResultUnitId(item) != null ? (unitById[getEfTotalResultUnitId(item) ?? 0] ? unitLabel(unitById[getEfTotalResultUnitId(item) ?? 0]) : `#${getEfTotalResultUnitId(item)}`) : '—'}
-                                        </option>
-                                      ))}
-                                    </select>
+                                  <td className="px-3 py-2 align-top min-w-[560px]">
+                                    <div className="relative">
+                                      <input
+                                        className="input w-full min-w-[560px]"
+                                        value={efSearchValue}
+                                        placeholder="พิมพ์เพื่อค้นหา แล้วเลือก EF_total สำหรับรายการนี้"
+                                        onFocus={() => setFootprintFuelEfFocusedRowId(row.id)}
+                                        onBlur={() => {
+                                          window.setTimeout(() => {
+                                            setFootprintFuelEfFocusedRowId((current) => (current === row.id ? null : current))
+                                          }, 120)
+                                        }}
+                                        onChange={(event) => updateFootprintFuelEfSearchInput(row.id, event.target.value, efOptions)}
+                                      />
+                                      {showEfSuggestionPanel && (
+                                        <div className="absolute z-30 mt-2 max-h-64 w-full overflow-auto rounded-xl border border-[#d9e7f2] bg-white shadow-[0_18px_40px_rgba(35,49,66,0.18)]">
+                                          {filteredEfSuggestions.map((item) => {
+                                            const optionLabel = getFuelEfOptionLabel(item, unitById)
+                                            const isActive = String(item.coefficient_emission_factor_id) === selectedEfId
+
+                                            return (
+                                              <button
+                                                key={item.coefficient_emission_factor_id}
+                                                type="button"
+                                                className={`block w-full border-b border-[#eef3f8] px-3 py-3 text-left text-[11px] leading-5 transition last:border-b-0 ${isActive ? 'bg-emerald-50 text-emerald-900' : 'bg-white text-surface-700 hover:bg-slate-50'}`}
+                                                onMouseDown={(event) => {
+                                                  event.preventDefault()
+                                                  applyFootprintFuelEfSelection(row.id, item)
+                                                }}
+                                              >
+                                                <div className="font-medium text-surface-800">{item.coef_em_factor_name?.trim() || item.coef_em_factor_idCode?.trim() || `EF #${item.coefficient_emission_factor_id}`}</div>
+                                                <div className="mt-1 whitespace-normal break-words text-surface-500">{optionLabel}</div>
+                                              </button>
+                                            )
+                                          })}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="mt-1 text-[11px] text-surface-500">
+                                      ค้นหาได้จากรหัส EF, ชื่อ, ค่า EF_total และหน่วย ก่อนเลือกจากรายการที่ระบบแนะนำ
+                                    </div>
+                                    {!!efSearchValue && (
+                                      <div className="mt-1 whitespace-normal break-words rounded-lg bg-slate-50 px-2 py-2 text-[11px] leading-5 text-surface-600">
+                                        {efSearchValue}
+                                      </div>
+                                    )}
                                     {rowSelectableFuelEfs.length === 0 && (
                                       <div className="mt-1 text-[11px] text-amber-700">
                                         ไม่พบ EF หน่วยตรง ระบบจึงแสดง EF_total ทั้งหมดที่ผ่าน filter ให้เลือกแทน
                                       </div>
                                     )}
                                   </td>
-                                  <td className="px-3 py-2 align-top">
+                                  <td className="min-w-[460px] px-3 py-2 align-top">
                                     {selectedEf ? (
                                       <div className="space-y-1">
-                                        <div className="font-medium text-emerald-800">
+                                        <div className="whitespace-normal break-words font-medium leading-5 text-emerald-800">
                                           {selectedEf.coef_em_factor_name?.trim() || selectedEf.coef_em_factor_idCode?.trim() || `EF #${selectedEf.coefficient_emission_factor_id}`}
                                         </div>
-                                        <div className="text-[11px] text-surface-500">
+                                        <div className="whitespace-normal break-words text-[11px] leading-5 text-surface-500">
                                           EF_total {formatNumberish(selectedEf.coef_em_factor_value_total, 6)} · input {getEfInputUnitId(selectedEf) != null ? (unitById[getEfInputUnitId(selectedEf) ?? 0] ? unitLabel(unitById[getEfInputUnitId(selectedEf) ?? 0]) : `#${getEfInputUnitId(selectedEf)}`) : '—'} · result {getEfTotalResultUnitId(selectedEf) != null ? (unitById[getEfTotalResultUnitId(selectedEf) ?? 0] ? unitLabel(unitById[getEfTotalResultUnitId(selectedEf) ?? 0]) : `#${getEfTotalResultUnitId(selectedEf)}`) : '—'}
                                         </div>
                                       </div>
@@ -2896,7 +3689,16 @@ export function CarbonFootprintQueuePage({
                       )}
                     </div>
 
-                    <div className="space-y-4 xl:max-h-[70vh] xl:overflow-y-auto xl:pr-1">
+                    <div
+                      className="relative hidden xl:flex w-5 shrink-0 cursor-col-resize select-none items-center justify-center"
+                      onMouseDown={startFootprintModalResize}
+                      title="ลากเพื่อปรับความกว้างของ panel ฝั่งซ้าย"
+                    >
+                      <div className={`h-full w-px ${isFootprintModalResizing ? 'bg-cyan-500' : 'bg-[#d9e7f2]'}`} />
+                      <div className={`absolute inset-y-0 left-1/2 w-3 -translate-x-1/2 rounded-full transition ${isFootprintModalResizing ? 'bg-cyan-100/80' : 'hover:bg-slate-100'}`} />
+                    </div>
+
+                    <div className="space-y-4 xl:min-w-0 xl:flex-1 xl:max-h-[70vh] xl:overflow-y-auto xl:pl-3 xl:pr-1">
                       <section className="rounded-xl border border-[#d9e7f2] bg-white/90 p-4">
                         <h4 className="mb-3 text-sm font-semibold">Frontend preview ก่อนคำนวณจริง</h4>
                         <div className="rounded-xl border border-[#d9e7f2] bg-[#101827] px-4 py-4 text-xs text-slate-100">
@@ -2910,7 +3712,16 @@ export function CarbonFootprintQueuePage({
                                     {group.label}
                                   </div>
                                   <div className="space-y-3">
-                                    {group.rows.map(({ row, preview, selectedEf }) => (
+                                    {group.rows.map(({ row, preview, selectedEf, fertilizerFactorValues }) => {
+                                      const fertilizerBreakdown = group.mode === 'fertilizer_n2o' && row.calculationAmount != null
+                                        ? calculateFertilizerCfpSimplePreview({
+                                          fertilizerKg: row.calculationAmount,
+                                          fertilizerProfile: getFertilizerNitrogenProfile(row.resourceItemName),
+                                          factorValues: fertilizerFactorValues,
+                                        })
+                                        : null
+
+                                      return (
                                       <div key={`preview-code-row-${row.id}`} className="rounded-xl border border-[#233142] bg-[#0b1220] px-4 py-3">
                                         <div className="mb-2 text-[11px] text-slate-400">
                                           {`// ${row.headerLabel} · ${row.resourceItemName}`}
@@ -2926,26 +3737,81 @@ export function CarbonFootprintQueuePage({
                                             </div>
                                             <div>
                                               <span className="text-sky-300">const</span>{' '}
-                                              <span className="text-emerald-300">nitrogenPercent</span>{' '}
+                                              <span className="text-emerald-300">fertilizerFormula</span>{' '}
                                               <span className="text-slate-300">=</span>{' '}
-                                              <span className="text-amber-300">{row.nValueLabel}</span>
+                                              <span className="text-orange-300">"{fertilizerBreakdown?.formulaLabel ?? 'ต้องมีสูตรปุ๋ย เช่น 15-15-15'}"</span>
+                                            </div>
+                                            <div>
+                                              <span className="text-sky-300">const</span>{' '}
+                                              <span className="text-emerald-300">nPercent</span>{' '}
+                                              <span className="text-slate-300">=</span>{' '}
+                                              <span className="text-amber-300">{fertilizerBreakdown ? formatNumberish(fertilizerBreakdown.nFraction * 100, 3) : row.nValueLabel}</span>
+                                            </div>
+                                            <div>
+                                              <span className="text-sky-300">const</span>{' '}
+                                              <span className="text-emerald-300">p2o5Percent</span>{' '}
+                                              <span className="text-slate-300">=</span>{' '}
+                                              <span className="text-amber-300">{fertilizerBreakdown ? formatNumberish(fertilizerBreakdown.p2o5Fraction * 100, 3) : '—'}</span>
+                                            </div>
+                                            <div>
+                                              <span className="text-sky-300">const</span>{' '}
+                                              <span className="text-emerald-300">k2oPercent</span>{' '}
+                                              <span className="text-slate-300">=</span>{' '}
+                                              <span className="text-amber-300">{fertilizerBreakdown ? formatNumberish(fertilizerBreakdown.k2oFraction * 100, 3) : '—'}</span>
+                                            </div>
+                                            <div>
+                                              <span className="text-sky-300">const</span>{' '}
+                                              <span className="text-emerald-300">upstreamKgCO2e</span>{' '}
+                                              <span className="text-slate-300">=</span>{' '}
+                                              <span className="text-amber-300">{fertilizerBreakdown ? formatNumberish(fertilizerBreakdown.upstreamKgco2e, 4) : '—'}</span>
+                                            </div>
+                                            <div>
+                                              <span className="text-sky-300">const</span>{' '}
+                                              <span className="text-emerald-300">usePhaseKgCO2e</span>{' '}
+                                              <span className="text-slate-300">=</span>{' '}
+                                              <span className="text-amber-300">{fertilizerBreakdown ? formatNumberish(fertilizerBreakdown.usePhaseKgco2e, 4) : '—'}</span>
+                                            </div>
+                                            <div>
+                                              <span className="text-sky-300">const</span>{' '}
+                                              <span className="text-emerald-300">selectedUreaEfTotal</span>{' '}
+                                              <span className="text-slate-300">=</span>{' '}
+                                              <span className="text-amber-300">{formatNumberish(fertilizerFactorValues.ureaAsNValue, 6)}</span>
+                                            </div>
+                                            <div>
+                                              <span className="text-sky-300">const</span>{' '}
+                                              <span className="text-emerald-300">selectedDapEfTotal</span>{' '}
+                                              <span className="text-slate-300">=</span>{' '}
+                                              <span className="text-amber-300">{formatNumberish(fertilizerFactorValues.dapAsP2O5Value, 6)}</span>
+                                            </div>
+                                            <div>
+                                              <span className="text-sky-300">const</span>{' '}
+                                              <span className="text-emerald-300">selectedKclEfTotal</span>{' '}
+                                              <span className="text-slate-300">=</span>{' '}
+                                              <span className="text-amber-300">{formatNumberish(fertilizerFactorValues.kclAsK2OValue, 6)}</span>
+                                            </div>
+                                            <div>
+                                              <span className="text-sky-300">const</span>{' '}
+                                              <span className="text-emerald-300">selectedGwpN2O</span>{' '}
+                                              <span className="text-slate-300">=</span>{' '}
+                                              <span className="text-amber-300">{formatNumberish(fertilizerFactorValues.gwpN2OValue, 6)}</span>
+                                            </div>
+                                            <div>
+                                              <span className="text-sky-300">const</span>{' '}
+                                              <span className="text-emerald-300">previewFormula</span>{' '}
+                                              <span className="text-slate-300">=</span>{' '}
+                                              <span className="text-orange-300">"{preview?.previewFormulaText ?? 'fertilizerKg x [upstream + use phase]'}"</span>
                                             </div>
                                             <div>
                                               <span className="text-sky-300">const</span>{' '}
                                               <span className="text-emerald-300">previewResult</span>{' '}
                                               <span className="text-slate-300">=</span>{' '}
-                                              <span className="text-violet-300">calculateFertilizerN2O</span>
-                                              <span className="text-slate-300">(</span>
-                                              <span className="text-emerald-300">fertilizerKg</span>
-                                              <span className="text-slate-300">,</span>{' '}
-                                              <span className="text-emerald-300">nitrogenPercent</span>
-                                              <span className="text-slate-300">)</span>
+                                              <span className="text-orange-300">{preview?.previewResultLabel ?? '—'}</span>
                                             </div>
                                             <div>
                                               <span className="text-sky-300">const</span>{' '}
                                               <span className="text-emerald-300">previewUnit</span>{' '}
                                               <span className="text-slate-300">=</span>{' '}
-                                              <span className="text-orange-300">"{preview?.previewResultUnitLabel ?? 'tCO2e'}"</span>
+                                              <span className="text-orange-300">"{preview?.previewResultUnitLabel ?? 'kgCO2e'}"</span>
                                             </div>
                                           </div>
                                         )}
@@ -2966,11 +3832,17 @@ export function CarbonFootprintQueuePage({
                                             </div>
                                             <div>
                                               <span className="text-sky-300">const</span>{' '}
+                                              <span className="text-emerald-300">previewFormula</span>{' '}
+                                              <span className="text-slate-300">=</span>{' '}
+                                              <span className="text-orange-300">"{preview?.previewFormulaText ?? 'activityAmount x EF_total'}"</span>
+                                            </div>
+                                            <div>
+                                              <span className="text-sky-300">const</span>{' '}
                                               <span className="text-emerald-300">previewResult</span>{' '}
                                               <span className="text-slate-300">=</span>{' '}
-                                              <span className="text-emerald-300">activityAmount</span>{' '}
-                                              <span className="text-slate-300">*</span>{' '}
-                                              <span className="text-emerald-300">selectedEfTotal</span>
+                                              <span className="text-orange-300">
+                                                {preview?.previewResultLabel ?? '—'}
+                                              </span>
                                             </div>
                                             <div>
                                               <span className="text-sky-300">const</span>{' '}
@@ -3025,7 +3897,8 @@ export function CarbonFootprintQueuePage({
                                           {`// previewResult = ${preview?.previewResultLabel ?? '—'} ${preview?.previewResultUnitLabel ?? ''}`}
                                         </div>
                                       </div>
-                                    ))}
+                                      )
+                                    })}
                                   </div>
                                   {group.hiddenCount > 0 && (
                                     <div className="mt-2 text-[11px] text-slate-400">
@@ -3326,7 +4199,7 @@ export function CarbonFootprintQueuePage({
                         </div>
                         <div className="mb-3 flex flex-wrap gap-2">
                           <button type="button" className="btn-secondary btn-sm" onClick={() => applyBulkFuelPreset('liter')}>ใช้ preset L</button>
-                          <button type="button" className="btn-secondary btn-sm" onClick={() => applyBulkFuelPreset('m3')}>ใช้ preset m3</button>
+                          <button type="button" className="btn-secondary btn-sm" onClick={() => applyBulkFuelPreset('milliliter')}>ใช้ preset ml</button>
                         </div>
                         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                           <div>
@@ -3610,13 +4483,33 @@ export function CarbonFootprintQueuePage({
                 </section>
               </div>
 
+              <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-[#cfe3d6] bg-[linear-gradient(180deg,rgba(249,255,251,0.98),rgba(240,249,244,0.98))] px-4 py-3 text-sm text-surface-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 accent-green-600"
+                  checked={bulkMovePreparedToReady}
+                  onChange={(event) => setBulkMovePreparedToReady(event.target.checked)}
+                  disabled={bulkPreparationPopup.kind === 'loading'}
+                />
+                <span>
+                  <span className="block font-medium text-surface-900">เสร็จแล้ว ย้ายสถานะเป็น พร้อมคำนวณมาตรฐาน</span>
+                  <span className="mt-1 block text-xs text-surface-500">
+                    ถ้าไม่ติ๊กไว้ ระบบจะบันทึกการเตรียมข้อมูลอย่างเดียว และคงสถานะเดิมเป็น กำลังเตรียมข้อมูล
+                  </span>
+                </span>
+              </label>
+
               <div className="mt-5 flex flex-col gap-2 sm:flex-row">
                 <button type="button" className="btn-secondary flex-1 justify-center" onClick={closeBulkModal} disabled={bulkPreparationPopup.kind === 'loading'}>ยกเลิก</button>
                 <button
                   type="button"
                   className="btn-primary flex-1 justify-center"
                   disabled={!bulkConversionPreview.length || bulkPreparationMut.isPending}
-                  onClick={() => bulkPreparationMut.mutate({ items: bulkConversionPreview })}
+                  onClick={() => bulkPreparationMut.mutate({
+                    items: bulkConversionPreview,
+                    moveToReady: bulkMovePreparedToReady,
+                    detailIds: bulkReadyTransitionDetailIds,
+                  })}
                 >
                   {bulkPreparationMut.isPending ? 'กำลังบันทึก...' : 'บันทึกการเปลี่ยนหน่วยทั้งหมด'}
                 </button>
@@ -3665,6 +4558,11 @@ export function CarbonFootprintQueuePage({
                         <p className="mt-2 text-sm text-surface-600">
                           อัปเดตข้อมูล {bulkPreparationPopup.itemCount.toLocaleString('th-TH')} รายการในชุดข้อมูลกิจกรรมเรียบร้อยแล้ว
                         </p>
+                        {(bulkPreparationPopup.movedToReadyCount ?? 0) > 0 && (
+                          <p className="mt-2 text-sm font-medium text-green-700">
+                            พร้อมย้ายสถานะ {bulkPreparationPopup.movedToReadyCount?.toLocaleString('th-TH')} รายการเป็น พร้อมคำนวณมาตรฐาน แล้ว
+                          </p>
+                        )}
                         <div className="mt-4 rounded-2xl border border-[#d9e7f2] bg-white/90 px-4 py-3 shadow-sm">
                           <span className="text-xs text-surface-500">หน้าต่างนี้จะปิดอัตโนมัติใน </span>
                           <span className="countdown text-sm">{bulkPreparationPopup.countdown}</span>

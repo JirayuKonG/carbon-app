@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { DataTable, Column } from '@/components/ui/DataTable'
+import { DataTable, Column, ExpandableTextCell } from '@/components/ui/DataTable'
 import { CsvMappingWizard, TargetColumn, ColumnMapping, type CsvImportHelpers } from '@/components/ui/CsvMappingWizard'
 import { DashboardVisibilityMenu, useDashboardVisibility } from '@/components/ui/DashboardVisibilityMenu'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -895,7 +895,15 @@ export function ActivitiesPage() {
     { key: 'act_header_type_id', header: 'ประเภทกิจกรรม', sortable: true, sortValue: (row) => hdrTypeMap[row.act_header_type_id] ?? row.act_header_type_id, render: (r) => hdrTypeMap[r.act_header_type_id] ?? '—' },
     { key: 'act_header_typeLand_id', header: 'ประเภทแปลง', sortable: true, sortValue: (row) => typeLandMap[row.act_header_typeLand_id] ?? row.act_header_typeLand_id, render: (r) => <span className="badge-purple">{typeLandMap[r.act_header_typeLand_id] ?? r.act_header_typeLand_id}</span> },
     { key: 'act_header_typeSugarCane_id', header: 'ประเภทอ้อย', sortable: true, sortValue: (row) => typeSugarCaneMap[row.act_header_typeSugarCane_id] ?? row.act_header_typeSugarCane_id, render: (r) => <span className="badge-pink">{typeSugarCaneMap[r.act_header_typeSugarCane_id] ?? r.act_header_typeSugarCane_id}</span> },
-    { key: 'activities_header_info', header: 'ข้อมูลเพิ่มเติม', sortable: true },
+    {
+      key: 'activities_header_info',
+      header: 'ข้อมูลเพิ่มเติม',
+      sortable: true,
+      width: '320px',
+      minWidth: '220px',
+      resizable: true,
+      render: (row) => <ExpandableTextCell text={row.activities_header_info} title="ข้อมูลเพิ่มเติมกิจกรรม" />,
+    },
   ]
 
 
