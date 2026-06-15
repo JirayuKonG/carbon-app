@@ -67,6 +67,8 @@ export interface ProcessInputComparison {
   currentFuelLiter: number;
 }
 
+export type CalculationBreakdown = Record<string, unknown>;
+
 export interface CaneTypeSummary {
   name: string;
   areaRai: number;
@@ -90,6 +92,7 @@ export interface SpatialSummaryNode {
   processBreakdown: ActivityValue[];
   processInputComparisons?: ProcessInputComparison[];
   childrenIds: string[];
+  calculationBreakdowns?: CalculationBreakdown[];
 }
 
 export interface ChanotRecord {
@@ -126,6 +129,7 @@ export interface CampCarbonSummary {
   baselineProcessActivities: ProcessActivityBreakdown[];
   currentProcessActivities: ProcessActivityBreakdown[];
   processInputComparisons: ProcessInputComparison[];
+  calculationBreakdowns?: CalculationBreakdown[];
 }
 
 export interface CampFieldCarbonDetail extends FieldCarbonDetail {

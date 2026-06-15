@@ -2485,6 +2485,18 @@ export class ActivitiesService {
       const result = await this.calculateCarbonQueueResult(queue, payload)
       const nextStatusId = await this.getCalStatusId(CAL_STATUS_NAMES.standardDone)
       const endedAt = new Date()
+      const previousInfo = this.parseCarbonPreparationInfo(queue?.carbon_process_queue_info)
+      const calculationInfo = JSON.stringify({
+        ...previousInfo,
+        calculation: {
+          formulaMode: result.formulaMode,
+          resultValue: this.roundNumber(result.resultValue, 4),
+          resultUnitId: result.resultUnitId ?? null,
+          resultUnitPrefixId: result.resultUnitPrefixId ?? null,
+          calculatedAt: endedAt.toISOString(),
+          ...result.breakdown,
+        },
+      })
 
       return this.prisma.$transaction(async (tx) => {
         if (queue?.log_act_detail_id != null) {
@@ -2501,6 +2513,7 @@ export class ActivitiesService {
             carbon_process_queue_resultValue: this.roundNumber(result.resultValue, 4),
             unit_id_resultValue: result.resultUnitId ?? null,
             unit_prefix_id_resultValue: result.resultUnitPrefixId ?? null,
+            carbon_process_queue_info: calculationInfo,
             carbon_process_queue_error_message: null,
             carbon_process_queue_started_at: startedAt,
             carbon_process_queue_ended_at: endedAt,

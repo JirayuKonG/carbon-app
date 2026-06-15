@@ -1140,7 +1140,7 @@ export function CfFootprintReportPage() {
         >
           <div style={{ gridColumn: "1 / -1", minWidth: 0 }}>
             <div className="card-title">ตัวกรองรายงาน</div>
-            <p className="muted">เลือกพื้นที่ตามลำดับ แล้วเลือกแคมป์หรือรายแปลงก่อนกดสร้างเอกสาร ประเภทอ้อยเลือกได้ทุกระดับฟิลเตอร์</p>
+            <p className="muted text-xs font-normal" style={{ fontSize: "0.85em", opacity: 0.6 }}>กรุณาระบุกลุ่มไร่หลักและพื้นที่เป้าหมาย รวมถึงประเภทอ้อย เพื่อใช้เป็นเงื่อนไขในการจัดทำเอกสารรายงาน</p>
           </div>
           <label style={{ minWidth: 0 }}>
             กลุ่มไร่หลัก
@@ -1190,9 +1190,9 @@ export function CfFootprintReportPage() {
           <section className="card report-toolbar footprint-report-toolbar">
             <div>
               <div className="card-title">เอกสารรายงาน</div>
-              <p className="muted">เลือกตัวกรองให้เรียบร้อย แล้วกดสร้างเอกสารใหม่เพื่อ Render PDF, Word และ Excel สำหรับ preview/download</p>
+              <p className="muted text-xs font-normal" style={{ fontSize: "0.85em", opacity: 0.6 }}>กรุณากำหนดเงื่อนไขที่ต้องการ และกดสร้างเอกสารใหม่เพื่อประมวลผลไฟล์ PDF, Word และ Excel สำหรับการแสดงผลและการดาวน์โหลด</p>
             </div>
-            <button className="run-all-btn report-generate-btn" type="button" onClick={generateReportPreview} disabled={!processRows.length || generatingPreview}>
+            <button className="run-all-btn report-generate-btn" type="button" onClick={generateReportPreview} disabled={!processRows.length || generatingPreview} style={{ marginTop: "auto", marginBottom: "1rem" }}>
               สร้างเอกสารใหม่ (Generate Report)
             </button>
             <div className="report-download-actions">
@@ -1208,12 +1208,12 @@ export function CfFootprintReportPage() {
             <div className="report-preview-header">
               <div>
                 <div className="card-title">Preview & Download</div>
-                <p className="muted">
+                <p className="muted text-xs font-normal" style={{ fontSize: "0.85em", opacity: 0.6 }}>
                   {generatedReport
                     ? previewIsCurrent
-                      ? `ตัวอย่างล่าสุด: ${generatedReport.scopeLabel} · ${generatedReport.caneLabel}`
-                      : "ตัวอย่างเอกสารยังเป็นชุดเดิม กด Generate Report เพื่ออัปเดตตามตัวกรองปัจจุบัน"
-                    : "ยังไม่มีตัวอย่างเอกสาร กดสร้างเอกสารใหม่เพื่อ Render PDF / Word / Excel"}
+                      ? `ข้อมูลฉบับร่างล่าสุด: ${generatedReport.scopeLabel} · ${generatedReport.caneLabel}`
+                      : "ข้อมูลฉบับร่างยังไม่อัปเดตตามเงื่อนไขปัจจุบัน กรุณากด Generate Report เพื่อสร้างเอกสารใหม่"
+                    : "ยังไม่มีข้อมูลฉบับร่างในระบบ กรุณากดสร้างเอกสารใหม่เพื่อประมวลผลข้อมูล PDF / Word / Excel"}
                 </p>
               </div>
               <div className="report-preview-tabs" role="tablist" aria-label="Carbon Footprint report preview tabs">
