@@ -33,6 +33,7 @@ function apiResult<T>(route: string, data: T): DataResult<T> {
       route,
       techniques: ["NestJS", "Prisma", "PostgreSQL"],
       rowCount: Array.isArray(data) ? data.length : 1,
+      datasourceStatus: "api_real",
     },
   };
 }
@@ -45,6 +46,8 @@ function mockResult<T>(route: string, data: T): DataResult<T> {
       route,
       techniques: ["ข้อมูลไร่จริง", "ผลคำนวณสมมุติ"],
       rowCount: Array.isArray(data) ? data.length : 1,
+      datasourceStatus: "fallback",
+      note: "API unavailable or incomplete",
     },
   };
 }

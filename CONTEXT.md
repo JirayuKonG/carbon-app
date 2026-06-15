@@ -449,3 +449,12 @@ After finishing work from a user prompt:
 1. Decide whether the prompt changed project memory in a meaningful way.
 2. If yes, add a short update to this file in the same task.
 3. Keep the note factual and compact so this file stays easy to scan.
+
+## Recent Carbon Analytics Datasource Status Update - 2026-06-15
+
+- Prompt summary: implement Phase 2D by showing datasource status on the Carbon Analytics UI so users can distinguish real API data, partial frontend-derived data, and fallback/mock data.
+- Result: `DataResult.meta` now supports `datasourceStatus` and `note`, `SourceBadge` displays `API real calculation`, `API partial`, or `Fallback dataset`, and dashboard pages show badges on important KPI/chart/report blocks.
+- Follow-up update: datasource badges are hidden by default for end users. A small `DS` toggle on the Carbon Credit Premium T-VER page controls visibility globally through localStorage for the Carbon Analytics pages.
+- Source of truth: `frontend/src/features/cf-dashboard/types/dashboard.ts`, `frontend/src/features/cf-dashboard/services/dashboardApi.ts`, `frontend/src/features/cf-dashboard/components/common/SourceBadge.tsx`, and the Carbon Analytics pages under `frontend/src/features/cf-dashboard/pages/`.
+- Current limitation: this is a UI/status transparency layer. It does not replace Phase 2B/2C real SOC, cane type, yield, or data-quality calculation work.
+- Verification: `npm run build --workspace=frontend` passed. The first sandboxed build hit an EPERM on `C:\Users\User`, then passed when rerun with approved unsandboxed execution.

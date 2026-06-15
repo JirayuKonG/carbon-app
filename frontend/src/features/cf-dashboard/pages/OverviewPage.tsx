@@ -1,5 +1,7 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import { CaneTypeSummaryPanel } from "../components/common/CaneTypeSummaryPanel";
+import { DatasourceStatusToggle, useDatasourceStatusVisible } from "../components/common/DatasourceStatusToggle";
+import { SourceBadge } from "../components/common/SourceBadge";
 import { TrendLineChart } from "../components/charts/TrendLineChart";
 import { spatialProjectPlots, type SpatialProjectPlot } from "../data/spatialProjectPlots";
 import { useAsyncData } from "../hooks/useAsyncData";
@@ -170,6 +172,7 @@ function buildGroupedOverview(group: OverviewFarmGroup, sourceKpi: OverviewKpi, 
 
 export function CfOverviewPage() {
   const [selectedFarmGroup, setSelectedFarmGroup] = useState<OverviewFarmGroup>("all");
+  const datasourceStatusVisible = useDatasourceStatusVisible();
   const kpi = useAsyncData<OverviewKpi>(getOverviewKpi, emptyKpi);
   const trend = useAsyncData<TrendPoint[]>(getTrend, []);
   const inputs = useAsyncData<ProcessInputComparison[]>(getProcessInputComparisons, []);
@@ -182,8 +185,58 @@ export function CfOverviewPage() {
   const overviewInputs = groupedOverview?.inputs ?? inputs.data;
   const overviewTrend = groupedOverview?.trend ?? trend.data;
   const overviewCaneTypes: DataResult<CaneTypeSummary[]> = groupedOverview
-    ? { ...caneTypes, data: groupedOverview.caneTypes, source: "mock" }
+    ? {
+      ...caneTypes,
+      data: groupedOverview.caneTypes,
+      source: "api",
+      meta: {
+        route: "frontend/farm-group-derived",
+        techniques: ["API baseline", "frontend scoped projection"],
+        rowCount: groupedOverview.caneTypes.length,
+        datasourceStatus: "api_partial",
+        note: "derived by selected farm group",
+      },
+    }
     : caneTypes;
+  const overviewKpiSource: DataResult<OverviewKpi> = groupedOverview
+    ? {
+      data: overviewKpi,
+      source: "api",
+      meta: {
+        route: "frontend/farm-group-derived",
+        techniques: ["API baseline", "frontend scoped projection"],
+        rowCount: 1,
+        datasourceStatus: "api_partial",
+        note: "derived by selected farm group",
+      },
+    }
+    : kpi;
+  const overviewTrendSource = groupedOverview
+    ? {
+      source: "api" as const,
+      meta: {
+        route: "frontend/farm-group-trend",
+        techniques: ["API trend years", "frontend scoped projection"],
+        rowCount: overviewTrend.length,
+        datasourceStatus: "api_partial" as const,
+        note: "derived by selected farm group",
+      },
+      loading: trend.loading,
+    }
+    : trend;
+  const overviewResourceSource = groupedOverview
+    ? {
+      source: "api" as const,
+      meta: {
+        route: "frontend/farm-group-inputs",
+        techniques: ["API baseline", "frontend scoped projection"],
+        rowCount: overviewInputs.length,
+        datasourceStatus: "api_partial" as const,
+        note: "resource and SOC derived",
+      },
+      loading: inputs.loading,
+    }
+    : inputs;
 
   const inputTotals = sumInputs(overviewInputs);
   const fertilizerDiff = inputTotals.baselineFertilizerKg - inputTotals.currentFertilizerKg;
@@ -244,6 +297,7 @@ export function CfOverviewPage() {
           <div>
             <h1>Carbon Credit Premium T-VER ไร่บริษัทกลุ่มมิตรผล</h1>
           </div>
+          <DatasourceStatusToggle />
         </div>
 
         <section className="card overview-farm-filter-card">
@@ -273,6 +327,12 @@ export function CfOverviewPage() {
         )}
 
         <section className="overview-kpi-stack">
+          {datasourceStatusVisible && (
+            <div className="card-title-row datasource-inline-row">
+              <div className="card-title">Datasource status</div>
+              <SourceBadge source={overviewKpiSource.source} meta={overviewKpiSource.meta} loading={kpi.loading} />
+            </div>
+          )}
           <div className="overview-kpi-row top">
             {[
               ["พื้นที่โครงการ", overviewKpi.areaRai.toLocaleString(), "ไร่", `${overviewKpi.fields.toLocaleString()} แปลง`],
@@ -304,7 +364,7 @@ export function CfOverviewPage() {
           </div>
         </section>
 
-        <CaneTypeSummaryPanel result={overviewCaneTypes} showSource={false} creditTotal={creditTotal} />
+        <CaneTypeSummaryPanel result={overviewCaneTypes} creditTotal={creditTotal} />
 
         <section className="card full-span credit-source-card">
           <div className="card-title">แหล่งที่มา Credit</div>
@@ -361,12 +421,18 @@ export function CfOverviewPage() {
         </section>
 
         <section className="card full-span">
-          <div className="card-title">แนวโน้ม Carbon Credit</div>
+          <div className="card-title-row">
+            <div className="card-title">แนวโน้ม Carbon Credit</div>
+            <SourceBadge source={overviewTrendSource.source} meta={overviewTrendSource.meta} loading={overviewTrendSource.loading} />
+          </div>
           <TrendLineChart data={overviewTrend} />
         </section>
 
         <section className="card full-span">
-          <div className="card-title">สรุปการใช้ทรัพยากรหลักของโครงการ</div>
+          <div className="card-title-row">
+            <div className="card-title">สรุปการใช้ทรัพยากรหลักของโครงการ</div>
+            <SourceBadge source={overviewResourceSource.source} meta={overviewResourceSource.meta} loading={overviewResourceSource.loading} />
+          </div>
           <div className="mini-stat-grid resource-reduction-grid">
             <div>
               <strong className={fertilizerDiff >= 0 ? "green-text" : "red-text"}>

@@ -14,6 +14,7 @@ import {
   getProcessInputComparisons,
 } from "../services/dashboardApi";
 import { sortProcessLabels } from "../components/charts/ChartRegistry";
+import { SourceBadge } from "../components/common/SourceBadge";
 import type {
   CampCarbonSummary,
   CampFieldCarbonDetail,
@@ -980,10 +981,13 @@ export function CfFootprintReportPage() {
   const [kpi, setKpi] = useState<DataResult<OverviewKpi>>({ data: emptyKpi, source: "mock" });
   const [activities, setActivities] = useState<ProcessActivityBreakdown[]>([]);
   const [inputs, setInputs] = useState<ProcessInputComparison[]>([]);
+  const [activityResult, setActivityResult] = useState<DataResult<ProcessActivityBreakdown[]>>({ data: [], source: "mock" });
+  const [inputResult, setInputResult] = useState<DataResult<ProcessInputComparison[]>>({ data: [], source: "mock" });
   const [campResult, setCampResult] = useState<DataResult<CampCarbonSummary[]>>({ data: [], source: "mock" });
   const [fieldResult, setFieldResult] = useState<DataResult<CampFieldCarbonDetail[]>>({ data: [], source: "mock" });
   const [caneTypeResult, setCaneTypeResult] = useState<DataResult<CaneTypeSummary[]>>({ data: [], source: "mock" });
   const [spatialNodes, setSpatialNodes] = useState<SpatialSummaryNode[]>([]);
+  const [spatialResult, setSpatialResult] = useState<DataResult<SpatialSummaryNode[]>>({ data: [], source: "mock" });
   const [areaPath, setAreaPath] = useState<Record<FootprintAreaLevel, string>>(emptyFootprintAreaPath);
   const [scope, setScope] = useState<ScopeValue>("all");
   const [selectedFieldId, setSelectedFieldId] = useState("all");
@@ -1011,10 +1015,13 @@ export function CfFootprintReportPage() {
         setKpi(kpiResult);
         setActivities(activityResult.data);
         setInputs(inputResult.data);
+        setActivityResult(activityResult);
+        setInputResult(inputResult);
         setCampResult(campSummaryResult);
         setFieldResult(fieldDetailResult);
         setCaneTypeResult(caneSummaryResult);
         setSpatialNodes(spatialResult.data);
+        setSpatialResult(spatialResult);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "โหลดข้อมูลรายงานไม่สำเร็จ"));
   }, []);
@@ -1092,6 +1099,18 @@ export function CfFootprintReportPage() {
       };
   const selectedCaneTypes = caneTypeResult.data.filter((item) => caneFilter === "all" || item.name === caneFilter);
   const selectedCanePercent = selectedCaneTypes.reduce((sum, item) => sum + item.percent, 0);
+  const reportSources = [kpi, activityResult, inputResult, campResult, fieldResult, caneTypeResult, spatialResult];
+  const hasFallbackReportSource = reportSources.some((result) => result.source === "mock" || result.meta?.datasourceStatus === "fallback");
+  const reportDatasource = {
+    source: hasFallbackReportSource ? "mock" as const : "api" as const,
+    meta: {
+      route: "frontend/footprint-report-compose",
+      techniques: ["Carbon Analytics endpoints", "frontend report layout"],
+      rowCount: reportSources.reduce((sum, result) => sum + (result.meta?.rowCount ?? 0), 0),
+      datasourceStatus: hasFallbackReportSource ? "fallback" as const : "api_partial" as const,
+      note: hasFallbackReportSource ? "some sections use fallback" : "report is composed in frontend",
+    },
+  };
 
   const caneProcessRows = useMemo(() => {
     const selectedNames = new Set(selectedCaneTypes.map((item) => item.name));
@@ -1436,7 +1455,10 @@ export function CfFootprintReportPage() {
           style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", alignItems: "end", overflow: "hidden" }}
         >
           <div style={{ gridColumn: "1 / -1", minWidth: 0 }}>
-            <div className="card-title">ตัวกรองรายงาน</div>
+            <div className="card-title-row">
+              <div className="card-title">ตัวกรองรายงาน</div>
+              <SourceBadge source={reportDatasource.source} meta={reportDatasource.meta} />
+            </div>
             <p className="muted text-xs font-normal" style={{ fontSize: "0.85em", opacity: 0.6 }}>กรุณาระบุกลุ่มไร่หลักและพื้นที่เป้าหมาย รวมถึงประเภทอ้อย เพื่อใช้เป็นเงื่อนไขในการจัดทำเอกสารรายงาน</p>
           </div>
           <label style={{ minWidth: 0 }}>
@@ -1486,7 +1508,10 @@ export function CfFootprintReportPage() {
         <section className="footprint-report-right-column">
           <section className="card report-toolbar footprint-report-toolbar">
             <div>
-              <div className="card-title">เอกสารรายงาน</div>
+              <div className="card-title-row">
+                <div className="card-title">เอกสารรายงาน</div>
+                <SourceBadge source={reportDatasource.source} meta={reportDatasource.meta} />
+              </div>
               <p className="muted text-xs font-normal" style={{ fontSize: "0.85em", opacity: 0.6 }}>กรุณากำหนดเงื่อนไขที่ต้องการ และกดสร้างเอกสารใหม่เพื่อประมวลผลไฟล์ PDF, Word และ Excel สำหรับการแสดงผลและการดาวน์โหลด</p>
             </div>
             <button className="run-all-btn report-generate-btn" type="button" onClick={generateReportPreview} disabled={!processRows.length || generatingPreview} style={{ marginTop: "auto", marginBottom: "1rem" }}>
@@ -1513,6 +1538,7 @@ export function CfFootprintReportPage() {
                     : "ยังไม่มีข้อมูลฉบับร่างในระบบ กรุณากดสร้างเอกสารใหม่เพื่อประมวลผลข้อมูล PDF / Word / Excel"}
                 </p>
               </div>
+              <SourceBadge source={reportDatasource.source} meta={reportDatasource.meta} />
               <div className="report-preview-tabs" role="tablist" aria-label="Carbon Footprint report preview tabs">
                 {[
                   ["pdf", "PDF"],

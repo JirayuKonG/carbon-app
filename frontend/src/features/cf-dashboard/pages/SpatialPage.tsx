@@ -3,6 +3,7 @@ import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import * as XLSX from "xlsx";
 import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
+import { SourceBadge } from "../components/common/SourceBadge";
 import { ThailandMap } from "../components/map/ThailandMap";
 import { getSpatialProjectGeo, normalizeProjectCampName } from "../data/spatialProjectGeoMappings";
 import { spatialProjectPlots, type SpatialProjectPlot } from "../data/spatialProjectPlots";
@@ -483,6 +484,7 @@ export function CfSpatialPage() {
   const [error, setError] = useState("");
   const [pdfUrl, setPdfUrl] = useState("");
   const [selectedId, setSelectedId] = useState("thailand");
+  const [spatialResult, setSpatialResult] = useState<DataResult<SpatialSummaryNode[]>>({ data: [], source: "mock" });
   const [campFieldResult, setCampFieldResult] = useState<DataResult<CampFieldCarbonDetail[]>>({ data: [], source: "mock" });
   const [selectedCampId, setSelectedCampId] = useState<number | "all">("all");
   const [selectedBoundaryFieldId, setSelectedBoundaryFieldId] = useState("");
@@ -501,6 +503,7 @@ export function CfSpatialPage() {
     Promise.all([getCfSpatialNodes(), getCampCarbonSummaries(), getCampFieldCarbonDetails()])
       .then(([result, , campFieldDetailResult]) => {
         setNodes(result.data);
+        setSpatialResult(result);
         setCampFieldResult(campFieldDetailResult);
         const root = result.data.find((node) => !node.parentId);
         if (root) setSelectedId(root.id);
@@ -813,6 +816,16 @@ export function CfSpatialPage() {
     () => generatedDocument ? buildSpatialExcelRows(generatedDocument.fields, generatedDocument.camps) : undefined,
     [generatedDocument],
   );
+  const projectPlotSource = {
+    source: "api" as const,
+    meta: {
+      route: "frontend/spatial-project-plots",
+      techniques: ["API spatial hierarchy", "project plot file"],
+      rowCount: displayCampFields.length,
+      datasourceStatus: "api_partial" as const,
+      note: "plot boundaries are derived in frontend",
+    },
+  };
 
   const clearSpatialDocumentPreview = () => {
     setGeneratedDocument(null);
@@ -1141,6 +1154,7 @@ export function CfSpatialPage() {
         <section className="card full-span spatial-camp-fields-card">
           <div className="card-title-row">
             <div className="card-title">รายแปลงในแคมป์</div>
+            <SourceBadge source={projectPlotSource.source} meta={projectPlotSource.meta} />
           </div>
           <div className="mini-stat-grid wide">
             <div><strong>{projectPlotOverview.campCount.toLocaleString()}</strong><span>แคมป์ตามตัวกรอง</span></div>
@@ -1240,7 +1254,10 @@ export function CfSpatialPage() {
               </button>
             ))}
           </div>
-          <div className="card-title">Preview เอกสารรายแปลง</div>
+          <div className="card-title-row">
+            <div className="card-title">Preview เอกสารรายแปลง</div>
+            <SourceBadge source={projectPlotSource.source} meta={projectPlotSource.meta} />
+          </div>
           {!generatedDocument && <div className="empty-state">กรุณาสร้างเอกสารใหม่เพื่อดูตัวอย่าง</div>}
           <div className="spatial-doc-preview" style={{ display: generatedDocument && activePreviewTab === "pdf" ? undefined : "none" }}>
             {generatingDocument && <div className="empty-state">กำลัง Render PDF preview...</div>}
@@ -1263,7 +1280,10 @@ export function CfSpatialPage() {
 
         <section className="grid2">
           <article className="card spatial-summary-card">
-            <div className="card-title">สรุปรายละเอียดพื้นที่ · {focusNode.name}</div>
+            <div className="card-title-row">
+              <div className="card-title">สรุปรายละเอียดพื้นที่ · {focusNode.name}</div>
+              <SourceBadge source={spatialResult.source} meta={spatialResult.meta} />
+            </div>
             <div className="mini-stat-grid wide spatial-summary-stats">
               <div><strong>{focusNode.fields}</strong><span>แปลง</span></div>
               <div><strong>{focusNode.farmers}</strong><span>เกษตรกร</span></div>
@@ -1309,6 +1329,7 @@ export function CfSpatialPage() {
           <article className="card">
             <div className="card-title-row">
               <div className="card-title">กราฟแท่ง · สัดส่วนกระบวนการในพื้นที่</div>
+              <SourceBadge source={projectPlotSource.source} meta={projectPlotSource.meta} />
               <div className="period-switch spatial-period-switch" role="group" aria-label="เลือกปีข้อมูลกราฟแท่ง">
                 <button type="button" className={processPeriod === "both" ? "active" : ""} onClick={() => setProcessPeriod("both")}>
                   ปีฐาน VS ปีดำเนินการ

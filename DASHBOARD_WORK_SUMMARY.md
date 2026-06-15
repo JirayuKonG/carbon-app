@@ -1367,3 +1367,13 @@ Backend API:
 - ระบุ mapping ว่า emission/process/activity/camp/field/spatial ใช้ข้อมูลจริงจาก queue ได้แล้ว ส่วน cane type, SOC removal, organic material usage, yield และ data quality flag ยังต้องทำต่อ
 - สรุป data quality guard ที่ควรเพิ่มก่อน Phase 2B เช่น missing calculation, missing unit, missing EF, missing area, missing year และ missing cane type
 - วางลำดับงานต่อ Phase 2B/2C ให้เริ่มจาก `getCfCaneTypes()` จากข้อมูลจริง, เพิ่ม `datasourceStatus/dataQuality`, รวม normalize fertilizer/fuel, และออกแบบ SOC source contract
+
+## Phase 2D Datasource Status UI - 15 มิถุนายน 2569
+
+- เพิ่มสถานะ datasource บน UI ของ Carbon Analytics เพื่อแยกให้ชัดว่า block ไหนเป็น `API real calculation`, `API partial` หรือ `Fallback dataset`
+- ปรับ `DataResult.meta` ให้รองรับ `datasourceStatus` และ `note` สำหรับบอกเหตุผล/สถานะของข้อมูลแต่ละ endpoint
+- ปรับ `SourceBadge` ให้แสดง label และสีตามสถานะ datasource แทนการบอกแค่ `api/mock`
+- เพิ่ม badge ในหน้า Overview, Carbon Footprint, Spatial และ Carbon Footprint Report บนบล็อกสำคัญ เช่น KPI, Cane Type, Trend, Process chart, Camp/Field comparison, SOC/Organic Material, Preview/Export document
+- ระบุ block ที่ยังเป็น frontend-derived เช่น filter กลุ่มไร่, SOC/Organic Material และ report compose เป็น `API partial` เพื่อกันผู้ใช้เข้าใจว่าเป็นข้อมูลคำนวณจริงครบทั้งหมด
+- เพิ่มปุ่ม `DS` ขนาดเล็กในหน้า Carbon Credit Premium T-VER มุมขวาบน เพื่อเปิด/ปิดการแสดง datasource status ทั้ง Carbon Analytics โดยค่าเริ่มต้นจะซ่อนไว้ไม่ให้ผู้ใช้ทั่วไปเห็นเด่นบนหน้าเว็บ
+- ตรวจสอบแล้วด้วย `npm run build --workspace=frontend` ผ่านเรียบร้อย
