@@ -42,14 +42,14 @@ export const chartColors = [
 
 export const chartPalette = {
   baseline: { bg: "rgba(147,197,253,.82)", border: "#2563EB" },
-  project: { bg: "rgba(196, 181, 253, 0.5)", border: "#7C3AED" },
+  project: { bg: "rgba(252,165,165,.82)", border: "#DC2626" },
   fertilizerBaseline: { bg: "rgba(134,239,172,.78)", border: "#16A34A" },
   fertilizerProject: { bg: "rgba(253,230,138,.86)", border: "#D97706" },
   fuelBaseline: { bg: "rgba(103,232,249,.78)", border: "#0891B2" },
   fuelProject: { bg: "rgba(253,186,116,.82)", border: "#EA580C" },
   trendBaseline: "#60A5FA",
   trendAverage: "#16A34A",
-  trendProject: "#7C3AED",
+  trendProject: "#F87171",
 };
 
 export function sortProcessLabels(labels: string[]) {
