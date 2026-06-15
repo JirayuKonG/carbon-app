@@ -10,6 +10,81 @@ Current local HEAD ตอน review เอกสารนี้: `8b212f4 Merge 
 
 Commit ล่าสุดที่อัปขึ้น Git: `723cd3c เพิ่มแคมป์ผลงานการกักเก็บคาร์บอนในดิน`
 
+## อัปเดตงานประจำวันที่ 15 มิถุนายน 2569 - ปรับผลลัพธ์สุทธิ Carbon Footprint, กราฟ Scroll Row และเอกสารรายแปลง
+
+รอบนี้เน้นแก้รายละเอียดหน้า Carbon Footprint ไร่บริษัทกลุ่มมิตรผล และหน้าแผนที่ประเทศไทย/รายละเอียดรายพื้นที่ให้ใช้งานต่อเนื่องขึ้น โดยเฉพาะส่วนผลลัพธ์สุทธิ, กราฟที่มีชื่อแคมป์หรือรายแปลงจำนวนมาก และ flow การสร้างเอกสารรายแปลงหลังเปลี่ยน filter
+
+### 1. ปรับแท็บผลลัพธ์สุทธิในหน้า Carbon Footprint
+
+- เปลี่ยนหัวข้อ section จาก `สุดท้ายแล้วคาร์บอนของโครงการเหลือสุทธิเท่าไหร่` เป็น `การปล่อยและการสะสมคาร์บอนก๊าซเรือนกระจก`
+- ปรับ KPI ของแท็บผลลัพธ์สุทธิให้เหลือ 3 ตัว:
+  - `Gross Emission`
+  - `SOC`
+  - `Net Emission`
+- เปลี่ยน `SOC Offset` เป็น `SOC`
+- เอา KPI `Carbon Credits` และ `SOC Share` ออกจากแถว KPI ผลลัพธ์สุทธิ
+- เอาคำอธิบายใต้ KPI เช่น `Project year emissions`, `Soil carbon accumulation`, `Gross Emission - SOC` ออก เพื่อให้ KPI ดูกระชับ
+- ปรับสูตร net emission ของส่วนนี้ให้คิดจาก `Gross Emission - SOC` แทนการหัก Carbon Credits
+
+### 2. เปลี่ยน Net Zero Progress เป็น Block Summary
+
+- เปลี่ยน block `Net Zero Progress · Emissions vs Credits` เป็น `ทำการเปรียบเทียบ Emissions vs SOC`
+- ไม่ใช้กราฟ progress bar ในส่วนนี้แล้ว เปลี่ยนเป็น block สรุปตัวเลขแทน
+- เพิ่มข้อมูลเปรียบเทียบ:
+  - Project Emissions
+  - SOC
+  - Net Emission
+  - SOC Share ใน block summary
+- เพิ่ม `Change Summary` เพื่อแสดง:
+  - SOC ก่อนปรับปรุงดิน
+  - SOC หลังปรับปรุงดิน
+  - SOC change
+  - Baseline emissions
+  - Project year emissions
+  - Emission change พร้อมทิศทางเพิ่ม/ลดและเปอร์เซ็นต์
+- ลบ block `Carbon Balance Waterfall` ออกจากแท็บผลลัพธ์สุทธิ
+- ปรับรายการ `แคมป์ที่ควรติดตามหลังดูผลลัพธ์สุทธิ` ให้แสดงหน่วยต่อไร่ (`tCO2e/ไร่`)
+
+### 3. แก้กราฟเปรียบเทียบแคมป์และรายแปลงไม่ให้ชื่อเบียดกัน
+
+- ปรับกราฟ `เปรียบเทียบแคมป์และรายแปลง` ในหน้า Carbon Footprint ส่วนการปล่อยคาร์บอน
+- เพิ่มการตัดชื่อแคมป์เป็นหลายบรรทัด
+- เพิ่มความสูงของกราฟ
+- ขยาย canvas ด้านในตามจำนวนแคมป์ และให้กล่องกราฟ scroll แนวนอนแทนการบีบชื่อทั้งหมดไว้ในจอเดียว
+- ปรับขนาดแท่งกราฟให้ใหญ่ขึ้นและอ่านง่ายขึ้น
+
+### 4. แก้กราฟ SOC ก่อน/หลังเมื่อ filter รายแปลงในแคมป์
+
+- ปรับ component กลาง `ActivityGroupedBar` ให้รองรับรายการจำนวนมาก
+- ถ้า label มากกว่า 8 รายการ จะสร้าง canvas แนวนอนและมี scrollbar
+- ตัด label เป็นหลายบรรทัดเพื่อให้ชื่อรายแปลงไม่ทับกัน
+- ใช้กับกราฟ `ก่อน VS หลัง การปรับปรุงดิน` และ grouped bar อื่นที่มีรายการเยอะ
+
+### 5. แก้หน้าแผนที่ประเทศไทยและเอกสารรายละเอียดรายแปลง
+
+- แก้ปัญหาเมื่อเลือก filter เช่น `กลุ่มไร่อีสาน` แล้วสร้างเอกสาร จากนั้นเปลี่ยน filter แล้วเกิด error `wrong PNG signature`
+- เปลี่ยนการฝังภาพ canvas ใน PDF preview จาก PNG เป็น JPEG เพื่อลดปัญหา decoder/signature ของ jsPDF
+- เพิ่มการล้าง preview เอกสารเมื่อ filter เปลี่ยน:
+  - ล้าง `generatedDocument`
+  - ล้าง PDF URL เดิม
+  - reset preview tab กลับไปที่ PDF
+  - ปิดสถานะกำลัง render ที่ค้างอยู่
+- เพิ่ม guard กัน render job เก่ากลับมาเขียน state หลังจาก filter เปลี่ยนหรือ reset แล้ว
+- เมื่อกด `Reset Filter` ให้ reset ทั้งข้อมูลหน้าแผนที่, Preview เอกสารรายแปลง และไฟล์ที่ generate ค้างไว้
+
+### 6. ไฟล์หลักที่แก้ในงานวันที่ 15 มิถุนายน 2569
+
+- `frontend/src/features/cf-dashboard/pages/ProcessPage.tsx`
+- `frontend/src/features/cf-dashboard/pages/SpatialPage.tsx`
+- `frontend/src/features/cf-dashboard/components/charts/ActivityGroupedBar.tsx`
+- `frontend/src/features/cf-dashboard/cf-dashboard.css`
+
+### 7. การตรวจสอบหลังแก้ไข
+
+- รัน `npm run build --workspace=frontend` ผ่านหลายรอบหลังแก้แต่ละส่วน
+- ยังมี Vite warning เรื่อง bundle chunk ใหญ่ ซึ่งเป็น warning ด้าน optimization ไม่ใช่ build error
+- ระหว่างแก้พบประเด็น encoding ภาษาไทยจากการใช้ PowerShell อ่าน/เขียนไฟล์ จึงปรับวิธีแก้ไฟล์ให้รักษา UTF-8 และไม่ต้องติดตั้งภาษาไทยเพิ่มในโปรเจกต์
+
 ## อัปเดตงานประจำวันที่ 13 มิถุนายน 2569 - จัดข้อมูลไร่จริงและผลคำนวณสมมุติให้ใช้ร่วมกันใน Carbon Analytics
 
 รอบนี้ปรับต่อจากปัญหาข้อมูลในหน้า Carbon Analytics ที่เดิมมีทั้ง mock data, ข้อมูลไร่อ้อยจริง และผลคำนวณจาก API/ชุดข้อมูลเก่าปนกัน ทำให้บางหน้าแสดงพื้นที่จริงแต่ตัวเลข Carbon Footprint / Carbon Credit ยังอิงข้อมูลคนละชุด งานที่ทำเพิ่มจึงเน้นจัดชั้นข้อมูลใหม่ให้ใช้ `spatialProjectPlots.ts` เป็นฐานเดียวกัน และสร้างผลคำนวณสมมุติจากฐานไร่จริงเพื่อใช้แสดงผลระหว่างที่ API ผลคำนวณจริงยังไม่พร้อมครบทุกส่วน
