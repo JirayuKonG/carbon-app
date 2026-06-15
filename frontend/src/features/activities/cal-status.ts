@@ -3,7 +3,7 @@ export const ACTIVITY_CAL_STATUS_NAMES = {
   preparing: 'กำลังเตรียมข้อมูล',
   ready: 'พร้อมคำนวณมาตรฐาน',
   standardDone: 'คำนวณแล้ว(มาตรฐาน)',
-  cfpDone: 'คำนวณแล้ว(มาตรฐาน,CFP)',
+  cfpDone: 'คำนวณแล้ว(มาตรฐาน,C-credit)',
   error: 'คำนวณผิดพลาด',
 } as const
 
@@ -29,6 +29,7 @@ export function getActivityCalStatusLabel(rawName: string | null | undefined, st
   if (normalized === normalizeStatusText(ACTIVITY_CAL_STATUS_NAMES.standardDone)) return ACTIVITY_CAL_STATUS_NAMES.standardDone
   if (
     normalized === normalizeStatusText(ACTIVITY_CAL_STATUS_NAMES.cfpDone)
+    || normalized === 'คำนวณแล้ว(มาตรฐาน,cfp)'
     || normalized === 'คำนวณแล้ว(มาตรฐาน+cfp)'
   ) {
     return ACTIVITY_CAL_STATUS_NAMES.cfpDone
