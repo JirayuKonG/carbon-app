@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   Map, Factory, Users, Tractor,
-  Layers, CloudRain, FlaskConical, ActivitySquare, Settings2,
+  Layers, CloudRain, FlaskConical, ActivitySquare, Settings2, BarChart3,
   // KONGJIRAYU05JUNE2026
   //   Leaf, ChevronDown, ChevronRight, X, Sprout, MapPin, Calculator, // idea foarm               
   Leaf, ChevronDown, ChevronRight, X, Sprout, MapPin, Calculator, // kong form    
@@ -74,6 +74,7 @@ const NAV_GROUPS: NavGroup[] = [
         icon: <Calculator size={17} />,
         children: [
           { path: '/calculate/prepare', label: 'เตรียมข้อมูล Carbon', labelEn: 'Prepare Carbon', icon: <ClipboardList size={15} /> },
+          { path: '/calculate/usage', label: 'สรุปการใช้ปัจจัย', labelEn: 'Input Usage', icon: <BarChart3 size={15} /> },
           { path: '/calculate/footprint', label: 'Carbon Footprint', labelEn: 'Carbon Footprint', icon: <Calculator size={15} /> },
           { path: '/calculate/credit', label: 'Carbon Credit', labelEn: 'Carbon Credit', icon: <Leaf size={15} /> },
         ],

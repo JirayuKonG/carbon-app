@@ -9,7 +9,7 @@ const CAL_STATUS_NAMES = {
   preparing: 'กำลังเตรียมข้อมูล',
   ready: 'พร้อมคำนวณมาตรฐาน',
   standardDone: 'คำนวณแล้ว(มาตรฐาน)',
-  cfpDone: 'คำนวณแล้ว(มาตรฐาน,CFP)',
+  cfpDone: 'คำนวณแล้ว(มาตรฐาน,C-credit)',
   error: 'คำนวณผิดพลาด',
 } as const
 
@@ -138,9 +138,113 @@ type CarbonQueueCalculationPayload = {
   fertilizerDapEfId?: number | string | null
   fertilizerKclEfId?: number | string | null
   fertilizerGwpId?: number | string | null
+  manualFertilizerNPercent?: number | string | null
+  manualFertilizerP2O5Percent?: number | string | null
+  manualFertilizerK2OPercent?: number | string | null
 }
 
 type FootprintResultUnitKind = 'kgco2e' | 'tco2e'
+
+type InputUsageBucket = 'fertilizer' | 'fuel' | 'other'
+type InputUsageFertilizerKind = 'chemical' | 'organic' | 'unknown'
+type InputUsageAmountSource = 'prepared' | 'activity'
+
+type InputUsageUnitRef = {
+  unit_name?: string | null
+  unit_initial?: string | null
+}
+
+type InputUsagePrefixRef = {
+  unit_prefix_name?: string | null
+  unit_prefix_initial?: string | null
+}
+
+type InputUsageSummaryRow = {
+  id: string
+  bucket: InputUsageBucket
+  year: number | null
+  caneTypeName?: string
+  campId: number | null
+  campName: string
+  landId: number | null
+  landCode: string
+  landName: string
+  landLabel: string
+  itemName: string
+  resourceTypeName: string
+  fertilizerKind?: InputUsageFertilizerKind
+  fertilizerFormula?: string | null
+  amount: number
+  unit: string
+  areaRai: number
+  recordCount: number
+  sourcePreparedCount: number
+  warningCount: number
+  warnings: string[]
+}
+
+type InputUsageComparisonTarget = {
+  id: string
+  type: 'camp' | 'land'
+  label: string
+  campId: number | null
+  campName: string
+  landId?: number | null
+  landLabel?: string
+  areaRai: number
+  recordCount: number
+  fertilizerKg: number
+  fuelLiter: number
+  otherRecordCount: number
+  topFertilizer: string
+  topFuel: string
+  warningCount: number
+}
+
+type InputUsageSourceDetail = {
+  log_act_detail_id: number
+  log_act_detail_quatity?: number | null
+  log_act_detail_volumePerUnit?: number | null
+  log_act_detail_volumeAll?: number | null
+  log_act_detail_areawork?: number | null
+  log_act_detail_create_at?: Date | null
+  activities_header?: {
+    activities_header_startDate?: Date | null
+    land_id?: number | null
+    activities_header_typeSugarCane?: {
+      act_header_typeSugarCane_name?: string | null
+    } | null
+    lands?: {
+      land_id?: number | null
+      land_code?: string | null
+      name?: string | null
+      land_camp_id?: number | null
+      area_size?: number | null
+      land_size?: number | null
+      lands_camps?: {
+        land_camp_name?: string | null
+      } | null
+    } | null
+  } | null
+  activities_fertilizers?: { act_fertilizer_name?: string | null } | null
+  activities_equipments?: { act_equipment_name?: string | null } | null
+  activities_chemiscals?: { act_chemiscal_name?: string | null } | null
+  activities_resourceOther?: { act_resourceOther_name?: string | null } | null
+  resource_used_type?: { resc_used_type_name?: string | null } | null
+  log_act_detail_calStatus?: { log_act_detail_calStatus_name?: string | null } | null
+  units?: InputUsageUnitRef | null
+  units_prefixs?: (InputUsagePrefixRef & { unit_prefix_value?: number | null }) | null
+  carbon_process_queue?: {
+    carbon_process_queue_id: number
+    carbon_process_queue_info?: string | null
+  } | null
+}
+
+type InputUsageResolvedAmount = {
+  amount: number
+  unitLabel: string
+  source: InputUsageAmountSource
+}
 
 const FERTILIZER_CFP_SIMPLE_CONSTANTS = {
   EF_UREA_AS_N: 3.3036,
@@ -379,6 +483,46 @@ export class ActivitiesService {
     }
   }
 
+  private resolveManualFertilizerFormulaInput(payload?: {
+    manualFertilizerNPercent?: number | string | null
+    manualFertilizerP2O5Percent?: number | string | null
+    manualFertilizerK2OPercent?: number | string | null
+  }) {
+    const rawValues = [
+      payload?.manualFertilizerNPercent,
+      payload?.manualFertilizerP2O5Percent,
+      payload?.manualFertilizerK2OPercent,
+    ]
+
+    const hasAnyValue = rawValues.some((value) => value !== undefined && value !== null && String(value).trim() !== '')
+    if (!hasAnyValue) return null
+
+    const nPercent = this.toOptionalNumber(payload?.manualFertilizerNPercent)
+    const p2o5Percent = this.toOptionalNumber(payload?.manualFertilizerP2O5Percent)
+    const k2oPercent = this.toOptionalNumber(payload?.manualFertilizerK2OPercent)
+
+    if (nPercent == null || p2o5Percent == null || k2oPercent == null) {
+      throw new BadRequestException('กรุณากรอกค่า N, P2O5 และ K2O ให้ครบ')
+    }
+
+    if ([nPercent, p2o5Percent, k2oPercent].some((value) => value < 0)) {
+      throw new BadRequestException('ค่า N, P2O5 และ K2O ต้องไม่ติดลบ')
+    }
+
+    const totalPercent = nPercent + p2o5Percent + k2oPercent
+    if (totalPercent > 100) {
+      throw new BadRequestException('ผลรวม N + P2O5 + K2O ต้องไม่เกิน 100')
+    }
+
+    return {
+      nPercent,
+      p2o5Percent,
+      k2oPercent,
+      fillerPercent: 100 - totalPercent,
+      formulaLabel: `${nPercent.toFixed(4)}-${p2o5Percent.toFixed(4)}-${k2oPercent.toFixed(4)}`,
+    }
+  }
+
   private normalizeCalStatusName(value: string | null | undefined) {
     return (value ?? '').trim()
   }
@@ -394,7 +538,7 @@ export class ActivitiesService {
 
     const legacyAliases: Partial<Record<CalStatusName, string[]>> = {
       [CAL_STATUS_NAMES.ready]: ['ยังไม่คำนวณ/รอการคำนวณมาตรฐาน', 'รอคำนวณค่ามาตรฐาน'],
-      [CAL_STATUS_NAMES.cfpDone]: ['คำนวณแล้ว(มาตรฐาน+CFP)'],
+      [CAL_STATUS_NAMES.cfpDone]: ['คำนวณแล้ว(มาตรฐาน,CFP)', 'คำนวณแล้ว(มาตรฐาน+CFP)'],
       [CAL_STATUS_NAMES.error]: ['ผิดพลาด'],
     }
 
@@ -456,20 +600,7 @@ export class ActivitiesService {
   private async getDetailForWorkflow(id: number) {
     const detail = await this.prisma.log_activities_detail.findUnique({
       where: { log_act_detail_id: id },
-      include: {
-        log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
-        activities_header: {
-          select: {
-            activities_header_startDate: true,
-            land_id: true,
-            lands: {
-              select: {
-                land_camp_id: true,
-              },
-            },
-          },
-        },
-      },
+      include: this.getDetailForWorkflowInclude(),
     })
 
     if (!detail) {
@@ -477,6 +608,40 @@ export class ActivitiesService {
     }
 
     return detail
+  }
+
+  private getDetailForWorkflowInclude() {
+    return {
+      log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
+      activities_header: {
+        select: {
+          activities_header_startDate: true,
+          land_id: true,
+          lands: {
+            select: {
+              land_camp_id: true,
+            },
+          },
+        },
+      },
+    } as const
+  }
+
+  private async getDetailsForWorkflow(ids: number[]) {
+    const details = await this.prisma.log_activities_detail.findMany({
+      where: {
+        log_act_detail_id: { in: ids },
+      },
+      include: this.getDetailForWorkflowInclude(),
+    })
+
+    const detailById = new Map(details.map((detail) => [detail.log_act_detail_id, detail]))
+    const missingIds = ids.filter((id) => !detailById.has(id))
+    if (missingIds.length > 0) {
+      throw new BadRequestException(`Details not found: ${missingIds.join(', ')}`)
+    }
+
+    return ids.map((id) => detailById.get(id)!)
   }
 
   private canTransitionWorkflowStatus(currentStatusName: string, nextStatusName: string) {
@@ -629,6 +794,7 @@ export class ActivitiesService {
   private async handleUnchangedWorkflowStatus(
     detail: any,
     statusName:
+      | typeof CAL_STATUS_NAMES.imported
       | typeof CAL_STATUS_NAMES.preparing
       | typeof CAL_STATUS_NAMES.ready
       | typeof CAL_STATUS_NAMES.standardDone,
@@ -637,6 +803,8 @@ export class ActivitiesService {
   ) {
     if (statusName === CAL_STATUS_NAMES.preparing) {
       await this.ensureCarbonProcessQueueForDetail(detail, statusId, tx)
+    } else if (statusName === CAL_STATUS_NAMES.imported) {
+      await this.syncCarbonProcessQueueStatus(detail.log_act_detail_id, statusId, tx)
     } else {
       await this.syncCarbonProcessQueueStatus(detail.log_act_detail_id, statusId, tx)
     }
@@ -647,6 +815,128 @@ export class ActivitiesService {
         log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
       },
     })
+  }
+
+  private async syncCarbonProcessQueueStatusBulk(detailIds: number[], statusId: number, tx: any = this.prisma) {
+    if (!detailIds.length) return { count: 0 }
+
+    return tx.carbon_process_queue.updateMany({
+      where: {
+        log_act_detail_id: { in: detailIds },
+      },
+      data: {
+        log_act_detail_calStatus_id: statusId,
+        carbon_process_queue_updated_at: new Date(),
+      },
+    })
+  }
+
+  private async ensureCarbonProcessQueueForDetailsBulk(details: any[], statusId: number, tx: any = this.prisma) {
+    if (!details.length) return { created: 0, updated: 0 }
+
+    const detailIds = details.map((detail) => detail.log_act_detail_id)
+    const existingQueues = await tx.carbon_process_queue.findMany({
+      where: {
+        log_act_detail_id: { in: detailIds },
+      },
+      select: {
+        carbon_process_queue_id: true,
+        log_act_detail_id: true,
+      },
+    })
+
+    const existingDetailIdSet = new Set(
+      existingQueues
+        .map((queue: { log_act_detail_id: number | null }) => queue.log_act_detail_id)
+        .filter((value: number | null): value is number => value != null),
+    )
+
+    const now = new Date()
+    const detailsToCreate = details.filter((detail) => !existingDetailIdSet.has(detail.log_act_detail_id))
+
+    let created = 0
+    if (detailsToCreate.length > 0) {
+      const last = await tx.carbon_process_queue.aggregate({
+        _max: { carbon_process_queue_id: true },
+      })
+      let nextQueueId = (last._max.carbon_process_queue_id ?? 0) + 1
+
+      await tx.carbon_process_queue.createMany({
+        data: detailsToCreate.map((detail) => ({
+          carbon_process_queue_id: nextQueueId++,
+          log_act_detail_id: detail.log_act_detail_id,
+          log_act_detail_calStatus_id: statusId,
+          land_id: detail.activities_header?.land_id ?? undefined,
+          land_camp_id: detail.activities_header?.lands?.land_camp_id ?? undefined,
+          carbon_process_queue_dateWork: detail.log_act_detail_create_at ?? detail.activities_header?.activities_header_startDate ?? undefined,
+          carbon_process_queue_create_at: now,
+          carbon_process_queue_updated_at: now,
+        })),
+      })
+      created = detailsToCreate.length
+    }
+
+    const updatedResult = await this.syncCarbonProcessQueueStatusBulk(detailIds, statusId, tx)
+
+    return {
+      created,
+      updated: updatedResult.count,
+    }
+  }
+
+  private async moveDetailsToStatusBulk(
+    ids: number[],
+    statusName:
+      | typeof CAL_STATUS_NAMES.imported
+      | typeof CAL_STATUS_NAMES.preparing
+      | typeof CAL_STATUS_NAMES.ready
+      | typeof CAL_STATUS_NAMES.standardDone,
+    transitionMode: 'workflow' | 'manual',
+  ) {
+    if (!ids.length) throw new BadRequestException('No detail IDs provided')
+
+    const uniqueIds = Array.from(new Set(ids))
+    const details = await this.getDetailsForWorkflow(uniqueIds)
+    const statusId = await this.getCalStatusId(statusName as CalStatusName)
+
+    const canTransition = transitionMode === 'workflow'
+      ? this.canTransitionWorkflowStatus.bind(this)
+      : this.canTransitionManualStatus.bind(this)
+
+    const invalidDetail = details.find((detail) => {
+      const currentStatusName = this.getDetailStatusName(detail)
+      return currentStatusName !== statusName && !canTransition(currentStatusName, statusName)
+    })
+
+    if (invalidDetail) {
+      const currentStatusName = this.getDetailStatusName(invalidDetail)
+      throw new BadRequestException(
+        `Cannot move detail ${invalidDetail.log_act_detail_id} from "${currentStatusName || '—'}" to "${statusName}"`,
+      )
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.log_activities_detail.updateMany({
+        where: {
+          log_act_detail_id: { in: uniqueIds },
+        },
+        data: {
+          log_act_detail_calStatus_id: statusId,
+        },
+      })
+
+      if (statusName === CAL_STATUS_NAMES.preparing) {
+        await this.ensureCarbonProcessQueueForDetailsBulk(details, statusId, tx)
+        return
+      }
+
+      await this.syncCarbonProcessQueueStatusBulk(uniqueIds, statusId, tx)
+    })
+
+    return {
+      updated: uniqueIds.length,
+      ids: uniqueIds,
+    }
   }
 
   async createHeader(data: ActivityHeaderPayload) {
@@ -679,6 +969,447 @@ export class ActivitiesService {
 
   deleteHeader(id: number) {
     return this.prisma.activities_header.delete({ where: { activities_header_id: id } })
+  }
+
+  private toFiniteNumberOrNull(value: unknown) {
+    if (value === undefined || value === null || value === '') return null
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  private roundUsageValue(value: number, digits = 3) {
+    return Number(value.toFixed(digits))
+  }
+
+  private compactText(value?: string | null) {
+    return (value ?? '').trim()
+  }
+
+  private normalizeInputUsageUnitText(value: string) {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '')
+      .replace(/³/g, '3')
+  }
+
+  private unitLabel(unit?: InputUsageUnitRef | null, prefix?: InputUsagePrefixRef | null) {
+    const prefixLabel = this.compactText(prefix?.unit_prefix_initial) || this.compactText(prefix?.unit_prefix_name)
+    const unitText = this.compactText(unit?.unit_initial) || this.compactText(unit?.unit_name)
+    return [prefixLabel, unitText].filter(Boolean).join(' ').trim() || 'ไม่ระบุหน่วย'
+  }
+
+  private getDetailItemName(detail: InputUsageSourceDetail) {
+    return this.compactText(detail.activities_fertilizers?.act_fertilizer_name)
+      || this.compactText(detail.activities_equipments?.act_equipment_name)
+      || this.compactText(detail.activities_chemiscals?.act_chemiscal_name)
+      || this.compactText(detail.activities_resourceOther?.act_resourceOther_name)
+      || 'ไม่ระบุรายการ'
+  }
+
+  private classifyInputUsageBucket(detail: InputUsageSourceDetail): InputUsageBucket {
+    const text = [
+      detail.resource_used_type?.resc_used_type_name,
+      detail.activities_fertilizers?.act_fertilizer_name,
+      detail.activities_equipments?.act_equipment_name,
+      detail.activities_chemiscals?.act_chemiscal_name,
+      detail.activities_resourceOther?.act_resourceOther_name,
+    ].filter(Boolean).join(' ').toLowerCase()
+
+    if (
+      detail.activities_fertilizers
+      || /ปุ๋ย|fertilizer|compost|manure|organic|อินทรีย์|ปุ๋ยหมัก|วัสดุอินทรีย์|filter\s*cake|ฟิลเตอร์เค้ก|กากตะกอน/.test(text)
+    ) {
+      return 'fertilizer'
+    }
+
+    if (/น้ำมัน|เชื้อเพลิง|fuel|diesel|ดีเซล|gasohol|benzene|เบนซิน|ไบโอดีเซล/.test(text)) {
+      return 'fuel'
+    }
+
+    return 'other'
+  }
+
+  private getFertilizerProfile(name: string): {
+    kind: InputUsageFertilizerKind
+    formula: string | null
+  } {
+    const formulaMatch = name.match(/(\d+(?:\.\d+)?)\s*[-xX]\s*(\d+(?:\.\d+)?)\s*[-xX]\s*(\d+(?:\.\d+)?)/)
+    if (formulaMatch) {
+      return { kind: 'chemical', formula: formulaMatch[0] }
+    }
+
+    const normalized = name.toLowerCase()
+    if (/อินทรีย์|organic|compost|manure|ปุ๋ยหมัก|วัสดุอินทรีย์|filter\s*cake|ฟิลเตอร์เค้ก|กากตะกอน|มูล/.test(normalized)) {
+      return { kind: 'organic', formula: null }
+    }
+
+    return { kind: 'unknown', formula: null }
+  }
+
+  private normalizeInputUsageAmount(bucket: InputUsageBucket, amount: number, unitLabel: string) {
+    const unit = this.normalizeInputUsageUnitText(unitLabel)
+
+    if (bucket === 'fertilizer') {
+      if (/kg|กก|กิโลกรัม|กิโล/.test(unit)) return { amount: this.roundUsageValue(amount), unit: 'kg', warning: null as string | null }
+      if (/ตัน|ton|tonne/.test(unit)) return { amount: this.roundUsageValue(amount * 1000), unit: 'kg', warning: null as string | null }
+      if (/กรัม|gram|^g$/.test(unit)) return { amount: this.roundUsageValue(amount / 1000), unit: 'kg', warning: null as string | null }
+      return { amount: 0, unit: 'kg', warning: `ไม่สามารถแปลงหน่วย "${unitLabel}" เป็น kg` }
+    }
+
+    if (bucket === 'fuel') {
+      if (/^(l|liter|litre)$|ลิตร/.test(unit)) return { amount: this.roundUsageValue(amount), unit: 'L', warning: null as string | null }
+      if (/ml|มล|มิลลิลิตร|cc|ซีซี/.test(unit)) return { amount: this.roundUsageValue(amount / 1000), unit: 'L', warning: null as string | null }
+      if (/m3|ลบ\.?ม|ลูกบาศก์เมตร/.test(unit)) return { amount: this.roundUsageValue(amount * 1000), unit: 'L', warning: null as string | null }
+      return { amount: 0, unit: 'L', warning: `ไม่สามารถแปลงหน่วย "${unitLabel}" เป็น L` }
+    }
+
+    return { amount: this.roundUsageValue(amount), unit: unitLabel || 'ไม่ระบุหน่วย', warning: null as string | null }
+  }
+
+  private getInputUsageAmount(
+    detail: InputUsageSourceDetail,
+    unitById: Record<number, InputUsageUnitRef>,
+    prefixById: Record<number, InputUsagePrefixRef>,
+  ): InputUsageResolvedAmount | null {
+    const info = this.parseCarbonPreparationInfo(detail.carbon_process_queue?.carbon_process_queue_info)
+    const preparedAmount = this.toFiniteNumberOrNull(info.preparedVolumeAll)
+    const sourceAmount = this.toFiniteNumberOrNull(detail.log_act_detail_volumeAll)
+      ?? (
+        this.toFiniteNumberOrNull(detail.log_act_detail_quatity) != null
+        && this.toFiniteNumberOrNull(detail.log_act_detail_volumePerUnit) != null
+          ? Number(detail.log_act_detail_quatity) * Number(detail.log_act_detail_volumePerUnit)
+          : null
+      )
+
+    const sourceUnitLabel = this.unitLabel(detail.units, detail.units_prefixs)
+    if (preparedAmount != null) {
+      const preparedUnitId = this.toFiniteNumberOrNull(info.preparedUnitId)
+      const preparedPrefixId = this.toFiniteNumberOrNull(info.preparedUnitPrefixId)
+      const preparedUnitLabel = this.unitLabel(
+        preparedUnitId != null ? unitById[preparedUnitId] : undefined,
+        preparedPrefixId != null ? prefixById[preparedPrefixId] : undefined,
+      )
+
+      return {
+        amount: preparedAmount,
+        unitLabel: preparedUnitLabel === 'ไม่ระบุหน่วย' ? sourceUnitLabel : preparedUnitLabel,
+        source: 'prepared',
+      }
+    }
+
+    if (sourceAmount == null) return null
+
+    return {
+      amount: sourceAmount,
+      unitLabel: sourceUnitLabel,
+      source: 'activity',
+    }
+  }
+
+  private getInputUsageYear(detail: InputUsageSourceDetail) {
+    const date = detail.activities_header?.activities_header_startDate ?? detail.log_act_detail_create_at
+    if (!date) return null
+    const parsed = date instanceof Date ? date : new Date(date)
+    if (Number.isNaN(parsed.getTime())) return null
+    return parsed.getFullYear()
+  }
+
+  private addInputUsageRow(map: Map<string, InputUsageSummaryRow>, row: InputUsageSummaryRow) {
+    const existing = map.get(row.id)
+    if (!existing) {
+      map.set(row.id, row)
+      return
+    }
+
+    existing.amount = this.roundUsageValue(existing.amount + row.amount)
+    existing.areaRai = Math.max(existing.areaRai, row.areaRai)
+    existing.recordCount += row.recordCount
+    existing.sourcePreparedCount += row.sourcePreparedCount
+    existing.warningCount += row.warningCount
+    row.warnings.forEach((warning) => {
+      if (!existing.warnings.includes(warning)) existing.warnings.push(warning)
+    })
+  }
+
+  private buildInputUsageTotals(rows: InputUsageSummaryRow[]) {
+    const campIds = new Set<number>()
+    const landIds = new Set<number>()
+    const landAreas = new Map<string, number>()
+
+    rows.forEach((row) => {
+      if (row.campId != null) campIds.add(row.campId)
+      if (row.landId != null) landIds.add(row.landId)
+      const areaKey = row.landId != null ? String(row.landId) : `${row.campId ?? 'none'}:${row.landLabel}`
+      landAreas.set(areaKey, Math.max(landAreas.get(areaKey) ?? 0, row.areaRai))
+    })
+
+    return {
+      campCount: campIds.size,
+      landCount: landIds.size,
+      recordCount: rows.reduce((sum, row) => sum + row.recordCount, 0),
+      areaRai: this.roundUsageValue(Array.from(landAreas.values()).reduce((sum, area) => sum + area, 0), 2),
+      fertilizerKg: this.roundUsageValue(rows.filter((row) => row.bucket === 'fertilizer').reduce((sum, row) => sum + row.amount, 0)),
+      fuelLiter: this.roundUsageValue(rows.filter((row) => row.bucket === 'fuel').reduce((sum, row) => sum + row.amount, 0)),
+      otherRecordCount: rows.filter((row) => row.bucket === 'other').reduce((sum, row) => sum + row.recordCount, 0),
+      unknownUnitCount: rows.reduce((sum, row) => sum + row.warningCount, 0),
+    }
+  }
+
+  private buildInputUsageComparisonTargets(rows: InputUsageSummaryRow[]) {
+    type InternalTarget = InputUsageComparisonTarget & {
+      landAreas: Map<string, number>
+      fertilizerItems: Map<string, number>
+      fuelItems: Map<string, number>
+    }
+
+    const targets = new Map<string, InternalTarget>()
+    const ensureTarget = (row: InputUsageSummaryRow, type: 'camp' | 'land') => {
+      const id = type === 'camp'
+        ? `camp:${row.campId ?? 'unknown'}`
+        : `land:${row.landId ?? 'unknown'}`
+      const existing = targets.get(id)
+      if (existing) return existing
+
+      const target: InternalTarget = {
+        id,
+        type,
+        label: type === 'camp' ? row.campName : row.landLabel,
+        campId: row.campId,
+        campName: row.campName,
+        landId: type === 'land' ? row.landId : undefined,
+        landLabel: type === 'land' ? row.landLabel : undefined,
+        areaRai: 0,
+        recordCount: 0,
+        fertilizerKg: 0,
+        fuelLiter: 0,
+        otherRecordCount: 0,
+        topFertilizer: '—',
+        topFuel: '—',
+        warningCount: 0,
+        landAreas: new Map<string, number>(),
+        fertilizerItems: new Map<string, number>(),
+        fuelItems: new Map<string, number>(),
+      }
+      targets.set(id, target)
+      return target
+    }
+
+    rows.forEach((row) => {
+      const selectedTargets = [
+        row.campId != null ? ensureTarget(row, 'camp') : null,
+        row.landId != null ? ensureTarget(row, 'land') : null,
+      ].filter((target): target is InternalTarget => Boolean(target))
+
+      selectedTargets.forEach((target) => {
+        target.recordCount += row.recordCount
+        target.warningCount += row.warningCount
+        const areaKey = row.landId != null ? String(row.landId) : row.landLabel
+        target.landAreas.set(areaKey, Math.max(target.landAreas.get(areaKey) ?? 0, row.areaRai))
+
+        if (row.bucket === 'fertilizer') {
+          target.fertilizerKg = this.roundUsageValue(target.fertilizerKg + row.amount)
+          target.fertilizerItems.set(row.itemName, (target.fertilizerItems.get(row.itemName) ?? 0) + row.amount)
+        } else if (row.bucket === 'fuel') {
+          target.fuelLiter = this.roundUsageValue(target.fuelLiter + row.amount)
+          target.fuelItems.set(row.itemName, (target.fuelItems.get(row.itemName) ?? 0) + row.amount)
+        } else {
+          target.otherRecordCount += row.recordCount
+        }
+      })
+    })
+
+    return Array.from(targets.values())
+      .map((target) => {
+        const topFertilizer = Array.from(target.fertilizerItems.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—'
+        const topFuel = Array.from(target.fuelItems.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—'
+
+        return {
+          id: target.id,
+          type: target.type,
+          label: target.label,
+          campId: target.campId,
+          campName: target.campName,
+          landId: target.landId,
+          landLabel: target.landLabel,
+          areaRai: this.roundUsageValue(Array.from(target.landAreas.values()).reduce((sum, area) => sum + area, 0), 2),
+          recordCount: target.recordCount,
+          fertilizerKg: target.fertilizerKg,
+          fuelLiter: target.fuelLiter,
+          otherRecordCount: target.otherRecordCount,
+          topFertilizer,
+          topFuel,
+          warningCount: target.warningCount,
+        }
+      })
+      .sort((a, b) => a.type.localeCompare(b.type) || a.label.localeCompare(b.label, 'th'))
+  }
+
+  async getInputUsageSummary() {
+    const [details, units, prefixes] = await Promise.all([
+      this.prisma.log_activities_detail.findMany({
+        include: {
+          activities_header: {
+            select: {
+              activities_header_startDate: true,
+              land_id: true,
+              activities_header_typeSugarCane: {
+                select: {
+                  act_header_typeSugarCane_name: true,
+                },
+              },
+              lands: {
+                select: {
+                  land_id: true,
+                  land_code: true,
+                  name: true,
+                  land_camp_id: true,
+                  area_size: true,
+                  land_size: true,
+                  lands_camps: {
+                    select: {
+                      land_camp_name: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          activities_fertilizers: { select: { act_fertilizer_name: true } },
+          activities_equipments: { select: { act_equipment_name: true } },
+          activities_chemiscals: { select: { act_chemiscal_name: true } },
+          activities_resourceOther: { select: { act_resourceOther_name: true } },
+          resource_used_type: { select: { resc_used_type_name: true } },
+          log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
+          units: { select: { unit_name: true, unit_initial: true } },
+          units_prefixs: { select: { unit_prefix_name: true, unit_prefix_initial: true, unit_prefix_value: true } },
+          carbon_process_queue: {
+            select: {
+              carbon_process_queue_id: true,
+              carbon_process_queue_info: true,
+            },
+          },
+        },
+        orderBy: { log_act_detail_id: 'asc' },
+      }),
+      this.prisma.units.findMany({ select: { unit_id: true, unit_name: true, unit_initial: true } }),
+      this.prisma.units_prefixs.findMany({ select: { unit_prefix_id: true, unit_prefix_name: true, unit_prefix_initial: true } }),
+    ])
+
+    const unitById = units.reduce<Record<number, InputUsageUnitRef>>((map, unit) => {
+      map[unit.unit_id] = unit
+      return map
+    }, {})
+    const prefixById = prefixes.reduce<Record<number, InputUsagePrefixRef>>((map, prefix) => {
+      map[prefix.unit_prefix_id] = prefix
+      return map
+    }, {})
+
+    const fertilizerMap = new Map<string, InputUsageSummaryRow>()
+    const fuelMap = new Map<string, InputUsageSummaryRow>()
+    const otherMap = new Map<string, InputUsageSummaryRow>()
+
+    details.forEach((detail) => {
+      const amountInput = this.getInputUsageAmount(detail, unitById, prefixById)
+      if (!amountInput) return
+
+      const bucket = this.classifyInputUsageBucket(detail)
+      const itemName = this.getDetailItemName(detail)
+      const resourceTypeName = this.compactText(detail.resource_used_type?.resc_used_type_name) || 'ไม่ระบุประเภท'
+      const normalized = this.normalizeInputUsageAmount(bucket, amountInput.amount, amountInput.unitLabel)
+      const fertilizerProfile = bucket === 'fertilizer'
+        ? this.getFertilizerProfile(`${itemName} ${resourceTypeName}`)
+        : null
+      const year = this.getInputUsageYear(detail)
+      const caneTypeName = this.compactText(detail.activities_header?.activities_header_typeSugarCane?.act_header_typeSugarCane_name) || '—'
+      const land = detail.activities_header?.lands
+      const landId = land?.land_id ?? detail.activities_header?.land_id ?? null
+      const landCode = this.compactText(land?.land_code) || (landId != null ? `#${landId}` : 'ไม่ระบุแปลง')
+      const landName = this.compactText(land?.name)
+      const landLabel = landName ? `${landCode} - ${landName}` : landCode
+      const campId = land?.land_camp_id ?? null
+      const campName = this.compactText(land?.lands_camps?.land_camp_name) || (campId != null ? `ไร่ #${campId}` : 'ไม่ระบุไร่')
+      const areaRai = this.toFiniteNumberOrNull(land?.area_size)
+        ?? this.toFiniteNumberOrNull(land?.land_size)
+        ?? this.toFiniteNumberOrNull(detail.log_act_detail_areawork)
+        ?? 0
+      const unit = bucket === 'other' ? amountInput.unitLabel : normalized.unit
+      const warning = normalized.warning
+      const key = [
+        bucket,
+        year ?? 'unknown-year',
+        caneTypeName,
+        campId ?? 'unknown-camp',
+        landId ?? 'unknown-land',
+        itemName,
+        fertilizerProfile?.kind ?? 'none',
+        unit,
+      ].join('|')
+
+      const row: InputUsageSummaryRow = {
+        id: key,
+        bucket,
+        year,
+        caneTypeName,
+        campId,
+        campName,
+        landId,
+        landCode,
+        landName: landName || '—',
+        landLabel,
+        itemName,
+        resourceTypeName,
+        ...(fertilizerProfile ? {
+          fertilizerKind: fertilizerProfile.kind,
+          fertilizerFormula: fertilizerProfile.formula,
+        } : {}),
+        amount: normalized.amount,
+        unit,
+        areaRai,
+        recordCount: 1,
+        sourcePreparedCount: amountInput.source === 'prepared' ? 1 : 0,
+        warningCount: warning ? 1 : 0,
+        warnings: warning ? [warning] : [],
+      }
+
+      if (bucket === 'fertilizer') this.addInputUsageRow(fertilizerMap, row)
+      else if (bucket === 'fuel') this.addInputUsageRow(fuelMap, row)
+      else this.addInputUsageRow(otherMap, row)
+    })
+
+    const fertilizer = Array.from(fertilizerMap.values()).sort((a, b) => b.amount - a.amount)
+    const fuel = Array.from(fuelMap.values()).sort((a, b) => b.amount - a.amount)
+    const other = Array.from(otherMap.values()).sort((a, b) => b.recordCount - a.recordCount || b.amount - a.amount)
+    const allRows = [...fertilizer, ...fuel, ...other]
+    const campOptions = new Map<number, { id: number; label: string }>()
+    const landOptions = new Map<number, { id: number; label: string; campId: number | null; campLabel: string }>()
+
+    allRows.forEach((row) => {
+      if (row.campId != null && !campOptions.has(row.campId)) {
+        campOptions.set(row.campId, { id: row.campId, label: row.campName })
+      }
+      if (row.landId != null && !landOptions.has(row.landId)) {
+        landOptions.set(row.landId, {
+          id: row.landId,
+          label: row.landLabel,
+          campId: row.campId,
+          campLabel: row.campName,
+        })
+      }
+    })
+
+    return {
+      filters: {
+        years: Array.from(new Set(allRows.map((row) => row.year).filter((year): year is number => year != null))).sort((a, b) => a - b),
+        camps: Array.from(campOptions.values()).sort((a, b) => a.label.localeCompare(b.label, 'th')),
+        lands: Array.from(landOptions.values()).sort((a, b) => a.label.localeCompare(b.label, 'th')),
+      },
+      totals: this.buildInputUsageTotals(allRows),
+      fertilizer,
+      fuel,
+      other,
+      comparisonTargets: this.buildInputUsageComparisonTargets(allRows),
+    }
   }
 
   // ── Details ────────────────────────────────────────────────
@@ -861,22 +1592,13 @@ export class ActivitiesService {
     ids: number[],
     statusName: typeof CAL_STATUS_NAMES.preparing | typeof CAL_STATUS_NAMES.ready,
   ) {
-    if (!ids.length) throw new BadRequestException('No detail IDs provided')
-
-    const updated = []
-    for (const id of ids) {
-      updated.push(await this.moveDetailToWorkflowStatus(id, statusName))
-    }
-
-    return {
-      updated: updated.length,
-      ids: updated.map((item) => item.log_act_detail_id),
-    }
+    return this.moveDetailsToStatusBulk(ids, statusName, 'workflow')
   }
 
   async moveDetailToManualStatus(
     id: number,
     statusName:
+      | typeof CAL_STATUS_NAMES.imported
       | typeof CAL_STATUS_NAMES.preparing
       | typeof CAL_STATUS_NAMES.ready
       | typeof CAL_STATUS_NAMES.standardDone,
@@ -911,21 +1633,12 @@ export class ActivitiesService {
   async moveDetailsToManualStatus(
     ids: number[],
     statusName:
+      | typeof CAL_STATUS_NAMES.imported
       | typeof CAL_STATUS_NAMES.preparing
       | typeof CAL_STATUS_NAMES.ready
       | typeof CAL_STATUS_NAMES.standardDone,
   ) {
-    if (!ids.length) throw new BadRequestException('No detail IDs provided')
-
-    const updated = []
-    for (const id of ids) {
-      updated.push(await this.moveDetailToManualStatus(id, statusName))
-    }
-
-    return {
-      updated: updated.length,
-      ids: updated.map((item) => item.log_act_detail_id),
-    }
+    return this.moveDetailsToStatusBulk(ids, statusName, 'manual')
   }
 
   async calculateDetail(id: number, calcMode: 'standard' | 'tver' = 'standard') {
@@ -1521,19 +2234,40 @@ export class ActivitiesService {
     fertilizerDapEfId?: number
     fertilizerKclEfId?: number
     fertilizerGwpId?: number
+    manualFertilizerNPercent?: number | string | null
+    manualFertilizerP2O5Percent?: number | string | null
+    manualFertilizerK2OPercent?: number | string | null
   }) {
     const fertilizerProfile = this.inferFertilizerNitrogenFromName(
       queue?.log_activities_detail?.activities_fertilizers?.act_fertilizer_name,
     )
+    const manualFormula = this.resolveManualFertilizerFormulaInput(options)
+    const resolvedFormula = (
+      fertilizerProfile.kind === 'chemical'
+      && fertilizerProfile.nPercent != null
+      && fertilizerProfile.p2o5Percent != null
+      && fertilizerProfile.k2oPercent != null
+      && fertilizerProfile.fillerPercent != null
+    )
+      ? {
+        nPercent: fertilizerProfile.nPercent,
+        p2o5Percent: fertilizerProfile.p2o5Percent,
+        k2oPercent: fertilizerProfile.k2oPercent,
+        fillerPercent: fertilizerProfile.fillerPercent,
+        formulaLabel: fertilizerProfile.formulaLabel ?? null,
+        formulaSource: 'parsed' as const,
+      }
+      : (
+        manualFormula
+          ? {
+            ...manualFormula,
+            formulaSource: 'manual' as const,
+          }
+          : null
+      )
 
-    if (
-      fertilizerProfile.kind !== 'chemical'
-      || fertilizerProfile.nPercent == null
-      || fertilizerProfile.p2o5Percent == null
-      || fertilizerProfile.k2oPercent == null
-      || fertilizerProfile.fillerPercent == null
-    ) {
-      throw new BadRequestException('สูตร Carbon Footprint ปุ๋ยนี้ต้องมีสูตร N-P2O5-K2O ในชื่อรายการ เช่น 15-15-15')
+    if (!resolvedFormula) {
+      throw new BadRequestException('สูตร Carbon Footprint ปุ๋ยนี้ต้องมีสูตร N-P2O5-K2O ในชื่อรายการ หรือกรอกค่า N, P2O5, K2O เอง')
     }
 
     const [
@@ -1555,10 +2289,10 @@ export class ActivitiesService {
       EF_KCL_AS_K2O: kclEf.value,
       GWP_N2O: selectedGwp.value,
     }
-    const nFraction = fertilizerProfile.nPercent / 100
-    const p2o5Fraction = fertilizerProfile.p2o5Percent / 100
-    const k2oFraction = fertilizerProfile.k2oPercent / 100
-    const fillerFraction = fertilizerProfile.fillerPercent / 100
+    const nFraction = resolvedFormula.nPercent / 100
+    const p2o5Fraction = resolvedFormula.p2o5Percent / 100
+    const k2oFraction = resolvedFormula.k2oPercent / 100
+    const fillerFraction = resolvedFormula.fillerPercent / 100
     const upstreamPerKg = (
       (nFraction * constants.EF_UREA_AS_N)
       + (p2o5Fraction * constants.EF_DAP_AS_P2O5)
@@ -1573,6 +2307,7 @@ export class ActivitiesService {
 
     return {
       fertilizerProfile,
+      resolvedFormula,
       fertilizerKg,
       selectedUreaEf: ureaEf.selectedEf,
       selectedDapEf: dapEf.selectedEf,
@@ -1597,6 +2332,9 @@ export class ActivitiesService {
     fertilizerDapEfId?: number
     fertilizerKclEfId?: number
     fertilizerGwpId?: number
+    manualFertilizerNPercent?: number | string | null
+    manualFertilizerP2O5Percent?: number | string | null
+    manualFertilizerK2OPercent?: number | string | null
   }): Promise<GenericEfCalculationResult> {
     if (!await this.isKgUnit(amountInput.unitId)) {
       throw new BadRequestException('สูตร Carbon Footprint ปุ๋ยต้องใช้ปริมาณหลังเตรียมเป็นหน่วย kg ก่อนคำนวณ')
@@ -1612,7 +2350,8 @@ export class ActivitiesService {
       breakdown: {
         formulaMode: 'fertilizer_n2o',
         calculationMethod: 'fertilizer_cfp_simple',
-        fertilizerFormulaLabel: breakdown.fertilizerProfile.formulaLabel ?? null,
+        fertilizerFormulaLabel: breakdown.resolvedFormula.formulaLabel ?? null,
+        fertilizerFormulaSource: breakdown.resolvedFormula.formulaSource,
         fertilizerKg: amountInput.amount,
         fertilizerUreaEfId: breakdown.selectedUreaEf?.coefficient_emission_factor_id ?? null,
         fertilizerUreaEfName: breakdown.selectedUreaEf?.coef_em_factor_name ?? breakdown.selectedUreaEf?.coef_em_factor_idCode ?? null,
@@ -1622,10 +2361,10 @@ export class ActivitiesService {
         fertilizerKclEfName: breakdown.selectedKclEf?.coef_em_factor_name ?? breakdown.selectedKclEf?.coef_em_factor_idCode ?? null,
         fertilizerGwpId: breakdown.selectedGwp?.coefficients_emissions_factors_gwp_id ?? null,
         fertilizerGwpName: breakdown.selectedGwp?.coef_em_factor_gwp_name ?? breakdown.selectedGwp?.coef_em_factor_gwp_name_en ?? null,
-        nPercent: breakdown.fertilizerProfile.nPercent,
-        p2o5Percent: breakdown.fertilizerProfile.p2o5Percent,
-        k2oPercent: breakdown.fertilizerProfile.k2oPercent,
-        fillerPercent: breakdown.fertilizerProfile.fillerPercent,
+        nPercent: breakdown.resolvedFormula.nPercent,
+        p2o5Percent: breakdown.resolvedFormula.p2o5Percent,
+        k2oPercent: breakdown.resolvedFormula.k2oPercent,
+        fillerPercent: breakdown.resolvedFormula.fillerPercent,
         upstreamPerKg: breakdown.upstreamPerKg,
         upstreamKgco2e: breakdown.upstreamKgco2e,
         nAppliedKg: breakdown.nAppliedKg,
@@ -1646,6 +2385,9 @@ export class ActivitiesService {
     const fertilizerDapEfId = this.toOptionalNumber(payload?.fertilizerDapEfId)
     const fertilizerKclEfId = this.toOptionalNumber(payload?.fertilizerKclEfId)
     const fertilizerGwpId = this.toOptionalNumber(payload?.fertilizerGwpId)
+    const manualFertilizerNPercent = this.toOptionalNumber(payload?.manualFertilizerNPercent)
+    const manualFertilizerP2O5Percent = this.toOptionalNumber(payload?.manualFertilizerP2O5Percent)
+    const manualFertilizerK2OPercent = this.toOptionalNumber(payload?.manualFertilizerK2OPercent)
 
     if (formulaMode === 'fertilizer_n2o') {
       const result = await this.calculateFertilizerN2OForQueue(queue, amountInput, {
@@ -1653,6 +2395,9 @@ export class ActivitiesService {
         fertilizerDapEfId,
         fertilizerKclEfId,
         fertilizerGwpId,
+        manualFertilizerNPercent,
+        manualFertilizerP2O5Percent,
+        manualFertilizerK2OPercent,
       })
       return this.applyRequestedFootprintResultUnit(result, requestedResultUnitId)
     }
@@ -1740,6 +2485,18 @@ export class ActivitiesService {
       const result = await this.calculateCarbonQueueResult(queue, payload)
       const nextStatusId = await this.getCalStatusId(CAL_STATUS_NAMES.standardDone)
       const endedAt = new Date()
+      const previousInfo = this.parseCarbonPreparationInfo(queue?.carbon_process_queue_info)
+      const calculationInfo = JSON.stringify({
+        ...previousInfo,
+        calculation: {
+          formulaMode: result.formulaMode,
+          resultValue: this.roundNumber(result.resultValue, 4),
+          resultUnitId: result.resultUnitId ?? null,
+          resultUnitPrefixId: result.resultUnitPrefixId ?? null,
+          calculatedAt: endedAt.toISOString(),
+          ...result.breakdown,
+        },
+      })
 
       return this.prisma.$transaction(async (tx) => {
         if (queue?.log_act_detail_id != null) {
@@ -1756,6 +2513,7 @@ export class ActivitiesService {
             carbon_process_queue_resultValue: this.roundNumber(result.resultValue, 4),
             unit_id_resultValue: result.resultUnitId ?? null,
             unit_prefix_id_resultValue: result.resultUnitPrefixId ?? null,
+            carbon_process_queue_info: calculationInfo,
             carbon_process_queue_error_message: null,
             carbon_process_queue_started_at: startedAt,
             carbon_process_queue_ended_at: endedAt,

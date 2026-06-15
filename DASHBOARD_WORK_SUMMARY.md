@@ -1,6 +1,6 @@
 # สรุปงานส่วน Carbon Dashboard และรายงาน Premium T-VER
 
-Last updated: 2026-06-11
+Last updated: 2026-06-15
 
 ผู้รับผิดชอบงานส่วนนี้: งานหน้าสรุปผล Carbon Dashboard, การแสดงผลเชิงวิเคราะห์, แผนที่สรุปพื้นที่ และรายงานสำหรับเตรียมยื่น Premium T-VER
 
@@ -9,6 +9,195 @@ Current local branch ตอน review เอกสารนี้: `kong_dev`
 Current local HEAD ตอน review เอกสารนี้: `8b212f4 Merge pull request #26 from JirayuKonG/idea`
 
 Commit ล่าสุดที่อัปขึ้น Git: `723cd3c เพิ่มแคมป์ผลงานการกักเก็บคาร์บอนในดิน`
+
+## อัปเดตงานประจำวันที่ 15 มิถุนายน 2569 - ปรับผลลัพธ์สุทธิ Carbon Footprint, กราฟ Scroll Row และเอกสารรายแปลง
+
+รอบนี้เน้นแก้รายละเอียดหน้า Carbon Footprint ไร่บริษัทกลุ่มมิตรผล และหน้าแผนที่ประเทศไทย/รายละเอียดรายพื้นที่ให้ใช้งานต่อเนื่องขึ้น โดยเฉพาะส่วนผลลัพธ์สุทธิ, กราฟที่มีชื่อแคมป์หรือรายแปลงจำนวนมาก และ flow การสร้างเอกสารรายแปลงหลังเปลี่ยน filter
+
+### 1. ปรับแท็บผลลัพธ์สุทธิในหน้า Carbon Footprint
+
+- เปลี่ยนหัวข้อ section จาก `สุดท้ายแล้วคาร์บอนของโครงการเหลือสุทธิเท่าไหร่` เป็น `การปล่อยและการสะสมคาร์บอนก๊าซเรือนกระจก`
+- ปรับ KPI ของแท็บผลลัพธ์สุทธิให้เหลือ 3 ตัว:
+  - `Gross Emission`
+  - `SOC`
+  - `Net Emission`
+- เปลี่ยน `SOC Offset` เป็น `SOC`
+- เอา KPI `Carbon Credits` และ `SOC Share` ออกจากแถว KPI ผลลัพธ์สุทธิ
+- เอาคำอธิบายใต้ KPI เช่น `Project year emissions`, `Soil carbon accumulation`, `Gross Emission - SOC` ออก เพื่อให้ KPI ดูกระชับ
+- ปรับสูตร net emission ของส่วนนี้ให้คิดจาก `Gross Emission - SOC` แทนการหัก Carbon Credits
+
+### 2. เปลี่ยน Net Zero Progress เป็น Block Summary
+
+- เปลี่ยน block `Net Zero Progress · Emissions vs Credits` เป็น `ทำการเปรียบเทียบ Emissions vs SOC`
+- ไม่ใช้กราฟ progress bar ในส่วนนี้แล้ว เปลี่ยนเป็น block สรุปตัวเลขแทน
+- เพิ่มข้อมูลเปรียบเทียบ:
+  - Project Emissions
+  - SOC
+  - Net Emission
+  - SOC Share ใน block summary
+- เพิ่ม `Change Summary` เพื่อแสดง:
+  - SOC ก่อนปรับปรุงดิน
+  - SOC หลังปรับปรุงดิน
+  - SOC change
+  - Baseline emissions
+  - Project year emissions
+  - Emission change พร้อมทิศทางเพิ่ม/ลดและเปอร์เซ็นต์
+- ลบ block `Carbon Balance Waterfall` ออกจากแท็บผลลัพธ์สุทธิ
+- ปรับรายการ `แคมป์ที่ควรติดตามหลังดูผลลัพธ์สุทธิ` ให้แสดงหน่วยต่อไร่ (`tCO2e/ไร่`)
+
+### 3. แก้กราฟเปรียบเทียบแคมป์และรายแปลงไม่ให้ชื่อเบียดกัน
+
+- ปรับกราฟ `เปรียบเทียบแคมป์และรายแปลง` ในหน้า Carbon Footprint ส่วนการปล่อยคาร์บอน
+- เพิ่มการตัดชื่อแคมป์เป็นหลายบรรทัด
+- เพิ่มความสูงของกราฟ
+- ขยาย canvas ด้านในตามจำนวนแคมป์ และให้กล่องกราฟ scroll แนวนอนแทนการบีบชื่อทั้งหมดไว้ในจอเดียว
+- ปรับขนาดแท่งกราฟให้ใหญ่ขึ้นและอ่านง่ายขึ้น
+
+### 4. แก้กราฟ SOC ก่อน/หลังเมื่อ filter รายแปลงในแคมป์
+
+- ปรับ component กลาง `ActivityGroupedBar` ให้รองรับรายการจำนวนมาก
+- ถ้า label มากกว่า 8 รายการ จะสร้าง canvas แนวนอนและมี scrollbar
+- ตัด label เป็นหลายบรรทัดเพื่อให้ชื่อรายแปลงไม่ทับกัน
+- ใช้กับกราฟ `ก่อน VS หลัง การปรับปรุงดิน` และ grouped bar อื่นที่มีรายการเยอะ
+
+### 5. แก้หน้าแผนที่ประเทศไทยและเอกสารรายละเอียดรายแปลง
+
+- แก้ปัญหาเมื่อเลือก filter เช่น `กลุ่มไร่อีสาน` แล้วสร้างเอกสาร จากนั้นเปลี่ยน filter แล้วเกิด error `wrong PNG signature`
+- เปลี่ยนการฝังภาพ canvas ใน PDF preview จาก PNG เป็น JPEG เพื่อลดปัญหา decoder/signature ของ jsPDF
+- เพิ่มการล้าง preview เอกสารเมื่อ filter เปลี่ยน:
+  - ล้าง `generatedDocument`
+  - ล้าง PDF URL เดิม
+  - reset preview tab กลับไปที่ PDF
+  - ปิดสถานะกำลัง render ที่ค้างอยู่
+- เพิ่ม guard กัน render job เก่ากลับมาเขียน state หลังจาก filter เปลี่ยนหรือ reset แล้ว
+- เมื่อกด `Reset Filter` ให้ reset ทั้งข้อมูลหน้าแผนที่, Preview เอกสารรายแปลง และไฟล์ที่ generate ค้างไว้
+
+### 6. ไฟล์หลักที่แก้ในงานวันที่ 15 มิถุนายน 2569
+
+- `frontend/src/features/cf-dashboard/pages/ProcessPage.tsx`
+- `frontend/src/features/cf-dashboard/pages/SpatialPage.tsx`
+- `frontend/src/features/cf-dashboard/components/charts/ActivityGroupedBar.tsx`
+- `frontend/src/features/cf-dashboard/cf-dashboard.css`
+
+### 7. การตรวจสอบหลังแก้ไข
+
+- รัน `npm run build --workspace=frontend` ผ่านหลายรอบหลังแก้แต่ละส่วน
+- ยังมี Vite warning เรื่อง bundle chunk ใหญ่ ซึ่งเป็น warning ด้าน optimization ไม่ใช่ build error
+- ระหว่างแก้พบประเด็น encoding ภาษาไทยจากการใช้ PowerShell อ่าน/เขียนไฟล์ จึงปรับวิธีแก้ไฟล์ให้รักษา UTF-8 และไม่ต้องติดตั้งภาษาไทยเพิ่มในโปรเจกต์
+
+### 8. Phase 1 - เชื่อม Analytics API กับผลคำนวณจริงให้พร้อมใช้งานต่อ
+
+รอบนี้เริ่มแก้ตามบทวิเคราะห์ระบบคำนวณและ API โดยเน้น Phase 1 ที่ทำได้ต่อเนื่องจากโครงสร้างเดิมก่อน ยังไม่เพิ่มสูตรคำนวณใหม่ แต่จัด contract และข้อมูลจาก backend ให้ frontend ใช้ข้อมูลจริงได้ปลอดภัยขึ้น
+
+- ปรับ backend analytics ให้ map กลุ่มพื้นที่ `dan-chang` และ `isan` ได้ตรงกับ frontend filter โดยอิง `region_id`, จังหวัด และอำเภอ เพื่อให้การกด filter กลุ่มไร่ด่านช้าง/กลุ่มไร่อีสานเรียกข้อมูลจริงจาก API ได้สอดคล้องขึ้น
+- ปรับ camp id ที่ส่งออกจาก API ให้เป็น presentation id แบบคงที่สำหรับแคมป์ในกลุ่มไร่ และยังรองรับ `camp_id` เดิมเมื่อต้อง query รายแปลง เพื่อไม่ให้ dropdown/การ drill down หลุดจากข้อมูลจริง
+- เพิ่มการอ่าน `carbon_process_queue_info` ใน analytics query และส่ง `calculationBreakdowns` กลับไปใน response ของ spatial node, camp summary และ field detail
+- เพิ่มการบันทึก breakdown หลัง calculate queue สำเร็จ โดยเก็บข้อมูลสูตร/ผลลัพธ์/หน่วย/เวลา calculate ลงใน `carbon_process_queue_info.calculation`
+- ปรับ frontend type ให้รองรับ `calculationBreakdowns` จาก API
+- ปรับ `VITE_CF_ANALYTICS_SOURCE` ให้รองรับค่า `api` และ `auto` เพื่อเตรียมเปิดใช้ API จริงแบบค่อยเป็นค่อยไป
+- ปรับข้อความ preview เอกสารรายแปลงให้กระชับขึ้น หลังจาก reset/generated document flow ถูกแก้แล้ว
+
+ข้อจำกัดของ Phase 1:
+
+- รายการ queue เก่าที่เคยคำนวณไปแล้วแต่ยังไม่มี `carbon_process_queue_info.calculation` จะยังไม่เห็น breakdown จนกว่าจะมีการคำนวณใหม่
+- ยังไม่ได้เพิ่มสูตร SOC removal, fertilizer group, cane type หรือสูตร emission เฉพาะกิจกรรมใหม่ในรอบนี้ เพราะ Phase 1 ตั้งใจให้เป็นการจัด contract/API ก่อน
+- ยังไม่ได้ปรับ import/queue processing ขนาดใหญ่หรือ validation เชิงสูตรทั้งระบบ ซึ่งควรแยกเป็น Phase 2 เพื่อทดสอบง่ายและลดความเสี่ยงชนงานของทีม
+
+### 9. แผนดำเนินงานต่อเรื่องเชื่อม API และการคำนวณจริง
+
+ลำดับที่ทำต่อได้ชัดเจน:
+
+- Phase 2A: ตรวจตาราง input จริงของ queue ว่าแต่ละ activity มี field สำหรับปริมาณ, หน่วย, emission factor, crop/cane type และพื้นที่ครบแค่ไหน แล้วทำ mapping document ระหว่าง database กับ dashboard metric
+- Phase 2B: เพิ่ม calculation breakdown ให้ครบทุกกลุ่มกิจกรรมหลัก เช่น ปุ๋ย, น้ำมัน, ไฟฟ้า, ขนส่ง, SOC practice โดยให้ backend ส่งทั้งค่ารวมและรายละเอียดสูตรที่ตรวจสอบย้อนหลังได้
+- Phase 2C: ทำ SOC removal จากข้อมูลจริง แยก baseline SOC, project year SOC, SOC increase และ practice contribution แล้วเชื่อมเข้า KPI/Net Result โดยไม่พึ่งค่าจำลอง
+- Phase 2D: ปรับ frontend ให้แสดงสถานะ datasource ชัดเจน เช่น `API real calculation`, `API partial`, `fallback dataset` เพื่อกันผู้ใช้เข้าใจผิดเวลาข้อมูลจริงยังไม่ครบ
+- Phase 2E: เพิ่ม regression test/API smoke test สำหรับ endpoint หลัก `/api/analytics/cf-*` เพื่อเช็กว่า filter ระดับ region/camp/field ยังให้ผลลัพธ์สอดคล้องหลัง merge งานเพื่อน
+- Phase 2F: ทดสอบ end-to-end กับข้อมูล queue ที่เพิ่ง calculate ใหม่ เพื่อยืนยันว่า `carbon_process_queue_info.calculation` ถูกบันทึกจริงและ frontend อ่านได้ครบ
+
+ส่วนที่ยังมีให้ทำต่อ:
+
+- เชื่อมสูตรคำนวณจริงของ SOC และ Carbon Credit ให้แทนข้อมูลสมมุติทั้งหมดในหน้า Carbon Footprint/Report
+- ทำ data quality guard สำหรับ queue ที่หน่วยไม่ครบหรือ emission factor หาย เพื่อให้ dashboard ไม่แสดงค่า 0 แบบหลอกตา
+- เพิ่มหน้าหรือ block ตรวจสอบรายละเอียดสูตรต่อรายการกิจกรรม หากต้องการให้ผู้ใช้ audit ที่มาของตัวเลขได้
+- ตรวจ performance ของ analytics query เมื่อข้อมูล queue เยอะขึ้น โดยเฉพาะ spatial/camp/field summary
+
+## อัปเดตงานประจำวันที่ 13 มิถุนายน 2569 - จัดข้อมูลไร่จริงและผลคำนวณสมมุติให้ใช้ร่วมกันใน Carbon Analytics
+
+รอบนี้ปรับต่อจากปัญหาข้อมูลในหน้า Carbon Analytics ที่เดิมมีทั้ง mock data, ข้อมูลไร่อ้อยจริง และผลคำนวณจาก API/ชุดข้อมูลเก่าปนกัน ทำให้บางหน้าแสดงพื้นที่จริงแต่ตัวเลข Carbon Footprint / Carbon Credit ยังอิงข้อมูลคนละชุด งานที่ทำเพิ่มจึงเน้นจัดชั้นข้อมูลใหม่ให้ใช้ `spatialProjectPlots.ts` เป็นฐานเดียวกัน และสร้างผลคำนวณสมมุติจากฐานไร่จริงเพื่อใช้แสดงผลระหว่างที่ API ผลคำนวณจริงยังไม่พร้อมครบทุกส่วน
+
+### 1. จัดทำ dataset กลางจากข้อมูลไร่อ้อยจริง
+
+- เพิ่มไฟล์ `frontend/src/features/cf-dashboard/data/projectDashboardDataset.ts`
+- ใช้ข้อมูลแปลงจริงจาก `spatialProjectPlots.ts` เป็น source หลักสำหรับ Carbon Analytics
+- สร้างข้อมูลสรุปที่จำเป็นต่อ dashboard จากฐานเดียวกัน ได้แก่:
+  - KPI ภาพรวมพื้นที่ แปลง เกษตรกร ปีฐาน ปีดำเนินโครงการ
+  - Trend รายปีสำหรับ baseline และ project year
+  - Process emission รายขั้นตอน
+  - Process input comparison สำหรับปุ๋ยและน้ำมัน
+  - Cane type summary
+  - Spatial nodes สำหรับ country, region, province, district, subdistrict และ field
+  - Camp summary และ field detail
+- เพิ่ม logic แปลงพิกัด UTM ของแปลงจริงเป็น latitude/longitude เพื่อใช้กับแผนที่และข้อมูล spatial
+- ใช้ข้อมูล mapping จาก `spatialProjectGeoMappings.ts` เพื่อจัดกลุ่มจังหวัด/อำเภอ/ตำบลตามแคมป์ที่รู้ข้อมูลแล้ว
+
+### 2. ปรับ data source ของ Carbon Analytics ไม่ให้ข้อมูลเก่ามาปนกับข้อมูลไร่จริง
+
+- ปรับ `frontend/src/features/cf-dashboard/services/dashboardApi.ts`
+- เปลี่ยน fallback ของ dashboard จาก `mockDashboard` เดิมมาใช้ `projectDashboardDataset`
+- ตั้งค่า default ให้หน้า Carbon Analytics ใช้ข้อมูลไร่จริง + ผลคำนวณสมมุติจาก dataset กลางก่อน
+- กันไม่ให้ analytics API เก่าทับข้อมูลไร่จริงโดยอัตโนมัติ
+- ถ้าต้องการกลับไปใช้ API จริงในอนาคต ให้ตั้งค่า environment:
+
+```env
+VITE_CF_ANALYTICS_SOURCE=api
+```
+
+- ปรับข้อความ meta/source ของข้อมูลให้สื่อชัดว่าเป็น `ข้อมูลไร่จริง` และ `ผลคำนวณสมมุติ`
+
+### 3. ทำให้หน้า Overview, Process, Spatial และ Footprint Report ใช้ข้อมูลชุดเดียวกันมากขึ้น
+
+- หน้า Overview ใช้ KPI, trend, input comparison และ cane type summary จาก dataset กลาง
+- หน้า Process ใช้ camp summary, field detail, process activity และ spatial nodes จากฐานข้อมูลไร่จริงชุดเดียวกัน
+- หน้า Spatial ยังคงใช้ข้อมูลแปลงจริงเป็นฐาน และข้อมูลที่ service ส่งกลับสอดคล้องกับแคมป์/แปลงมากขึ้น
+- หน้า Footprint Report ใช้ camp/field/spatial summary ที่สร้างจาก `projectDashboardDataset` เพื่อไม่ให้ตัวเลขพื้นที่และผลคำนวณอ้างอิงคนละชุด
+
+### 4. ปรับหน้า Premium T-VER Report ให้เลือก filter แล้วมีเครดิตสมมุติระดับแคมป์/แปลง
+
+- ปรับหน้า `สรุปผลทั้งหมดสำหรับเตรียมยื่น Premium T-VER`
+- เพิ่ม camp summary node ใน dataset กลาง เพื่อให้ dropdown `แคมป์` สามารถเลือกแล้วคำนวณ summary และ credit เฉพาะแคมป์ได้
+- ทำให้ `getReportSummary()` ใช้ข้อมูลไร่จริง + ผลคำนวณเครดิตสมมุติเป็นค่าเริ่มต้น
+- ถ้าเลือก filter ระดับกลุ่มไร่, จังหวัด, อำเภอ, ตำบล, แคมป์ หรือแปลง ระบบจะ scale KPI, process, input และ spatial summary ตามขอบเขตที่เลือก
+- แก้กรณีเลือกแคมป์แล้วไม่มีข้อมูลเครดิต เพราะเดิมยังไม่มี node ตัวแทนภาพรวมแคมป์สำหรับหน้า report
+- ปรับข้อความ analysis ของ report ให้ระบุว่าเป็นข้อมูลไร่จริงพร้อมผลคำนวณเครดิตสมมุติสำหรับเตรียมยื่น Premium T-VER
+
+### 5. แก้ข้อความแหล่งข้อมูลและตัวหนังสือเพี้ยนในหน้า Dashboard
+
+- ปรับ `frontend/src/features/cf-dashboard/components/common/SourceBadge.tsx`
+- เปลี่ยน label จาก `Mock fallback` เป็น `ไร่จริง + คำนวณสมมุติ`
+- แก้ข้อความภาษาไทยที่เพี้ยนใน dataset กลาง เช่น:
+  - ชื่อ process การเตรียมดินและปลูก
+  - การใช้ปุ๋ย
+  - การให้น้ำและกำจัดวัชพืช
+  - การเก็บเกี่ยว
+  - ประเทศไทย
+  - ประเภทอ้อย เช่น อ้อยปลูก, อ้อยตอ, พื้นที่พักดิน
+- ตรวจหน้า `ReportPage.tsx` แล้วไม่พบ pattern mojibake ในไฟล์ source หลังแก้
+
+### 6. ไฟล์หลักที่เกี่ยวข้องกับงานวันที่ 13 มิถุนายน 2569
+
+- `frontend/src/features/cf-dashboard/data/projectDashboardDataset.ts`
+- `frontend/src/features/cf-dashboard/services/dashboardApi.ts`
+- `frontend/src/features/cf-dashboard/components/common/SourceBadge.tsx`
+- `frontend/src/features/cf-dashboard/pages/ReportPage.tsx`
+- `frontend/src/features/cf-dashboard/data/spatialProjectPlots.ts`
+- `frontend/src/features/cf-dashboard/data/spatialProjectGeoMappings.ts`
+
+### 7. การตรวจสอบหลังแก้ไข
+
+- รัน `npm run build` ใน `frontend` ผ่าน
+- เปิดทดสอบ dev server ที่ `http://127.0.0.1:5173`
+- ตรวจหน้า `/report` แล้ว route ตอบกลับได้
+- ยังมี Vite warning เรื่อง bundle chunk ใหญ่ ซึ่งเป็น warning ด้าน optimization ไม่ใช่ build error
 
 ## อัปเดตงานประจำวันที่ 12 มิถุนายน 2569 - จากแชทและ Git branch `idea`
 

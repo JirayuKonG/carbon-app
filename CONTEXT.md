@@ -1,6 +1,6 @@
 # Project Context Memory
 
-Last updated: 2026-06-12
+Last updated: 2026-06-15
 
 This file is a working memory for the project. It summarizes the current repo state, important decisions, active risks, and where future work should start. Update it when major behavior, routes, architecture, or project status changes.
 
@@ -89,6 +89,7 @@ Verified from `frontend/src/App.tsx` on 2026-06-11:
 - `/pipeline`: Carbon Analytics pipeline page
 - `/calculate`: redirect to Carbon preparation page
 - `/calculate/prepare`: carbon data preparation page for moving imported activity details into `carbon_process_queue`
+- `/calculate/usage`: input usage summary page for fertilizer, fuel, and other activity factors by camp/field/year
 - `/calculate/footprint`: carbon process queue page for unit/volume/soil/SOC preparation and calculation actions
 - `/calculate/credit`: carbon credit analysis page
 - `/dashboard`: older GHG dashboard
@@ -121,6 +122,7 @@ Verified from `frontend/src/components/layout/Sidebar.tsx` on 2026-06-11:
     - `/activities/logs`
   - `คำนวณ Carbon`
     - `/calculate/prepare`
+    - `/calculate/usage`
     - `/calculate/footprint`
     - `/calculate/credit`
 - `ข้อมูลเกษตรกร`
@@ -157,11 +159,45 @@ What that means:
 Important current behavior from code and repo notes:
 
 - `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` handles the preparation step for moving eligible activity-detail rows into `carbon_process_queue`.
+- `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` shows the pre-footprint input usage summary for fertilizer, fuel, and other activity factors.
 - `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` is the queue-driven Carbon Footprint preparation/calculation page.
 - `frontend/src/features/cf-dashboard/pages/CarbonCreditPage.tsx` is a comparison page for 4 baseline years plus 1 project year.
 - Repo notes say preparation metadata is intentionally stored without adding new database columns, reusing existing queue and result-unit fields.
 - Activity imports now maintain imported-file history through `activities_fileNameUse`.
 - Backend bootstrap in `backend/src/main.ts` installs `50mb` JSON and URL-encoded body parsers to support large import payloads.
+
+Recent input-usage summary page update from user prompt on 2026-06-15:
+
+- Prompt summary: add a new page between `เตรียมข้อมูล Carbon` and `Carbon Footprint` that summarizes factor usage by camp, field, and year, using real database data while treating the newly added Excel files as reference examples only.
+- Result: `/calculate/usage` now renders `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`, with shared filters for year/camp/field/view density, fertilizer and fuel sections, other-factor summary, and a 2-4 target comparison workspace for camp or field comparison.
+- Backend behavior: `GET /api/activities/input-usage-summary` in `backend/src/modules/activities/activities.controller.ts` and `backend/src/modules/activities/activities.service.ts` aggregates `log_activities_detail` with activity header, land/camp, resource, unit, status, and optional `carbon_process_queue_info` preparation data.
+- Unit behavior: fertilizer is normalized to `kg`, fuel is normalized to `L`, and unknown unit conversions are counted as warnings instead of being added to the kg/L totals.
+- Source-of-truth files: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`, `frontend/src/App.tsx`, `frontend/src/components/layout/Sidebar.tsx`, `backend/src/modules/activities/activities.controller.ts`, and `backend/src/modules/activities/activities.service.ts`.
+- Verification: `npm run build --workspace=backend` and `npm run build --workspace=frontend`.
+
+Recent input-usage summary readability update from user prompt on 2026-06-15:
+
+- Prompt summary: refine the `สรุปการใช้ปัจจัย` page so the fertilizer section looks closer to the attached xlsx example and make the whole page easier to scan because the previous section colors felt too similar.
+- Result: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now renders the fertilizer section with a workbook-style table grouped by year and fertilizer item, including cane type, total kg, area, and warning columns per year group. The page header, shared-filter area, KPI cards, fertilizer block, fuel block, comparison workspace, and other-factor block now use more distinct color palettes and section framing to reduce the “everything blends together” feel.
+- Backend behavior: `backend/src/modules/activities/activities.service.ts` now includes sugarcane type labels in the input-usage summary response so the workbook-style fertilizer table can show `ประเภทอ้อย` closer to the reference layout.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` and `backend/src/modules/activities/activities.service.ts`.
+- Verification: `npm run build --workspace=frontend` and `npm run build --workspace=backend`.
+
+Recent fertilizer-workbook usability update from user prompt on 2026-06-15:
+
+- Prompt summary: keep the large fertilizer workbook table from pushing the rest of the page downward, remove the unnecessary dedicated camp column, and make workbook column titles readable in full instead of visually cut off.
+- Result: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now keeps the fertilizer workbook table inside its own scrollable frame with internal vertical and horizontal scrolling, plus an expand/collapse control for the frame. The dedicated `ไร่ / Camp` workbook column was removed, while camp information is still shown as supporting text inside the land cell. Fertilizer-item headers now use larger minimum widths and wrapped multi-line text so long names are readable without truncation.
+- Additional behavior: the workbook frame now supports normal wheel scrolling for up/down and `Shift + Wheel` for left/right movement inside the table area.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+
+Recent input-usage header/comparison workspace update from user prompt on 2026-06-15:
+
+- Prompt summary: make the top `สรุปการใช้ปัจจัย` header frame smaller/tidier instead of large, and expand the `เปรียบเทียบไร่ / แปลง` area so users can add more comparison cards while still being able to read the text.
+- Result: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now uses a more compact top hero/header card with smaller padding, badge sizing, and supporting chips while keeping the same information. The comparison workspace now supports up to 10 cards instead of 4 and lays them out in multiple responsive rows (`1 / 2 / 3 / 4` columns by screen size) instead of over-compressing everything into a single row.
+- Additional behavior: the comparison area shows a current usage counter and keeps card text readable by allowing more vertical wrapping in values and top-item summaries.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
 
 Recent workflow update from user prompt on 2026-06-12:
 
@@ -218,6 +254,69 @@ Recent Carbon Footprint fuel-preview formatting update from user prompt on 2026-
 - Related docs updated: `CONTEXT.md` updated for project memory. No backend code or schema changes were required.
 
 Recent Carbon Footprint split-pane update from user prompt on 2026-06-13:
+
+Recent Carbon Footprint fertilizer manual-formula update from user prompt on 2026-06-14:
+
+- Prompt summary: on `คำนวณ Carbon -> Carbon Footprint -> คำนวณรายการที่เลือก`, allow fertilizer rows that do not have a parseable `N-P2O5-K2O` formula in the item name to be calculated by manually entering `N`, `P2O5`, and `K2O` in the card/modal page, with decimal input up to 4 places, based on `CONCLUSION_CARBON_CAL_TABLE.md`.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now shows a manual `N-P2O5-K2O` input section for fertilizer rows whose formula cannot be detected from the fertilizer name. The frontend preview uses those manual values immediately when they are complete and valid.
+- Additional behavior: the modal validates that `N`, `P2O5`, and `K2O` are all provided, are numeric, are not negative, and sum to at most `100`. It also shows the derived filler percentage and blocks submission until the required manual formula is complete.
+- Backend alignment: `backend/src/modules/activities/activities.service.ts` and `backend/src/modules/activities/activities.controller.ts` now accept the manual fertilizer percentages in the queue-calculation request and use them as a fallback when the fertilizer name does not contain a parseable chemical formula.
+- Source of truth: the card-page UI and preview behavior live in `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`; the persisted calculation behavior lives in `backend/src/modules/activities/activities.service.ts`.
+- Verification: `npm run build --workspace=frontend` and `npm run build --workspace=backend`.
+- Limitation kept intentionally: the main queue table can still show the original blocked input status before modal entry because the manual formula is supplied inside the calculation modal, not stored back onto the queue row itself.
+- Related docs updated: `CONTEXT.md` updated for project memory. No schema/database changes were made.
+
+Recent Carbon Footprint card-page warning-layout update from user prompt on 2026-06-14:
+
+- Prompt summary: on `คำนวณ Carbon -> Carbon Footprint -> คำนวณรายการที่เลือก`, when users select mixed rows such as fertilizer, organic fertilizer, and fuel together, the warning text at the bottom of the card page can overflow beyond the modal/card boundary.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now keeps the preview modal body in a constrained flex/scroll layout and renders bottom warnings inside a full-width warning box within the card page instead of as loose text lines below the action buttons.
+- Additional behavior: long warning content now wraps inside the modal and remains visible together with the footer buttons instead of visually spilling outside the card page.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+
+Recent Carbon preparation bulk-status performance update from user prompt on 2026-06-14:
+
+- Prompt summary: on `คำนวณ Carbon -> เตรียมข้อมูล Carbon`, the bulk action `ย้ายเป็นกำลังเตรียมข้อมูล` could fail with `timeout of 30000ms exceeded` when moving many rows from `นำเข้าข้อมูลแล้ว` to `กำลังเตรียมข้อมูล`.
+- Result: `backend/src/modules/activities/activities.service.ts` now handles bulk manual/workflow status transitions with a batch-oriented path instead of looping one row at a time. The service now validates the selected rows first, updates detail statuses in bulk, and creates or updates `carbon_process_queue` records in bulk when moving rows into the preparing state.
+- Frontend alignment: `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` now gives the single-row manual-status request a 2-minute timeout and the bulk manual-status request a 10-minute timeout, so large valid requests are less likely to fail only because of the old 30-second client timeout.
+- Source of truth: bulk status-transition performance behavior now lives in `backend/src/modules/activities/activities.service.ts`, while the calling timeout behavior for the `เตรียมข้อมูล Carbon` page lives in `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx`.
+- Verification: `npm run build --workspace=backend` and `npm run build --workspace=frontend`.
+- Limitation kept intentionally: the page still waits for the backend to finish before showing success, so extremely large batches can still take noticeable time, but they should no longer pay the previous per-row transition overhead or hit the default 30-second client timeout as easily.
+
+Recent Carbon preparation-queue status timeout update from user prompt on 2026-06-14:
+
+- Prompt summary: on `คำนวณ Carbon -> เตรียมข้อมูล Carbon`, inside the `คิวเตรียมข้อมูล` section, large batch status changes from `กำลังเตรียมข้อมูล -> นำเข้าข้อมูลแล้ว` and `กำลังเตรียมข้อมูล -> พร้อมคำนวณมาตรฐาน` could still hit `timeout of 30000ms exceeded`, including the card-page flow that applies actions to checked rows.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now gives manual-status transitions a longer request timeout for both the bulk status buttons (`ย้ายกลับไปนำเข้า`, `ย้ายเป็นพร้อมคำนวณ`) and the bulk-preparation card-page checkbox flow that auto-moves prepared rows to `พร้อมคำนวณมาตรฐาน`.
+- Backend alignment: `backend/src/modules/activities/activities.controller.ts` and `backend/src/modules/activities/activities.service.ts` now explicitly treat `นำเข้าข้อมูลแล้ว` as a supported manual-status target in the typed controller/service signatures, matching the existing runtime behavior of the queue-preparation UI.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` for client timeout behavior, and `backend/src/modules/activities/activities.controller.ts` plus `backend/src/modules/activities/activities.service.ts` for accepted status-transition targets.
+- Verification: `npm run build --workspace=frontend` and `npm run build --workspace=backend`.
+
+Recent Carbon preparation queue visual-separation update from user prompt on 2026-06-14:
+
+Recent calculation-status naming update from user prompt on 2026-06-15:
+
+- Prompt summary: rename the calculation status label `คำนวณแล้ว(มาตรฐาน,CFP)` to `คำนวณแล้ว(มาตรฐาน,C-credit)` across backend and frontend because the current project meaning treats `มาตรฐาน` and `CFP` as overlapping, while the combined status should communicate `มาตรฐาน` plus `C-credit`.
+- Result: the canonical calculated-combined status name is now `คำนวณแล้ว(มาตรฐาน,C-credit)` in `backend/src/modules/activities/activities.service.ts` and `frontend/src/features/activities/cal-status.ts`.
+- Compatibility behavior: the backend status bootstrap still recognizes legacy names `คำนวณแล้ว(มาตรฐาน,CFP)` and `คำนวณแล้ว(มาตรฐาน+CFP)` and upgrades them to the new canonical label, while the frontend still renders old saved values as the new label until backend normalization runs.
+- Frontend alignment: dashboard cards, filters, and status-facing helper text that referenced the old combined label now show `คำนวณแล้ว(มาตรฐาน,C-credit)` in the activity pages and Carbon calculation pages.
+- Source of truth: combined calculation-status naming now lives in `backend/src/modules/activities/activities.service.ts` and `frontend/src/features/activities/cal-status.ts`.
+- Verification: pending focused frontend and backend builds for this rename-only change.
+
+- Prompt summary: on `คำนวณ Carbon -> เตรียมข้อมูล Carbon`, the lower `คิวเตรียมข้อมูลทั้งหมด` area looked too visually similar to the upper `เตรียมข้อมูล Carbon` area, making the queue section harder to recognize quickly.
+- Result: `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` now wraps the embedded queue workspace in a distinct warm-toned section with its own heading and descriptive label, while `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` applies a matching warm-toned card treatment when rendered in embedded preparation mode.
+- Additional behavior: the lower queue workspace now reads as a separate operational area from the upper import/preparation section without changing the actual workflow or data behavior.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` and `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+
+Recent Carbon Footprint calculation-run timeout update from user prompt on 2026-06-15:
+
+- Prompt summary: on `คำนวณ Carbon -> Carbon Footprint`, the card-page flow behind `คำนวณรายการทั้งหมดที่เลือก` needs to better tolerate long-running calculations and large selected batches because each row can involve multiple calculation parts before its status is updated.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now sends each queue-row `calculate` request with a dedicated long timeout (`20 minutes`) instead of relying on the default `30 seconds` API timeout.
+- Additional behavior: the frontend no longer inserts the old fixed `120ms` delay between row calculations in the bulk run loop, reducing cumulative overhead when many rows are selected.
+- Status alignment: the same per-row calculate request still performs the full existing backend flow for `calculate + save result + update status`, so extending the request tolerance also extends tolerance for the status-update part of the run without changing the calculation logic itself.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+- Limitation kept intentionally: this run flow still sends one request per selected queue row so users can keep row-specific EF selections, fertilizer factor choices, and manual fertilizer formula inputs; this update improves tolerance for long-running rows rather than replacing that row-by-row architecture.
 
 - Prompt summary: on the same `Carbon Footprint -> คำนวณรายการที่เลือก` card page, keep the preview-result behavior aligned with the selected unit and make the left-hand card area adjustable because it felt too narrow.
 - Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now keeps the generic fuel preview result formatted by selected unit and adds a draggable vertical divider between the left control panel and the right preview panel in the calculation modal.

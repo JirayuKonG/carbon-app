@@ -38,13 +38,14 @@ export class ActivitiesController {
   @Get('details')
   @ApiQuery({ name: 'header_id', required: false, type: Number })
   getDetails(@Query('header_id') hid?: string) { return this.svc.getDetails(hid ? +hid : undefined) }
+  @Get('input-usage-summary') getInputUsageSummary() { return this.svc.getInputUsageSummary() }
   @Post('details') createDetail(@Body() b: any) { return this.svc.createDetail(b) }
   @Post('details/workflow-status/bulk')
   moveDetailsToWorkflowStatusBulk(@Body() b: { ids: number[]; statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' }) {
     return this.svc.moveDetailsToWorkflowStatus(b.ids, b.statusName)
   }
   @Post('details/manual-status/bulk')
-  moveDetailsToManualStatusBulk(@Body() b: { ids: number[]; statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' | 'คำนวณแล้ว(มาตรฐาน)' }) {
+  moveDetailsToManualStatusBulk(@Body() b: { ids: number[]; statusName: 'นำเข้าข้อมูลแล้ว' | 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' | 'คำนวณแล้ว(มาตรฐาน)' }) {
     return this.svc.moveDetailsToManualStatus(b.ids, b.statusName)
   }
   @Post('details/calculate/bulk')
@@ -61,7 +62,7 @@ export class ActivitiesController {
   @Post('details/:id/manual-status')
   moveDetailToManualStatus(
     @Param('id', ParseIntPipe) id: number,
-    @Body() b: { statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' | 'คำนวณแล้ว(มาตรฐาน)' },
+    @Body() b: { statusName: 'นำเข้าข้อมูลแล้ว' | 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' | 'คำนวณแล้ว(มาตรฐาน)' },
   ) {
     return this.svc.moveDetailToManualStatus(id, b.statusName)
   }
@@ -96,6 +97,9 @@ export class ActivitiesController {
       fertilizerDapEfId?: number
       fertilizerKclEfId?: number
       fertilizerGwpId?: number
+      manualFertilizerNPercent?: number
+      manualFertilizerP2O5Percent?: number
+      manualFertilizerK2OPercent?: number
     },
   ) {
     return this.svc.calculateCarbonProcessQueueItem(id, b)

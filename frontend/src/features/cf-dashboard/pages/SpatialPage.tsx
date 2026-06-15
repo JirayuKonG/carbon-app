@@ -12,7 +12,7 @@ import { MapPinned } from "lucide-react";
 import "../cf-dashboard.css";
 
 type SpatialPreviewTab = "pdf" | "excel";
-type SpatialProcessPeriod = "baseline" | "current";
+type SpatialProcessPeriod = "both" | "baseline" | "current";
 
 interface SpatialExcelRows {
   campRows: Record<string, unknown>[];
@@ -479,7 +479,7 @@ export function CfSpatialPage() {
   const [selectedBoundaryFieldId, setSelectedBoundaryFieldId] = useState("");
   const [selectedProjectCampName, setSelectedProjectCampName] = useState("all");
   const [selectedProjectPlotCode, setSelectedProjectPlotCode] = useState("all");
-  const [processPeriod, setProcessPeriod] = useState<SpatialProcessPeriod>("current");
+  const [processPeriod, setProcessPeriod] = useState<SpatialProcessPeriod>("both");
   const [generatedDocument, setGeneratedDocument] = useState<{ title: string; fields: CampFieldCarbonDetail[]; camps: CampCarbonSummary[] } | null>(null);
   const [activePreviewTab, setActivePreviewTab] = useState<SpatialPreviewTab>("pdf");
   const [documentRenderId, setDocumentRenderId] = useState(0);
@@ -761,9 +761,13 @@ export function CfSpatialPage() {
   const carbonCredit = focusNode ? creditSummary(focusNode.baselineEmission, focusNode.currentEmission) : creditSummary(0, 0);
   const baselineProcessBreakdown = focusNode ? scaleProcessBreakdown(focusNode.processBreakdown, focusNode.baselineEmission) : [];
   const currentProcessBreakdown = focusNode?.processBreakdown ?? [];
-  const processBreakdownForPeriod = processPeriod === "baseline" ? baselineProcessBreakdown : currentProcessBreakdown;
+  const processBreakdownForPeriod = processPeriod === "current" ? currentProcessBreakdown : baselineProcessBreakdown;
   const processComparisonBreakdown = processPeriod === "baseline" ? currentProcessBreakdown : baselineProcessBreakdown;
-  const processPeriodLabel = processPeriod === "baseline" ? "ปีฐาน" : "ปีดำเนินการ";
+  const processPeriodLabel = processPeriod === "both"
+    ? "ปีฐาน VS ปีดำเนินการ"
+    : processPeriod === "baseline"
+      ? "ปีฐาน"
+      : "ปีดำเนินการ";
   const spatialInputs = focusNode?.processInputComparisons ?? [];
   const inputTotals = sumInputs(spatialInputs);
   const fertilizerDiff = inputTotals.baselineFertilizerKg - inputTotals.currentFertilizerKg;
@@ -801,6 +805,17 @@ export function CfSpatialPage() {
     [generatedDocument],
   );
 
+  const clearSpatialDocumentPreview = () => {
+    setGeneratedDocument(null);
+    setActivePreviewTab("pdf");
+    setDocumentRenderId(0);
+    setGeneratingDocument(false);
+    setPdfUrl((old) => {
+      if (old) URL.revokeObjectURL(old);
+      return "";
+    });
+  };
+
   useEffect(() => {
     if (selectedBoundaryFieldId && !displayCampFields.some((field) => field.id === selectedBoundaryFieldId)) {
       setSelectedBoundaryFieldId("");
@@ -822,30 +837,39 @@ export function CfSpatialPage() {
 
   useEffect(() => {
     if (!generatedDocument || !spatialDocRef.current) return;
+    let cancelled = false;
     let revoked = "";
     setGeneratingDocument(true);
     const timer = window.setTimeout(() => {
       if (!spatialDocRef.current) return;
       html2canvas(spatialDocRef.current, { scale: 1.8, backgroundColor: "#ffffff" }).then((canvas) => {
+        if (cancelled) return;
         const pdf = new jsPDF("p", "mm", "a4");
         const width = pdf.internal.pageSize.getWidth();
         const height = pdf.internal.pageSize.getHeight();
         const margin = 8;
         const imageWidth = width - margin * 2;
         const imageHeight = (canvas.height * imageWidth) / canvas.width;
-        const image = canvas.toDataURL("image/png");
+        const image = canvas.toDataURL("image/jpeg", 0.95);
+        if (!image.startsWith("data:image/jpeg;base64,")) {
+          throw new Error("ไม่สามารถสร้างรูปภาพสำหรับ PDF preview ได้");
+        }
         let position = margin;
 
-        pdf.addImage(image, "PNG", margin, position, imageWidth, imageHeight);
+        pdf.addImage(image, "JPEG", margin, position, imageWidth, imageHeight);
         let remainingHeight = imageHeight - (height - margin * 2);
         while (remainingHeight > 0) {
           position = remainingHeight - imageHeight + margin;
           pdf.addPage();
-          pdf.addImage(image, "PNG", margin, position, imageWidth, imageHeight);
+          pdf.addImage(image, "JPEG", margin, position, imageWidth, imageHeight);
           remainingHeight -= height - margin * 2;
         }
 
         const url = URL.createObjectURL(pdf.output("blob"));
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
         setPdfUrl((old) => {
           if (old) URL.revokeObjectURL(old);
           return url;
@@ -853,17 +877,27 @@ export function CfSpatialPage() {
         revoked = url;
         setDocumentNotice("อัปเดต Preview เอกสารเรียบร้อยแล้ว");
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "สร้าง PDF preview ไม่สำเร็จ"))
-      .finally(() => setGeneratingDocument(false));
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "สร้าง PDF preview ไม่สำเร็จ");
+      })
+      .finally(() => {
+        if (!cancelled) setGeneratingDocument(false);
+      });
     }, 250);
 
     return () => {
+      cancelled = true;
       window.clearTimeout(timer);
       if (revoked) URL.revokeObjectURL(revoked);
     };
   }, [generatedDocument, documentRenderId]);
 
   const generateSpatialDocument = () => {
+    setError("");
+    setPdfUrl((old) => {
+      if (old) URL.revokeObjectURL(old);
+      return "";
+    });
     setDocumentNotice("กำลังสร้าง Preview เอกสารตามฟิลเตอร์ปัจจุบัน...");
     setGeneratedDocument({ title: documentTitle, fields: documentFields, camps: documentCamps });
     setDocumentRenderId((value) => value + 1);
@@ -871,6 +905,8 @@ export function CfSpatialPage() {
   };
 
   const markSpatialFilterChanged = () => {
+    clearSpatialDocumentPreview();
+    setError("");
     setDocumentNotice("ตัวกรองเปลี่ยนแล้ว ข้อมูลหน้าเว็บและแผนที่อัปเดตทันที กดสร้างเอกสารเมื่อพร้อม");
   };
 
@@ -999,7 +1035,9 @@ export function CfSpatialPage() {
     setSelectedBoundaryFieldId("");
     setSelectedProjectCampName("all");
     setSelectedProjectPlotCode("all");
-    markSpatialFilterChanged();
+    clearSpatialDocumentPreview();
+    setError("");
+    setDocumentNotice("Reset Filter แล้ว Preview เอกสารรายแปลงและไฟล์สร้างเอกสารถูกล้างเรียบร้อยแล้ว");
   };
 
   if (!selected) {
@@ -1019,7 +1057,8 @@ export function CfSpatialPage() {
 
         <section className="card spatial-picker">
           <div>
-            <div className="card-title">เลือกพื้นที่</div>
+            <div className="card-title">ตัวกรองพื้นที่</div>
+            <p className="muted text-xs font-normal" style={{ marginBottom: "1rem", fontSize: "0.85em", opacity: 0.6 }}>กรุณากำหนดขอบเขตพื้นที่และโครงการ เพื่อใช้เป็นเงื่อนไขในการแสดงผลข้อมูลแผนที่เชิงพื้นที่</p>
             <div className="breadcrumb">
               {breadcrumbs.map((item, index) => (
                 <span key={item.id}>
@@ -1167,8 +1206,6 @@ export function CfSpatialPage() {
         <section className="card report-toolbar spatial-export-toolbar">
           <div>
             <div className="card-title">เอกสารรายละเอียดรายแปลง</div>
-            <p className="muted">Preview PDF ใช้ตรวจรูปแบบเอกสารรายแปลง ส่วน Excel จะ Export เป็น 3 Sheet: Camp Summary, Province Summary และ Plot Detail</p>
-            <p className="muted export-preview-note">หมายเหตุ: Word ไม่มี preview แยก เพราะเนื้อหาภายในเหมือน PDF และเตรียมไว้ให้ดาวน์โหลดไปแก้ไขต่อใน Word ได้เอง</p>
           </div>
           <button className="run-all-btn report-generate-btn" type="button" onClick={generateSpatialDocument} disabled={!documentFields.length || generatingDocument}>
             สร้างเอกสารใหม่ (Generate Report)
@@ -1199,8 +1236,7 @@ export function CfSpatialPage() {
             ))}
           </div>
           <div className="card-title">Preview เอกสารรายแปลง</div>
-          <p className="muted export-preview-note">Preview ไม่ได้มีการแสดงข้อมูลของ Word เนื่องจากใช้เนื้อหาเดียวกันกับ PDF</p>
-          {!generatedDocument && <div className="empty-state">เลือกฟิลเตอร์ให้เรียบร้อย แล้วกดสร้างเอกสารใหม่เพื่อ Render preview</div>}
+          {!generatedDocument && <div className="empty-state">กรุณาสร้างเอกสารใหม่เพื่อดูตัวอย่าง</div>}
           <div className="spatial-doc-preview" style={{ display: generatedDocument && activePreviewTab === "pdf" ? undefined : "none" }}>
             {generatingDocument && <div className="empty-state">กำลัง Render PDF preview...</div>}
             <div ref={spatialDocRef}>
@@ -1261,8 +1297,11 @@ export function CfSpatialPage() {
 
           <article className="card">
             <div className="card-title-row">
-              <div className="card-title">แผนภูมิวงกลม · สัดส่วนกระบวนการในพื้นที่</div>
-              <div className="period-switch spatial-period-switch" role="group" aria-label="เลือกปีข้อมูลแผนภูมิวงกลม">
+              <div className="card-title">กราฟแท่ง · สัดส่วนกระบวนการในพื้นที่</div>
+              <div className="period-switch spatial-period-switch" role="group" aria-label="เลือกปีข้อมูลกราฟแท่ง">
+                <button type="button" className={processPeriod === "both" ? "active" : ""} onClick={() => setProcessPeriod("both")}>
+                  ปีฐาน VS ปีดำเนินการ
+                </button>
                 <button type="button" className={processPeriod === "baseline" ? "active" : ""} onClick={() => setProcessPeriod("baseline")}>
                   ปีฐาน
                 </button>
@@ -1274,7 +1313,8 @@ export function CfSpatialPage() {
             <ProcessDoughnut
               title={`${focusNode.name} · ${processPeriodLabel}`}
               data={processBreakdownForPeriod}
-              comparisonData={processComparisonBreakdown}
+              comparisonData={processPeriod === "both" ? currentProcessBreakdown : processComparisonBreakdown}
+              variant={processPeriod === "both" ? "comparisonBar" : "bar"}
             />
           </article>
         </section>
