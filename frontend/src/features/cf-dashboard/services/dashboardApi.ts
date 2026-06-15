@@ -15,7 +15,8 @@ import type {
 } from "../types/dashboard";
 import { projectDashboardDataset } from "../data/projectDashboardDataset";
 
-const USE_ANALYTICS_API = import.meta.env.VITE_CF_ANALYTICS_SOURCE === "api";
+const ANALYTICS_SOURCE = import.meta.env.VITE_CF_ANALYTICS_SOURCE;
+const USE_ANALYTICS_API = ANALYTICS_SOURCE === "api" || ANALYTICS_SOURCE === "auto";
 
 function cleanParams(filter?: Partial<ReportFilter>, extra?: Record<string, string>) {
   const params: Record<string, string> = { ...(extra ?? {}) };

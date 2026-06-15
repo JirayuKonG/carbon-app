@@ -7,6 +7,7 @@ type FilterLevel = 'all' | 'region' | 'province' | 'district' | 'subdistrict' | 
 type EmissionRow = {
   year: number | null
   co2e: number | null
+  queue_info: string | null
   input_amount: number | null
   area_work: number | null
   process: string | null
@@ -57,6 +58,8 @@ type ProcessInputComparison = {
   currentFuelLiter: number
 }
 
+type CalculationBreakdown = Record<string, unknown>
+
 type SpatialNode = {
   id: string
   parentId?: string
@@ -82,6 +85,7 @@ type SpatialNode = {
   soilType?: string
   irrigationType?: string
   chanots?: { chanotNo: string; areaRai: number }[]
+  calculationBreakdowns?: CalculationBreakdown[]
 }
 
 type ReportFilter = {
@@ -135,9 +139,105 @@ function mapToValues(map: Map<string, number>) {
     .sort((a, b) => b.emission - a.emission)
 }
 
+function stableIndex(key: string, modulo: number) {
+  let hash = 0
+  for (let index = 0; index < key.length; index += 1) {
+    hash = ((hash * 33) + key.charCodeAt(index)) % 1000003
+  }
+  return hash % modulo
+}
+
 @Injectable()
 export class AnalyticsService {
   constructor(private prisma: PrismaService) {}
+
+  private normalizeText(value: string | null | undefined) {
+    return (value ?? '').trim().toLowerCase()
+  }
+
+  private farmGroupForRow(row: Pick<EmissionRow, 'region_id' | 'region_name' | 'province_name' | 'district_name'>): 'dan-chang' | 'isan' | undefined {
+    const regionName = this.normalizeText(row.region_name)
+    const provinceName = this.normalizeText(row.province_name)
+    const districtName = this.normalizeText(row.district_name)
+    if (
+      row.region_id === 300
+      || provinceName.includes('สุพรรณ')
+      || districtName.includes('ด่านช้าง')
+    ) {
+      return 'dan-chang'
+    }
+    if (
+      row.region_id === 600
+      || regionName.includes('อีสาน')
+      || regionName.includes('ตะวันออกเฉียงเหนือ')
+    ) {
+      return 'isan'
+    }
+    return undefined
+  }
+
+  private farmGroupLabel(group: 'dan-chang' | 'isan') {
+    return group === 'dan-chang' ? 'ไร่ด่านช้าง' : 'ไร่อีสาน'
+  }
+
+  private regionNodeId(row: Pick<EmissionRow, 'region_id' | 'region_name' | 'province_name' | 'district_name'>) {
+    return this.farmGroupForRow(row) ?? `region-${keyPart(row.region_id)}`
+  }
+
+  private regionNodeName(row: Pick<EmissionRow, 'region_id' | 'region_name' | 'province_name' | 'district_name'>) {
+    const group = this.farmGroupForRow(row)
+    return group ? this.farmGroupLabel(group) : labelOr(row.region_name, 'ไม่ระบุภาค')
+  }
+
+  private stableCampId(campName: string | null | undefined, row: Pick<EmissionRow, 'region_id' | 'region_name' | 'province_name' | 'district_name'>) {
+    const group = this.farmGroupForRow(row)
+    if (!group) return undefined
+    const normalizedCampName = labelOr(campName, 'Unassigned camp')
+    return 100000 + stableIndex(`${group}:${normalizedCampName}`, 900000)
+  }
+
+  private presentationCampId(row: Pick<EmissionRow, 'camp_id' | 'camp_name' | 'region_id' | 'region_name' | 'province_name' | 'district_name'>) {
+    return this.stableCampId(row.camp_name, row) ?? row.camp_id ?? -1
+  }
+
+  private parseCalculationBreakdown(value: string | null | undefined): CalculationBreakdown | undefined {
+    if (!value) return undefined
+    try {
+      const parsed: unknown = JSON.parse(value)
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+      const record = parsed as Record<string, unknown>
+      const calculation = record.calculation
+      if (calculation && typeof calculation === 'object' && !Array.isArray(calculation)) return calculation as CalculationBreakdown
+      const result = record.result
+      if (result && typeof result === 'object' && !Array.isArray(result)) return result as CalculationBreakdown
+      if (
+        record.formulaMode
+        || record.calculationMethod
+        || record.upstreamKgco2e != null
+        || record.usePhaseKgco2e != null
+        || record.resultValue != null
+      ) {
+        return record
+      }
+      return undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  private calculationBreakdowns(rows: EmissionRow[], limit = 12): CalculationBreakdown[] {
+    const seen = new Set<string>()
+    const result: CalculationBreakdown[] = []
+    rows.forEach((row) => {
+      const breakdown = this.parseCalculationBreakdown(row.queue_info)
+      if (!breakdown) return
+      const key = JSON.stringify(breakdown)
+      if (seen.has(key)) return
+      seen.add(key)
+      result.push(breakdown)
+    })
+    return result.slice(0, limit)
+  }
 
   private normalizeCalStatusName(value: string | null | undefined) {
     return (value ?? '').trim().toLowerCase()
@@ -360,7 +460,7 @@ export class AnalyticsService {
     const rows = await this.getEmissionRows()
     const camps = new Map<number, EmissionRow[]>()
     rows.forEach((row) => {
-      const campId = row.camp_id ?? -1
+      const campId = this.presentationCampId(row)
       if (!camps.has(campId)) camps.set(campId, [])
       camps.get(campId)!.push(row)
     })
@@ -394,6 +494,7 @@ export class AnalyticsService {
           baselineProcessActivities,
           currentProcessActivities,
           processInputComparisons: this.buildProcessInputs(campRows),
+          calculationBreakdowns: this.calculationBreakdowns(campRows),
         }
       })
       .sort((a, b) => b.co2eTotal - a.co2eTotal)
@@ -401,7 +502,9 @@ export class AnalyticsService {
 
   async getCfCampFields(campId?: number) {
     const rows = await this.getEmissionRows()
-    const selectedRows = campId ? rows.filter((row) => row.camp_id === campId) : rows
+    const selectedRows = campId
+      ? rows.filter((row) => this.presentationCampId(row) === campId || row.camp_id === campId)
+      : rows
     const byLand = new Map<number, EmissionRow[]>()
     selectedRows.forEach((row) => {
       if (!row.land_id) return
@@ -441,11 +544,12 @@ export class AnalyticsService {
         soilType: '',
         irrigationType: '',
         chanots: [],
-        campId: first.camp_id ?? -1,
+        campId: this.presentationCampId(first),
         campName: labelOr(first.camp_name, 'Unassigned camp'),
         activitiesLogged,
         co2eTotal: round(node?.currentEmission ?? 0),
         processInputComparisons: this.buildProcessInputs(landRows),
+        calculationBreakdowns: this.calculationBreakdowns(landRows),
       }
     })
   }
@@ -521,6 +625,7 @@ export class AnalyticsService {
           WHEN LOWER(COALESCE(ru.unit_initial, ru.unit_name, '')) LIKE '%กิโล%' THEN cpq."carbon_process_queue_resultValue"::numeric / 1000
           ELSE cpq."carbon_process_queue_resultValue"::numeric
         END AS co2e,
+        cpq."carbon_process_queue_info" AS queue_info,
         COALESCE(
           ld."log_act_detail_volumeAll",
           ld."log_act_detail_quatity" * ld."log_act_detail_volumePerUnit",
@@ -584,6 +689,9 @@ export class AnalyticsService {
 
   private applyFilter(rows: EmissionRow[], filter: ReportFilter): EmissionRow[] {
     if (!filter.level || filter.level === 'all' || !filter.id) return rows
+    if (filter.level === 'region' && (filter.id === 'dan-chang' || filter.id === 'isan')) {
+      return rows.filter((row) => this.farmGroupForRow(row) === filter.id)
+    }
     const id = Number(filter.id)
     if (!Number.isFinite(id)) return rows
     return rows.filter((row) => {
@@ -716,7 +824,7 @@ export class AnalyticsService {
 
   private buildSpatialNodes(rows: EmissionRow[]): SpatialNode[] {
     const meta = this.getYearMeta(rows)
-    const nodes = new Map<string, SpatialNode & { fieldSet: Set<number>; farmerSet: Set<number>; areaSet: Map<number, number>; processMap: Map<string, number> }>()
+    const nodes = new Map<string, SpatialNode & { fieldSet: Set<number>; farmerSet: Set<number>; areaSet: Map<number, number>; processMap: Map<string, number>; calculationBreakdowns: CalculationBreakdown[] }>()
 
     const ensureNode = (id: string, parentId: string | undefined, level: SpatialNode['level'], name: string, lat: number, lng: number, zoom: number) => {
       if (!nodes.has(id)) {
@@ -739,6 +847,7 @@ export class AnalyticsService {
           farmerSet: new Set<number>(),
           areaSet: new Map<number, number>(),
           processMap: new Map<string, number>(),
+          calculationBreakdowns: [],
         })
       }
       const node = nodes.get(id)!
@@ -749,7 +858,7 @@ export class AnalyticsService {
     const country = ensureNode('thailand', undefined, 'country', 'ประเทศไทย', 13.0, 101.0, 6)
 
     rows.forEach((row) => {
-      const regionId = `region-${keyPart(row.region_id)}`
+      const regionId = this.regionNodeId(row)
       const provinceId = `province-${keyPart(row.province_id)}`
       const districtId = `district-${keyPart(row.district_id)}`
       const subdistrictId = `subdistrict-${keyPart(row.subdistrict_id)}`
@@ -757,7 +866,7 @@ export class AnalyticsService {
       const lat = n(row.land_lat) || n(row.subdistrict_lat) || n(row.camp_lat) || 13
       const lng = n(row.land_lng) || n(row.subdistrict_lng) || n(row.camp_lng) || 101
       const chain = [
-        ensureNode(regionId, country.id, 'region', labelOr(row.region_name, 'ไม่ระบุภาค'), lat, lng, 7),
+        ensureNode(regionId, country.id, 'region', this.regionNodeName(row), lat, lng, 7),
         ensureNode(provinceId, regionId, 'province', labelOr(row.province_name, 'ไม่ระบุจังหวัด'), lat, lng, 8),
         ensureNode(districtId, provinceId, 'district', labelOr(row.district_name, 'ไม่ระบุอำเภอ'), lat, lng, 10),
         ensureNode(subdistrictId, districtId, 'subdistrict', labelOr(row.subdistrict_name, 'ไม่ระบุตำบล'), lat, lng, 12),
@@ -777,6 +886,8 @@ export class AnalyticsService {
         } else if (row.year && meta.baselineYears.includes(row.year)) {
           node.baselineEmission += co2e / Math.max(meta.baselineYears.length, 1)
         }
+        const breakdown = this.parseCalculationBreakdown(row.queue_info)
+        if (breakdown && node.calculationBreakdowns.length < 12) node.calculationBreakdowns.push(breakdown)
       })
 
       const field = nodes.get(fieldId)
@@ -821,6 +932,7 @@ export class AnalyticsService {
         soilType: node.soilType,
         irrigationType: node.irrigationType,
         chanots: node.chanots,
+        calculationBreakdowns: node.calculationBreakdowns,
       }
     })
   }

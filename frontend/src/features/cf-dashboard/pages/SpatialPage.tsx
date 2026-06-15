@@ -1201,8 +1201,6 @@ export function CfSpatialPage() {
         <section className="card report-toolbar spatial-export-toolbar">
           <div>
             <div className="card-title">เอกสารรายละเอียดรายแปลง</div>
-            <p className="muted">Preview PDF ใช้ตรวจรูปแบบเอกสารรายแปลง ส่วน Excel จะ Export เป็น 3 Sheet: Camp Summary, Province Summary และ Plot Detail</p>
-            <p className="muted export-preview-note">หมายเหตุ: Word ไม่มี preview แยก เพราะเนื้อหาภายในเหมือน PDF และเตรียมไว้ให้ดาวน์โหลดไปแก้ไขต่อใน Word ได้เอง</p>
           </div>
           <button className="run-all-btn report-generate-btn" type="button" onClick={generateSpatialDocument} disabled={!documentFields.length || generatingDocument}>
             สร้างเอกสารใหม่ (Generate Report)
@@ -1233,8 +1231,7 @@ export function CfSpatialPage() {
             ))}
           </div>
           <div className="card-title">Preview เอกสารรายแปลง</div>
-          <p className="muted export-preview-note">Preview ไม่ได้มีการแสดงข้อมูลของ Word เนื่องจากใช้เนื้อหาเดียวกันกับ PDF</p>
-          {!generatedDocument && <div className="empty-state">เลือกฟิลเตอร์ให้เรียบร้อย แล้วกดสร้างเอกสารใหม่เพื่อ Render preview</div>}
+          {!generatedDocument && <div className="empty-state">กรุณาสร้างเอกสารใหม่เพื่อดูตัวอย่าง</div>}
           <div className="spatial-doc-preview" style={{ display: generatedDocument && activePreviewTab === "pdf" ? undefined : "none" }}>
             {generatingDocument && <div className="empty-state">กำลัง Render PDF preview...</div>}
             <div ref={spatialDocRef}>
