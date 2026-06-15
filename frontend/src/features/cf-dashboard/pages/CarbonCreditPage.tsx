@@ -25,6 +25,7 @@ interface DetailHeaderLocation {
 interface LogDetail {
   log_act_detail_id: number
   activities_header_id?: number
+  act_productYear_id?: number
   resource_used_type_id: number
   log_act_detail_volumeAll?: number
   log_act_detail_areawork?: number
@@ -32,6 +33,8 @@ interface LogDetail {
   activities_fertilizers?: { act_fertilizer_name?: string }
   activities_equipments?: { act_equipment_name?: string }
   activities_chemiscals?: { act_chemiscal_name?: string }
+  activities_resourceOther?: { act_resourceOther_name?: string }
+  activities_productYear?: { act_productYear_name?: string }
   resource_used_type?: { resc_used_type_name?: string }
   log_act_detail_calStatus?: { log_act_detail_calStatus_name?: string }
   activities_header?: DetailHeaderLocation
@@ -79,11 +82,11 @@ const EMPTY_SELECTIONS: SelectionState = {
 const BASELINE_KEYS: SelectionKey[] = ['baseline1', 'baseline2', 'baseline3', 'baseline4']
 
 const SELECTION_LABELS: Record<SelectionKey, string> = {
-  baseline1: 'ปีฐาน 1',
-  baseline2: 'ปีฐาน 2',
-  baseline3: 'ปีฐาน 3',
-  baseline4: 'ปีฐาน 4',
-  projectYear: 'ปีดำเนินกิจกรรม',
+  baseline1: 'ปีฐานการผลิต 1',
+  baseline2: 'ปีฐานการผลิต 2',
+  baseline3: 'ปีฐานการผลิต 3',
+  baseline4: 'ปีฐานการผลิต 4',
+  projectYear: 'ปีการผลิตโครงการ',
 }
 
 function formatNumber(value: number, digits = 1) {
@@ -105,12 +108,29 @@ function parseYear(dateText?: string) {
   return parsed.getFullYear()
 }
 
+function parseProductionYear(value?: string | null) {
+  const text = value?.trim()
+  if (!text) return null
+
+  const fullYearMatch = text.match(/\b(24\d{2}|25\d{2}|26\d{2}|19\d{2}|20\d{2}|21\d{2})\b/)
+  if (!fullYearMatch) return null
+
+  const year = Number(fullYearMatch[1])
+  return year >= 2400 ? year - 543 : year
+}
+
+function getDetailYear(detail: LogDetail) {
+  return parseProductionYear(detail.activities_productYear?.act_productYear_name)
+    ?? parseYear(detail.activities_header?.activities_header_startDate)
+}
+
 function getResourceBucket(detail: LogDetail): ResourceBucket {
   const text = [
     detail.resource_used_type?.resc_used_type_name,
     detail.activities_fertilizers?.act_fertilizer_name,
     detail.activities_equipments?.act_equipment_name,
     detail.activities_chemiscals?.act_chemiscal_name,
+    detail.activities_resourceOther?.act_resourceOther_name,
   ]
     .filter(Boolean)
     .join(' ')
@@ -155,24 +175,24 @@ export function CarbonCreditPage() {
   const availableYears = useMemo(() => (
     Array.from(new Set(
       readyDetails
-        .map((detail) => parseYear(detail.activities_header?.activities_header_startDate))
+        .map((detail) => getDetailYear(detail))
         .filter((year): year is number => year != null),
     )).sort((left, right) => left - right)
   ), [readyDetails])
 
   const validationMessage = useMemo(() => {
-    if (!availableYears.length) return 'ยังไม่มีข้อมูลกิจกรรมสถานะพร้อมคำนวณมาตรฐานสำหรับใช้คำนวณ Carbon Credit'
+    if (!availableYears.length) return 'ยังไม่มีข้อมูลกิจกรรมสถานะพร้อมคำนวณมาตรฐานที่มีปีการผลิตสำหรับใช้คำนวณ Carbon Credit'
 
     const missingKey = (Object.keys(selections) as SelectionKey[]).find((key) => !selections[key])
     if (missingKey) return `กรุณาเลือก ${SELECTION_LABELS[missingKey]} ให้ครบทั้ง 5 ส่วน`
 
     const baselineYears = BASELINE_KEYS.map((key) => selections[key])
     if (new Set(baselineYears).size !== baselineYears.length) {
-      return 'ปีฐานทั้ง 4 ส่วนต้องไม่ซ้ำกัน'
+      return 'ปีฐานการผลิตทั้ง 4 ส่วนต้องไม่ซ้ำกัน'
     }
 
     if (baselineYears.includes(selections.projectYear)) {
-      return 'ปีดำเนินกิจกรรมต้องไม่ซ้ำกับปีฐาน'
+      return 'ปีการผลิตโครงการต้องไม่ซ้ำกับปีฐานการผลิต'
     }
 
     return ''
@@ -202,7 +222,7 @@ export function CarbonCreditPage() {
     const yearLandMap = new Map<number, Map<number, YearLandAggregate>>()
 
     readyDetails.forEach((detail) => {
-      const year = parseYear(detail.activities_header?.activities_header_startDate)
+      const year = getDetailYear(detail)
       const landId = detail.activities_header?.land_id
 
       if (!year || !selectedYearSet.has(year) || !landId) return
@@ -307,30 +327,30 @@ export function CarbonCreditPage() {
     { key: 'landLabel', header: 'แปลง', sortable: true },
     {
       key: 'baselineArea',
-      header: 'ไร่เฉลี่ยปีฐาน',
+      header: 'ไร่เฉลี่ยปีฐานการผลิต',
       sortable: true,
       render: (row) => <span className="font-mono">{formatNumber(row.baselineArea)}</span>,
     },
     {
       key: 'projectArea',
-      header: 'ไร่ปีดำเนินกิจกรรม',
+      header: 'ไร่ปีการผลิตโครงการ',
       sortable: true,
       render: (row) => <span className="font-mono">{formatNumber(row.projectArea)}</span>,
     },
     {
       key: 'baselineFertilizer',
-      header: 'ปุ๋ยเฉลี่ยปีฐาน',
+      header: 'ปุ๋ยเฉลี่ยปีฐานการผลิต',
       sortable: true,
       render: (row) => <span className="font-mono">{formatNumber(row.baselineFertilizer)}</span>,
     },
-    { key: 'baselineFertilizerNames', header: 'ชนิดปุ๋ยปีฐาน', sortable: true },
+    { key: 'baselineFertilizerNames', header: 'ชนิดปุ๋ยปีฐานการผลิต', sortable: true },
     {
       key: 'projectFertilizer',
-      header: 'ปุ๋ยปีดำเนินกิจกรรม',
+      header: 'ปุ๋ยปีการผลิตโครงการ',
       sortable: true,
       render: (row) => <span className="font-mono">{formatNumber(row.projectFertilizer)}</span>,
     },
-    { key: 'projectFertilizerNames', header: 'ชนิดปุ๋ยปีดำเนินกิจกรรม', sortable: true },
+    { key: 'projectFertilizerNames', header: 'ชนิดปุ๋ยปีการผลิตโครงการ', sortable: true },
     {
       key: 'fertilizerDiff',
       header: 'ผลต่างปุ๋ย',
@@ -343,13 +363,13 @@ export function CarbonCreditPage() {
     },
     {
       key: 'baselineFuel',
-      header: 'น้ำมันเฉลี่ยปีฐาน',
+      header: 'น้ำมันเฉลี่ยปีฐานการผลิต',
       sortable: true,
       render: (row) => <span className="font-mono">{formatNumber(row.baselineFuel)}</span>,
     },
     {
       key: 'projectFuel',
-      header: 'น้ำมันปีดำเนินกิจกรรม',
+      header: 'น้ำมันปีการผลิตโครงการ',
       sortable: true,
       render: (row) => <span className="font-mono">{formatNumber(row.projectFuel)}</span>,
     },
@@ -372,46 +392,46 @@ export function CarbonCreditPage() {
   const summaryCards = [
     {
       key: 'projectYear',
-      label: 'ปีดำเนินกิจกรรม',
+      label: 'ปีการผลิตโครงการ',
       icon: <Calculator size={14} className="text-primary-500" />,
       value: selections.projectYear || 'ยังไม่เลือก',
       subtitle: 'ใช้เป็นส่วนที่ 5 ของการเปรียบเทียบ',
     },
     {
       key: 'baselineYears',
-      label: 'ปีฐานที่เลือก',
+      label: 'ปีฐานการผลิตที่เลือก',
       icon: <Layers size={14} className="text-sky-500" />,
       value: BASELINE_KEYS.map((key) => selections[key]).filter(Boolean).join(', ') || 'ยังไม่เลือก',
-      subtitle: 'เฉลี่ยจาก 4 ส่วนของปีฐาน',
+      subtitle: 'เฉลี่ยจาก 4 ส่วนของปีฐานการผลิต',
     },
     {
       key: 'plotCount',
       label: 'แปลงที่มีข้อมูล',
       icon: <MapPin size={14} className="text-emerald-500" />,
       value: creditResult.totals.plotCount.toLocaleString('th-TH'),
-      subtitle: 'รวมแปลงจากปีฐานและปีดำเนินกิจกรรม',
+      subtitle: 'รวมแปลงจากปีฐานการผลิตและปีการผลิตโครงการ',
     },
     {
       key: 'area',
-      label: 'ไร่ปีดำเนินกิจกรรม',
+      label: 'ไร่ปีการผลิตโครงการ',
       icon: <Tractor size={14} className="text-amber-500" />,
       value: `${formatNumber(creditResult.totals.projectArea)} ไร่`,
-      subtitle: `เฉลี่ยปีฐาน ${formatNumber(creditResult.totals.baselineArea)} ไร่`,
+      subtitle: `เฉลี่ยปีฐานการผลิต ${formatNumber(creditResult.totals.baselineArea)} ไร่`,
     },
     {
       key: 'fertilizerDiff',
-      label: 'ปุ๋ยเทียบปีฐาน',
+      label: 'ปุ๋ยเทียบปีฐานการผลิต',
       icon: <Sprout size={14} className="text-fuchsia-500" />,
       value: formatDiffText(creditResult.totals.fertilizerDiff, 'kg'),
-      subtitle: `ปีฐาน ${formatNumber(creditResult.totals.baselineFertilizer)} · ปีดำเนิน ${formatNumber(creditResult.totals.projectFertilizer)}`,
+      subtitle: `ปีฐานการผลิต ${formatNumber(creditResult.totals.baselineFertilizer)} · ปีโครงการ ${formatNumber(creditResult.totals.projectFertilizer)}`,
       valueClassName: creditResult.totals.fertilizerDiff >= 0 ? 'stat-value green-text' : 'stat-value red-text',
     },
     {
       key: 'fuelDiff',
-      label: 'น้ำมันเทียบปีฐาน',
+      label: 'น้ำมันเทียบปีฐานการผลิต',
       icon: <Droplets size={14} className="text-cyan-500" />,
       value: formatDiffText(creditResult.totals.fuelDiff, 'L'),
-      subtitle: `ปีฐาน ${formatNumber(creditResult.totals.baselineFuel)} · ปีดำเนิน ${formatNumber(creditResult.totals.projectFuel)}`,
+      subtitle: `ปีฐานการผลิต ${formatNumber(creditResult.totals.baselineFuel)} · ปีโครงการ ${formatNumber(creditResult.totals.projectFuel)}`,
       valueClassName: creditResult.totals.fuelDiff >= 0 ? 'stat-value green-text' : 'stat-value red-text',
     },
   ]
@@ -427,7 +447,7 @@ export function CarbonCreditPage() {
           <div className="page-header mb-0">
             <div>
               <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold text-surface-900"><Leaf size={20} className="text-primary-600 shrink-0" /> Carbon Credit</h1>
-              <p className="page-subtitle">ใช้เฉพาะข้อมูลสถานะพร้อมคำนวณมาตรฐาน เพื่อเลือกปีฐาน 4 ส่วนและปีดำเนินกิจกรรม 1 ส่วนสำหรับเปรียบเทียบรายแปลง</p>
+              <p className="page-subtitle">ใช้เฉพาะข้อมูลสถานะพร้อมคำนวณมาตรฐาน เพื่อเลือกปีฐานการผลิต 4 ส่วนและปีการผลิตโครงการ 1 ส่วนสำหรับเปรียบเทียบรายแปลง</p>
             </div>
             <div className="source-badge w-full justify-start md:w-auto md:justify-end">
               <span>Ready Only</span>
@@ -445,8 +465,8 @@ export function CarbonCreditPage() {
         <div className="card mt-5 min-w-0 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_40px_rgba(91,164,255,0.14)]">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
-              <h2 className="text-sm font-semibold">ตั้งค่าปีฐานและปีดำเนินกิจกรรม</h2>
-              <p className="mt-1 text-xs text-surface-500">ส่วนที่ 1-4 ใช้เป็นปีฐาน ส่วนที่ 5 ใช้เป็นปีดำเนินกิจกรรม แล้วระบบจะเฉลี่ยปีฐานก่อนเทียบผล</p>
+              <h2 className="text-sm font-semibold">ตั้งค่าปีฐานการผลิตและปีการผลิตโครงการ</h2>
+              <p className="mt-1 text-xs text-surface-500">ส่วนที่ 1-4 ใช้เป็นปีฐานการผลิต ส่วนที่ 5 ใช้เป็นปีการผลิตโครงการ แล้วระบบจะเฉลี่ยปีฐานก่อนเทียบผล</p>
             </div>
             <button type="button" className="btn-ghost btn-sm w-full justify-center sm:w-auto" onClick={() => setSelections(EMPTY_SELECTIONS)}>
               ล้างการเลือกทั้งหมด
@@ -458,7 +478,7 @@ export function CarbonCreditPage() {
               <div key={key} className={`rounded-[20px] border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] ${key === 'projectYear' ? 'border-[#bfe6d7] bg-[linear-gradient(180deg,rgba(244,255,250,0.96),rgba(232,249,241,0.96))]' : 'border-[#d9e7f2] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(243,247,251,0.96))]'}`}>
                 <label className="label">{SELECTION_LABELS[key]}</label>
                 <select className="select mt-1" value={selections[key]} onChange={(event) => setSelection(key, event.target.value)}>
-                  <option value="">— เลือกปี —</option>
+                  <option value="">— เลือกปีการผลิต —</option>
                   {availableYears.map((year) => (
                     <option key={`${key}-${year}`} value={String(year)}>
                       {year}
@@ -477,7 +497,7 @@ export function CarbonCreditPage() {
 
           {!validationMessage && !creditResult.rows.length && (
             <div className="mt-4 rounded-xl border border-surface-200 bg-surface-50 px-4 py-3 text-sm text-surface-600 shadow-sm">
-              ไม่พบข้อมูลกิจกรรมที่ตรงกับปีที่เลือกสำหรับ Carbon Credit
+              ไม่พบข้อมูลกิจกรรมที่ตรงกับปีการผลิตที่เลือกสำหรับ Carbon Credit
             </div>
           )}
 
@@ -503,7 +523,7 @@ export function CarbonCreditPage() {
               <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <h2 className="text-sm font-semibold">สรุป Carbon Credit รายแปลง</h2>
-                  <p className="mt-1 text-xs text-surface-500">แสดงผลเฉลี่ยปีฐานเทียบปีดำเนินกิจกรรม แยกปุ๋ยและน้ำมัน พร้อมชนิดปุ๋ยที่ใช้ในแต่ละแปลง</p>
+                  <p className="mt-1 text-xs text-surface-500">แสดงผลเฉลี่ยปีฐานการผลิตเทียบปีการผลิตโครงการ แยกปุ๋ยและน้ำมัน พร้อมชนิดปุ๋ยที่ใช้ในแต่ละแปลง</p>
                 </div>
               </div>
 

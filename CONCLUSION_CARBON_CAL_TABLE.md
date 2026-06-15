@@ -1,6 +1,6 @@
 # CONCLUSION_CARBON_CAL_TABLE
 
-Last updated: 2026-06-13
+Last updated: 2026-06-15
 
 หมายเหตุ: เอกสารนี้เป็น design note สำหรับ logic การคำนวณและโครงสร้างข้อมูล ไม่ใช่สเปก schema ปัจจุบันแบบหนึ่งต่อหนึ่งกับ `backend/src/prisma/schema.prisma`
 
@@ -1138,4 +1138,217 @@ emission_reduction = baseline_average_tCO2e - project_tCO2e
 หลัง implement ให้รัน:
 - backend: npm run build
 - frontend: npm run build
+```
+
+## 19. สถานะฐานข้อมูลจริงและ Prisma ล่าสุด ณ 2026-06-15
+
+ส่วนนี้เพิ่มไว้เพื่อช่วย agent หรือคนที่มาทำงานต่อให้แยกให้ออกระหว่าง:
+
+1. สิ่งที่เอกสารนี้ “เสนอให้ระบบควรมี”
+2. สิ่งที่ฐานข้อมูลจริง “มีแล้วใน snapshot ล่าสุด”
+3. สิ่งที่ Prisma “รองรับแล้วแต่ logic ยังไม่ได้ implement”
+
+### 19.1 Snapshot ที่ใช้อ้างอิงล่าสุด
+
+ฐานข้อมูล snapshot ล่าสุดที่ถูกนำมาเทียบกับโปรเจกต์คือ:
+
+```text
+managementDataSystem_forCalculate_3.0_06152026_postgres.sql
+```
+
+และ Prisma ในโปรเจกต์ถูกปรับตาม snapshot นี้แล้วที่:
+
+```text
+backend/src/prisma/schema.prisma
+```
+
+หมายความว่า ถ้างานถัดไปต้องอ้างอิงโครงสร้าง table จริง ควรดู `schema.prisma` คู่กับ snapshot `3.0_06152026` ไม่ควรอ้างอิง snapshot เก่าตัวเดียว
+
+### 19.2 สิ่งที่ฐานข้อมูลจริงมีเพิ่มแล้ว
+
+จาก snapshot ล่าสุด ฐานข้อมูลจริงมีโครงสร้างที่เกี่ยวกับงาน carbon เพิ่มขึ้นแล้วบางส่วน แม้หน้าเว็บและ service หลายตัวจะยังไม่ได้ใช้จริงครบทุก table
+
+#### 19.2.1 เทียบกับ snapshot ก่อนหน้าแบบสั้น
+
+เมื่อเทียบกับ snapshot เดิมในโปรเจกต์ (`managementDataSystem_forCalculate_2.0_06082026_postgres.sql`) รอบ `3.0_06152026`:
+
+- ไม่มีการลบ table เดิมออก
+- มีการเพิ่ม table ใหม่ 4 ตัว
+- มีการเพิ่ม foreign key / column สำคัญใน table เดิมบางตัว
+- direction ของ schema ชัดเจนขึ้นว่าเริ่มแยก `Carbon Credit / SOC / Fnfix / Production Year / Camp Group` ออกจาก flow activity เดิม
+
+| สิ่งที่มีในฐานข้อมูลจริง | ความหมายเชิงงาน |
+|---|---|
+| `activities_productYear` | มี master ปีการผลิตจริงใน DB แล้ว |
+| `log_activities_detail.act_productYear_id` | activity detail สามารถผูกกับปีการผลิตได้ตรงขึ้น |
+| `lands_camps_groups` | เริ่มมีโครงสร้าง group ของ camp |
+| `lands_camps.land_camp_group_id` | camp สามารถผูกเข้ากลุ่ม camp ได้ |
+| `carbon_soc` | มี table สำหรับข้อมูล SOC จริงระดับ DB แล้ว |
+| `carbon_soilImprovementPlants` | มี table สำหรับข้อมูลพืชปรับปรุงดิน/Fnfix จริงระดับ DB แล้ว |
+| `carbon_process_queue_resultValueCreditCalc` และ unit ของมัน | queue เริ่มแยกพื้นที่เก็บผลด้าน Carbon Credit ออกจาก result เดิมได้ |
+
+#### 19.2.2 รายละเอียดของ table/column ใหม่ที่ควรรู้
+
+1. `activities_productYear`
+
+ใช้เป็น master ปีการผลิตโดยตรง แทนการเดาปีจากชื่อหรือการเก็บแบบกระจาย
+
+field สำคัญ:
+- `act_productYear_id`
+- `act_productYear_name`
+- `act_productYear_info`
+- `act_productyear_create_at`
+- `act_productYear_update_at`
+- `act_productYear_update_uid`
+
+ผลเชิงระบบ:
+- งาน baseline/project และงานสรุปตามปีการผลิตเริ่มมีฐานข้อมูลรองรับชัดขึ้น
+- งาน activity import / summary / comparison ในอนาคตควรพยายาม map เข้าฟิลด์นี้แทนการเก็บปีแบบ free text
+
+2. `log_activities_detail.act_productYear_id`
+
+เป็นการต่อ relation จาก activity detail ไปยัง master ปีการผลิต
+
+ผลเชิงระบบ:
+- row ของ activity สามารถจัดกลุ่มตาม production year ได้ตรงขึ้น
+- เหมาะกับการเอาไปใช้ใน summary page, queue grouping และ baseline/project logic
+
+3. `lands_camps_groups` และ `lands_camps.land_camp_group_id`
+
+เป็นจุดเริ่มต้นของการมี “กลุ่ม camp” อย่างเป็นทางการในฐานข้อมูล
+
+field หลักของ group:
+- `land_camp_group_id`
+- `land_camp_group_idCode`
+- `land_camp_group_name`
+- `land_camp_group_update_at`
+
+ผลเชิงระบบ:
+- ในอนาคตสามารถทำ report หรือ comparison ระดับกลุ่ม camp ได้
+- ถ้าจะทำ dashboard, filter หรือ summary ตาม cluster ของพื้นที่ จุดนี้เป็นฐานที่ดี
+
+4. `carbon_soc`
+
+table นี้เป็นฐานเริ่มต้นของข้อมูล SOC ใน DB จริง
+
+field สำคัญที่มีแล้ว:
+- `land_id`
+- `carbon_soc_socSampleIT`
+- `carbon_soc_bdSampleIt`
+- `carbon_soc_depSampleIT`
+- `carbon_soc_socIT`
+- `carbon_soc_numLandSample`
+- `carbon_soc_numSample`
+- `carbon_soc_yearBeginPro`
+- unit fields ที่ผูกกับ `units`
+
+ผลเชิงระบบ:
+- DB เริ่มรองรับการเก็บค่า SOC, bulk density, depth, sample count และค่าที่เกี่ยวข้องจริง
+- แต่โครงสร้างนี้ยังเป็น “input/storage layer” มากกว่า “calculation audit layer”
+- ยังไม่มี sample event / before-after pair / formula snapshot / verification flow แบบเต็มตาม design ideal
+
+5. `carbon_soilImprovementPlants`
+
+table นี้เป็นฐานเริ่มต้นของข้อมูลพืชปรับปรุงดินและ Fnfix ใน DB จริง
+
+field สำคัญที่มีแล้ว:
+- `land_id`
+- `carbon_soilImprovementPlant_mc`
+- `carbon_soilImprovementPlant_nc`
+- `carbon_soilImprovementPlant_fnFix`
+- `unit_mc`
+- `unit_nc`
+- `unit_fnFix`
+- `act_resourceOther_id`
+
+ผลเชิงระบบ:
+- เริ่มมีที่เก็บ input สำคัญของ Fnfix เช่น biomass / N content / fnfix result
+- มีความเชื่อมกับ `activities_resourceOther` ซึ่งอาจใช้แทนชนิดพืชหรือ resource master ได้บางกรณี
+- แต่ยังไม่ได้แยก methodology, factor version หรือ detailed breakdown ตามสูตรใน design note
+
+6. `carbon_process_queue_resultValueCreditCalc` และหน่วยของมัน
+
+queue เดิมไม่ได้เก็บพื้นที่ผลลัพธ์ Carbon Credit แยกชัดจาก result หลัก แต่ snapshot ใหม่นี้เพิ่มแล้ว
+
+field ใหม่:
+- `carbon_process_queue_resultValueCreditCalc`
+- `unit_prefix_id_resultValueCreditCalc`
+- `unit_id_resultValueCreditCalc`
+
+ผลเชิงระบบ:
+- ในอนาคต queue row เดียวกันอาจเก็บได้ทั้งค่าฝั่ง Carbon Footprint และค่าฝั่ง Credit/Removal
+- ช่วยลดแรงกดดันที่จะต้องรีบสร้าง table ผลลัพธ์ใหม่ทันทีสำหรับทุกกรณี
+- แต่ถ้าจะทำ audit จริงจัง ยังควรมี result tables แยกใน phase ถัดไป
+
+### 19.3 สิ่งที่ Prisma รองรับแล้วหลังการ sync รอบนี้
+
+Prisma ถูกอัปเดตให้รองรับโครงสร้างด้านบนแล้ว เพื่อให้ agent ถัดไปสามารถเริ่มเขียน service/controller/query ได้โดยไม่ต้อง sync schema ซ้ำก่อน
+
+รายการสำคัญที่พร้อมใช้แล้วใน Prisma:
+
+- model `activities_productYear`
+- model `lands_camps_groups`
+- model `carbon_soc`
+- model `carbon_soilImprovementPlants`
+- field `act_productYear_id` ใน `log_activities_detail`
+- field `land_camp_group_id` ใน `lands_camps`
+- field กลุ่ม `resultValueCreditCalc` ใน `carbon_process_queue`
+- relation หลายจุดที่ผูก `units` และ `units_prefixs` สำหรับผลลัพธ์ Carbon Credit และข้อมูล SOC/Fnfix
+
+### 19.4 ข้อสำคัญ: มี table แล้ว ไม่ได้แปลว่า flow ใช้งานจริงครบแล้ว
+
+แม้ DB และ Prisma จะพร้อมขึ้น แต่ ณ ตอนนี้ logic ฝั่งแอปยังอยู่ประมาณนี้:
+
+| ส่วนงาน | สถานะ |
+|---|---|
+| `generic_ef` | ใช้งานได้แล้ว |
+| `fertilizer_n2o` / fertilizer CFP simple | ใช้งานได้แล้วบาง flow |
+| `fnfix_group` | ยังเป็นแผน/ยังไม่คำนวณจริง |
+| `soc_removal` | ยังเป็นแผน/ยังไม่คำนวณจริง |
+| `carbon_soc` table | มีใน DB/Prisma แล้ว แต่ยังไม่ได้ทำ service + UI flow จริง |
+| `carbon_soilImprovementPlants` table | มีใน DB/Prisma แล้ว แต่ยังไม่ได้ทำ service + UI flow จริง |
+
+ดังนั้น agent ถัดไปไม่ควรสรุปว่า “SOC ทำเสร็จแล้ว” หรือ “Fnfix ใช้งานได้แล้ว” เพียงเพราะเห็น table ใน schema
+
+### 19.5 การ map ระหว่าง design note นี้กับ table จริง
+
+เอกสารนี้เคยเสนอ table เชิง ideal เช่น:
+
+- `soil_sample_events`
+- `soil_sample_measurements`
+- `soc_calculation_results`
+- `nitrogen_fixation_records`
+- `carbon_calculation_runs`
+- `carbon_calculation_audit_logs`
+
+แต่ในฐานข้อมูลจริงล่าสุด ยังไม่ได้ออกมาในชื่อนี้ตรง ๆ ทั้งหมด
+
+สำหรับงานต่อจากนี้ให้ตีความแบบ practical ดังนี้:
+
+| แนวคิดในเอกสาร | table จริงที่อาจใช้เป็นฐานเริ่มต้น |
+|---|---|
+| SOC sample / SOC input | `carbon_soc` |
+| Soil improvement / nitrogen fixation input | `carbon_soilImprovementPlants` |
+| Production year | `activities_productYear` + `log_activities_detail.act_productYear_id` |
+| Credit result บางส่วน | `carbon_process_queue_resultValueCreditCalc` และ unit fields |
+
+แต่ถ้าจะทำ audit trail, sample event, formula snapshot, run history แบบครบตาม design จริง อาจยังต้องเพิ่ม table ใหม่ในระยะถัดไป
+
+### 19.6 คำแนะนำสำหรับ agent ที่มาทำต่อ
+
+ถ้าจะทำงานต่อในส่วน SOC / Fnfix / Carbon Credit ให้เริ่มตรวจ 4 จุดนี้ก่อน:
+
+1. อ่าน `backend/src/prisma/schema.prisma` ก่อนทุกครั้ง เพื่อดูโครงสร้างจริงล่าสุด
+2. แยกว่า task นั้นจะใช้ table ที่มีอยู่แล้ว (`carbon_soc`, `carbon_soilImprovementPlants`) หรือจะออกแบบ table audit/result เพิ่ม
+3. อย่าสรุปจากเอกสารนี้อย่างเดียวว่า schema ต้องเป็นแบบ ideal table names ใน section 7
+4. ถ้าทำ logic ใหม่ให้ระบุชัดว่าเป็น:
+   - ใช้ table จริงที่มีอยู่แล้ว
+   - หรือเพิ่ม phase ใหม่สำหรับ table audit/result ที่ยังไม่มี
+
+### 19.7 สรุปสั้นสำหรับการส่งต่องาน
+
+```text
+ตอนนี้ DB snapshot 3.0 และ Prisma พร้อมสำหรับเริ่มงาน SOC/Fnfix/Credit มากขึ้นแล้ว
+แต่ปัจจุบันพร้อมในระดับ schema/ORM เป็นหลัก
+ยังไม่พร้อมในระดับ service + endpoint + frontend workflow + audit flow แบบครบวงจร
 ```

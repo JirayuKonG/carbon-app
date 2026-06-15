@@ -89,6 +89,7 @@ interface DetailType {
 interface QueueLogDetail {
   log_act_detail_id: number
   activities_header_id?: number
+  act_productYear_id?: number
   act_header_type_id?: number
   act_header_detail_type_id?: number
   act_equipment_id?: number
@@ -108,6 +109,7 @@ interface QueueLogDetail {
   activities_equipments?: { act_equipment_name?: string }
   activities_chemiscals?: { act_chemiscal_name?: string }
   activities_resourceOther?: { act_resourceOther_name?: string }
+  activities_productYear?: { act_productYear_name?: string }
   resource_used_type?: { resc_used_type_name?: string }
   log_act_detail_calStatus?: { log_act_detail_calStatus_name?: string }
   units?: { unit_name?: string; unit_initial?: string }
@@ -194,6 +196,8 @@ type QueueRow = {
   checked?: boolean
   detailId: number
   dateLabel: string
+  productYearId: string
+  productYearLabel: string
   headerLabel: string
   activityTypeName: string
   detailTypeName: string
@@ -1198,6 +1202,7 @@ export function CarbonFootprintQueuePage({
   const isEmbeddedPreparationSection = embedded && isPreparationMode
   const qc = useQueryClient()
   const [statusFilter, setStatusFilter] = useState(isPreparationMode ? 'preparing' : 'ready')
+  const [productYearFilter, setProductYearFilter] = useState('')
   const [resourceTypeFilter, setResourceTypeFilter] = useState('')
   const [fertilizerKindFilter, setFertilizerKindFilter] = useState('')
   const [campFilter, setCampFilter] = useState('')
@@ -1441,6 +1446,8 @@ export function CarbonFootprintQueuePage({
       checked: selectedQueueIds.includes(item.carbon_process_queue_id),
       detailId: detail?.log_act_detail_id ?? item.log_act_detail_id ?? 0,
       dateLabel: formatBangkokDate(item.carbon_process_queue_dateWork ?? detail?.log_act_detail_create_at ?? detail?.activities_header?.activities_header_startDate),
+      productYearId: detail?.act_productYear_id != null ? String(detail.act_productYear_id) : '',
+      productYearLabel: detail?.activities_productYear?.act_productYear_name ?? (detail?.act_productYear_id != null ? `#${detail.act_productYear_id}` : '—'),
       headerLabel: detail?.activities_header?.activities_header_idCode ?? (detail?.activities_header_id != null ? `#${detail.activities_header_id}` : '—'),
       activityTypeName: headerTypeMap[detail?.act_header_type_id ?? 0] ?? (detail?.act_header_type_id != null ? String(detail.act_header_type_id) : '—'),
       detailTypeName: detailTypeMap[detail?.act_header_detail_type_id ?? 0] ?? (detail?.act_header_detail_type_id != null ? String(detail.act_header_detail_type_id) : '—'),
@@ -1498,6 +1505,7 @@ export function CarbonFootprintQueuePage({
 
   const filteredRows = scopedRows.filter((row) =>
     (!statusFilter || row.statusKind === statusFilter)
+    && (!productYearFilter || row.productYearId === productYearFilter)
     && (!resourceTypeFilter || row.resourceTypeId === resourceTypeFilter)
     && (!fertilizerKindFilter || (
       row.rowType === 'fertilizer'
@@ -1513,6 +1521,7 @@ export function CarbonFootprintQueuePage({
     )),
   )
 
+  const productYearOptions = Array.from(new Map(scopedRows.filter((row) => row.productYearId).map((row) => [row.productYearId, row.productYearLabel])).entries())
   const resourceTypeOptions = Array.from(new Map(scopedRows.filter((row) => row.resourceTypeId).map((row) => [row.resourceTypeId, row.resourceTypeName])).entries())
   const campOptions = Array.from(new Map(scopedRows.filter((row) => row.campId).map((row) => [row.campId, row.campLabel])).entries())
   const selectedQueueRows = filteredRows.filter((row) => selectedQueueIds.includes(row.id))
@@ -2757,6 +2766,7 @@ export function CarbonFootprintQueuePage({
 
   const clearFilters = () => {
     setStatusFilter(isPreparationMode ? 'preparing' : 'ready')
+    setProductYearFilter('')
     setResourceTypeFilter('')
     setFertilizerKindFilter('')
     setCampFilter('')
@@ -2777,6 +2787,7 @@ export function CarbonFootprintQueuePage({
       ),
     }] : []),
     { key: 'dateLabel', header: 'วันที่กิจกรรม', sortable: true },
+    { key: 'productYearLabel', header: 'ปีการผลิต', sortable: true },
     { key: 'headerLabel', header: 'หัวข้อกิจกรรม', sortable: true },
     { key: 'activityTypeName', header: 'กิจกรรม', sortable: true },
     { key: 'detailTypeName', header: 'รายละเอียด', sortable: true },
@@ -2822,6 +2833,7 @@ export function CarbonFootprintQueuePage({
       ),
     },
     { key: 'dateLabel', header: 'วันที่กิจกรรม', sortable: true },
+    { key: 'productYearLabel', header: 'ปีการผลิต', sortable: true },
     { key: 'campLabel', header: 'แคมป์', sortable: true, render: (row) => <span className="badge-blue">{row.campLabel}</span> },
     { key: 'landLabel', header: 'แปลง', sortable: true, render: (row) => <span className="badge-green">{row.landLabel}</span> },
     { key: 'resourceTypeName', header: 'ประเภทปัจจัย', sortable: true },
@@ -3205,8 +3217,8 @@ export function CarbonFootprintQueuePage({
           <div className="mb-4 rounded-[20px] border border-[#d9e7f2] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(243,247,251,0.96))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
             <div className={`grid grid-cols-1 gap-3 md:grid-cols-2 ${
               isPreparationMode
-                ? (showFertilizerKindFilter ? 'xl:grid-cols-6' : 'xl:grid-cols-5')
-                : (showFertilizerKindFilter ? 'xl:grid-cols-5' : 'xl:grid-cols-4')
+                ? (showFertilizerKindFilter ? 'xl:grid-cols-7' : 'xl:grid-cols-6')
+                : (showFertilizerKindFilter ? 'xl:grid-cols-6' : 'xl:grid-cols-5')
             }`}>
               <div>
                 <label className="label">สถานะ</label>
@@ -3217,6 +3229,13 @@ export function CarbonFootprintQueuePage({
                   <option value="standardDone">คำนวณแล้ว(มาตรฐาน)</option>
                   <option value="cfpDone">คำนวณแล้ว(มาตรฐาน,C-credit)</option>
                   <option value="error">คำนวณผิดพลาด</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">ปีการผลิต</label>
+                <select className="select" value={productYearFilter} onChange={(event) => setProductYearFilter(event.target.value)}>
+                  <option value="">ทั้งหมด</option>
+                  {productYearOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
                 </select>
               </div>
               <div>

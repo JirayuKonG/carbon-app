@@ -22,6 +22,11 @@ export class LandsService {
     return (current._max.land_camp_id ?? 0) + 1
   }
 
+  private async nextCampGroupId() {
+    const current = await this.prisma.lands_camps_groups.aggregate({ _max: { land_camp_group_id: true } })
+    return (current._max.land_camp_group_id ?? 0) + 1
+  }
+
   private async nextLandmapId() {
     const current = await this.prisma.landmaps.aggregate({ _max: { landmap_id: true } })
     return (current._max.landmap_id ?? 0) + 1
@@ -139,6 +144,15 @@ export class LandsService {
   // ── Camps ──────────────────────────────────────────────────
   getCamps() {
     return this.prisma.lands_camps.findMany({
+      include: {
+        lands_camps_groups: {
+          select: {
+            land_camp_group_id: true,
+            land_camp_group_idCode: true,
+            land_camp_group_name: true,
+          },
+        },
+      },
       orderBy: { land_camp_id: 'asc' },
     })
   }
@@ -146,7 +160,7 @@ export class LandsService {
   async createCamp(data: {
     land_camp_name?: string; land_camp_idCode?: string
     land_camp_latitude?: number; land_camp_longitude?: number
-    land_camp_info?: string; land_camp_uid?: number
+    land_camp_info?: string; land_camp_uid?: number; land_camp_group_id?: number
   }) {
     return this.prisma.lands_camps.create({
       data: { land_camp_id: await this.nextCampId(), ...this.cleanData(data), land_camp_update_at: new Date() } as any,
@@ -155,13 +169,107 @@ export class LandsService {
 
   updateCamp(id: number, data: Partial<{
     land_camp_name: string; land_camp_idCode: string
-    land_camp_latitude: number; land_camp_longitude: number; land_camp_info: string
+    land_camp_latitude: number; land_camp_longitude: number; land_camp_info: string; land_camp_group_id: number
   }>) {
     return this.prisma.lands_camps.update({ where: { land_camp_id: id }, data: { ...this.cleanData(data), land_camp_update_at: new Date() } })
   }
 
+  async bulkUpdateCampGroup(data: { camp_ids?: number[]; land_camp_group_id?: number }) {
+    const campIds = Array.from(
+      new Set(
+        (data.camp_ids ?? [])
+          .map((value) => Number(value))
+          .filter((value) => Number.isInteger(value) && value > 0),
+      ),
+    )
+    const campGroupId = Number(data.land_camp_group_id)
+
+    if (campIds.length === 0) {
+      throw new BadRequestException('กรุณาเลือกแคมป์อย่างน้อย 1 รายการ')
+    }
+
+    if (!Number.isInteger(campGroupId) || campGroupId <= 0) {
+      throw new BadRequestException('กรุณาเลือกกลุ่มไร่ปลายทางให้ถูกต้อง')
+    }
+
+    const campGroup = await this.prisma.lands_camps_groups.findUnique({
+      where: { land_camp_group_id: campGroupId },
+      select: {
+        land_camp_group_id: true,
+        land_camp_group_idCode: true,
+        land_camp_group_name: true,
+      },
+    })
+
+    if (!campGroup) {
+      throw new BadRequestException('ไม่พบข้อมูลกลุ่มไร่ที่ต้องการเชื่อม')
+    }
+
+    const result = await this.prisma.lands_camps.updateMany({
+      where: { land_camp_id: { in: campIds } },
+      data: {
+        land_camp_group_id: campGroup.land_camp_group_id,
+        land_camp_update_at: new Date(),
+      },
+    })
+
+    return {
+      updatedCount: result.count,
+      camp_ids: campIds,
+      camp_group: {
+        land_camp_group_id: campGroup.land_camp_group_id,
+        land_camp_group_idCode: campGroup.land_camp_group_idCode,
+        land_camp_group_name: campGroup.land_camp_group_name,
+      },
+    }
+  }
+
   deleteCamp(id: number) {
     return this.prisma.lands_camps.delete({ where: { land_camp_id: id } })
+  }
+
+  // ── Camp groups ───────────────────────────────────────────
+  getCampGroups() {
+    return this.prisma.lands_camps_groups.findMany({
+      include: {
+        _count: {
+          select: {
+            lands_camps: true,
+          },
+        },
+      },
+      orderBy: { land_camp_group_id: 'asc' },
+    })
+  }
+
+  async createCampGroup(data: {
+    land_camp_group_idCode?: string
+    land_camp_group_name?: string
+  }) {
+    return this.prisma.lands_camps_groups.create({
+      data: {
+        land_camp_group_id: await this.nextCampGroupId(),
+        ...this.cleanData(data),
+        land_camp_group_update_at: new Date(),
+      } as any,
+    })
+  }
+
+  updateCampGroup(id: number, data: Partial<{
+    land_camp_group_idCode: string
+    land_camp_group_name: string
+  }>) {
+    return this.prisma.lands_camps_groups.update({
+      where: { land_camp_group_id: id },
+      data: {
+        ...this.cleanData(data),
+        land_camp_group_update_at: new Date(),
+      },
+    })
+  }
+
+  deleteCampGroup(id: number) {
+    return this.prisma.lands_camps_groups.delete({ where: { land_camp_group_id: id } })
   }
 
   // ── Landmaps ───────────────────────────────────────────────

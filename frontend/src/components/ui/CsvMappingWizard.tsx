@@ -124,6 +124,7 @@ const RESOURCE_CATEGORY_LABELS: Record<Exclude<ResourceItemCategory, ''>, string
 }
 
 const AUTO_MAP_ALIASES: Record<string, string[]> = {
+  act_productYear_name:        ['ปีการผลิต', 'ปีผลิต', 'productionyear', 'cropyear', 'season', 'seasonyear'],
   log_act_detail_create_at:     ['วันที่ปฏิบัติ', 'วันที่', 'date', 'activitydate', 'startdate'],
   act_header_type:              ['หมวดหมู่กิจกรรมหลัก', 'กิจกรรมหลัก','ประเภทกิจกรรมหลัก','ประเภทกิจกรรม', 'activitytype', 'activity'],
   act_header_detail_type:       ['รายละเอียดกิจกรรมย่อย', 'รายละเอียดกิจกรรม', 'กิจกรรม', 'detailtype', 'operation'],
@@ -716,7 +717,7 @@ export function CsvMappingWizard({
     if (!inferredCategory) return
 
     setResourceItemCategories((prev) => (
-      prev[item]
+      prev[item] && inferredCategory !== 'other'
         ? prev
         : { ...prev, [item]: inferredCategory }
     ))

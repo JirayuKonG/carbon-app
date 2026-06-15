@@ -64,22 +64,22 @@ Use this file to quickly find where a page, component, layout element, or relate
 | `/footprint-report` | `frontend/src/features/cf-dashboard/pages/FootprintReportPage.tsx` | Carbon footprint report page and export-oriented presentation. |
 | `/pipeline` | `frontend/src/features/cf-dashboard/pages/PipelinePage.tsx` | Carbon Analytics pipeline view that still exists as a direct route. |
 | `/calculate` | `frontend/src/App.tsx` | Redirects to `/calculate/prepare`. |
-| `/calculate/prepare` | `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` | Carbon data preparation page that moves imported activity details into `carbon_process_queue`. |
-| `/calculate/usage` | `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` | Input usage summary page for fertilizer, fuel, and other activity factors by camp/field/year before Carbon Footprint calculation, including a workbook-style fertilizer view based on the attached xlsx report layout. |
-| `/calculate/footprint` | `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` | Carbon Footprint queue page for unit/volume preparation, fertilizer/fuel conversions, soil/SOC inputs, ready status, and calculation actions. |
-| `/calculate/credit` | `frontend/src/features/cf-dashboard/pages/CarbonCreditPage.tsx` | Read-only Carbon Credit analysis page with 4 baseline years, 1 project year, and plot-level fertilizer/fuel comparison. |
+| `/calculate/prepare` | `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` | Carbon data preparation page that moves imported activity details into `carbon_process_queue`, including production-year filtering. |
+| `/calculate/usage` | `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` | Input usage summary page for fertilizer, fuel, and other activity factors by camp/field/production year before Carbon Footprint calculation, including a workbook-style fertilizer view based on the attached xlsx report layout. |
+| `/calculate/footprint` | `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` | Carbon Footprint queue page for unit/volume preparation, fertilizer/fuel conversions, soil/SOC inputs, production-year filtering, ready status, and calculation actions. |
+| `/calculate/credit` | `frontend/src/features/cf-dashboard/pages/CarbonCreditPage.tsx` | Read-only Carbon Credit analysis page with 4 baseline production years, 1 project production year, and plot-level fertilizer/fuel comparison. |
 | `/dashboard` | `frontend/src/features/dashboard/DashboardPage.tsx` | Older GHG dashboard page kept as a separate route. |
 | `/geo` | `frontend/src/features/geo/GeoPage.tsx` | Geographies, provinces, districts, and subdistricts. |
 | `/infra` | `frontend/src/features/infra/InfraPage.tsx` | Factories, service areas, and departments. |
 | `/users` | `frontend/src/features/users/UsersPage.tsx` | Users and roles. |
 | `/farmers` | `frontend/src/features/farmers/FarmersPage.tsx` | Farmer records. |
-| `/lands` | `frontend/src/features/lands/LandsPage.tsx` | Lands, camps, landmaps, grouped land form, geo-assisted location selection, and a bulk subdistrict-management panel for updating many selected lands at once. |
+| `/lands` | `frontend/src/features/lands/LandsPage.tsx` | Lands, camp groups, camps, landmaps, grouped land form, geo-assisted location selection, activity-operation badges with production-year filtering, a bulk subdistrict-management panel for updating many selected lands at once, and a camp-group assignment panel for filtering/grouping camps in bulk. |
 | `/lands/weather` | `frontend/src/features/weather/WeatherPage.tsx` | Weather station records and CSV import. |
 | `/emission-factors` | `frontend/src/features/emission-factors/EmissionFactorsPage.tsx` | Emission factors, GWP, units, and reference data. |
 | `/activities` | `frontend/src/App.tsx` | Redirects to `/activities/logs`. |
-| `/activities/logs` | `frontend/src/features/activities/ActivityLogListPage.tsx` | Daily-use list for `log_activities_detail` with filters and add/edit/delete. |
+| `/activities/logs` | `frontend/src/features/activities/ActivityLogListPage.tsx` | Daily-use list for `log_activities_detail` with production-year filters and add/edit/delete. |
 | `/activities/resources` | `frontend/src/features/activities/ActivityResourcesPage.tsx` | Read-only activity resource reference lists for fertilizers, chemicals, and equipments. |
-| `/activities/manage` | `frontend/src/features/activities/ActivitiesPage.tsx` | Advanced activity management page with headers, import, workflow tools, and imported-file history. |
+| `/activities/manage` | `frontend/src/features/activities/ActivitiesPage.tsx` | Advanced activity management page with headers, activity CSV import including production year, workflow tools, and imported-file history. |
 | `/activities/logs/new` | `frontend/src/App.tsx` | Redirect helper that preserves the query string and sends users to `/activities/manage`. |
 
 ## Route Notes
@@ -99,10 +99,10 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Infra | `backend/src/modules/infra/*` | `/api/infra` |
 | Users | `backend/src/modules/users/*` | `/api/users` |
 | Farmers | `backend/src/modules/farmers/*` | `/api/farmers` |
-| Lands | `backend/src/modules/lands/*` | `/api/lands` including the bulk subdistrict update endpoint `/api/lands/bulk/subdistrict`. |
+| Lands | `backend/src/modules/lands/*` | `/api/lands` including camp-group CRUD at `/api/lands/camp-groups`, bulk camp-group assignment at `/api/lands/camps/bulk-group`, and the bulk subdistrict update endpoint `/api/lands/bulk/subdistrict`. |
 | Weather | `backend/src/modules/weather/*` | `/api/lands/weather` |
 | Emission factors | `backend/src/modules/emission-factors/*` | `/api/emission-factors` |
-| Activities | `backend/src/modules/activities/*` | `/api/activities` including headers/details, CSV import, import-history endpoints, input usage summary `/api/activities/input-usage-summary`, and carbon queue endpoints such as `/api/activities/carbon-process-queue`. |
+| Activities | `backend/src/modules/activities/*` | `/api/activities` including headers/details, production-year reference endpoints `/api/activities/product-years`, CSV import, import-history endpoints, input usage summary `/api/activities/input-usage-summary`, and carbon queue endpoints such as `/api/activities/carbon-process-queue`. |
 | Prisma database access | `backend/src/modules/prisma/*` | Used by all backend services. |
 
 ## Database And Schema
@@ -113,7 +113,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Prisma service | `backend/src/modules/prisma/prisma.service.ts` | Creates and disconnects the Prisma client. |
 | Backend config | `backend/.env` | Contains `DATABASE_URL`; do not commit secrets. |
 | Backend env example | `backend/.env.example` | Template for database connection config. |
-| SQL snapshot | `managementDataSystem_forCalculate_2.0_06082026_postgres.sql` | Repo bootstrap snapshot for local or fresh environment setup. |
+| SQL snapshot | `managementDataSystem_forCalculate_3.0_06152026_postgres.sql` | Latest repo bootstrap snapshot for local or fresh environment setup, including activity production year and newer carbon tables from the 2026-06-15 database update. |
 
 ## Common Debug Lookup
 
@@ -132,7 +132,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Where is the activity log page? | `frontend/src/features/activities/ActivityLogListPage.tsx` |
 | Where is the advanced activity management page? | `frontend/src/features/activities/ActivitiesPage.tsx` |
 | Where is the bulk subdistrict tool for lands? | `frontend/src/features/lands/LandsPage.tsx`; backend update endpoint is `backend/src/modules/lands/lands.service.ts`. |
-| Where are `/lands/camps` routes handled? | `backend/src/modules/lands/lands.controller.ts` |
+| Where are `/lands/camps` and `/lands/camp-groups` routes handled? | `backend/src/modules/lands/lands.controller.ts` |
 | Where is PostgreSQL/Prisma schema? | `backend/src/prisma/schema.prisma` |
 | Where are API requests configured? | `frontend/src/lib/api.ts` |
 
