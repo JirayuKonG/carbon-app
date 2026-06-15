@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Bar } from "react-chartjs-2";
 import { ActivityGroupedBar } from "../components/charts/ActivityGroupedBar";
-import { NetZeroProgressBar } from "../components/charts/NetZeroProgressBar";
 import { chartOptions, chartPalette, sortProcessLabels } from "../components/charts/ChartRegistry";
 import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
 import { CaneTypeSummaryPanel } from "../components/common/CaneTypeSummaryPanel";
@@ -332,32 +331,99 @@ function campBenchmarkValue(value: number, areaRai: number) {
   return areaRai ? Number((kgCo2e(value) / areaRai).toFixed(2)) : 0;
 }
 
+function wrapChartLabel(label: string, maxChars = 12, maxRows = 3) {
+  const normalized = label.replace(/\s+/g, " ").trim();
+  if (!normalized) return [label];
+  const words = normalized.split(" ");
+  const rows: string[] = [];
+  let current = "";
+
+  words.forEach((word) => {
+    if (!current) {
+      current = word;
+      return;
+    }
+    if (`${current} ${word}`.length <= maxChars) {
+      current = `${current} ${word}`;
+      return;
+    }
+    rows.push(current);
+    current = word;
+  });
+  if (current) rows.push(current);
+
+  const splitRows = rows.flatMap((row) => {
+    if (row.length <= maxChars) return [row];
+    const chunks: string[] = [];
+    for (let index = 0; index < row.length; index += maxChars) {
+      chunks.push(row.slice(index, index + maxChars));
+    }
+    return chunks;
+  });
+
+  if (splitRows.length <= maxRows) return splitRows;
+  return [...splitRows.slice(0, maxRows - 1), `${splitRows.slice(maxRows - 1).join("").slice(0, maxChars - 1)}…`];
+}
+
 function CampBenchmarkBar({ rows }: { rows: ScopeComparisonRow[] }) {
-  const labels = rows.map((row) => row.name);
+  const labels = rows.map((row) => wrapChartLabel(row.name));
+  const maxLabelRows = Math.max(...labels.map((label) => label.length), 1);
+  const chartHeight = Math.max(430, 360 + maxLabelRows * 26);
+  const chartWidth = Math.max(1120, rows.length * 84);
+  const benchmarkOptions = {
+    ...chartOptions,
+    maintainAspectRatio: false,
+    layout: {
+      padding: {
+        bottom: maxLabelRows * 12,
+      },
+    },
+    scales: {
+      ...chartOptions.scales,
+      x: {
+        ...chartOptions.scales.x,
+        ticks: {
+          ...chartOptions.scales.x.ticks,
+          autoSkip: false,
+          font: { size: 11 },
+          padding: 12,
+        },
+      },
+    },
+    datasets: {
+      bar: {
+        categoryPercentage: 0.72,
+        barPercentage: 0.86,
+      },
+    },
+  };
+
   return (
-    <div className="chart-box md camp-benchmark-chart">
-      <Bar
-        data={{
-          labels,
-          datasets: [
-            {
-              label: `ปีฐาน (${FOOTPRINT_UNIT}/ไร่)`,
-              data: rows.map((row) => campBenchmarkValue(row.baseline, row.areaRai)),
-              backgroundColor: chartPalette.baseline.bg,
-              borderColor: chartPalette.baseline.border,
-              borderWidth: 1,
-            },
-            {
-              label: `ปีดำเนินการ (${FOOTPRINT_UNIT}/ไร่)`,
-              data: rows.map((row) => campBenchmarkValue(row.current, row.areaRai)),
-              backgroundColor: chartPalette.project.bg,
-              borderColor: chartPalette.project.border,
-              borderWidth: 1,
-            },
-          ],
-        }}
-        options={chartOptions}
-      />
+    <div className="chart-box md camp-benchmark-chart" style={{ height: chartHeight }}>
+      <div className="camp-benchmark-canvas" style={{ width: chartWidth, height: chartHeight - 24 }}>
+        <Bar
+          data={{
+            labels,
+            datasets: [
+              {
+                label: `ปีฐาน (${FOOTPRINT_UNIT}/ไร่)`,
+                data: rows.map((row) => campBenchmarkValue(row.baseline, row.areaRai)),
+                backgroundColor: chartPalette.baseline.bg,
+                borderColor: chartPalette.baseline.border,
+                borderWidth: 1,
+              },
+              {
+                label: `ปีดำเนินการ (${FOOTPRINT_UNIT}/ไร่)`,
+                data: rows.map((row) => campBenchmarkValue(row.current, row.areaRai)),
+                backgroundColor: chartPalette.project.bg,
+                borderColor: chartPalette.project.border,
+                borderWidth: 1,
+              },
+            ],
+          }}
+          options={benchmarkOptions}
+        />
+      </div>
     </div>
   );
 }
@@ -592,13 +658,12 @@ export function CfProcessPage() {
       socIncrease,
       socIndex: row.areaRai ? Number(((socIncrease / row.areaRai) * 100).toFixed(2)) : 0,
       credits,
-      netEmission: Math.max(row.current - credits, 0),
+      netEmission: Math.max(row.current - socIncrease, 0),
     };
   });
   const totalSocIncrease = sequestrationRows.reduce((sum, row) => sum + row.socIncrease, 0);
-  const totalCredits = sequestrationRows.reduce((sum, row) => sum + row.credits, 0);
-  const netEmissions = Math.max(currentTotal - totalCredits, 0);
-  const netOffsetPct = currentTotal ? (totalCredits / currentTotal) * 100 : 0;
+  const netEmissions = Math.max(currentTotal - totalSocIncrease, 0);
+  const netOffsetPct = currentTotal ? (totalSocIncrease / currentTotal) * 100 : 0;
   const socBaselineTotal = Math.max(summaryAreaRai * caneMeta.factor * 0.02, 0);
   const socTotal = socBaselineTotal + totalSocIncrease;
   const socCredit = totalSocIncrease;
@@ -615,13 +680,12 @@ export function CfProcessPage() {
   const avgBaselineSoc = (socBeforeAfter.baselineRows.reduce((sum, row) => sum + row.totalEmission, 0) / Math.max(socBeforeAfter.baselineRows.length, 1));
   const avgCurrentSoc = (socBeforeAfter.currentRows.reduce((sum, row) => sum + row.totalEmission, 0) / Math.max(socBeforeAfter.currentRows.length, 1));
   const avgIncreaseSoc = Math.max(avgCurrentSoc - avgBaselineSoc, 0);
-  const waterfallRows = [
-    { label: "Gross Emission", value: currentTotal, type: "gross" },
-    { label: "SOC Offset", value: -socCredit, type: "offset" },
-    { label: "Carbon Credits", value: -(totalCredits - socCredit), type: "offset" },
-    { label: "Net Emission", value: netEmissions, type: "net" },
-  ];
-  const waterfallMax = Math.max(currentTotal, totalCredits, netEmissions, 1);
+  const emissionDiff = currentTotal - baselineTotal;
+  const emissionDiffPct = baselineTotal ? (emissionDiff / baselineTotal) * 100 : 0;
+  const socDiff = avgCurrentSoc - avgBaselineSoc;
+  const netPerRai = summaryAreaRai ? netEmissions / summaryAreaRai : 0;
+  const currentPerRai = summaryAreaRai ? currentTotal / summaryAreaRai : 0;
+  const socPerRai = summaryAreaRai ? socCredit / summaryAreaRai : 0;
   const bestSocCamps = [...sequestrationRows].sort((a, b) => b.socIncrease - a.socIncrease).slice(0, 5);
   const worstSocCamps = [...sequestrationRows].sort((a, b) => a.socIncrease - b.socIncrease).slice(0, 5);
   const followUpSocCamps = [...sequestrationRows].sort((a, b) => b.netEmission - a.netEmission).slice(0, 5);
@@ -799,25 +863,16 @@ export function CfProcessPage() {
                 <span>Gross Emission</span>
                 <strong>{currentTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
                 <small>tCO2e</small>
-                <em>การปล่อยก่อนหักเครดิต</em>
               </article>
               <article>
-                <span>SOC Offset</span>
+                <span>SOC</span>
                 <strong className="green-text">{socCredit.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
                 <small>tCO2e</small>
-                <em>เครดิตจากการกักเก็บในดิน</em>
               </article>
               <article>
                 <span>Net Emission</span>
                 <strong className={netEmissions <= currentTotal ? "green-text" : "red-text"}>{netEmissions.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
                 <small>tCO2e</small>
-                <em>Gross - Carbon Credits</em>
-              </article>
-              <article>
-                <span>Carbon Credits</span>
-                <strong>{totalCredits.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
-                <small>tCO2e</small>
-                <em>{netOffsetPct.toFixed(1)}% ของ Gross Emission</em>
               </article>
             </>
           )}
@@ -1374,39 +1429,30 @@ export function CfProcessPage() {
             <div className="section-head">
               <div>
                 <span className="section-kicker">Net Carbon Result</span>
-                <h2>สุดท้ายแล้วคาร์บอนของโครงการเหลือสุทธิเท่าไหร่</h2>
-                <p className="muted">สรุป Gross Emission, SOC Offset, Carbon Credits และ Net Emission หลังหักเครดิตทั้งหมด</p>
+                <h2>การปล่อยและการสะสมคาร์บอนก๊าซเรือนกระจก</h2>
+                <p className="muted">Summary of project emissions, SOC accumulation, and net greenhouse gas result after soil carbon accumulation.</p>
               </div>
             </div>
 
-            <section className="grid2">
-              <article className="card">
-                <div className="card-title">Net Zero Progress · Emissions vs Credits</div>
-                <NetZeroProgressBar emissions={currentTotal} credits={totalCredits} />
-                <div className="summary-list">
-                  <div><span>Gross Emission</span><strong className="red-text">{currentTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
-                  <div><span>SOC Offset</span><strong className="green-text">{socCredit.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
-                  <div><span>Carbon Credits</span><strong className="green-text">{totalCredits.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
-                  <div><span>Net Emission</span><strong>{netEmissions.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
+            <section className="grid2 net-result-summary-grid">
+              <article className="card net-comparison-card">
+                <div className="card-title">ทำการเปรียบเทียบ Emissions vs SOC</div>
+                <div className="net-summary-metrics">
+                  <div><span>Project Emissions</span><strong className="red-text">{currentTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong><small>{currentPerRai.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e/ไร่</small></div>
+                  <div><span>SOC</span><strong className="green-text">{socCredit.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong><small>{socPerRai.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e/ไร่</small></div>
+                  <div><span>Net Emission</span><strong>{netEmissions.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong><small>{netPerRai.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e/ไร่</small></div>
+                  <div><span>SOC Share</span><strong>{netOffsetPct.toFixed(1)}%</strong><small>of project emissions</small></div>
                 </div>
               </article>
-              <article className="card">
-                <div className="card-title">Carbon Balance Waterfall</div>
-                <div className="carbon-waterfall">
-                  {waterfallRows.map((row) => (
-                    <div className={`waterfall-row ${row.type}`} key={row.label}>
-                      <span>{row.label}</span>
-                      <div className="waterfall-track">
-                        <i style={{ width: `${Math.max((Math.abs(row.value) / waterfallMax) * 100, 4)}%` }} />
-                      </div>
-                      <strong>{row.value < 0 ? "-" : ""}{Math.abs(row.value).toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong>
-                    </div>
-                  ))}
-                </div>
-                <div className="net-result-callout">
-                  <span>ผลลัพธ์สุทธิ</span>
-                  <strong>{netEmissions.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong>
-                  <small>หลังหัก Carbon Credits {totalCredits.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</small>
+              <article className="card net-comparison-card">
+                <div className="card-title">Change Summary</div>
+                <div className="summary-list">
+                  <div><span>SOC before soil improvement</span><strong>{avgBaselineSoc.toFixed(2)}%</strong></div>
+                  <div><span>SOC after soil improvement</span><strong className="green-text">{avgCurrentSoc.toFixed(2)}%</strong></div>
+                  <div><span>SOC change</span><strong className={socDiff >= 0 ? "green-text" : "red-text"}>{socDiff >= 0 ? "+" : ""}{socDiff.toFixed(2)}%</strong></div>
+                  <div><span>Baseline emissions</span><strong>{baselineTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
+                  <div><span>Project year emissions</span><strong>{currentTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
+                  <div><span>Emission change</span><strong className={emissionDiff <= 0 ? "green-text" : "red-text"}>{emissionDiff <= 0 ? "-" : "+"}{Math.abs(emissionDiff).toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e ({emissionDiffPct >= 0 ? "+" : ""}{emissionDiffPct.toFixed(1)}%)</strong></div>
                 </div>
               </article>
             </section>
@@ -1419,9 +1465,9 @@ export function CfProcessPage() {
                     <span className="rank-pill">!{index + 1}</span>
                     <div>
                       <strong>{row.name}</strong>
-                      <small>Gross {row.current.toLocaleString(undefined, { maximumFractionDigits: 2 })} · Credits {row.credits.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</small>
+                      <small>Gross {(row.current / Math.max(row.areaRai, 1)).toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e/ไร่ | SOC {(row.socIncrease / Math.max(row.areaRai, 1)).toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e/ไร่</small>
                     </div>
-                    <b className="red-text">{row.netEmission.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</b>
+                    <b className="red-text">{(row.netEmission / Math.max(row.areaRai, 1)).toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e/ไร่</b>
                     {row.camp && <Link className="run-btn drilldown-link" to={`/footprint-report?campId=${row.camp.campId}`}>ดูรายงานละเอียด</Link>}
                   </div>
                 ))}

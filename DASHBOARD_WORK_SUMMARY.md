@@ -10,6 +10,84 @@ Current local HEAD ตอน review เอกสารนี้: `8b212f4 Merge 
 
 Commit ล่าสุดที่อัปขึ้น Git: `723cd3c เพิ่มแคมป์ผลงานการกักเก็บคาร์บอนในดิน`
 
+## อัปเดตงานประจำวันที่ 13 มิถุนายน 2569 - จัดข้อมูลไร่จริงและผลคำนวณสมมุติให้ใช้ร่วมกันใน Carbon Analytics
+
+รอบนี้ปรับต่อจากปัญหาข้อมูลในหน้า Carbon Analytics ที่เดิมมีทั้ง mock data, ข้อมูลไร่อ้อยจริง และผลคำนวณจาก API/ชุดข้อมูลเก่าปนกัน ทำให้บางหน้าแสดงพื้นที่จริงแต่ตัวเลข Carbon Footprint / Carbon Credit ยังอิงข้อมูลคนละชุด งานที่ทำเพิ่มจึงเน้นจัดชั้นข้อมูลใหม่ให้ใช้ `spatialProjectPlots.ts` เป็นฐานเดียวกัน และสร้างผลคำนวณสมมุติจากฐานไร่จริงเพื่อใช้แสดงผลระหว่างที่ API ผลคำนวณจริงยังไม่พร้อมครบทุกส่วน
+
+### 1. จัดทำ dataset กลางจากข้อมูลไร่อ้อยจริง
+
+- เพิ่มไฟล์ `frontend/src/features/cf-dashboard/data/projectDashboardDataset.ts`
+- ใช้ข้อมูลแปลงจริงจาก `spatialProjectPlots.ts` เป็น source หลักสำหรับ Carbon Analytics
+- สร้างข้อมูลสรุปที่จำเป็นต่อ dashboard จากฐานเดียวกัน ได้แก่:
+  - KPI ภาพรวมพื้นที่ แปลง เกษตรกร ปีฐาน ปีดำเนินโครงการ
+  - Trend รายปีสำหรับ baseline และ project year
+  - Process emission รายขั้นตอน
+  - Process input comparison สำหรับปุ๋ยและน้ำมัน
+  - Cane type summary
+  - Spatial nodes สำหรับ country, region, province, district, subdistrict และ field
+  - Camp summary และ field detail
+- เพิ่ม logic แปลงพิกัด UTM ของแปลงจริงเป็น latitude/longitude เพื่อใช้กับแผนที่และข้อมูล spatial
+- ใช้ข้อมูล mapping จาก `spatialProjectGeoMappings.ts` เพื่อจัดกลุ่มจังหวัด/อำเภอ/ตำบลตามแคมป์ที่รู้ข้อมูลแล้ว
+
+### 2. ปรับ data source ของ Carbon Analytics ไม่ให้ข้อมูลเก่ามาปนกับข้อมูลไร่จริง
+
+- ปรับ `frontend/src/features/cf-dashboard/services/dashboardApi.ts`
+- เปลี่ยน fallback ของ dashboard จาก `mockDashboard` เดิมมาใช้ `projectDashboardDataset`
+- ตั้งค่า default ให้หน้า Carbon Analytics ใช้ข้อมูลไร่จริง + ผลคำนวณสมมุติจาก dataset กลางก่อน
+- กันไม่ให้ analytics API เก่าทับข้อมูลไร่จริงโดยอัตโนมัติ
+- ถ้าต้องการกลับไปใช้ API จริงในอนาคต ให้ตั้งค่า environment:
+
+```env
+VITE_CF_ANALYTICS_SOURCE=api
+```
+
+- ปรับข้อความ meta/source ของข้อมูลให้สื่อชัดว่าเป็น `ข้อมูลไร่จริง` และ `ผลคำนวณสมมุติ`
+
+### 3. ทำให้หน้า Overview, Process, Spatial และ Footprint Report ใช้ข้อมูลชุดเดียวกันมากขึ้น
+
+- หน้า Overview ใช้ KPI, trend, input comparison และ cane type summary จาก dataset กลาง
+- หน้า Process ใช้ camp summary, field detail, process activity และ spatial nodes จากฐานข้อมูลไร่จริงชุดเดียวกัน
+- หน้า Spatial ยังคงใช้ข้อมูลแปลงจริงเป็นฐาน และข้อมูลที่ service ส่งกลับสอดคล้องกับแคมป์/แปลงมากขึ้น
+- หน้า Footprint Report ใช้ camp/field/spatial summary ที่สร้างจาก `projectDashboardDataset` เพื่อไม่ให้ตัวเลขพื้นที่และผลคำนวณอ้างอิงคนละชุด
+
+### 4. ปรับหน้า Premium T-VER Report ให้เลือก filter แล้วมีเครดิตสมมุติระดับแคมป์/แปลง
+
+- ปรับหน้า `สรุปผลทั้งหมดสำหรับเตรียมยื่น Premium T-VER`
+- เพิ่ม camp summary node ใน dataset กลาง เพื่อให้ dropdown `แคมป์` สามารถเลือกแล้วคำนวณ summary และ credit เฉพาะแคมป์ได้
+- ทำให้ `getReportSummary()` ใช้ข้อมูลไร่จริง + ผลคำนวณเครดิตสมมุติเป็นค่าเริ่มต้น
+- ถ้าเลือก filter ระดับกลุ่มไร่, จังหวัด, อำเภอ, ตำบล, แคมป์ หรือแปลง ระบบจะ scale KPI, process, input และ spatial summary ตามขอบเขตที่เลือก
+- แก้กรณีเลือกแคมป์แล้วไม่มีข้อมูลเครดิต เพราะเดิมยังไม่มี node ตัวแทนภาพรวมแคมป์สำหรับหน้า report
+- ปรับข้อความ analysis ของ report ให้ระบุว่าเป็นข้อมูลไร่จริงพร้อมผลคำนวณเครดิตสมมุติสำหรับเตรียมยื่น Premium T-VER
+
+### 5. แก้ข้อความแหล่งข้อมูลและตัวหนังสือเพี้ยนในหน้า Dashboard
+
+- ปรับ `frontend/src/features/cf-dashboard/components/common/SourceBadge.tsx`
+- เปลี่ยน label จาก `Mock fallback` เป็น `ไร่จริง + คำนวณสมมุติ`
+- แก้ข้อความภาษาไทยที่เพี้ยนใน dataset กลาง เช่น:
+  - ชื่อ process การเตรียมดินและปลูก
+  - การใช้ปุ๋ย
+  - การให้น้ำและกำจัดวัชพืช
+  - การเก็บเกี่ยว
+  - ประเทศไทย
+  - ประเภทอ้อย เช่น อ้อยปลูก, อ้อยตอ, พื้นที่พักดิน
+- ตรวจหน้า `ReportPage.tsx` แล้วไม่พบ pattern mojibake ในไฟล์ source หลังแก้
+
+### 6. ไฟล์หลักที่เกี่ยวข้องกับงานวันที่ 13 มิถุนายน 2569
+
+- `frontend/src/features/cf-dashboard/data/projectDashboardDataset.ts`
+- `frontend/src/features/cf-dashboard/services/dashboardApi.ts`
+- `frontend/src/features/cf-dashboard/components/common/SourceBadge.tsx`
+- `frontend/src/features/cf-dashboard/pages/ReportPage.tsx`
+- `frontend/src/features/cf-dashboard/data/spatialProjectPlots.ts`
+- `frontend/src/features/cf-dashboard/data/spatialProjectGeoMappings.ts`
+
+### 7. การตรวจสอบหลังแก้ไข
+
+- รัน `npm run build` ใน `frontend` ผ่าน
+- เปิดทดสอบ dev server ที่ `http://127.0.0.1:5173`
+- ตรวจหน้า `/report` แล้ว route ตอบกลับได้
+- ยังมี Vite warning เรื่อง bundle chunk ใหญ่ ซึ่งเป็น warning ด้าน optimization ไม่ใช่ build error
+
 ## อัปเดตงานประจำวันที่ 12 มิถุนายน 2569 - จากแชทและ Git branch `idea`
 
 รอบนี้ทำงานต่อบน branch `idea` โดยเริ่มจากการดึงงานล่าสุดจาก `main` เข้ามาใน branch งาน แล้วปรับหลายส่วนของ Carbon Dashboard ให้ข้อมูลพื้นที่, filter, แผนที่, Carbon Footprint และ Premium T-VER สอดคล้องกันมากขึ้น โดยเฉพาะข้อมูลกลุ่มไร่หลัก `ไร่ด่านช้าง` และ `ไร่อีสาน`

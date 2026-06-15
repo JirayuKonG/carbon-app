@@ -801,6 +801,17 @@ export function CfSpatialPage() {
     [generatedDocument],
   );
 
+  const clearSpatialDocumentPreview = () => {
+    setGeneratedDocument(null);
+    setActivePreviewTab("pdf");
+    setDocumentRenderId(0);
+    setGeneratingDocument(false);
+    setPdfUrl((old) => {
+      if (old) URL.revokeObjectURL(old);
+      return "";
+    });
+  };
+
   useEffect(() => {
     if (selectedBoundaryFieldId && !displayCampFields.some((field) => field.id === selectedBoundaryFieldId)) {
       setSelectedBoundaryFieldId("");
@@ -822,30 +833,39 @@ export function CfSpatialPage() {
 
   useEffect(() => {
     if (!generatedDocument || !spatialDocRef.current) return;
+    let cancelled = false;
     let revoked = "";
     setGeneratingDocument(true);
     const timer = window.setTimeout(() => {
       if (!spatialDocRef.current) return;
       html2canvas(spatialDocRef.current, { scale: 1.8, backgroundColor: "#ffffff" }).then((canvas) => {
+        if (cancelled) return;
         const pdf = new jsPDF("p", "mm", "a4");
         const width = pdf.internal.pageSize.getWidth();
         const height = pdf.internal.pageSize.getHeight();
         const margin = 8;
         const imageWidth = width - margin * 2;
         const imageHeight = (canvas.height * imageWidth) / canvas.width;
-        const image = canvas.toDataURL("image/png");
+        const image = canvas.toDataURL("image/jpeg", 0.95);
+        if (!image.startsWith("data:image/jpeg;base64,")) {
+          throw new Error("ไม่สามารถสร้างรูปภาพสำหรับ PDF preview ได้");
+        }
         let position = margin;
 
-        pdf.addImage(image, "PNG", margin, position, imageWidth, imageHeight);
+        pdf.addImage(image, "JPEG", margin, position, imageWidth, imageHeight);
         let remainingHeight = imageHeight - (height - margin * 2);
         while (remainingHeight > 0) {
           position = remainingHeight - imageHeight + margin;
           pdf.addPage();
-          pdf.addImage(image, "PNG", margin, position, imageWidth, imageHeight);
+          pdf.addImage(image, "JPEG", margin, position, imageWidth, imageHeight);
           remainingHeight -= height - margin * 2;
         }
 
         const url = URL.createObjectURL(pdf.output("blob"));
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
         setPdfUrl((old) => {
           if (old) URL.revokeObjectURL(old);
           return url;
@@ -853,17 +873,27 @@ export function CfSpatialPage() {
         revoked = url;
         setDocumentNotice("อัปเดต Preview เอกสารเรียบร้อยแล้ว");
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "สร้าง PDF preview ไม่สำเร็จ"))
-      .finally(() => setGeneratingDocument(false));
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "สร้าง PDF preview ไม่สำเร็จ");
+      })
+      .finally(() => {
+        if (!cancelled) setGeneratingDocument(false);
+      });
     }, 250);
 
     return () => {
+      cancelled = true;
       window.clearTimeout(timer);
       if (revoked) URL.revokeObjectURL(revoked);
     };
   }, [generatedDocument, documentRenderId]);
 
   const generateSpatialDocument = () => {
+    setError("");
+    setPdfUrl((old) => {
+      if (old) URL.revokeObjectURL(old);
+      return "";
+    });
     setDocumentNotice("กำลังสร้าง Preview เอกสารตามฟิลเตอร์ปัจจุบัน...");
     setGeneratedDocument({ title: documentTitle, fields: documentFields, camps: documentCamps });
     setDocumentRenderId((value) => value + 1);
@@ -871,6 +901,8 @@ export function CfSpatialPage() {
   };
 
   const markSpatialFilterChanged = () => {
+    clearSpatialDocumentPreview();
+    setError("");
     setDocumentNotice("ตัวกรองเปลี่ยนแล้ว ข้อมูลหน้าเว็บและแผนที่อัปเดตทันที กดสร้างเอกสารเมื่อพร้อม");
   };
 
@@ -999,7 +1031,9 @@ export function CfSpatialPage() {
     setSelectedBoundaryFieldId("");
     setSelectedProjectCampName("all");
     setSelectedProjectPlotCode("all");
-    markSpatialFilterChanged();
+    clearSpatialDocumentPreview();
+    setError("");
+    setDocumentNotice("Reset Filter แล้ว Preview เอกสารรายแปลงและไฟล์สร้างเอกสารถูกล้างเรียบร้อยแล้ว");
   };
 
   if (!selected) {

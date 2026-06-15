@@ -179,6 +179,30 @@
 /* Chart boxes */
 .cf-dash .chart-box { height: 340px; border-radius: 18px; padding: 12px; background: linear-gradient(to bottom, #FFFFFF, #F9FCFF); }
 .cf-dash .chart-box.md { height: 320px; }
+.cf-dash .activity-grouped-chart {
+  overflow-x: hidden;
+  overflow-y: hidden;
+}
+.cf-dash .activity-grouped-chart.is-scrollable {
+  overflow-x: auto;
+  min-height: 340px;
+  padding-bottom: 18px;
+  scrollbar-gutter: stable;
+}
+.cf-dash .activity-grouped-chart::-webkit-scrollbar {
+  height: 10px;
+}
+.cf-dash .activity-grouped-chart::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: #EAF1F8;
+}
+.cf-dash .activity-grouped-chart::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #B8CEE2;
+}
+.cf-dash .activity-grouped-canvas {
+  min-width: 100%;
+}
 .cf-dash .doughnut-wrap h3 { color: var(--text-dim); margin-bottom: 10px; }
 .cf-dash .doughnut-canvas { position: relative; height: 280px; }
 .cf-dash .doughnut-center-label {
@@ -868,6 +892,24 @@
 
 .cf-dash .camp-benchmark-chart {
   overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 430px;
+  padding-bottom: 18px;
+  scrollbar-gutter: stable;
+}
+.cf-dash .camp-benchmark-chart::-webkit-scrollbar {
+  height: 10px;
+}
+.cf-dash .camp-benchmark-chart::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: #EAF1F8;
+}
+.cf-dash .camp-benchmark-chart::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #B8CEE2;
+}
+.cf-dash .camp-benchmark-canvas {
+  min-width: 100%;
 }
 
 .cf-dash .comparison-ranking-grid,
@@ -1313,6 +1355,42 @@
 .cf-dash .resource-reduction-grid {
   grid-template-columns: repeat(3, minmax(0,1fr));
   margin-bottom: 10px;
+}
+
+.cf-dash .net-result-summary-grid {
+  align-items: stretch;
+}
+.cf-dash .net-comparison-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cf-dash .net-summary-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  gap: 10px;
+}
+.cf-dash .net-summary-metrics div {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--surface2);
+}
+.cf-dash .net-summary-metrics span,
+.cf-dash .net-summary-metrics small {
+  display: block;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.cf-dash .net-summary-metrics strong {
+  display: block;
+  margin: 5px 0;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 20px;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
 }
 
 /* Map */
@@ -3110,7 +3188,8 @@
   .cf-dash .speedup-card, .cf-dash .benchmark-grid, .cf-dash .mini-stat-grid,
   .cf-dash .carbon-compare, .cf-dash .field-meta, .cf-dash .spatial-select-grid,
   .cf-dash .report-form-grid, .cf-dash .cane-kpi-grid, .cf-dash .cane-legend-grid,
-  .cf-dash .credit-source-grid, .cf-dash .resource-reduction-grid, .cf-dash .soc-avg-kpi-grid { grid-template-columns: 1fr; }
+  .cf-dash .credit-source-grid, .cf-dash .resource-reduction-grid, .cf-dash .soc-avg-kpi-grid,
+  .cf-dash .net-summary-metrics { grid-template-columns: 1fr; }
   .cf-dash .credit-breakdown-head,
   .cf-dash .credit-total-check,
   .cf-dash .credit-breakdown-list div {
