@@ -1,6 +1,6 @@
 # Project Context Memory
 
-Last updated: 2026-06-12
+Last updated: 2026-06-15
 
 This file is a working memory for the project. It summarizes the current repo state, important decisions, active risks, and where future work should start. Update it when major behavior, routes, architecture, or project status changes.
 
@@ -89,6 +89,7 @@ Verified from `frontend/src/App.tsx` on 2026-06-11:
 - `/pipeline`: Carbon Analytics pipeline page
 - `/calculate`: redirect to Carbon preparation page
 - `/calculate/prepare`: carbon data preparation page for moving imported activity details into `carbon_process_queue`
+- `/calculate/usage`: input usage summary page for fertilizer, fuel, and other activity factors by camp/field/year
 - `/calculate/footprint`: carbon process queue page for unit/volume/soil/SOC preparation and calculation actions
 - `/calculate/credit`: carbon credit analysis page
 - `/dashboard`: older GHG dashboard
@@ -121,6 +122,7 @@ Verified from `frontend/src/components/layout/Sidebar.tsx` on 2026-06-11:
     - `/activities/logs`
   - `คำนวณ Carbon`
     - `/calculate/prepare`
+    - `/calculate/usage`
     - `/calculate/footprint`
     - `/calculate/credit`
 - `ข้อมูลเกษตรกร`
@@ -157,11 +159,45 @@ What that means:
 Important current behavior from code and repo notes:
 
 - `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` handles the preparation step for moving eligible activity-detail rows into `carbon_process_queue`.
+- `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` shows the pre-footprint input usage summary for fertilizer, fuel, and other activity factors.
 - `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` is the queue-driven Carbon Footprint preparation/calculation page.
 - `frontend/src/features/cf-dashboard/pages/CarbonCreditPage.tsx` is a comparison page for 4 baseline years plus 1 project year.
 - Repo notes say preparation metadata is intentionally stored without adding new database columns, reusing existing queue and result-unit fields.
 - Activity imports now maintain imported-file history through `activities_fileNameUse`.
 - Backend bootstrap in `backend/src/main.ts` installs `50mb` JSON and URL-encoded body parsers to support large import payloads.
+
+Recent input-usage summary page update from user prompt on 2026-06-15:
+
+- Prompt summary: add a new page between `เตรียมข้อมูล Carbon` and `Carbon Footprint` that summarizes factor usage by camp, field, and year, using real database data while treating the newly added Excel files as reference examples only.
+- Result: `/calculate/usage` now renders `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`, with shared filters for year/camp/field/view density, fertilizer and fuel sections, other-factor summary, and a 2-4 target comparison workspace for camp or field comparison.
+- Backend behavior: `GET /api/activities/input-usage-summary` in `backend/src/modules/activities/activities.controller.ts` and `backend/src/modules/activities/activities.service.ts` aggregates `log_activities_detail` with activity header, land/camp, resource, unit, status, and optional `carbon_process_queue_info` preparation data.
+- Unit behavior: fertilizer is normalized to `kg`, fuel is normalized to `L`, and unknown unit conversions are counted as warnings instead of being added to the kg/L totals.
+- Source-of-truth files: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`, `frontend/src/App.tsx`, `frontend/src/components/layout/Sidebar.tsx`, `backend/src/modules/activities/activities.controller.ts`, and `backend/src/modules/activities/activities.service.ts`.
+- Verification: `npm run build --workspace=backend` and `npm run build --workspace=frontend`.
+
+Recent input-usage summary readability update from user prompt on 2026-06-15:
+
+- Prompt summary: refine the `สรุปการใช้ปัจจัย` page so the fertilizer section looks closer to the attached xlsx example and make the whole page easier to scan because the previous section colors felt too similar.
+- Result: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now renders the fertilizer section with a workbook-style table grouped by year and fertilizer item, including cane type, total kg, area, and warning columns per year group. The page header, shared-filter area, KPI cards, fertilizer block, fuel block, comparison workspace, and other-factor block now use more distinct color palettes and section framing to reduce the “everything blends together” feel.
+- Backend behavior: `backend/src/modules/activities/activities.service.ts` now includes sugarcane type labels in the input-usage summary response so the workbook-style fertilizer table can show `ประเภทอ้อย` closer to the reference layout.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` and `backend/src/modules/activities/activities.service.ts`.
+- Verification: `npm run build --workspace=frontend` and `npm run build --workspace=backend`.
+
+Recent fertilizer-workbook usability update from user prompt on 2026-06-15:
+
+- Prompt summary: keep the large fertilizer workbook table from pushing the rest of the page downward, remove the unnecessary dedicated camp column, and make workbook column titles readable in full instead of visually cut off.
+- Result: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now keeps the fertilizer workbook table inside its own scrollable frame with internal vertical and horizontal scrolling, plus an expand/collapse control for the frame. The dedicated `ไร่ / Camp` workbook column was removed, while camp information is still shown as supporting text inside the land cell. Fertilizer-item headers now use larger minimum widths and wrapped multi-line text so long names are readable without truncation.
+- Additional behavior: the workbook frame now supports normal wheel scrolling for up/down and `Shift + Wheel` for left/right movement inside the table area.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+
+Recent input-usage header/comparison workspace update from user prompt on 2026-06-15:
+
+- Prompt summary: make the top `สรุปการใช้ปัจจัย` header frame smaller/tidier instead of large, and expand the `เปรียบเทียบไร่ / แปลง` area so users can add more comparison cards while still being able to read the text.
+- Result: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now uses a more compact top hero/header card with smaller padding, badge sizing, and supporting chips while keeping the same information. The comparison workspace now supports up to 10 cards instead of 4 and lays them out in multiple responsive rows (`1 / 2 / 3 / 4` columns by screen size) instead of over-compressing everything into a single row.
+- Additional behavior: the comparison area shows a current usage counter and keeps card text readable by allowing more vertical wrapping in values and top-item summaries.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
 
 Recent workflow update from user prompt on 2026-06-12:
 

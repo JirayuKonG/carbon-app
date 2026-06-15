@@ -18,6 +18,7 @@ import { CfReportPage }         from '@/features/cf-dashboard/pages/ReportPage'
 import { CfFootprintReportPage } from '@/features/cf-dashboard/pages/FootprintReportPage'
 import { CfCalculatePage }      from '@/features/cf-dashboard/pages/CalculatePage' // KONGJIRAYU05JUNE2026
 import { CfPipelinePage }       from '@/features/cf-dashboard/pages/PipelinePage'  // KONGJIRAYU05JUNE2026
+import { InputUsageSummaryPage } from '@/features/cf-dashboard/pages/InputUsageSummaryPage'
 import { CarbonFootprintQueuePage } from '@/features/cf-dashboard/pages/CarbonFootprintQueuePage'
 import { CarbonCreditPage }     from '@/features/cf-dashboard/pages/CarbonCreditPage'
 
@@ -39,6 +40,7 @@ export default function App() {
         <Route path="pipeline"          element={<CfPipelinePage />} />
         <Route path="calculate"         element={<RedirectWithSearch to="/calculate/prepare" />} />
         <Route path="calculate/prepare" element={<CfCalculatePage />} />
+        <Route path="calculate/usage"   element={<InputUsageSummaryPage />} />
         <Route path="calculate/footprint" element={<CarbonFootprintQueuePage />} />
         <Route path="calculate/credit"  element={<CarbonCreditPage />} />
         <Route path="dashboard"         element={<DashboardPage />} />
