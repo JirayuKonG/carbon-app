@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client'
-import { Injectable } from '@nestjs/common'
+import { BadRequestException, Injectable } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 
 @Injectable()
@@ -81,6 +81,55 @@ export class LandsService {
     subdistrict_code: number; land_camp_id: number; farmer_id: number
   }>) {
     return this.prisma.lands.update({ where: { land_id: id }, data: { ...this.cleanData(data), update_at: new Date() } })
+  }
+
+  async bulkUpdateLandSubdistrict(data: { land_ids?: number[]; subdistrict_code?: number }) {
+    const landIds = Array.from(
+      new Set(
+        (data.land_ids ?? [])
+          .map((value) => Number(value))
+          .filter((value) => Number.isInteger(value) && value > 0),
+      ),
+    )
+    const subdistrictCode = Number(data.subdistrict_code)
+
+    if (landIds.length === 0) {
+      throw new BadRequestException('กรุณาเลือกแปลงอย่างน้อย 1 รายการ')
+    }
+
+    if (!Number.isInteger(subdistrictCode) || subdistrictCode <= 0) {
+      throw new BadRequestException('กรุณาเลือกตำบลปลายทางให้ถูกต้อง')
+    }
+
+    const subdistrict = await this.prisma.subdistricts.findUnique({
+      where: { subdistricts_id: subdistrictCode },
+      select: { subdistricts_id: true, name_th: true, zip_code: true },
+    })
+
+    if (!subdistrict) {
+      throw new BadRequestException('ไม่พบข้อมูลตำบลที่ต้องการอัปเดต')
+    }
+
+    const updateData: Prisma.landsUncheckedUpdateManyInput = {
+      subdistrict_code: subdistrict.subdistricts_id,
+      update_at: new Date(),
+      ...(subdistrict.zip_code ? { zip_code: subdistrict.zip_code } : {}),
+    }
+
+    const result = await this.prisma.lands.updateMany({
+      where: { land_id: { in: landIds } },
+      data: updateData,
+    })
+
+    return {
+      updatedCount: result.count,
+      land_ids: landIds,
+      subdistrict: {
+        subdistricts_id: subdistrict.subdistricts_id,
+        name_th: subdistrict.name_th,
+        zip_code: subdistrict.zip_code,
+      },
+    }
   }
 
   deleteLand(id: number) {

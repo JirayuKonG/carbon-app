@@ -4,9 +4,10 @@ import { useNavigate } from 'react-router-dom'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { DataTable, Column, ExpandableTextCell } from '@/components/ui/DataTable'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { useToast } from '@/components/ui/Toast'
 import { del, get, post, put } from '@/lib/api'
 import { LandLocationPicker } from '@/features/lands/LandLocationPicker'
-import { Layers, Plus, Map, Tent, Pencil, Trash2, ActivitySquare } from 'lucide-react'
+import { Layers, Plus, Map, Tent, Pencil, Trash2, ActivitySquare, MapPinned, CheckSquare, Square } from 'lucide-react'
 import type { LatLngTuple } from 'leaflet'
 
 interface Land {
@@ -73,6 +74,16 @@ interface LogActivityDetail {
   }
 }
 
+interface BulkSubdistrictUpdateResponse {
+  updatedCount: number
+  land_ids: number[]
+  subdistrict: {
+    subdistricts_id: number
+    name_th?: string
+    zip_code?: string
+  }
+}
+
 type TabKey = 'lands' | 'camps' | 'landmaps'
 type ModalState =
   | { type: 'lands'; row?: Land }
@@ -105,11 +116,17 @@ const toCoordinateNumber = (value: number | string | null | undefined) => {
 export function LandsPage() {
   const qc = useQueryClient()
   const navigate = useNavigate()
+  const toast = useToast()
   const [tab, setTab] = useState<TabKey>('lands')
   const [selectedCamp, setSelectedCamp] = useState<number | null>(null)
   const [modal, setModal] = useState<ModalState>(null)
   const [deleteTarget, setDeleteTarget] = useState<DeleteState>(null)
   const [formError, setFormError] = useState<string | null>(null)
+  const [selectedLandIds, setSelectedLandIds] = useState<number[]>([])
+  const [bulkProvinceId, setBulkProvinceId] = useState<number | null>(null)
+  const [bulkDistrictId, setBulkDistrictId] = useState<number | null>(null)
+  const [bulkSubdistrictId, setBulkSubdistrictId] = useState<number | null>(null)
+  const [bulkError, setBulkError] = useState<string | null>(null)
 
   const { data: lands = [], isLoading: lLoad, error: landsError } = useQuery({ queryKey: ['lands'], queryFn: () => get<Land[]>('/lands') })
   const { data: camps = [], isLoading: cLoad, error: campsError } = useQuery({ queryKey: ['camps'], queryFn: () => get<LandCamp[]>('/lands/camps') })
@@ -185,6 +202,25 @@ export function LandsPage() {
     onError: (error) => setFormError(error instanceof Error ? error.message : 'Save failed'),
   })
 
+  const bulkSubdistrictMut = useMutation({
+    mutationFn: async () => put<BulkSubdistrictUpdateResponse>('/lands/bulk/subdistrict', {
+      land_ids: selectedLandIds,
+      subdistrict_code: bulkSubdistrictId,
+    }),
+    onSuccess: (result) => {
+      invalidateLands()
+      setSelectedLandIds([])
+      setBulkError(null)
+      toast.success(
+        'อัปเดตตำบลสำเร็จ',
+        `อัปเดตแล้ว ${result.updatedCount} แปลงเป็นตำบล ${result.subdistrict.name_th ?? `#${result.subdistrict.subdistricts_id}`}${result.subdistrict.zip_code ? ` (${result.subdistrict.zip_code})` : ''}`,
+      )
+    },
+    onError: (error) => {
+      setBulkError(error instanceof Error ? error.message : 'Bulk update failed')
+    },
+  })
+
   const deleteMut = useMutation({
     mutationFn: async (target: Exclude<DeleteState, null>) => {
       if (target.type === 'lands') return del(`/lands/${target.id}`)
@@ -198,6 +234,21 @@ export function LandsPage() {
   })
 
   const filteredLands = selectedCamp ? lands.filter((land) => land.land_camp_id === selectedCamp) : lands
+  const selectedLandIdSet = useMemo(() => new Set(selectedLandIds), [selectedLandIds])
+  const filteredLandIds = useMemo(() => filteredLands.map((land) => land.land_id), [filteredLands])
+  const filteredLandIdSet = useMemo(() => new Set(filteredLandIds), [filteredLandIds])
+  const selectedLands = useMemo(() => lands.filter((land) => selectedLandIdSet.has(land.land_id)), [lands, selectedLandIdSet])
+  const bulkFilteredDistricts = useMemo(() => {
+    if (bulkProvinceId == null) return []
+    return districts.filter((district) => district.province_code === bulkProvinceId)
+  }, [bulkProvinceId, districts])
+  const bulkFilteredSubdistricts = useMemo(() => {
+    if (bulkDistrictId == null) return []
+    return subdistricts.filter((subdistrict) => subdistrict.district_code === bulkDistrictId)
+  }, [bulkDistrictId, subdistricts])
+  const selectedBulkSubdistrict = bulkSubdistrictId != null ? subdistrictById[bulkSubdistrictId] : undefined
+  const areAllFilteredLandsSelected = filteredLands.length > 0 && filteredLands.every((land) => selectedLandIdSet.has(land.land_id))
+  const filteredSelectionCount = filteredLands.filter((land) => selectedLandIdSet.has(land.land_id)).length
   const pageQueryItems = [
     { label: 'ข้อมูลแปลง', error: landsError },
     { label: 'ข้อมูลแคมป์', error: campsError },
@@ -215,6 +266,35 @@ export function LandsPage() {
   const openEdit = (state: Exclude<ModalState, null>) => {
     setFormError(null)
     setModal(state)
+  }
+
+  useEffect(() => {
+    setSelectedLandIds((prev) => prev.filter((landId) => lands.some((land) => land.land_id === landId)))
+  }, [lands])
+
+  const toggleLandSelection = (landId: number) => {
+    setSelectedLandIds((prev) => (
+      prev.includes(landId) ? prev.filter((id) => id !== landId) : [...prev, landId]
+    ))
+  }
+
+  const toggleFilteredLandSelection = () => {
+    setSelectedLandIds((prev) => {
+      if (areAllFilteredLandsSelected) {
+        return prev.filter((landId) => !filteredLandIdSet.has(landId))
+      }
+
+      return Array.from(new Set([...prev, ...filteredLandIds]))
+    })
+  }
+
+  const clearSelectedLands = () => {
+    setSelectedLandIds([])
+  }
+
+  const handleLandRowClick = (row: Land) => {
+    toggleLandSelection(row.land_id)
+    setBulkError(null)
   }
 
   const actions = <T,>(onEdit: (row: T) => void, onDelete: (row: T) => void) => (row: T) => (
@@ -245,6 +325,38 @@ export function LandsPage() {
   )
 
   const landColumns: Column<Land>[] = [
+    {
+      key: 'bulk_select',
+      header: (
+        <label className="flex items-center justify-center">
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-surface-300 text-primary-600 focus:ring-primary-500"
+            checked={areAllFilteredLandsSelected}
+            onClick={(event) => event.stopPropagation()}
+            onChange={toggleFilteredLandSelection}
+            title="เลือกหรือยกเลิกทุกแปลงในรายการที่กรองอยู่"
+            aria-label="เลือกหรือยกเลิกทุกแปลงในรายการที่กรองอยู่"
+          />
+        </label>
+      ),
+      width: '54px',
+      render: (row) => (
+        <label className="flex items-center justify-center">
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-surface-300 text-primary-600 focus:ring-primary-500"
+            checked={selectedLandIdSet.has(row.land_id)}
+            onClick={(event) => event.stopPropagation()}
+            onChange={() => {
+              toggleLandSelection(row.land_id)
+              setBulkError(null)
+            }}
+            aria-label={`เลือกแปลง ${row.name || row.land_code || row.land_id}`}
+          />
+        </label>
+      ),
+    },
     { key: 'land_id', header: 'ID', width: '60px' },
     { key: 'land_code', header: 'รหัสแปลง' },
     { key: 'name', header: 'ชื่อแปลง' },
@@ -396,6 +508,158 @@ export function LandsPage() {
         </div>
       )}
 
+      {tab === 'lands' && (
+        <div className="card mb-5 border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-sky-50">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="max-w-3xl">
+              <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-semibold text-emerald-700">
+                <MapPinned size={13} />
+                จัดการตำบลหลายแปลง
+              </div>
+              <h2 className="mt-3 text-lg font-semibold text-surface-900">เปลี่ยน `subdistrict code` หลายแถวพร้อมกันจากหน้าแปลงที่ดิน</h2>
+              <p className="mt-1 text-sm text-surface-600">
+                ตอนนี้หน้า `พื้นที่เพาะปลูก` แก้ตำบลรายแถวได้อยู่แล้วจากปุ่มแก้ไข แต่ส่วนนี้เพิ่มมาเพื่อให้เลือกหลายแปลงแล้วอัปเดตตำบลพร้อมกันได้เลย
+              </p>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-3 lg:min-w-[340px]">
+              <div className="rounded-2xl border border-white/80 bg-white/90 px-4 py-3 shadow-sm">
+                <div className="text-xs text-surface-500">เลือกแล้ว</div>
+                <div className="mt-1 text-2xl font-semibold text-surface-900">{selectedLandIds.length}</div>
+                <div className="text-xs text-surface-500">แปลง</div>
+              </div>
+              <div className="rounded-2xl border border-white/80 bg-white/90 px-4 py-3 shadow-sm">
+                <div className="text-xs text-surface-500">ในรายการที่กรอง</div>
+                <div className="mt-1 text-2xl font-semibold text-surface-900">{filteredLands.length}</div>
+                <div className="text-xs text-surface-500">{selectedCamp ? 'ภายใต้แคมป์ที่เลือก' : 'ทุกแปลงที่แสดงอยู่'}</div>
+              </div>
+              <div className="rounded-2xl border border-white/80 bg-white/90 px-4 py-3 shadow-sm">
+                <div className="text-xs text-surface-500">เลือกจากรายการนี้</div>
+                <div className="mt-1 text-2xl font-semibold text-surface-900">{filteredSelectionCount}</div>
+                <div className="text-xs text-surface-500">แปลงในชุดกรองปัจจุบัน</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div>
+              <label className="label">จังหวัดปลายทาง</label>
+              <select
+                className="select"
+                value={bulkProvinceId ?? ''}
+                onChange={(event) => {
+                  const nextProvinceId = Number(event.target.value) || null
+                  setBulkProvinceId(nextProvinceId)
+                  setBulkDistrictId(null)
+                  setBulkSubdistrictId(null)
+                  setBulkError(null)
+                }}
+              >
+                <option value="">- เลือกจังหวัด -</option>
+                {provinces.map((province) => (
+                  <option key={province.provinces_id} value={province.provinces_id}>
+                    {province.name_th ?? `#${province.provinces_id}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="label">อำเภอปลายทาง</label>
+              <select
+                className="select"
+                value={bulkDistrictId ?? ''}
+                onChange={(event) => {
+                  const nextDistrictId = Number(event.target.value) || null
+                  setBulkDistrictId(nextDistrictId)
+                  setBulkSubdistrictId(null)
+                  setBulkError(null)
+                }}
+                disabled={bulkProvinceId == null}
+              >
+                <option value="">{bulkProvinceId == null ? '- เลือกจังหวัดก่อน -' : '- เลือกอำเภอ -'}</option>
+                {bulkFilteredDistricts.map((district) => (
+                  <option key={district.districts_id} value={district.districts_id}>
+                    {district.name_th ?? `#${district.districts_id}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="label">ตำบลปลายทาง</label>
+              <select
+                className="select"
+                value={bulkSubdistrictId ?? ''}
+                onChange={(event) => {
+                  setBulkSubdistrictId(Number(event.target.value) || null)
+                  setBulkError(null)
+                }}
+                disabled={bulkDistrictId == null}
+              >
+                <option value="">{bulkDistrictId == null ? '- เลือกอำเภอก่อน -' : '- เลือกตำบล -'}</option>
+                {bulkFilteredSubdistricts.map((subdistrict) => (
+                  <option key={subdistrict.subdistricts_id} value={subdistrict.subdistricts_id}>
+                    {subdistrict.name_th ?? '-'}{subdistrict.zip_code ? ` (${subdistrict.zip_code})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <ReadOnlyField
+              name="bulk_zip_code_preview"
+              label="รหัสไปรษณีย์"
+              value={selectedBulkSubdistrict?.zip_code ?? ''}
+              placeholder="เลือกตำบลเพื่อดูรหัสไปรษณีย์"
+            />
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <button type="button" className="btn-secondary btn-sm flex items-center gap-1" onClick={toggleFilteredLandSelection}>
+              {areAllFilteredLandsSelected ? <Square size={13} /> : <CheckSquare size={13} />}
+              {areAllFilteredLandsSelected ? 'ยกเลิกเลือกรายการที่กรองอยู่' : 'เลือกทั้งหมดในรายการที่กรองอยู่'}
+            </button>
+            <button type="button" className="btn-secondary btn-sm" onClick={clearSelectedLands} disabled={selectedLandIds.length === 0}>
+              ล้างรายการที่เลือก
+            </button>
+            <button
+              type="button"
+              className="btn-primary btn-sm"
+              disabled={selectedLandIds.length === 0 || bulkSubdistrictId == null || bulkSubdistrictMut.isPending}
+              onClick={() => bulkSubdistrictMut.mutate()}
+            >
+              {bulkSubdistrictMut.isPending ? 'กำลังอัปเดตตำบล...' : 'อัปเดตตำบลให้แปลงที่เลือก'}
+            </button>
+          </div>
+
+          {bulkError && (
+            <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {bulkError}
+            </div>
+          )}
+
+          <div className="mt-4 rounded-2xl border border-surface-200 bg-white/80 px-4 py-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-surface-500">รายการที่เลือกอยู่</div>
+            {selectedLands.length === 0 ? (
+              <p className="mt-2 text-sm text-surface-500">ยังไม่ได้เลือกแปลงจากตารางด้านล่าง คุณสามารถติ๊ก checkbox หน้าแถว, คลิกทั้งแถวเพื่อเลือก, หรือใช้ปุ่มเลือกทั้งหมดในชุดที่กรองอยู่ได้</p>
+            ) : (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {selectedLands.slice(0, 8).map((land) => (
+                  <span key={land.land_id} className="inline-flex items-center rounded-full border border-surface-200 bg-surface-50 px-3 py-1 text-xs text-surface-700">
+                    {land.name || land.land_code || `แปลง #${land.land_id}`}
+                  </span>
+                ))}
+                {selectedLands.length > 8 && (
+                  <span className="inline-flex items-center rounded-full border border-surface-200 bg-surface-50 px-3 py-1 text-xs text-surface-500">
+                    +{selectedLands.length - 8} แปลง
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-1 mb-5 bg-surface-100 p-1 rounded-xl w-fit">
         {TABS.map((tabItem) => (
           <button
@@ -415,6 +679,7 @@ export function LandsPage() {
             columns={landColumns}
             isLoading={lLoad}
             rowKey={(row) => row.land_id}
+            onRowClick={handleLandRowClick}
             searchPlaceholder="ค้นหารหัสแปลง, ชื่อ, จังหวัด, อำเภอ..."
             actions={landActions}
           />

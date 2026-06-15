@@ -1,6 +1,6 @@
 # Project Component Map
 
-Last updated: 2026-06-11
+Last updated: 2026-06-15
 
 Use this file to quickly find where a page, component, layout element, or related API code lives.
 
@@ -27,7 +27,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Group | Items | Notes |
 | --- | --- | --- |
 | `CARBON ANALYTICS` | `ข้อมูลสรุปคาร์บอนเครดิต`, `ข้อมูลสรุปคาร์บอนฟุตพริ้นท์`, `แผนที่พื้นที่` | `ข้อมูลสรุปคาร์บอนเครดิต` expands to `คาร์บอนเครดิต` and `รายงาน Premium T-VER`; `ข้อมูลสรุปคาร์บอนฟุตพริ้นท์` expands to `คาร์บอนฟุตพริ้นท์` and `รายงานคาร์บอนฟุตพริ้นท์`. |
-| `CARBON` | `บันทึกกิจกรรม`, `คำนวณ Carbon` | `บันทึกกิจกรรม` expands to `จัดการกิจกรรม` and `รายการบันทึกกิจกรรม`; `คำนวณ Carbon` expands to `เตรียมข้อมูล Carbon`, `Carbon Footprint`, and `Carbon Credit`. |
+| `CARBON` | `บันทึกกิจกรรม`, `คำนวณ Carbon` | `บันทึกกิจกรรม` expands to `จัดการกิจกรรม` and `รายการบันทึกกิจกรรม`; `คำนวณ Carbon` expands to `เตรียมข้อมูล Carbon`, `สรุปการใช้ปัจจัย`, `Carbon Footprint`, and `Carbon Credit`. |
 | `ข้อมูลเกษตรกร` | `จัดการเกษตรกร`, `พื้นที่เพาะปลูก`, `ข้อมูลสภาพอากาศ` | Farmer and land-related operational pages. |
 | `ตั้งค่าระบบ` | `พื้นที่ในประเทศไทย`, `โรงงาน / บริการ`, `จัดการผู้ใช้`, `EF / GWP / หน่วย`, `ปุ๋ย / น้ำมัน` | System reference data, user management, and activity-resource setup pages. |
 
@@ -65,6 +65,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | `/pipeline` | `frontend/src/features/cf-dashboard/pages/PipelinePage.tsx` | Carbon Analytics pipeline view that still exists as a direct route. |
 | `/calculate` | `frontend/src/App.tsx` | Redirects to `/calculate/prepare`. |
 | `/calculate/prepare` | `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` | Carbon data preparation page that moves imported activity details into `carbon_process_queue`. |
+| `/calculate/usage` | `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` | Input usage summary page for fertilizer, fuel, and other activity factors by camp/field/year before Carbon Footprint calculation, including a workbook-style fertilizer view based on the attached xlsx report layout. |
 | `/calculate/footprint` | `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` | Carbon Footprint queue page for unit/volume preparation, fertilizer/fuel conversions, soil/SOC inputs, ready status, and calculation actions. |
 | `/calculate/credit` | `frontend/src/features/cf-dashboard/pages/CarbonCreditPage.tsx` | Read-only Carbon Credit analysis page with 4 baseline years, 1 project year, and plot-level fertilizer/fuel comparison. |
 | `/dashboard` | `frontend/src/features/dashboard/DashboardPage.tsx` | Older GHG dashboard page kept as a separate route. |
@@ -72,7 +73,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | `/infra` | `frontend/src/features/infra/InfraPage.tsx` | Factories, service areas, and departments. |
 | `/users` | `frontend/src/features/users/UsersPage.tsx` | Users and roles. |
 | `/farmers` | `frontend/src/features/farmers/FarmersPage.tsx` | Farmer records. |
-| `/lands` | `frontend/src/features/lands/LandsPage.tsx` | Lands, camps, landmaps, grouped land form, and geo-assisted location selection. |
+| `/lands` | `frontend/src/features/lands/LandsPage.tsx` | Lands, camps, landmaps, grouped land form, geo-assisted location selection, and a bulk subdistrict-management panel for updating many selected lands at once. |
 | `/lands/weather` | `frontend/src/features/weather/WeatherPage.tsx` | Weather station records and CSV import. |
 | `/emission-factors` | `frontend/src/features/emission-factors/EmissionFactorsPage.tsx` | Emission factors, GWP, units, and reference data. |
 | `/activities` | `frontend/src/App.tsx` | Redirects to `/activities/logs`. |
@@ -98,10 +99,10 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Infra | `backend/src/modules/infra/*` | `/api/infra` |
 | Users | `backend/src/modules/users/*` | `/api/users` |
 | Farmers | `backend/src/modules/farmers/*` | `/api/farmers` |
-| Lands | `backend/src/modules/lands/*` | `/api/lands` |
+| Lands | `backend/src/modules/lands/*` | `/api/lands` including the bulk subdistrict update endpoint `/api/lands/bulk/subdistrict`. |
 | Weather | `backend/src/modules/weather/*` | `/api/lands/weather` |
 | Emission factors | `backend/src/modules/emission-factors/*` | `/api/emission-factors` |
-| Activities | `backend/src/modules/activities/*` | `/api/activities` including headers/details, CSV import, import-history endpoints, and carbon queue endpoints such as `/api/activities/carbon-process-queue`. |
+| Activities | `backend/src/modules/activities/*` | `/api/activities` including headers/details, CSV import, import-history endpoints, input usage summary `/api/activities/input-usage-summary`, and carbon queue endpoints such as `/api/activities/carbon-process-queue`. |
 | Prisma database access | `backend/src/modules/prisma/*` | Used by all backend services. |
 
 ## Database And Schema
@@ -123,12 +124,14 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Where is Carbon Analytics data loading? | `frontend/src/features/cf-dashboard/services/dashboardApi.ts` |
 | Where is API-to-mock fallback logic? | `frontend/src/features/cf-dashboard/services/dashboardApi.ts` |
 | Where are Carbon Analytics pages? | `frontend/src/features/cf-dashboard/pages/` |
+| Where is the input usage summary page? | `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`; backend source is `backend/src/modules/activities/activities.service.ts`. |
 | Where are Carbon Analytics charts/components? | `frontend/src/features/cf-dashboard/components/` |
 | Where is the table component? | `frontend/src/components/ui/DataTable.tsx` |
 | Where is CSV import UI? | `frontend/src/components/ui/CsvMappingWizard.tsx` |
 | Where is weather manual/import page? | `frontend/src/features/weather/WeatherPage.tsx` |
 | Where is the activity log page? | `frontend/src/features/activities/ActivityLogListPage.tsx` |
 | Where is the advanced activity management page? | `frontend/src/features/activities/ActivitiesPage.tsx` |
+| Where is the bulk subdistrict tool for lands? | `frontend/src/features/lands/LandsPage.tsx`; backend update endpoint is `backend/src/modules/lands/lands.service.ts`. |
 | Where are `/lands/camps` routes handled? | `backend/src/modules/lands/lands.controller.ts` |
 | Where is PostgreSQL/Prisma schema? | `backend/src/prisma/schema.prisma` |
 | Where are API requests configured? | `frontend/src/lib/api.ts` |

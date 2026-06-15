@@ -38,6 +38,7 @@ export class ActivitiesController {
   @Get('details')
   @ApiQuery({ name: 'header_id', required: false, type: Number })
   getDetails(@Query('header_id') hid?: string) { return this.svc.getDetails(hid ? +hid : undefined) }
+  @Get('input-usage-summary') getInputUsageSummary() { return this.svc.getInputUsageSummary() }
   @Post('details') createDetail(@Body() b: any) { return this.svc.createDetail(b) }
   @Post('details/workflow-status/bulk')
   moveDetailsToWorkflowStatusBulk(@Body() b: { ids: number[]; statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' }) {
