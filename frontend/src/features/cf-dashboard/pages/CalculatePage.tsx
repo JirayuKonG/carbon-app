@@ -253,8 +253,8 @@ export function CfCalculatePage() {
   const statusMut = useMutation({
     mutationFn: ({ ids, statusName }: { ids: number[]; statusName: ManualStatusName }) => (
       ids.length === 1
-        ? post(`/activities/details/${ids[0]}/manual-status`, { statusName })
-        : post('/activities/details/manual-status/bulk', { ids, statusName })
+        ? post(`/activities/details/${ids[0]}/manual-status`, { statusName }, { timeout: 2 * 60_000 })
+        : post('/activities/details/manual-status/bulk', { ids, statusName }, { timeout: 10 * 60_000 })
     ),
     onMutate: ({ ids }) => {
       setStatusPopup({ kind: 'loading', itemCount: ids.length })
@@ -679,7 +679,25 @@ export function CfCalculatePage() {
           />
         </div>
 
-        <CarbonFootprintQueuePage mode="preparation" embedded />
+        <section className="mt-6 rounded-[28px] border border-[#d8c08d] bg-[linear-gradient(180deg,rgba(255,251,242,0.98),rgba(247,240,223,0.94))] p-4 shadow-[0_20px_48px_rgba(120,94,38,0.10)]">
+          <div className="mb-4 flex flex-col gap-3 border-b border-[#e6d7b5] pb-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-[#d8c08d] bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#7a6331]">
+                <Clock3 size={13} />
+                คิวเตรียมข้อมูลทั้งหมด
+              </div>
+              <h2 className="mt-3 text-lg font-semibold text-[#46371a]">Preparation Queue Workspace</h2>
+              <p className="mt-1 text-sm text-[#6d5a31]">
+                ส่วนนี้ใช้จัดการรายการที่ถูกส่งเข้า queue แล้ว เพื่อเตรียมหน่วย ปรับปริมาณ และเปลี่ยนสถานะก่อนเข้าสู่การคำนวณจริง
+              </p>
+            </div>
+            <div className="rounded-2xl border border-[#e6d7b5] bg-white/70 px-4 py-3 text-sm text-[#6d5a31] shadow-sm">
+              แยกจากบล็อกด้านบนเพื่อให้มองออกทันทีว่าเป็นพื้นที่ทำงานของ queue
+            </div>
+          </div>
+
+          <CarbonFootprintQueuePage mode="preparation" embedded />
+        </section>
 
         {statusPopup.kind !== 'hidden' && (
           <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">

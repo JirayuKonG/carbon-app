@@ -138,6 +138,9 @@ type CarbonQueueCalculationPayload = {
   fertilizerDapEfId?: number | string | null
   fertilizerKclEfId?: number | string | null
   fertilizerGwpId?: number | string | null
+  manualFertilizerNPercent?: number | string | null
+  manualFertilizerP2O5Percent?: number | string | null
+  manualFertilizerK2OPercent?: number | string | null
 }
 
 type FootprintResultUnitKind = 'kgco2e' | 'tco2e'
@@ -379,6 +382,46 @@ export class ActivitiesService {
     }
   }
 
+  private resolveManualFertilizerFormulaInput(payload?: {
+    manualFertilizerNPercent?: number | string | null
+    manualFertilizerP2O5Percent?: number | string | null
+    manualFertilizerK2OPercent?: number | string | null
+  }) {
+    const rawValues = [
+      payload?.manualFertilizerNPercent,
+      payload?.manualFertilizerP2O5Percent,
+      payload?.manualFertilizerK2OPercent,
+    ]
+
+    const hasAnyValue = rawValues.some((value) => value !== undefined && value !== null && String(value).trim() !== '')
+    if (!hasAnyValue) return null
+
+    const nPercent = this.toOptionalNumber(payload?.manualFertilizerNPercent)
+    const p2o5Percent = this.toOptionalNumber(payload?.manualFertilizerP2O5Percent)
+    const k2oPercent = this.toOptionalNumber(payload?.manualFertilizerK2OPercent)
+
+    if (nPercent == null || p2o5Percent == null || k2oPercent == null) {
+      throw new BadRequestException('กรุณากรอกค่า N, P2O5 และ K2O ให้ครบ')
+    }
+
+    if ([nPercent, p2o5Percent, k2oPercent].some((value) => value < 0)) {
+      throw new BadRequestException('ค่า N, P2O5 และ K2O ต้องไม่ติดลบ')
+    }
+
+    const totalPercent = nPercent + p2o5Percent + k2oPercent
+    if (totalPercent > 100) {
+      throw new BadRequestException('ผลรวม N + P2O5 + K2O ต้องไม่เกิน 100')
+    }
+
+    return {
+      nPercent,
+      p2o5Percent,
+      k2oPercent,
+      fillerPercent: 100 - totalPercent,
+      formulaLabel: `${nPercent.toFixed(4)}-${p2o5Percent.toFixed(4)}-${k2oPercent.toFixed(4)}`,
+    }
+  }
+
   private normalizeCalStatusName(value: string | null | undefined) {
     return (value ?? '').trim()
   }
@@ -456,20 +499,7 @@ export class ActivitiesService {
   private async getDetailForWorkflow(id: number) {
     const detail = await this.prisma.log_activities_detail.findUnique({
       where: { log_act_detail_id: id },
-      include: {
-        log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
-        activities_header: {
-          select: {
-            activities_header_startDate: true,
-            land_id: true,
-            lands: {
-              select: {
-                land_camp_id: true,
-              },
-            },
-          },
-        },
-      },
+      include: this.getDetailForWorkflowInclude(),
     })
 
     if (!detail) {
@@ -477,6 +507,40 @@ export class ActivitiesService {
     }
 
     return detail
+  }
+
+  private getDetailForWorkflowInclude() {
+    return {
+      log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
+      activities_header: {
+        select: {
+          activities_header_startDate: true,
+          land_id: true,
+          lands: {
+            select: {
+              land_camp_id: true,
+            },
+          },
+        },
+      },
+    } as const
+  }
+
+  private async getDetailsForWorkflow(ids: number[]) {
+    const details = await this.prisma.log_activities_detail.findMany({
+      where: {
+        log_act_detail_id: { in: ids },
+      },
+      include: this.getDetailForWorkflowInclude(),
+    })
+
+    const detailById = new Map(details.map((detail) => [detail.log_act_detail_id, detail]))
+    const missingIds = ids.filter((id) => !detailById.has(id))
+    if (missingIds.length > 0) {
+      throw new BadRequestException(`Details not found: ${missingIds.join(', ')}`)
+    }
+
+    return ids.map((id) => detailById.get(id)!)
   }
 
   private canTransitionWorkflowStatus(currentStatusName: string, nextStatusName: string) {
@@ -629,6 +693,7 @@ export class ActivitiesService {
   private async handleUnchangedWorkflowStatus(
     detail: any,
     statusName:
+      | typeof CAL_STATUS_NAMES.imported
       | typeof CAL_STATUS_NAMES.preparing
       | typeof CAL_STATUS_NAMES.ready
       | typeof CAL_STATUS_NAMES.standardDone,
@@ -637,6 +702,8 @@ export class ActivitiesService {
   ) {
     if (statusName === CAL_STATUS_NAMES.preparing) {
       await this.ensureCarbonProcessQueueForDetail(detail, statusId, tx)
+    } else if (statusName === CAL_STATUS_NAMES.imported) {
+      await this.syncCarbonProcessQueueStatus(detail.log_act_detail_id, statusId, tx)
     } else {
       await this.syncCarbonProcessQueueStatus(detail.log_act_detail_id, statusId, tx)
     }
@@ -647,6 +714,128 @@ export class ActivitiesService {
         log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
       },
     })
+  }
+
+  private async syncCarbonProcessQueueStatusBulk(detailIds: number[], statusId: number, tx: any = this.prisma) {
+    if (!detailIds.length) return { count: 0 }
+
+    return tx.carbon_process_queue.updateMany({
+      where: {
+        log_act_detail_id: { in: detailIds },
+      },
+      data: {
+        log_act_detail_calStatus_id: statusId,
+        carbon_process_queue_updated_at: new Date(),
+      },
+    })
+  }
+
+  private async ensureCarbonProcessQueueForDetailsBulk(details: any[], statusId: number, tx: any = this.prisma) {
+    if (!details.length) return { created: 0, updated: 0 }
+
+    const detailIds = details.map((detail) => detail.log_act_detail_id)
+    const existingQueues = await tx.carbon_process_queue.findMany({
+      where: {
+        log_act_detail_id: { in: detailIds },
+      },
+      select: {
+        carbon_process_queue_id: true,
+        log_act_detail_id: true,
+      },
+    })
+
+    const existingDetailIdSet = new Set(
+      existingQueues
+        .map((queue: { log_act_detail_id: number | null }) => queue.log_act_detail_id)
+        .filter((value: number | null): value is number => value != null),
+    )
+
+    const now = new Date()
+    const detailsToCreate = details.filter((detail) => !existingDetailIdSet.has(detail.log_act_detail_id))
+
+    let created = 0
+    if (detailsToCreate.length > 0) {
+      const last = await tx.carbon_process_queue.aggregate({
+        _max: { carbon_process_queue_id: true },
+      })
+      let nextQueueId = (last._max.carbon_process_queue_id ?? 0) + 1
+
+      await tx.carbon_process_queue.createMany({
+        data: detailsToCreate.map((detail) => ({
+          carbon_process_queue_id: nextQueueId++,
+          log_act_detail_id: detail.log_act_detail_id,
+          log_act_detail_calStatus_id: statusId,
+          land_id: detail.activities_header?.land_id ?? undefined,
+          land_camp_id: detail.activities_header?.lands?.land_camp_id ?? undefined,
+          carbon_process_queue_dateWork: detail.log_act_detail_create_at ?? detail.activities_header?.activities_header_startDate ?? undefined,
+          carbon_process_queue_create_at: now,
+          carbon_process_queue_updated_at: now,
+        })),
+      })
+      created = detailsToCreate.length
+    }
+
+    const updatedResult = await this.syncCarbonProcessQueueStatusBulk(detailIds, statusId, tx)
+
+    return {
+      created,
+      updated: updatedResult.count,
+    }
+  }
+
+  private async moveDetailsToStatusBulk(
+    ids: number[],
+    statusName:
+      | typeof CAL_STATUS_NAMES.imported
+      | typeof CAL_STATUS_NAMES.preparing
+      | typeof CAL_STATUS_NAMES.ready
+      | typeof CAL_STATUS_NAMES.standardDone,
+    transitionMode: 'workflow' | 'manual',
+  ) {
+    if (!ids.length) throw new BadRequestException('No detail IDs provided')
+
+    const uniqueIds = Array.from(new Set(ids))
+    const details = await this.getDetailsForWorkflow(uniqueIds)
+    const statusId = await this.getCalStatusId(statusName as CalStatusName)
+
+    const canTransition = transitionMode === 'workflow'
+      ? this.canTransitionWorkflowStatus.bind(this)
+      : this.canTransitionManualStatus.bind(this)
+
+    const invalidDetail = details.find((detail) => {
+      const currentStatusName = this.getDetailStatusName(detail)
+      return currentStatusName !== statusName && !canTransition(currentStatusName, statusName)
+    })
+
+    if (invalidDetail) {
+      const currentStatusName = this.getDetailStatusName(invalidDetail)
+      throw new BadRequestException(
+        `Cannot move detail ${invalidDetail.log_act_detail_id} from "${currentStatusName || '—'}" to "${statusName}"`,
+      )
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.log_activities_detail.updateMany({
+        where: {
+          log_act_detail_id: { in: uniqueIds },
+        },
+        data: {
+          log_act_detail_calStatus_id: statusId,
+        },
+      })
+
+      if (statusName === CAL_STATUS_NAMES.preparing) {
+        await this.ensureCarbonProcessQueueForDetailsBulk(details, statusId, tx)
+        return
+      }
+
+      await this.syncCarbonProcessQueueStatusBulk(uniqueIds, statusId, tx)
+    })
+
+    return {
+      updated: uniqueIds.length,
+      ids: uniqueIds,
+    }
   }
 
   async createHeader(data: ActivityHeaderPayload) {
@@ -861,22 +1050,13 @@ export class ActivitiesService {
     ids: number[],
     statusName: typeof CAL_STATUS_NAMES.preparing | typeof CAL_STATUS_NAMES.ready,
   ) {
-    if (!ids.length) throw new BadRequestException('No detail IDs provided')
-
-    const updated = []
-    for (const id of ids) {
-      updated.push(await this.moveDetailToWorkflowStatus(id, statusName))
-    }
-
-    return {
-      updated: updated.length,
-      ids: updated.map((item) => item.log_act_detail_id),
-    }
+    return this.moveDetailsToStatusBulk(ids, statusName, 'workflow')
   }
 
   async moveDetailToManualStatus(
     id: number,
     statusName:
+      | typeof CAL_STATUS_NAMES.imported
       | typeof CAL_STATUS_NAMES.preparing
       | typeof CAL_STATUS_NAMES.ready
       | typeof CAL_STATUS_NAMES.standardDone,
@@ -911,21 +1091,12 @@ export class ActivitiesService {
   async moveDetailsToManualStatus(
     ids: number[],
     statusName:
+      | typeof CAL_STATUS_NAMES.imported
       | typeof CAL_STATUS_NAMES.preparing
       | typeof CAL_STATUS_NAMES.ready
       | typeof CAL_STATUS_NAMES.standardDone,
   ) {
-    if (!ids.length) throw new BadRequestException('No detail IDs provided')
-
-    const updated = []
-    for (const id of ids) {
-      updated.push(await this.moveDetailToManualStatus(id, statusName))
-    }
-
-    return {
-      updated: updated.length,
-      ids: updated.map((item) => item.log_act_detail_id),
-    }
+    return this.moveDetailsToStatusBulk(ids, statusName, 'manual')
   }
 
   async calculateDetail(id: number, calcMode: 'standard' | 'tver' = 'standard') {
@@ -1521,19 +1692,40 @@ export class ActivitiesService {
     fertilizerDapEfId?: number
     fertilizerKclEfId?: number
     fertilizerGwpId?: number
+    manualFertilizerNPercent?: number | string | null
+    manualFertilizerP2O5Percent?: number | string | null
+    manualFertilizerK2OPercent?: number | string | null
   }) {
     const fertilizerProfile = this.inferFertilizerNitrogenFromName(
       queue?.log_activities_detail?.activities_fertilizers?.act_fertilizer_name,
     )
+    const manualFormula = this.resolveManualFertilizerFormulaInput(options)
+    const resolvedFormula = (
+      fertilizerProfile.kind === 'chemical'
+      && fertilizerProfile.nPercent != null
+      && fertilizerProfile.p2o5Percent != null
+      && fertilizerProfile.k2oPercent != null
+      && fertilizerProfile.fillerPercent != null
+    )
+      ? {
+        nPercent: fertilizerProfile.nPercent,
+        p2o5Percent: fertilizerProfile.p2o5Percent,
+        k2oPercent: fertilizerProfile.k2oPercent,
+        fillerPercent: fertilizerProfile.fillerPercent,
+        formulaLabel: fertilizerProfile.formulaLabel ?? null,
+        formulaSource: 'parsed' as const,
+      }
+      : (
+        manualFormula
+          ? {
+            ...manualFormula,
+            formulaSource: 'manual' as const,
+          }
+          : null
+      )
 
-    if (
-      fertilizerProfile.kind !== 'chemical'
-      || fertilizerProfile.nPercent == null
-      || fertilizerProfile.p2o5Percent == null
-      || fertilizerProfile.k2oPercent == null
-      || fertilizerProfile.fillerPercent == null
-    ) {
-      throw new BadRequestException('สูตร Carbon Footprint ปุ๋ยนี้ต้องมีสูตร N-P2O5-K2O ในชื่อรายการ เช่น 15-15-15')
+    if (!resolvedFormula) {
+      throw new BadRequestException('สูตร Carbon Footprint ปุ๋ยนี้ต้องมีสูตร N-P2O5-K2O ในชื่อรายการ หรือกรอกค่า N, P2O5, K2O เอง')
     }
 
     const [
@@ -1555,10 +1747,10 @@ export class ActivitiesService {
       EF_KCL_AS_K2O: kclEf.value,
       GWP_N2O: selectedGwp.value,
     }
-    const nFraction = fertilizerProfile.nPercent / 100
-    const p2o5Fraction = fertilizerProfile.p2o5Percent / 100
-    const k2oFraction = fertilizerProfile.k2oPercent / 100
-    const fillerFraction = fertilizerProfile.fillerPercent / 100
+    const nFraction = resolvedFormula.nPercent / 100
+    const p2o5Fraction = resolvedFormula.p2o5Percent / 100
+    const k2oFraction = resolvedFormula.k2oPercent / 100
+    const fillerFraction = resolvedFormula.fillerPercent / 100
     const upstreamPerKg = (
       (nFraction * constants.EF_UREA_AS_N)
       + (p2o5Fraction * constants.EF_DAP_AS_P2O5)
@@ -1573,6 +1765,7 @@ export class ActivitiesService {
 
     return {
       fertilizerProfile,
+      resolvedFormula,
       fertilizerKg,
       selectedUreaEf: ureaEf.selectedEf,
       selectedDapEf: dapEf.selectedEf,
@@ -1597,6 +1790,9 @@ export class ActivitiesService {
     fertilizerDapEfId?: number
     fertilizerKclEfId?: number
     fertilizerGwpId?: number
+    manualFertilizerNPercent?: number | string | null
+    manualFertilizerP2O5Percent?: number | string | null
+    manualFertilizerK2OPercent?: number | string | null
   }): Promise<GenericEfCalculationResult> {
     if (!await this.isKgUnit(amountInput.unitId)) {
       throw new BadRequestException('สูตร Carbon Footprint ปุ๋ยต้องใช้ปริมาณหลังเตรียมเป็นหน่วย kg ก่อนคำนวณ')
@@ -1612,7 +1808,8 @@ export class ActivitiesService {
       breakdown: {
         formulaMode: 'fertilizer_n2o',
         calculationMethod: 'fertilizer_cfp_simple',
-        fertilizerFormulaLabel: breakdown.fertilizerProfile.formulaLabel ?? null,
+        fertilizerFormulaLabel: breakdown.resolvedFormula.formulaLabel ?? null,
+        fertilizerFormulaSource: breakdown.resolvedFormula.formulaSource,
         fertilizerKg: amountInput.amount,
         fertilizerUreaEfId: breakdown.selectedUreaEf?.coefficient_emission_factor_id ?? null,
         fertilizerUreaEfName: breakdown.selectedUreaEf?.coef_em_factor_name ?? breakdown.selectedUreaEf?.coef_em_factor_idCode ?? null,
@@ -1622,10 +1819,10 @@ export class ActivitiesService {
         fertilizerKclEfName: breakdown.selectedKclEf?.coef_em_factor_name ?? breakdown.selectedKclEf?.coef_em_factor_idCode ?? null,
         fertilizerGwpId: breakdown.selectedGwp?.coefficients_emissions_factors_gwp_id ?? null,
         fertilizerGwpName: breakdown.selectedGwp?.coef_em_factor_gwp_name ?? breakdown.selectedGwp?.coef_em_factor_gwp_name_en ?? null,
-        nPercent: breakdown.fertilizerProfile.nPercent,
-        p2o5Percent: breakdown.fertilizerProfile.p2o5Percent,
-        k2oPercent: breakdown.fertilizerProfile.k2oPercent,
-        fillerPercent: breakdown.fertilizerProfile.fillerPercent,
+        nPercent: breakdown.resolvedFormula.nPercent,
+        p2o5Percent: breakdown.resolvedFormula.p2o5Percent,
+        k2oPercent: breakdown.resolvedFormula.k2oPercent,
+        fillerPercent: breakdown.resolvedFormula.fillerPercent,
         upstreamPerKg: breakdown.upstreamPerKg,
         upstreamKgco2e: breakdown.upstreamKgco2e,
         nAppliedKg: breakdown.nAppliedKg,
@@ -1646,6 +1843,9 @@ export class ActivitiesService {
     const fertilizerDapEfId = this.toOptionalNumber(payload?.fertilizerDapEfId)
     const fertilizerKclEfId = this.toOptionalNumber(payload?.fertilizerKclEfId)
     const fertilizerGwpId = this.toOptionalNumber(payload?.fertilizerGwpId)
+    const manualFertilizerNPercent = this.toOptionalNumber(payload?.manualFertilizerNPercent)
+    const manualFertilizerP2O5Percent = this.toOptionalNumber(payload?.manualFertilizerP2O5Percent)
+    const manualFertilizerK2OPercent = this.toOptionalNumber(payload?.manualFertilizerK2OPercent)
 
     if (formulaMode === 'fertilizer_n2o') {
       const result = await this.calculateFertilizerN2OForQueue(queue, amountInput, {
@@ -1653,6 +1853,9 @@ export class ActivitiesService {
         fertilizerDapEfId,
         fertilizerKclEfId,
         fertilizerGwpId,
+        manualFertilizerNPercent,
+        manualFertilizerP2O5Percent,
+        manualFertilizerK2OPercent,
       })
       return this.applyRequestedFootprintResultUnit(result, requestedResultUnitId)
     }

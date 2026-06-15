@@ -219,6 +219,60 @@ Recent Carbon Footprint fuel-preview formatting update from user prompt on 2026-
 
 Recent Carbon Footprint split-pane update from user prompt on 2026-06-13:
 
+Recent Carbon Footprint fertilizer manual-formula update from user prompt on 2026-06-14:
+
+- Prompt summary: on `คำนวณ Carbon -> Carbon Footprint -> คำนวณรายการที่เลือก`, allow fertilizer rows that do not have a parseable `N-P2O5-K2O` formula in the item name to be calculated by manually entering `N`, `P2O5`, and `K2O` in the card/modal page, with decimal input up to 4 places, based on `CONCLUSION_CARBON_CAL_TABLE.md`.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now shows a manual `N-P2O5-K2O` input section for fertilizer rows whose formula cannot be detected from the fertilizer name. The frontend preview uses those manual values immediately when they are complete and valid.
+- Additional behavior: the modal validates that `N`, `P2O5`, and `K2O` are all provided, are numeric, are not negative, and sum to at most `100`. It also shows the derived filler percentage and blocks submission until the required manual formula is complete.
+- Backend alignment: `backend/src/modules/activities/activities.service.ts` and `backend/src/modules/activities/activities.controller.ts` now accept the manual fertilizer percentages in the queue-calculation request and use them as a fallback when the fertilizer name does not contain a parseable chemical formula.
+- Source of truth: the card-page UI and preview behavior live in `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`; the persisted calculation behavior lives in `backend/src/modules/activities/activities.service.ts`.
+- Verification: `npm run build --workspace=frontend` and `npm run build --workspace=backend`.
+- Limitation kept intentionally: the main queue table can still show the original blocked input status before modal entry because the manual formula is supplied inside the calculation modal, not stored back onto the queue row itself.
+- Related docs updated: `CONTEXT.md` updated for project memory. No schema/database changes were made.
+
+Recent Carbon Footprint card-page warning-layout update from user prompt on 2026-06-14:
+
+- Prompt summary: on `คำนวณ Carbon -> Carbon Footprint -> คำนวณรายการที่เลือก`, when users select mixed rows such as fertilizer, organic fertilizer, and fuel together, the warning text at the bottom of the card page can overflow beyond the modal/card boundary.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now keeps the preview modal body in a constrained flex/scroll layout and renders bottom warnings inside a full-width warning box within the card page instead of as loose text lines below the action buttons.
+- Additional behavior: long warning content now wraps inside the modal and remains visible together with the footer buttons instead of visually spilling outside the card page.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+
+Recent Carbon preparation bulk-status performance update from user prompt on 2026-06-14:
+
+- Prompt summary: on `คำนวณ Carbon -> เตรียมข้อมูล Carbon`, the bulk action `ย้ายเป็นกำลังเตรียมข้อมูล` could fail with `timeout of 30000ms exceeded` when moving many rows from `นำเข้าข้อมูลแล้ว` to `กำลังเตรียมข้อมูล`.
+- Result: `backend/src/modules/activities/activities.service.ts` now handles bulk manual/workflow status transitions with a batch-oriented path instead of looping one row at a time. The service now validates the selected rows first, updates detail statuses in bulk, and creates or updates `carbon_process_queue` records in bulk when moving rows into the preparing state.
+- Frontend alignment: `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` now gives the single-row manual-status request a 2-minute timeout and the bulk manual-status request a 10-minute timeout, so large valid requests are less likely to fail only because of the old 30-second client timeout.
+- Source of truth: bulk status-transition performance behavior now lives in `backend/src/modules/activities/activities.service.ts`, while the calling timeout behavior for the `เตรียมข้อมูล Carbon` page lives in `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx`.
+- Verification: `npm run build --workspace=backend` and `npm run build --workspace=frontend`.
+- Limitation kept intentionally: the page still waits for the backend to finish before showing success, so extremely large batches can still take noticeable time, but they should no longer pay the previous per-row transition overhead or hit the default 30-second client timeout as easily.
+
+Recent Carbon preparation-queue status timeout update from user prompt on 2026-06-14:
+
+- Prompt summary: on `คำนวณ Carbon -> เตรียมข้อมูล Carbon`, inside the `คิวเตรียมข้อมูล` section, large batch status changes from `กำลังเตรียมข้อมูล -> นำเข้าข้อมูลแล้ว` and `กำลังเตรียมข้อมูล -> พร้อมคำนวณมาตรฐาน` could still hit `timeout of 30000ms exceeded`, including the card-page flow that applies actions to checked rows.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now gives manual-status transitions a longer request timeout for both the bulk status buttons (`ย้ายกลับไปนำเข้า`, `ย้ายเป็นพร้อมคำนวณ`) and the bulk-preparation card-page checkbox flow that auto-moves prepared rows to `พร้อมคำนวณมาตรฐาน`.
+- Backend alignment: `backend/src/modules/activities/activities.controller.ts` and `backend/src/modules/activities/activities.service.ts` now explicitly treat `นำเข้าข้อมูลแล้ว` as a supported manual-status target in the typed controller/service signatures, matching the existing runtime behavior of the queue-preparation UI.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` for client timeout behavior, and `backend/src/modules/activities/activities.controller.ts` plus `backend/src/modules/activities/activities.service.ts` for accepted status-transition targets.
+- Verification: `npm run build --workspace=frontend` and `npm run build --workspace=backend`.
+
+Recent Carbon preparation queue visual-separation update from user prompt on 2026-06-14:
+
+- Prompt summary: on `คำนวณ Carbon -> เตรียมข้อมูล Carbon`, the lower `คิวเตรียมข้อมูลทั้งหมด` area looked too visually similar to the upper `เตรียมข้อมูล Carbon` area, making the queue section harder to recognize quickly.
+- Result: `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` now wraps the embedded queue workspace in a distinct warm-toned section with its own heading and descriptive label, while `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` applies a matching warm-toned card treatment when rendered in embedded preparation mode.
+- Additional behavior: the lower queue workspace now reads as a separate operational area from the upper import/preparation section without changing the actual workflow or data behavior.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` and `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+
+Recent Carbon Footprint calculation-run timeout update from user prompt on 2026-06-15:
+
+- Prompt summary: on `คำนวณ Carbon -> Carbon Footprint`, the card-page flow behind `คำนวณรายการทั้งหมดที่เลือก` needs to better tolerate long-running calculations and large selected batches because each row can involve multiple calculation parts before its status is updated.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now sends each queue-row `calculate` request with a dedicated long timeout (`20 minutes`) instead of relying on the default `30 seconds` API timeout.
+- Additional behavior: the frontend no longer inserts the old fixed `120ms` delay between row calculations in the bulk run loop, reducing cumulative overhead when many rows are selected.
+- Status alignment: the same per-row calculate request still performs the full existing backend flow for `calculate + save result + update status`, so extending the request tolerance also extends tolerance for the status-update part of the run without changing the calculation logic itself.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+- Limitation kept intentionally: this run flow still sends one request per selected queue row so users can keep row-specific EF selections, fertilizer factor choices, and manual fertilizer formula inputs; this update improves tolerance for long-running rows rather than replacing that row-by-row architecture.
+
 - Prompt summary: on the same `Carbon Footprint -> คำนวณรายการที่เลือก` card page, keep the preview-result behavior aligned with the selected unit and make the left-hand card area adjustable because it felt too narrow.
 - Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now keeps the generic fuel preview result formatted by selected unit and adds a draggable vertical divider between the left control panel and the right preview panel in the calculation modal.
 - Additional behavior: drag-resize is active on extra-large viewports only, with the left pane clamped to a safe width range so the modal remains usable while still letting users widen the EF-selection side.
