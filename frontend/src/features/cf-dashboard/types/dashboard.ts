@@ -1,10 +1,13 @@
 export type DataSource = "api" | "mock";
+export type DataSourceStatus = "api_real" | "api_partial" | "fallback";
 export type SpatialLevel = "country" | "region" | "province" | "district" | "subdistrict" | "field";
 
 export interface PipelineMeta {
   route: string;
   techniques: string[];
   rowCount: number;
+  datasourceStatus?: DataSourceStatus;
+  note?: string;
   elapsedMs?: number;
   peakMemKb?: number;
 }

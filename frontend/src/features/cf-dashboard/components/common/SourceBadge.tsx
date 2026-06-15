@@ -1,4 +1,5 @@
-import type { DataSource, PipelineMeta } from "../../types/dashboard";
+import type { DataSource, DataSourceStatus, PipelineMeta } from "../../types/dashboard";
+import { useDatasourceStatusVisible } from "./DatasourceStatusToggle";
 
 interface Props {
   source: DataSource;
@@ -7,15 +8,24 @@ interface Props {
 }
 
 export function SourceBadge({ source, meta, loading }: Props) {
-  const sourceLabel = source === "api" ? "API data" : "ไร่จริง + คำนวณสมมุติ";
+  const visible = useDatasourceStatusVisible();
+  const status: DataSourceStatus = meta?.datasourceStatus ?? (source === "api" ? "api_real" : "fallback");
+  const sourceLabel = status === "api_real"
+    ? "API real calculation"
+    : status === "api_partial"
+    ? "API partial"
+    : "Fallback dataset";
+
+  if (!visible) return null;
 
   return (
-    <div className={`source-badge ${source === "api" ? "api" : "mock"}`}>
+    <div className={`source-badge ${status}`}>
       <span>{loading ? "Loading" : sourceLabel}</span>
       {meta && (
         <>
           <span>{meta.route}</span>
           <span>{meta.rowCount} rows</span>
+          {meta.note && <span>{meta.note}</span>}
           {meta.elapsedMs !== undefined && <span>{meta.elapsedMs} ms</span>}
         </>
       )}
