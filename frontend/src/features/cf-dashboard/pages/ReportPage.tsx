@@ -95,6 +95,122 @@ function pddEmissionSummary(report: ReportSummary) {
   };
 }
 
+function pctOf(value: number, total: number) {
+  return total ? (value / total) * 100 : 0;
+}
+
+function reductionPct(baseline: number, project: number) {
+  return baseline ? ((baseline - project) / baseline) * 100 : 0;
+}
+
+function reportExecutiveMetrics(report: ReportSummary) {
+  const summary = pddEmissionSummary(report);
+  const inputs = reportInputTotals(report);
+  const creditBase = Math.max(summary.n2oReduction, 0) + Math.max(summary.co2FuelReduction, 0) + Math.max(summary.socRemoval, 0);
+  return {
+    summary,
+    inputs,
+    areaRai: reportAreaRai(report),
+    totalReduction: summary.totalReduction,
+    n2oShare: pctOf(Math.max(summary.n2oReduction, 0), creditBase),
+    fuelShare: pctOf(Math.max(summary.co2FuelReduction, 0), creditBase),
+    socShare: pctOf(Math.max(summary.socRemoval, 0), creditBase),
+    fertilizerReductionKg: inputs.baselineFertilizerKg - inputs.currentFertilizerKg,
+    fertilizerReductionPct: reductionPct(inputs.baselineFertilizerKg, inputs.currentFertilizerKg),
+    fuelReductionLiter: inputs.baselineFuelLiter - inputs.currentFuelLiter,
+    fuelReductionPct: reductionPct(inputs.baselineFuelLiter, inputs.currentFuelLiter),
+  };
+}
+
+function deltaReductionRows(report: ReportSummary) {
+  const metrics = reportExecutiveMetrics(report);
+  return [
+    {
+      Parameter: "N2O / Fertilizer emission",
+      Baseline: Number(metrics.summary.n2oBaseline.toFixed(4)),
+      Project: Number(metrics.summary.n2oProject.toFixed(4)),
+      Reduction: Number(metrics.summary.n2oReduction.toFixed(4)),
+      Percent: Number(reductionPct(metrics.summary.n2oBaseline, metrics.summary.n2oProject).toFixed(2)),
+      Unit: "tCO2e",
+    },
+    {
+      Parameter: "Fuel emission",
+      Baseline: Number(metrics.summary.co2FuelBaseline.toFixed(4)),
+      Project: Number(metrics.summary.co2FuelProject.toFixed(4)),
+      Reduction: Number(metrics.summary.co2FuelReduction.toFixed(4)),
+      Percent: Number(reductionPct(metrics.summary.co2FuelBaseline, metrics.summary.co2FuelProject).toFixed(2)),
+      Unit: "tCO2e",
+    },
+    {
+      Parameter: "SOC increase",
+      Baseline: 0,
+      Project: Number(metrics.summary.socRemoval.toFixed(4)),
+      Reduction: Number(metrics.summary.socRemoval.toFixed(4)),
+      Percent: Number(metrics.socShare.toFixed(2)),
+      Unit: "tCO2e",
+    },
+    {
+      Parameter: "Fertilizer input",
+      Baseline: Number(metrics.inputs.baselineFertilizerKg.toFixed(4)),
+      Project: Number(metrics.inputs.currentFertilizerKg.toFixed(4)),
+      Reduction: Number(metrics.fertilizerReductionKg.toFixed(4)),
+      Percent: Number(metrics.fertilizerReductionPct.toFixed(2)),
+      Unit: "kg",
+    },
+    {
+      Parameter: "Fuel input",
+      Baseline: Number(metrics.inputs.baselineFuelLiter.toFixed(4)),
+      Project: Number(metrics.inputs.currentFuelLiter.toFixed(4)),
+      Reduction: Number(metrics.fuelReductionLiter.toFixed(4)),
+      Percent: Number(metrics.fuelReductionPct.toFixed(2)),
+      Unit: "L",
+    },
+  ];
+}
+
+function calculationRows(report: ReportSummary) {
+  const metrics = reportExecutiveMetrics(report);
+  return [
+    { Section: "N2O", Formula: "N2O baseline - N2O project", Baseline: metrics.summary.n2oBaseline, Project: metrics.summary.n2oProject, Result: metrics.summary.n2oReduction, Unit: "tCO2e" },
+    { Section: "Fuel", Formula: "Fuel baseline - Fuel project", Baseline: metrics.summary.co2FuelBaseline, Project: metrics.summary.co2FuelProject, Result: metrics.summary.co2FuelReduction, Unit: "tCO2e" },
+    { Section: "SOC", Formula: "max(baseline emission - project emission, 0) x 0.35", Baseline: metrics.summary.baselineEmission, Project: metrics.summary.projectEmission, Result: metrics.summary.socRemoval, Unit: "tCO2e" },
+    { Section: "Total ER", Formula: "Emission reduction + SOC removal - leakage", Baseline: metrics.summary.baselineEmission, Project: metrics.summary.projectEmission, Result: metrics.summary.totalReduction, Unit: "tCO2e" },
+  ].map((row) => ({
+    ...row,
+    Baseline: Number(row.Baseline.toFixed(4)),
+    Project: Number(row.Project.toFixed(4)),
+    Result: Number(row.Result.toFixed(4)),
+  }));
+}
+
+function summaryExportRows(report: ReportSummary) {
+  const metrics = reportExecutiveMetrics(report);
+  return [
+    { Metric: "Project area", Value: Number(metrics.areaRai.toFixed(4)), Unit: "rai" },
+    { Metric: "Plot count", Value: report.kpi.fields, Unit: "plots" },
+    { Metric: "Season / project year", Value: report.kpi.currentYear, Unit: "" },
+    { Metric: "Total reduction", Value: Number(metrics.totalReduction.toFixed(4)), Unit: "tCO2e" },
+    { Metric: "N2O reduction", Value: Number(metrics.summary.n2oReduction.toFixed(4)), Unit: "tCO2e" },
+    { Metric: "Fuel reduction", Value: Number(metrics.summary.co2FuelReduction.toFixed(4)), Unit: "tCO2e" },
+    { Metric: "SOC increase", Value: Number(metrics.summary.socRemoval.toFixed(4)), Unit: "tCO2e" },
+  ];
+}
+
+function processReductionRows(report: ReportSummary) {
+  return processComparisonGroups(report).map((group) => {
+    const baseline = group.rows.find((row) => row.year === "baseline_avg")?.emission
+      ?? group.rows.filter((row) => row.isBaseline).reduce((sum, row) => sum + row.emission, 0);
+    const project = group.rows.filter((row) => !row.isBaseline).reduce((sum, row) => sum + row.emission, 0);
+    return {
+      process: group.process,
+      baseline,
+      project,
+      reduction: baseline - project,
+      reductionPct: reductionPct(baseline, project),
+    };
+  });
+}
+
 function numberCell(value: number, digits = 2) {
   return value.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: digits });
 }
@@ -130,6 +246,29 @@ function processTypeLabel(row: ProcessEmission) {
   return row.isBaseline ? "Baseline year" : "Project year";
 }
 
+function getYearGroupRowSpanInfo(groupRows: ProcessEmission[], index: number) {
+  const row = groupRows[index];
+  if (!row) return { shouldRender: false, rowSpan: 1 };
+  if (row.year === "baseline_avg") {
+    return { shouldRender: true, rowSpan: 1 };
+  }
+  if (row.isBaseline) {
+    const baselineYears = groupRows.filter(r => r.isBaseline && r.year !== "baseline_avg");
+    const firstBaselineYearIndex = groupRows.findIndex(r => r.isBaseline && r.year !== "baseline_avg");
+    return {
+      shouldRender: index === firstBaselineYearIndex,
+      rowSpan: baselineYears.length,
+    };
+  } else {
+    const projectRows = groupRows.filter(r => !r.isBaseline);
+    const firstProjectRowIndex = groupRows.findIndex(r => !r.isBaseline);
+    return {
+      shouldRender: index === firstProjectRowIndex,
+      rowSpan: projectRows.length,
+    };
+  }
+}
+
 function spatialOverviewRows(report: ReportSummary) {
   const selected = report.filter.level === "all" || !report.filter.id
     ? report.spatialNodes.find((node) => node.level === "country") ?? report.spatialNodes[0]
@@ -140,14 +279,20 @@ function spatialOverviewRows(report: ReportSummary) {
 
 function processRowsHtml(report: ReportSummary) {
   return processComparisonGroups(report).map((group) =>
-    group.rows.map((row, index) => `
-      <tr>
-        ${index === 0 ? `<td rowspan="${group.rows.length}">${escapeHtml(group.process)}</td>` : ""}
-        <td>${escapeHtml(processTypeLabel(row))}</td>
-        <td>${escapeHtml(row.year)}</td>
-        <td>${escapeHtml(numberCell(row.emission))}</td>
-      </tr>
-    `).join("")
+    group.rows.map((row, index) => {
+      const spanInfo = getYearGroupRowSpanInfo(group.rows, index);
+      const yearGroupCell = spanInfo.shouldRender
+        ? `<td rowspan="${spanInfo.rowSpan}">${escapeHtml(processTypeLabel(row))}</td>`
+        : "";
+      return `
+        <tr>
+          ${index === 0 ? `<td rowspan="${group.rows.length}">${escapeHtml(group.process)}</td>` : ""}
+          ${yearGroupCell}
+          <td>${escapeHtml(row.year)}</td>
+          <td>${escapeHtml(numberCell(row.emission))}</td>
+        </tr>
+      `;
+    }).join("")
   ).join("");
 }
 
@@ -177,6 +322,7 @@ function pddDraftHtml(report: ReportSummary) {
     </tr>
   `).join("");
   const spatialRows = spatialRowsHtml(report);
+  const summary = pddEmissionSummary(report);
 
   return `
     <!doctype html>
@@ -240,105 +386,195 @@ function pddDraftHtml(report: ReportSummary) {
           <li>หลักฐานคำนวณ: EF/GWP ที่ใช้, วิธีคิด baseline average, ปีดำเนินการ และผู้ตรวจทาน</li>
           <li>หลักฐานประกอบ PDD: รูปภาพกิจกรรม, ผลวิเคราะห์ดิน, แผนที่, สรุปการรับฟังความคิดเห็นถ้ามี</li>
         </ul>
+
+        <h2>8. Template tag mapping สำหรับ Auto Populate PDD</h2>
+        <table>
+          <tr><th>Tag</th><th>ค่าที่ระบบเติมให้</th></tr>
+          <tr><td>{{PROJECT_AREA}}</td><td>${escapeHtml(reportAreaRai(report).toLocaleString())} ไร่</td></tr>
+          <tr><td>{{PLOT_COUNT}}</td><td>${escapeHtml(report.kpi.fields.toLocaleString())} แปลง</td></tr>
+          <tr><td>{{PROJECT_YEAR}}</td><td>${escapeHtml(report.kpi.currentYear)}</td></tr>
+          <tr><td>{{N2O_REDUCTION}}</td><td>${escapeHtml(numberCell(summary.n2oReduction))} tCO2e</td></tr>
+          <tr><td>{{FUEL_REDUCTION}}</td><td>${escapeHtml(numberCell(summary.co2FuelReduction))} tCO2e</td></tr>
+          <tr><td>{{SOC_INCREASE}}</td><td>${escapeHtml(numberCell(summary.socRemoval))} tCO2e</td></tr>
+          <tr><td>{{TOTAL_ER}}</td><td>${escapeHtml(numberCell(summary.totalReduction))} tCO2e</td></tr>
+        </table>
       </body>
     </html>
   `;
 }
 
 function PddCarbonSummary({ report }: { report: ReportSummary }) {
-  const summary = pddEmissionSummary(report);
+  const metrics = reportExecutiveMetrics(report);
+  const summary = metrics.summary;
+  const processRows = processReductionRows(report);
+  const maxProcessReduction = Math.max(...processRows.map((row) => Math.abs(row.reduction)), 1);
+  const compositionRows = [
+    { label: "N2O Reduction", value: Math.max(summary.n2oReduction, 0), pct: metrics.n2oShare, className: "n2o" },
+    { label: "Fuel Reduction", value: Math.max(summary.co2FuelReduction, 0), pct: metrics.fuelShare, className: "fuel" },
+    { label: "SOC Increase", value: Math.max(summary.socRemoval, 0), pct: metrics.socShare, className: "soc" },
+  ];
   return (
-    <div className="pdd-paper">
-      <div className="pdd-doc-header">
-        <div>โครงการลดก๊าซเรือนกระจกภาคสมัครใจตามมาตรฐานของประเทศไทย</div>
-        <div>มาตรฐานขั้นสูง (Premium T-VER)</div>
-        <div>เอกสารสรุปข้อมูลสำหรับจัดทำ PDD จาก Carbon Analytics</div>
+    <div className="pdd-paper executive-report-paper">
+      <div className="executive-pdf-page">
+        <section className="executive-cover">
+          <div>
+            <span>Premium T-VER Carbon Analytics Report</span>
+            <h1>Executive Carbon Report</h1>
+            <p>Season {report.kpi.currentYear} · {report.filter.level === "all" ? "ภาพรวมทั้งโครงการ" : "ขอบเขตพื้นที่ที่เลือก"}</p>
+          </div>
+          <div className="executive-cover-metric">
+            <span>Total Reduction</span>
+            <strong>{numberCell(metrics.totalReduction)}</strong>
+            <small>tCO2e</small>
+          </div>
+        </section>
+
+        <section className="executive-section">
+          <div className="executive-section-head">
+            <span>Executive Dashboard</span>
+            <strong>ผลลัพธ์หลัก</strong>
+          </div>
+          <div className="executive-kpi-grid">
+            <article>
+              <span>Total Reduction</span>
+              <strong>{numberCell(metrics.totalReduction)}</strong>
+              <small>tCO2e</small>
+            </article>
+            <article>
+              <span>N2O Reduction</span>
+              <strong>{numberCell(summary.n2oReduction)}</strong>
+              <small>{metrics.n2oShare.toFixed(1)}% ของเครดิต</small>
+            </article>
+            <article>
+              <span>Fuel Reduction</span>
+              <strong>{numberCell(summary.co2FuelReduction)}</strong>
+              <small>{metrics.fuelShare.toFixed(1)}% ของเครดิต</small>
+            </article>
+            <article>
+              <span>SOC Increase</span>
+              <strong>{numberCell(summary.socRemoval)}</strong>
+              <small>{metrics.socShare.toFixed(1)}% ของเครดิต</small>
+            </article>
+            <article>
+              <span>Area</span>
+              <strong>{metrics.areaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong>
+              <small>ไร่ · {report.kpi.fields.toLocaleString()} แปลง</small>
+            </article>
+          </div>
+        </section>
+
+        <section className="executive-two-column">
+          <div className="executive-section">
+            <div className="executive-section-head">
+              <span>Carbon Credit Composition</span>
+              <strong>องค์ประกอบการลดก๊าซเรือนกระจก</strong>
+            </div>
+            <div className="composition-list">
+              {compositionRows.map((row) => (
+                <div className={`composition-row ${row.className}`} key={row.label}>
+                  <div>
+                    <span>{row.label}</span>
+                    <strong>{numberCell(row.value)} tCO2e</strong>
+                  </div>
+                  <div className="composition-track">
+                    <i style={{ width: `${Math.max(4, row.pct)}%` }} />
+                  </div>
+                  <b>{row.pct.toFixed(1)}%</b>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="executive-section">
+            <div className="executive-section-head">
+              <span>Baseline vs Project</span>
+              <strong>ภาพรวมการปล่อยก๊าซเรือนกระจก</strong>
+            </div>
+            <div className="baseline-project-bars">
+              {[
+                { label: "Baseline avg", value: report.kpi.baselineAvgEmission, className: "baseline" },
+                { label: `Project ${report.kpi.currentYear}`, value: report.kpi.currentEmission, className: "project" },
+              ].map((row) => {
+                const maxValue = Math.max(report.kpi.baselineAvgEmission, report.kpi.currentEmission, 1);
+                return (
+                  <div className={`baseline-project-row ${row.className}`} key={row.label}>
+                    <span>{row.label}</span>
+                    <div><i style={{ width: `${Math.max(6, pctOf(row.value, maxValue) * 100)}%` }} /></div>
+                    <strong>{numberCell(row.value)} tCO2e</strong>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
       </div>
 
-      <h2>สรุปปริมาณการลดก๊าซเรือนกระจก</h2>
-      <p>
-        ข้อมูลในส่วนนี้จัดรูปแบบตามตัวอย่าง PDD เพื่อสรุปปริมาณการลดการปล่อยก๊าซเรือนกระจก
-        โดยใช้ค่าเฉลี่ยปีฐานเทียบกับปีดำเนินโครงการ {report.kpi.currentYear}
-      </p>
+      <div className="executive-pdf-page">
+        <section className="executive-section">
+          <div className="executive-section-head">
+            <span>Trend by Process</span>
+            <strong>กระบวนการที่มีผลต่อการลดการปล่อย</strong>
+          </div>
+          <div className="process-reduction-bars">
+            {processRows.map((row) => (
+              <div className="process-reduction-row" key={row.process}>
+                <span>{row.process}</span>
+                <div><i style={{ width: `${Math.max(5, pctOf(Math.abs(row.reduction), maxProcessReduction) * 100)}%` }} /></div>
+                <strong>{numberCell(row.reduction)} tCO2e</strong>
+              </div>
+            ))}
+          </div>
+        </section>
 
-      <h3>การปล่อยก๊าซเรือนกระจก</h3>
-      <p>
-        ปริมาณการปล่อยก๊าซเรือนกระจกคำนวณจากการนำปริมาณการปล่อยก๊าซเรือนกระจกในกรณีฐาน
-        หักลบด้วยปริมาณการปล่อยก๊าซเรือนกระจกในกรณีดำเนินโครงการ
-      </p>
+        <section className="executive-two-column">
+          <div className="executive-section">
+          <div className="executive-section-head">
+            <span>Resource Efficiency</span>
+            <strong>ประสิทธิภาพการใช้ทรัพยากร</strong>
+          </div>
+          <div className="resource-efficiency-grid">
+            <article>
+              <span>Fertilizer</span>
+              <strong>{metrics.inputs.baselineFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 0 })} kg</strong>
+              <small>Baseline</small>
+              <b>{metrics.inputs.currentFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 0 })} kg</b>
+              <em>ลดลง {Math.abs(metrics.fertilizerReductionPct).toFixed(1)}%</em>
+            </article>
+            <article>
+              <span>Fuel</span>
+              <strong>{metrics.inputs.baselineFuelLiter.toLocaleString(undefined, { maximumFractionDigits: 0 })} L</strong>
+              <small>Baseline</small>
+              <b>{metrics.inputs.currentFuelLiter.toLocaleString(undefined, { maximumFractionDigits: 0 })} L</b>
+              <em>ลดลง {Math.abs(metrics.fuelReductionPct).toFixed(1)}%</em>
+            </article>
+          </div>
+          </div>
 
-      <h4>ปริมาณการปล่อยก๊าซไนตรัสออกไซด์จากการใส่ปุ๋ยไนโตรเจนและพืชตรึงไนโตรเจน</h4>
-      <div className="pdd-method-box">
-        <div><span>รหัส</span><strong>TVER-METH-13-06, T-VER-P-TOOL-01-12</strong></div>
-        <div><span>เวอร์ชั่น</span><strong>01</strong></div>
-        <div><span>ชื่อระเบียบวิธีฯ/เครื่องมือ</span><strong>กิจกรรมการจัดการพื้นที่การเกษตรที่ดี (Enhanced Good Practices in Agricultural Land)</strong></div>
-        <div><span>สมการที่ใช้</span><strong>ΔN2O SOIL,i,t = N2O SOIL,BSL,i,t - N2O SOIL,PROJ,i,t</strong></div>
+          <div className="executive-section">
+          <div className="executive-section-head">
+            <span>Key Findings</span>
+            <strong>ข้อค้นพบสำคัญ</strong>
+          </div>
+          <ul className="executive-findings">
+            <li>Nitrogen fertilizer management contributes {metrics.n2oShare.toFixed(1)}% of estimated reduction.</li>
+            <li>Fuel use is reduced by {Math.abs(metrics.fuelReductionPct).toFixed(1)}% from baseline activity input.</li>
+            <li>SOC contributes {metrics.socShare.toFixed(1)}% of the executive carbon result.</li>
+            <li>{report.analysis.areaSummary}</li>
+          </ul>
+          </div>
+        </section>
+
+        <section className="executive-section methodology-summary">
+          <div className="executive-section-head">
+            <span>Methodology Summary</span>
+            <strong>T-VER-P-METH-13-06 / T-VER-P-TOOL-01-12</strong>
+          </div>
+          <p>
+            รายงานฉบับนี้จัดทำเพื่อสรุปผลเชิงบริหารจากข้อมูลกิจกรรมโครงการ โดยแยกผลการลดก๊าซเรือนกระจกเป็น N2O,
+            Fuel และ SOC เพื่อใช้ประกอบการตัดสินใจและเตรียมข้อมูลก่อนจัดทำเอกสาร PDD ฉบับทางเทคนิค
+          </p>
+        </section>
       </div>
-      <table className="report-table pdd-table">
-        <thead><tr><th>พารามิเตอร์</th><th>ความหมาย</th><th>อ้างอิง</th><th>ค่าที่ใช้</th><th>หน่วย</th></tr></thead>
-        <tbody>
-          <tr>
-            <td>ΔN2O SOIL,i,t</td>
-            <td>ปริมาณการลดการปล่อยก๊าซไนตรัสออกไซด์จากกระบวนการใส่ปุ๋ยไนโตรเจนและพืชตรึงไนโตรเจน</td>
-            <td>การคำนวณ</td>
-            <td>{numberCell(summary.n2oReduction)}</td>
-            <td>ตันคาร์บอนไดออกไซด์เทียบเท่าต่อปี</td>
-          </tr>
-          <tr>
-            <td>N2O SOIL,BSL,i,t</td>
-            <td>ปริมาณการปล่อยก๊าซไนตรัสออกไซด์ในกรณีฐาน จากค่าเฉลี่ยปีฐานของโครงการ</td>
-            <td>การคำนวณ</td>
-            <td>{numberCell(summary.n2oBaseline)}</td>
-            <td>ตันคาร์บอนไดออกไซด์เทียบเท่าต่อปี</td>
-          </tr>
-          <tr>
-            <td>N2O SOIL,PROJ,i,t</td>
-            <td>ปริมาณการปล่อยก๊าซไนตรัสออกไซด์ในกรณีดำเนินโครงการ ปี {report.kpi.currentYear}</td>
-            <td>การคำนวณ</td>
-            <td>{numberCell(summary.n2oProject)}</td>
-            <td>ตันคาร์บอนไดออกไซด์เทียบเท่าต่อปี</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <h4>ปริมาณการปล่อยก๊าซคาร์บอนไดออกไซด์จากการเผาไหม้เชื้อเพลิงฟอสซิล</h4>
-      <div className="pdd-method-box">
-        <div><span>รหัส</span><strong>TVER-METH-13-06, T-VER-P-TOOL-01-12</strong></div>
-        <div><span>เวอร์ชั่น</span><strong>01</strong></div>
-        <div><span>ชื่อระเบียบวิธีฯ/เครื่องมือ</span><strong>กิจกรรมการจัดการพื้นที่การเกษตรที่ดี (Enhanced Good Practices in Agricultural Land)</strong></div>
-        <div><span>สมการที่ใช้</span><strong>ΔCO2 FUEL,i,t = CO2 FUEL,BSL,i,t - CO2 FUEL,PROJ,i,t</strong></div>
-      </div>
-      <table className="report-table pdd-table">
-        <thead><tr><th>พารามิเตอร์</th><th>ความหมาย</th><th>อ้างอิง</th><th>ค่าที่ใช้</th><th>หน่วย</th></tr></thead>
-        <tbody>
-          <tr>
-            <td>ΔCO2 FUEL,i,t</td>
-            <td>ปริมาณการลดการปล่อยก๊าซคาร์บอนไดออกไซด์ที่เกิดจากการเผาไหม้เชื้อเพลิงฟอสซิล</td>
-            <td>การคำนวณ</td>
-            <td>{numberCell(summary.co2FuelReduction)}</td>
-            <td>ตันคาร์บอนไดออกไซด์เทียบเท่าต่อปี</td>
-          </tr>
-          <tr>
-            <td>CO2 FUEL,BSL,i,t</td>
-            <td>ปริมาณการปล่อยก๊าซคาร์บอนไดออกไซด์จากเชื้อเพลิงฟอสซิลในกรณีฐาน</td>
-            <td>การคำนวณ</td>
-            <td>{numberCell(summary.co2FuelBaseline)}</td>
-            <td>ตันคาร์บอนไดออกไซด์เทียบเท่าต่อปี</td>
-          </tr>
-          <tr>
-            <td>CO2 FUEL,PROJ,i,t</td>
-            <td>ปริมาณการปล่อยก๊าซคาร์บอนไดออกไซด์จากเชื้อเพลิงฟอสซิลในกรณีดำเนินโครงการ</td>
-            <td>การคำนวณ</td>
-            <td>{numberCell(summary.co2FuelProject)}</td>
-            <td>ตันคาร์บอนไดออกไซด์เทียบเท่าต่อปี</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <p className="pdd-note">
-        หมายเหตุ: ค่าที่แสดงเป็นข้อมูลสมมุติสำหรับตรวจรูปแบบรายงานและ dashboard preview
-        โดยคงโครงสร้างการเชื่อมต่อข้อมูลจริงไว้สำหรับสลับกลับเมื่อมีผลคำนวณจากฐานข้อมูลครบถ้วน
-      </p>
     </div>
   );
 }
@@ -487,14 +723,17 @@ function ExcelPreview({ report }: { report: ReportSummary }) {
           <thead><tr><th>Process</th><th>Year group</th><th>Year</th><th>Emission</th></tr></thead>
           <tbody>
             {processComparisonGroups(report).map((group) =>
-              group.rows.map((row, index) => (
-                <tr key={`excel-process-${row.year}-${row.process}`}>
-                  {index === 0 && <td rowSpan={group.rows.length} className="process-group-cell">{group.process}</td>}
-                  <td>{processTypeLabel(row)}</td>
-                  <td>{row.year}</td>
-                  <td>{numberCell(row.emission)}</td>
-                </tr>
-              ))
+              group.rows.map((row, index) => {
+                const spanInfo = getYearGroupRowSpanInfo(group.rows, index);
+                return (
+                  <tr key={`excel-process-${row.year}-${row.process}`}>
+                    {index === 0 && <td rowSpan={group.rows.length} className="process-group-cell">{group.process}</td>}
+                    {spanInfo.shouldRender && <td rowSpan={spanInfo.rowSpan}>{processTypeLabel(row)}</td>}
+                    <td>{row.year}</td>
+                    <td>{numberCell(row.emission)}</td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -530,6 +769,40 @@ function ExcelPreview({ report }: { report: ReportSummary }) {
           </tbody>
         </table>
       </div>
+      <div>
+        <h3>Delta Reduction</h3>
+        <table className="report-table">
+          <thead><tr><th>Parameter</th><th>Baseline</th><th>Project</th><th>Reduction</th><th>%</th><th>Unit</th></tr></thead>
+          <tbody>
+            {deltaReductionRows(report).map((row) => (
+              <tr key={`excel-delta-${row.Parameter}`}>
+                <td>{row.Parameter}</td>
+                <td>{row.Baseline.toLocaleString()}</td>
+                <td>{row.Project.toLocaleString()}</td>
+                <td>{row.Reduction.toLocaleString()}</td>
+                <td>{row.Percent.toLocaleString()}%</td>
+                <td>{row.Unit}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3>Calculation</h3>
+        <table className="report-table">
+          <thead><tr><th>Section</th><th>Formula</th><th>Result</th><th>Unit</th></tr></thead>
+          <tbody>
+            {calculationRows(report).map((row) => (
+              <tr key={`excel-calc-${row.Section}`}>
+                <td>{row.Section}</td>
+                <td>{row.Formula}</td>
+                <td>{row.Result.toLocaleString()}</td>
+                <td>{row.Unit}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -544,14 +817,17 @@ function ReportFullTables({ report }: { report: ReportSummary }) {
           <thead><tr><th>Process</th><th>Year group</th><th>Year</th><th>Emission (tCO2e)</th></tr></thead>
           <tbody>
             {processComparisonGroups(report).map((group) =>
-              group.rows.map((row, index) => (
-                <tr key={`tbl4-${row.year}-${row.process}`}>
-                  {index === 0 && <td rowSpan={group.rows.length} className="process-group-cell">{group.process}</td>}
-                  <td>{processTypeLabel(row)}</td>
-                  <td>{row.year}</td>
-                  <td>{numberCell(row.emission)}</td>
-                </tr>
-              ))
+              group.rows.map((row, index) => {
+                const spanInfo = getYearGroupRowSpanInfo(group.rows, index);
+                return (
+                  <tr key={`tbl4-${row.year}-${row.process}`}>
+                    {index === 0 && <td rowSpan={group.rows.length} className="process-group-cell">{group.process}</td>}
+                    {spanInfo.shouldRender && <td rowSpan={spanInfo.rowSpan}>{processTypeLabel(row)}</td>}
+                    <td>{row.year}</td>
+                    <td>{numberCell(row.emission)}</td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -702,15 +978,22 @@ export function CfReportPage() {
     setGeneratingPreview(true);
     const timer = window.setTimeout(() => {
       if (!pddEmissionRef.current) return;
-      html2canvas(pddEmissionRef.current, { scale: 1.8, backgroundColor: "#ffffff" })
-        .then((canvas) => {
+      const pageElements = Array.from(pddEmissionRef.current.querySelectorAll<HTMLElement>(".executive-pdf-page"));
+      const renderTargets = pageElements.length ? pageElements : [pddEmissionRef.current];
+      Promise.all(renderTargets.map((element) => html2canvas(element, { scale: 1.8, backgroundColor: "#ffffff" })))
+        .then((canvases) => {
         const pdf = new jsPDF("l", "mm", "a4");
         const width = pdf.internal.pageSize.getWidth();
+        const height = pdf.internal.pageSize.getHeight();
         const margin = 8;
         const imageWidth = width - margin * 2;
-        const image = canvas.toDataURL("image/png");
-        const height = (canvas.height * imageWidth) / canvas.width;
-        pdf.addImage(image, "PNG", margin, margin, imageWidth, height);
+        const imageHeightLimit = height - margin * 2;
+        canvases.forEach((canvas, index) => {
+          if (index > 0) pdf.addPage();
+          const imageHeight = Math.min((canvas.height * imageWidth) / canvas.width, imageHeightLimit);
+          const image = canvas.toDataURL("image/jpeg", 0.95);
+          pdf.addImage(image, "JPEG", margin, margin, imageWidth, imageHeight);
+        });
         const url = URL.createObjectURL(pdf.output("blob"));
         setPdfUrl((old) => {
           if (old) URL.revokeObjectURL(old);
@@ -780,6 +1063,9 @@ export function CfReportPage() {
       currentEmission: node.currentEmission,
       diff: node.currentEmission - node.baselineEmission,
     })))), "Spatial");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(calculationRows(generatedReport))), "Calculation");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(deltaReductionRows(generatedReport))), "Delta Reduction");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet(summaryExportRows(generatedReport))), "Summary");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rowsForSheet([generatedReport.analysis])), "Analysis");
     XLSX.writeFile(wb, "premium-tver-carbon-summary.xlsx");
   };

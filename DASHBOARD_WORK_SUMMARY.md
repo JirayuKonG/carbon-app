@@ -1360,3 +1360,10 @@ Backend API:
 - Redesign KPI เป็น parent section + child KPI cards แบบเดียวกันทั้ง 3 ส่วน: `Project Context`, `Emission Summary`, `Carbon Sequestration Summary`
 - KPI cards ใช้ white background, light border, 16px radius, equal-height card layout และ spacing สม่ำเสมอ
 - Highlight `Net Emission` เป็น primary KPI ในแถว `Emission Summary`
+## Phase 2A Data Mapping - 15 มิถุนายน 2569
+
+- เพิ่มไฟล์ `PHASE_2A_DATA_MAPPING.md` เพื่อสรุป mapping ระหว่าง database/queue/activity/lands กับ metric ที่ใช้ใน Carbon Analytics Dashboard
+- ตรวจ source หลักที่พร้อมใช้จริง ได้แก่ `carbon_process_queue`, `log_activities_detail`, `activities_header`, `lands`, `lands_camps`, `subdistricts`, `districts`, `provinces`, EF/GWP และ `carbon_process_queue_info.calculation`
+- ระบุ mapping ว่า emission/process/activity/camp/field/spatial ใช้ข้อมูลจริงจาก queue ได้แล้ว ส่วน cane type, SOC removal, organic material usage, yield และ data quality flag ยังต้องทำต่อ
+- สรุป data quality guard ที่ควรเพิ่มก่อน Phase 2B เช่น missing calculation, missing unit, missing EF, missing area, missing year และ missing cane type
+- วางลำดับงานต่อ Phase 2B/2C ให้เริ่มจาก `getCfCaneTypes()` จากข้อมูลจริง, เพิ่ม `datasourceStatus/dataQuality`, รวม normalize fertilizer/fuel, และออกแบบ SOC source contract
