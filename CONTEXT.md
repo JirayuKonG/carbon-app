@@ -67,7 +67,7 @@ Historical work-summary docs still reference branch `idea`. Treat those referenc
 
 - `backend/src/prisma/schema.prisma` is the current schema reference.
 - Repo notes say Prisma was re-introspected from the live Aiven PostgreSQL database on 2026-06-08.
-- The SQL snapshot currently stored in the repo is `managementDataSystem_forCalculate_2.0_06082026_postgres.sql`.
+- The newest SQL snapshot currently stored in the repo is `managementDataSystem_forCalculate_3.0_06152026_postgres.sql`.
 - The live database may still be ahead of that SQL snapshot, so when schema behavior is unclear, prefer `schema.prisma` over assumptions from older SQL exports.
 - Repo notes from the 2026-06-08 sync identify these important live-database tables in the current Prisma model set:
   - `activities_fileNameUse`
@@ -76,6 +76,19 @@ Historical work-summary docs still reference branch `idea`. Treat those referenc
   - `carbon_roundCal`
   - `carbon_typeCal`
 - Some tables do not have database-generated primary keys, so create flows still need extra care before assuming `autoincrement()`.
+
+Recent Prisma sync update from user prompt on 2026-06-15:
+
+- Prompt summary: the user provided a newer database snapshot `managementDataSystem_forCalculate_3.0_06152026_postgres` and asked to update Prisma so the repo is ready for upcoming work.
+- Result: `backend/src/prisma/schema.prisma` now includes the newer database structures from `managementDataSystem_forCalculate_3.0_06152026_postgres.sql`, including:
+  - new models `lands_camps_groups`, `activities_productYear`, `carbon_soc`, and `carbon_soilImprovementPlants`
+  - new foreign-key field `land_camp_group_id` on `lands_camps`
+  - new foreign-key field `act_productYear_id` on `log_activities_detail`
+  - new Carbon Credit result fields on `carbon_process_queue`: `carbon_process_queue_resultValueCreditCalc`, `unit_prefix_id_resultValueCreditCalc`, and `unit_id_resultValueCreditCalc`
+- Additional Prisma alignment: relation names were made explicit where `carbon_process_queue`, `carbon_soc`, and `carbon_soilImprovementPlants` point to `units` or `units_prefixs` multiple times, so Prisma Client generation succeeds cleanly.
+- Source of truth: `backend/src/prisma/schema.prisma` and `managementDataSystem_forCalculate_3.0_06152026_postgres.sql`.
+- Verification: `npm run prisma:generate --workspace=backend` and `npm run build --workspace=backend`.
+- Limitation: this task prepared the ORM layer only; no backend service/module logic was added yet for the new SOC, soil-improvement plant, product-year, or camp-group tables.
 
 ## Current App Routing Snapshot
 
