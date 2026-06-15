@@ -42,7 +42,7 @@ function sumInputs(data: ProcessInputComparison[]) {
       baselineFuelLiter: sum.baselineFuelLiter + item.baselineFuelLiter,
       currentFuelLiter: sum.currentFuelLiter + item.currentFuelLiter,
     }),
-    { baselineFertilizerKg: 0, currentFertilizerKg: 0, baselineFuelLiter: 0, currentFuelLiter: 0 },
+    { baselineFertilizerKg: 0, currentFertilizerKg: 0, baselineFuelLiter: 0, currentFuelLiter: 0 }
   );
 }
 
@@ -184,6 +184,7 @@ export function CfOverviewPage() {
   const overviewCaneTypes: DataResult<CaneTypeSummary[]> = groupedOverview
     ? { ...caneTypes, data: groupedOverview.caneTypes, source: "mock" }
     : caneTypes;
+
   const inputTotals = sumInputs(overviewInputs);
   const fertilizerDiff = inputTotals.baselineFertilizerKg - inputTotals.currentFertilizerKg;
   const fuelDiff = inputTotals.baselineFuelLiter - inputTotals.currentFuelLiter;
@@ -197,6 +198,11 @@ export function CfOverviewPage() {
   const socBaseline = Math.max(overviewKpi.areaRai * 0.02, 0);
   const socProject = socBaseline + socRemoval;
   const socDiff = socProject - socBaseline;
+
+  const fertilizerDiffPercent = inputTotals.baselineFertilizerKg ? (fertilizerDiff / inputTotals.baselineFertilizerKg) * 100 : 0;
+  const fuelDiffPercent = inputTotals.baselineFuelLiter ? (fuelDiff / inputTotals.baselineFuelLiter) * 100 : 0;
+  const socDiffPercent = socBaseline ? (socDiff / socBaseline) * 100 : 0;
+
   const creditTotal = n2oReduction + fuelReduction + socRemoval;
   const creditSources = [
     {
@@ -205,7 +211,7 @@ export function CfOverviewPage() {
       description: "เครดิตจากการลดการปล่อยไนตรัสออกไซด์จากปุ๋ย",
       value: n2oReduction,
       color: "#22C55E",
-      basis: `ปุ๋ยลดลง ${formatNumber(Math.max(fertilizerDiff, 0), 1)} kg`,
+      basis: `ปุ๋ยลดลง ${formatNumber(Math.max(fertilizerDiff, 0), 1)} kg (${fertilizerDiffPercent >= 0 ? "↓" : "↑"}${Math.abs(fertilizerDiffPercent).toFixed(1)}%)`,
     },
     {
       key: "fuel",
@@ -213,7 +219,7 @@ export function CfOverviewPage() {
       description: "เครดิตจากการลดการใช้น้ำมัน/เครื่องจักร",
       value: fuelReduction,
       color: "#5BA4FF",
-      basis: `น้ำมันลดลง ${formatNumber(Math.max(fuelDiff, 0), 1)} L`,
+      basis: `น้ำมันลดลง ${formatNumber(Math.max(fuelDiff, 0), 1)} L (${fuelDiffPercent >= 0 ? "↓" : "↑"}${Math.abs(fuelDiffPercent).toFixed(1)}%)`,
     },
     {
       key: "soc",
@@ -221,9 +227,10 @@ export function CfOverviewPage() {
       description: "เครดิตจากคาร์บอนที่สะสมเพิ่มในดิน",
       value: socRemoval,
       color: "#A855F7",
-      basis: `SOC เพิ่มขึ้น ${formatNumber(socDiff)} tCO2e`,
+      basis: `SOC เพิ่มขึ้น ${formatNumber(socDiff)} tCO2e (↑${socDiffPercent.toFixed(1)}%)`,
     },
   ];
+
   const creditSourceTotal = creditSources.reduce((sum, item) => sum + item.value, 0);
   
   const baselineYears = overviewTrend.filter((item) => item.isBaseline).map((item) => item.year);
@@ -364,29 +371,74 @@ export function CfOverviewPage() {
             <div>
               <strong className={fertilizerDiff >= 0 ? "green-text" : "red-text"}>
                 {Math.abs(fertilizerDiff).toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                {inputTotals.baselineFertilizerKg > 0 && (
+                  <span style={{ fontSize: '0.6em', marginLeft: '6px', fontWeight: 'bold', verticalAlign: 'middle' }}>
+                    ({fertilizerDiff >= 0 ? "↓" : "↑"} {Math.abs(fertilizerDiffPercent).toFixed(1)}%)
+                  </span>
+                )}
               </strong>
               <span>kg ปุ๋ย{fertilizerDiff >= 0 ? "ลดลง" : "เพิ่มขึ้น"}</span>
             </div>
             <div>
               <strong className={fuelDiff >= 0 ? "green-text" : "red-text"}>
                 {Math.abs(fuelDiff).toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                {inputTotals.baselineFuelLiter > 0 && (
+                  <span style={{ fontSize: '0.6em', marginLeft: '6px', fontWeight: 'bold', verticalAlign: 'middle' }}>
+                    ({fuelDiff >= 0 ? "↓" : "↑"} {Math.abs(fuelDiffPercent).toFixed(1)}%)
+                  </span>
+                )}
               </strong>
               <span>L น้ำมัน{fuelDiff >= 0 ? "ลดลง" : "เพิ่มขึ้น"}</span>
             </div>
             <div>
               <strong className="green-text">
                 {socDiff.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                {socBaseline > 0 && (
+                  <span style={{ fontSize: '0.6em', marginLeft: '6px', fontWeight: 'bold', verticalAlign: 'middle' }}>
+                    (↑ {socDiffPercent.toFixed(1)}%)
+                  </span>
+                )}
               </strong>
               <span>tCO2e การสะสมคาร์บอนในดินเพิ่มขึ้น</span>
             </div>
           </div>
           <div className="summary-list resource-raw-list">
             <div><span>น้ำมันปีฐาน</span><strong>{inputTotals.baselineFuelLiter.toLocaleString(undefined, { maximumFractionDigits: 1 })} L</strong></div>
-            <div><span>น้ำมันปีโครงการ</span><strong>{inputTotals.currentFuelLiter.toLocaleString(undefined, { maximumFractionDigits: 1 })} L</strong></div>
+            <div>
+              <span>น้ำมันปีโครงการ</span>
+              <strong>
+                {inputTotals.currentFuelLiter.toLocaleString(undefined, { maximumFractionDigits: 1 })} L
+                {fuelDiffPercent > 0 && (
+                  <span style={{ color: "var(--eco-green)", fontSize: "0.85em", marginLeft: "6px", fontWeight: "600" }}>
+                    (↓{fuelDiffPercent.toFixed(0)}%)
+                  </span>
+                )}
+              </strong>
+            </div>
             <div><span>ปุ๋ยปีฐาน</span><strong>{inputTotals.baselineFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg</strong></div>
-            <div><span>ปุ๋ยปีโครงการ</span><strong>{inputTotals.currentFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg</strong></div>
+            <div>
+              <span>ปุ๋ยปีโครงการ</span>
+              <strong>
+                {inputTotals.currentFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg
+                {fertilizerDiffPercent > 0 && (
+                  <span style={{ color: "var(--eco-green)", fontSize: "0.85em", marginLeft: "6px", fontWeight: "600" }}>
+                    (↓{fertilizerDiffPercent.toFixed(0)}%)
+                  </span>
+                )}
+              </strong>
+            </div>
             <div><span>การสะสมคาร์บอนในดินปีฐาน</span><strong>{socBaseline.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
-            <div><span>การสะสมคาร์บอนในดินปีโครงการ</span><strong>{socProject.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong></div>
+            <div>
+              <span>การสะสมคาร์บอนในดินปีโครงการ</span>
+              <strong>
+                {socProject.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e
+                {socDiffPercent > 0 && (
+                  <span style={{ color: "var(--eco-green)", fontSize: "0.85em", marginLeft: "6px", fontWeight: "600" }}>
+                    (↑{socDiffPercent.toFixed(0)}%)
+                  </span>
+                )}
+              </strong>
+            </div>
           </div>
         </section>
 

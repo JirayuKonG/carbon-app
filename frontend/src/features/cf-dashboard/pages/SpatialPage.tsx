@@ -53,6 +53,7 @@ const spatialOrder: Exclude<SpatialLevel, "country">[] = ["region", "province", 
 const knownGeoValue = (value?: string) => Boolean(value && value !== "-");
 const MAP_FIELD_RENDER_LIMIT = 160;
 const MAP_CAMP_FIELD_RENDER_LIMIT = 220;
+const SPATIAL_DOC_ROWS_PER_PAGE = 10;
 const projectProcessLabels = [
   "1. การเตรียมดินและปลูก",
   "2. การใช้ปุ๋ย",
@@ -246,6 +247,14 @@ function scaleProcessBreakdown(rows: SpatialSummaryNode["processBreakdown"], tar
 
 function emptySpatialFilters(): Record<Exclude<SpatialLevel, "country">, string> {
   return { region: "", province: "", district: "", subdistrict: "", field: "" };
+}
+
+function chunkRows<T>(rows: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < rows.length; index += size) {
+    chunks.push(rows.slice(index, index + size));
+  }
+  return chunks.length ? chunks : [[]];
 }
 
 function filtersFromNode(nodes: SpatialSummaryNode[], nodeId: string, rootId: string) {
@@ -842,28 +851,24 @@ export function CfSpatialPage() {
     setGeneratingDocument(true);
     const timer = window.setTimeout(() => {
       if (!spatialDocRef.current) return;
-      html2canvas(spatialDocRef.current, { scale: 1.8, backgroundColor: "#ffffff" }).then((canvas) => {
+      const pages = Array.from(spatialDocRef.current.querySelectorAll<HTMLElement>(".spatial-doc-paper"));
+      const renderTargets = pages.length ? pages : [spatialDocRef.current];
+      Promise.all(renderTargets.map((page) => html2canvas(page, { scale: 1.6, backgroundColor: "#ffffff" }))).then((canvases) => {
         if (cancelled) return;
         const pdf = new jsPDF("p", "mm", "a4");
         const width = pdf.internal.pageSize.getWidth();
         const height = pdf.internal.pageSize.getHeight();
         const margin = 8;
-        const imageWidth = width - margin * 2;
-        const imageHeight = (canvas.height * imageWidth) / canvas.width;
-        const image = canvas.toDataURL("image/jpeg", 0.95);
-        if (!image.startsWith("data:image/jpeg;base64,")) {
+        canvases.forEach((canvas, index) => {
+          const imageWidth = width - margin * 2;
+          const imageHeight = Math.min((canvas.height * imageWidth) / canvas.width, height - margin * 2);
+          const image = canvas.toDataURL("image/png");
+          if (!image.startsWith("data:image/png;base64,")) {
           throw new Error("ไม่สามารถสร้างรูปภาพสำหรับ PDF preview ได้");
         }
-        let position = margin;
-
-        pdf.addImage(image, "JPEG", margin, position, imageWidth, imageHeight);
-        let remainingHeight = imageHeight - (height - margin * 2);
-        while (remainingHeight > 0) {
-          position = remainingHeight - imageHeight + margin;
-          pdf.addPage();
-          pdf.addImage(image, "JPEG", margin, position, imageWidth, imageHeight);
-          remainingHeight -= height - margin * 2;
-        }
+          if (index > 0) pdf.addPage();
+          pdf.addImage(image, "PNG", margin, margin, imageWidth, imageHeight);
+        });
 
         const url = URL.createObjectURL(pdf.output("blob"));
         if (cancelled) {
@@ -1239,8 +1244,14 @@ export function CfSpatialPage() {
           {!generatedDocument && <div className="empty-state">กรุณาสร้างเอกสารใหม่เพื่อดูตัวอย่าง</div>}
           <div className="spatial-doc-preview" style={{ display: generatedDocument && activePreviewTab === "pdf" ? undefined : "none" }}>
             {generatingDocument && <div className="empty-state">กำลัง Render PDF preview...</div>}
-            <div ref={spatialDocRef}>
-              <SpatialDocument title={generatedDocument?.title ?? documentTitle} fields={generatedDocument?.fields ?? []} />
+            <div ref={spatialDocRef} className="spatial-doc-pages">
+              {chunkRows(generatedDocument?.fields ?? [], SPATIAL_DOC_ROWS_PER_PAGE).map((pageFields, pageIndex, pages) => (
+                <SpatialDocument
+                  key={`spatial-doc-page-${pageIndex}`}
+                  title={`${generatedDocument?.title ?? documentTitle} · Page ${pageIndex + 1}/${pages.length}`}
+                  fields={pageFields}
+                />
+              ))}
             </div>
           </div>
           {generatedDocument && activePreviewTab === "excel" && generatedExcelRows && (
