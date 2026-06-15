@@ -1222,134 +1222,137 @@ export function CfSpatialPage() {
           />
         </section>
 
-        <section className="card report-toolbar spatial-export-toolbar">
-          <div>
-            <div className="card-title">เอกสารรายละเอียดรายแปลง</div>
-          </div>
-          <button className="run-all-btn report-generate-btn" type="button" onClick={generateSpatialDocument} disabled={!documentFields.length || generatingDocument}>
-            สร้างเอกสารใหม่ (Generate Report)
-          </button>
-          <button className="run-btn pdf-download-btn" type="button" onClick={downloadPdf} disabled={!pdfUrl || generatingDocument || !documentIsCurrent}>Download PDF</button>
-          <button className="run-btn word-download-btn" type="button" onClick={downloadWordDraft} disabled={!generatedDocument || !documentIsCurrent}>Download Word</button>
-          <button className="run-all-btn excel-download-btn" type="button" onClick={exportExcel} disabled={!generatedExcelRows || !documentIsCurrent}>Export Excel</button>
-        </section>
+        <div className="spatial-report-layout">
+          <div className="spatial-report-left-column">
+            <article className="card spatial-summary-card">
+              <div className="card-title-row">
+                <div className="card-title">สรุปรายละเอียดพื้นที่ · {focusNode.name}</div>
+                <SourceBadge source={spatialResult.source} meta={spatialResult.meta} />
+              </div>
+              <div className="mini-stat-grid wide spatial-summary-stats">
+                <div><strong>{focusNode.fields}</strong><span>แปลง</span></div>
+                <div><strong>{focusNode.farmers}</strong><span>เกษตรกร</span></div>
+                <div><strong>{focusNode.areaRai.toLocaleString()}</strong><span>ไร่</span></div>
+                <div>
+                  <strong className={diff >= 0 ? "green-text" : "red-text"}>{Math.abs(diff).toFixed(2)}</strong>
+                  <span>{diff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} tCO2e</span>
+                </div>
+              </div>
+              <div className="carbon-compare spatial-carbon-compare">
+                <div><span>เทียบกับปีฐาน</span><strong className={diff >= 0 ? "green-text" : "red-text"}>{diff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(diffPercent).toFixed(1)}%</strong></div>
+                <div><span>Carbon Footprint ปีฐาน</span><strong>{focusNode.baselineEmission.toLocaleString()} tCO2e</strong></div>
+                <div><span>Carbon Footprint ปีดำเนินการ</span><strong>{focusNode.currentEmission.toLocaleString()} tCO2e</strong></div>
+                <div><span>ผลต่าง Footprint</span><strong className={diff >= 0 ? "green-text" : "red-text"}>{carbonCredit.direction} {formatNumber(Math.abs(diff), 2)} tCO2e</strong></div>
+                <div><span>Carbon Credit ปีฐาน</span><strong>0 tCO2e</strong></div>
+                <div><span>Carbon Credit ปีดำเนินการ</span><strong>{formatNumber(carbonCredit.credit, 2)} tCO2e</strong></div>
+                <div><span>เครดิตที่ได้</span><strong className={carbonCredit.credit > 0 ? "green-text" : "red-text"}>{formatNumber(carbonCredit.credit, 2)} tCO2e</strong></div>
+                <div><span>การสะสมคาร์บอนในดิน (SOC)</span><strong className="green-text">{formatNumber(socRemoval, 2)} tCO2e</strong></div>
+                <div><span>SOC index ต่อพื้นที่</span><strong>{formatNumber(socIndex, 2)}</strong></div>
+                <div><span>เครดิตรวมหลังรวม SOC</span><strong className="green-text">{formatNumber(carbonCredit.credit + socRemoval, 2)} tCO2e</strong></div>
+              </div>
+              {isField(focusNode) && (
+                <div className="field-detail">
+                  <h3>{focusNode.fieldName}</h3>
+                  <div className="field-meta">
+                    <span>รหัสแปลง: {focusNode.fieldCode}</span>
+                    <span>เกษตรกร: {focusNode.farmerName}</span>
+                    <span>จังหวัด: {focusNode.province}</span>
+                    <span>อำเภอ: {focusNode.district}</span>
+                    <span>ตำบล: {focusNode.subdistrict}</span>
+                    <span>โทร: {focusNode.phone}</span>
+                  </div>
+                  <div className="chanot-list">
+                    {focusNode.chanots.map((chanot) => (
+                      <span key={chanot.chanotNo}>{chanot.chanotNo} · {formatNumber(chanot.areaRai, 2)} ไร่</span>
+                    ))}
+                    {!focusNode.chanots.length && <span>ยังไม่มีข้อมูลโฉนดที่ดิน</span>}
+                  </div>
+                </div>
+              )}
+            </article>
 
-        {documentNotice && <div className="report-generate-notice">{documentNotice}</div>}
+            <article className="card">
+              <div className="card-title-row">
+                <div className="card-title">กราฟแท่ง · สัดส่วนกระบวนการในพื้นที่</div>
+                <SourceBadge source={projectPlotSource.source} meta={projectPlotSource.meta} />
+                <div className="period-switch spatial-period-switch" role="group" aria-label="เลือกปีข้อมูลกราฟแท่ง">
+                  <button type="button" className={processPeriod === "both" ? "active" : ""} onClick={() => setProcessPeriod("both")}>
+                    ปีฐาน VS ปีดำเนินการ
+                  </button>
+                  <button type="button" className={processPeriod === "baseline" ? "active" : ""} onClick={() => setProcessPeriod("baseline")}>
+                    ปีฐาน
+                  </button>
+                  <button type="button" className={processPeriod === "current" ? "active" : ""} onClick={() => setProcessPeriod("current")}>
+                    ปีดำเนินการ
+                  </button>
+                </div>
+              </div>
+              <ProcessDoughnut
+                title={`${focusNode.name} · ${processPeriodLabel}`}
+                data={processBreakdownForPeriod}
+                comparisonData={processPeriod === "both" ? currentProcessBreakdown : processComparisonBreakdown}
+                variant={processPeriod === "both" ? "comparisonBar" : "bar"}
+              />
+            </article>
+          </div>
 
-        <section className="card report-preview-panel spatial-doc-preview-card">
-          <div className="report-preview-tabs spatial-preview-tabs" role="tablist" aria-label="Spatial report preview tabs">
-            {[
-              ["pdf", "PDF"],
-              ["excel", "Excel"],
-            ].map(([tab, label]) => (
-              <button
-                key={tab}
-                type="button"
-                role="tab"
-                aria-selected={activePreviewTab === tab}
-                className={activePreviewTab === tab ? "active" : ""}
-                onClick={() => setActivePreviewTab(tab as SpatialPreviewTab)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className="card-title-row">
-            <div className="card-title">Preview เอกสารรายแปลง</div>
-            <SourceBadge source={projectPlotSource.source} meta={projectPlotSource.meta} />
-          </div>
-          {!generatedDocument && <div className="empty-state">กรุณาสร้างเอกสารใหม่เพื่อดูตัวอย่าง</div>}
-          <div className="spatial-doc-preview" style={{ display: generatedDocument && activePreviewTab === "pdf" ? undefined : "none" }}>
-            {generatingDocument && <div className="empty-state">กำลัง Render PDF preview...</div>}
-            <div ref={spatialDocRef} className="spatial-doc-pages">
-              {chunkRows(generatedDocument?.fields ?? [], SPATIAL_DOC_ROWS_PER_PAGE).map((pageFields, pageIndex, pages) => (
-                <SpatialDocument
-                  key={`spatial-doc-page-${pageIndex}`}
-                  title={`${generatedDocument?.title ?? documentTitle} · Page ${pageIndex + 1}/${pages.length}`}
-                  fields={pageFields}
-                />
-              ))}
-            </div>
-          </div>
-          {generatedDocument && activePreviewTab === "excel" && generatedExcelRows && (
-            <div className="excel-preview">
-              <SpatialExcelPreview rows={generatedExcelRows} />
-            </div>
-          )}
-        </section>
-
-        <section className="grid2">
-          <article className="card spatial-summary-card">
-            <div className="card-title-row">
-              <div className="card-title">สรุปรายละเอียดพื้นที่ · {focusNode.name}</div>
-              <SourceBadge source={spatialResult.source} meta={spatialResult.meta} />
-            </div>
-            <div className="mini-stat-grid wide spatial-summary-stats">
-              <div><strong>{focusNode.fields}</strong><span>แปลง</span></div>
-              <div><strong>{focusNode.farmers}</strong><span>เกษตรกร</span></div>
-              <div><strong>{focusNode.areaRai.toLocaleString()}</strong><span>ไร่</span></div>
+          <div className="spatial-report-right-column">
+            <section className="card report-toolbar spatial-export-toolbar">
               <div>
-                <strong className={diff >= 0 ? "green-text" : "red-text"}>{Math.abs(diff).toFixed(2)}</strong>
-                <span>{diff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} tCO2e</span>
+                <div className="card-title">เอกสารรายละเอียดรายแปลง</div>
               </div>
-            </div>
-            <div className="carbon-compare spatial-carbon-compare">
-              <div><span>เทียบกับปีฐาน</span><strong className={diff >= 0 ? "green-text" : "red-text"}>{diff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(diffPercent).toFixed(1)}%</strong></div>
-              <div><span>Carbon Footprint ปีฐาน</span><strong>{focusNode.baselineEmission.toLocaleString()} tCO2e</strong></div>
-              <div><span>Carbon Footprint ปีดำเนินการ</span><strong>{focusNode.currentEmission.toLocaleString()} tCO2e</strong></div>
-              <div><span>ผลต่าง Footprint</span><strong className={diff >= 0 ? "green-text" : "red-text"}>{carbonCredit.direction} {formatNumber(Math.abs(diff), 2)} tCO2e</strong></div>
-              <div><span>Carbon Credit ปีฐาน</span><strong>0 tCO2e</strong></div>
-              <div><span>Carbon Credit ปีดำเนินการ</span><strong>{formatNumber(carbonCredit.credit, 2)} tCO2e</strong></div>
-              <div><span>เครดิตที่ได้</span><strong className={carbonCredit.credit > 0 ? "green-text" : "red-text"}>{formatNumber(carbonCredit.credit, 2)} tCO2e</strong></div>
-              <div><span>การสะสมคาร์บอนในดิน (SOC)</span><strong className="green-text">{formatNumber(socRemoval, 2)} tCO2e</strong></div>
-              <div><span>SOC index ต่อพื้นที่</span><strong>{formatNumber(socIndex, 2)}</strong></div>
-              <div><span>เครดิตรวมหลังรวม SOC</span><strong className="green-text">{formatNumber(carbonCredit.credit + socRemoval, 2)} tCO2e</strong></div>
-            </div>
-            {isField(focusNode) && (
-              <div className="field-detail">
-                <h3>{focusNode.fieldName}</h3>
-                <div className="field-meta">
-                  <span>รหัสแปลง: {focusNode.fieldCode}</span>
-                  <span>เกษตรกร: {focusNode.farmerName}</span>
-                  <span>จังหวัด: {focusNode.province}</span>
-                  <span>อำเภอ: {focusNode.district}</span>
-                  <span>ตำบล: {focusNode.subdistrict}</span>
-                  <span>โทร: {focusNode.phone}</span>
-                </div>
-                <div className="chanot-list">
-                  {focusNode.chanots.map((chanot) => (
-                    <span key={chanot.chanotNo}>{chanot.chanotNo} · {formatNumber(chanot.areaRai, 2)} ไร่</span>
-                  ))}
-                  {!focusNode.chanots.length && <span>ยังไม่มีข้อมูลโฉนดที่ดิน</span>}
-                </div>
+              <div className="report-download-actions">
+                <button className="run-all-btn report-generate-btn" type="button" onClick={generateSpatialDocument} disabled={!documentFields.length || generatingDocument}>
+                  สร้างเอกสารใหม่ <br /> (Generate Report)
+                </button>
+                <button className="run-btn pdf-download-btn" type="button" onClick={downloadPdf} disabled={!pdfUrl || generatingDocument || !documentIsCurrent}>Download PDF</button>
+                <button className="run-btn word-download-btn" type="button" onClick={downloadWordDraft} disabled={!generatedDocument || !documentIsCurrent}>Download Word</button>
+                <button className="run-all-btn excel-download-btn" type="button" onClick={exportExcel} disabled={!generatedExcelRows || !documentIsCurrent}>Export Excel</button>
               </div>
-            )}
-          </article>
+            </section>
 
-          <article className="card">
-            <div className="card-title-row">
-              <div className="card-title">กราฟแท่ง · สัดส่วนกระบวนการในพื้นที่</div>
-              <SourceBadge source={projectPlotSource.source} meta={projectPlotSource.meta} />
-              <div className="period-switch spatial-period-switch" role="group" aria-label="เลือกปีข้อมูลกราฟแท่ง">
-                <button type="button" className={processPeriod === "both" ? "active" : ""} onClick={() => setProcessPeriod("both")}>
-                  ปีฐาน VS ปีดำเนินการ
-                </button>
-                <button type="button" className={processPeriod === "baseline" ? "active" : ""} onClick={() => setProcessPeriod("baseline")}>
-                  ปีฐาน
-                </button>
-                <button type="button" className={processPeriod === "current" ? "active" : ""} onClick={() => setProcessPeriod("current")}>
-                  ปีดำเนินการ
-                </button>
+            {documentNotice && <div className="report-generate-notice">{documentNotice}</div>}
+
+            <section className="card report-preview-panel spatial-doc-preview-card">
+              <div className="report-preview-tabs spatial-preview-tabs" role="tablist" aria-label="Spatial report preview tabs">
+                {[
+                  ["pdf", "PDF"],
+                  ["excel", "Excel"],
+                ].map(([tab, label]) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    role="tab"
+                    aria-selected={activePreviewTab === tab}
+                    className={activePreviewTab === tab ? "active" : ""}
+                    onClick={() => setActivePreviewTab(tab as SpatialPreviewTab)}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
-            </div>
-            <ProcessDoughnut
-              title={`${focusNode.name} · ${processPeriodLabel}`}
-              data={processBreakdownForPeriod}
-              comparisonData={processPeriod === "both" ? currentProcessBreakdown : processComparisonBreakdown}
-              variant={processPeriod === "both" ? "comparisonBar" : "bar"}
-            />
-          </article>
-        </section>
+              <div className="card-title-row">
+                <div className="card-title">Preview เอกสารรายแปลง</div>
+                <SourceBadge source={projectPlotSource.source} meta={projectPlotSource.meta} />
+              </div>
+              {!generatedDocument && <div className="empty-state">กรุณาสร้างเอกสารใหม่เพื่อดูตัวอย่าง</div>}
+              <div className={`spatial-doc-preview ${activePreviewTab === "pdf" ? "pdf-mode" : ""}`} style={{ display: generatedDocument && activePreviewTab === "pdf" ? undefined : "none" }}>
+                {generatingDocument ? (
+                  <div className="empty-state">กำลัง Render PDF preview...</div>
+                ) : pdfUrl ? (
+                  <iframe title="Spatial Fields PDF Preview" src={pdfUrl} />
+                ) : (
+                  <div className="empty-state">ยังไม่ได้สร้างเอกสาร หรือเกิดข้อผิดพลาดในการโหลด PDF</div>
+                )}
+              </div>
+              {generatedDocument && activePreviewTab === "excel" && generatedExcelRows && (
+                <div className="excel-preview">
+                  <SpatialExcelPreview rows={generatedExcelRows} />
+                </div>
+              )}
+            </section>
+          </div>
+        </div>
 
         <section className="card">
             <div className="card-title">สรุปการใช้ปุ๋ยและน้ำมันในพื้นที่ · {focusNode.name}</div>
@@ -1388,6 +1391,19 @@ export function CfSpatialPage() {
               </div>
             </div>
         </section>
+
+        {/* Off-screen PDF render source */}
+        <div className="pdf-render-source">
+          <div ref={spatialDocRef} className="spatial-doc-pages">
+            {chunkRows(generatedDocument?.fields ?? [], SPATIAL_DOC_ROWS_PER_PAGE).map((pageFields, pageIndex, pages) => (
+              <SpatialDocument
+                key={`spatial-doc-page-${pageIndex}`}
+                title={`${generatedDocument?.title ?? documentTitle} · Page ${pageIndex + 1}/${pages.length}`}
+                fields={pageFields}
+              />
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
