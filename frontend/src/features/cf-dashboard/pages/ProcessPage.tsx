@@ -1387,7 +1387,7 @@ export function CfProcessPage() {
                               <td className="rowspan-cell" rowSpan={area.materials.length}>{area.areaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
                             </>
                           )}
-                          <td>{material.material}</td>
+                          <td className="soc-material-type-cell">{material.material}</td>
                           <td>{material.amount.toLocaleString(undefined, { maximumFractionDigits: material.unit === "ตัน" ? 2 : 0 })} {material.unit}</td>
                           <td>{material.usagePctOfTotalArea.toFixed(1)}%</td>
                           <td>{material.perRaiPct.toFixed(1)}%</td>

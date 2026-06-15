@@ -523,6 +523,10 @@
   font-family: inherit !important;
   font-weight: 600 !important;
 }
+.cf-dash .soc-material-detail-table tr.area-group-start .soc-material-type-cell {
+  color: var(--text) !important;
+  font-weight: 700 !important;
+}
 .cf-dash .soc-before-after-card {
   display: grid;
   gap: 12px;
