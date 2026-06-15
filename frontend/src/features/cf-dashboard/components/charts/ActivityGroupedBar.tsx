@@ -3,9 +3,14 @@ import type { ProcessActivityBreakdown } from "../../types/dashboard";
 import { chartOptions, chartPalette, sortProcessLabels } from "./ChartRegistry";
 import "./ChartRegistry";
 
-function wrapGroupedBarLabel(label: string, maxChars = 14, maxRows = 3) {
+function isProcessStepLabel(label: string) {
+  return /^\d+\.\s/.test(label.trim());
+}
+
+function wrapGroupedBarLabel(label: string, maxChars = 14, maxRows = 3): string | string[] {
   const normalized = label.replace(/\s+/g, " ").trim();
-  if (!normalized) return [label];
+  if (!normalized) return label;
+  if (isProcessStepLabel(normalized)) return normalized;
   const words = normalized.split(" ");
   const rows: string[] = [];
   let current = "";
@@ -50,10 +55,14 @@ export function ActivityGroupedBar({
 }) {
   const labels = sortProcessLabels(Array.from(new Set([...baseline, ...current].map((item) => item.process))));
   const chartLabels = labels.map((label) => wrapGroupedBarLabel(label));
-  const maxLabelRows = Math.max(...chartLabels.map((label) => label.length), 1);
-  const needsScroll = labels.length > 8;
+  const maxLabelRows = Math.max(...chartLabels.map((label) => Array.isArray(label) ? label.length : 1), 1);
+  const hasProcessSteps = labels.some(isProcessStepLabel);
+  const hasLongSingleLineLabel = chartLabels.some((label) => !Array.isArray(label) && label.length > 16);
+  const needsScroll = labels.length > 8 || hasLongSingleLineLabel;
   const chartHeight = Math.max(340, 292 + maxLabelRows * 28);
-  const chartWidth = needsScroll ? Math.max(980, labels.length * 92) : "100%";
+  const chartWidth = needsScroll
+    ? Math.max(hasProcessSteps ? 1120 : 980, labels.length * (hasProcessSteps ? 260 : 92))
+    : "100%";
   const baselineMap = new Map(baseline.map((item) => [item.process, item.totalEmission]));
   const currentMap = new Map(current.map((item) => [item.process, item.totalEmission]));
   const datasets = [

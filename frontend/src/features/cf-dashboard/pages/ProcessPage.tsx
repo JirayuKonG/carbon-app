@@ -704,7 +704,7 @@ export function CfProcessPage() {
         <section className="card footprint-view-tabs-card footprint-view-tabs-top">
           <div>
             <div className="card-title">มุมมอง Carbon Footprint</div>
-            <p className="muted">เลือกดูการปล่อยคาร์บอน การกักเก็บคาร์บอน หรือผลลัพธ์สุทธิของโครงการ</p>
+            <p className="muted text-xs font-normal" style={{ fontSize: "0.85em", opacity: 0.6 }}>โปรดระบุมุมมองการแสดงผลสำหรับข้อมูลการปล่อยก๊าซเรือนกระจก การกักเก็บคาร์บอนในดิน หรือผลลัพธ์คาร์บอนสุทธิของโครงการ</p>
           </div>
           <div className="footprint-view-tabs" role="tablist" aria-label="Carbon Footprint view tabs">
             <button
@@ -740,7 +740,7 @@ export function CfProcessPage() {
         <section className="card process-scope-panel process-executive-filter">
           <div>
             <div className="card-title">ตัวกรองภาพรวม Carbon Footprint</div>
-            <p className="muted">หน้านี้ใช้ดูภาพรวมระดับผู้บริหาร เลือกปีดำเนินการ กลุ่มไร่หลัก แคมป์ แปลง และประเภทอ้อย</p>
+            <p className="muted text-xs font-normal" style={{ fontSize: "0.85em", opacity: 0.6 }}>กรุณากำหนดขอบเขตพื้นที่และประเภทอ้อย เพื่อใช้เป็นเงื่อนไขในการประมวลผลข้อมูล Carbon Footprint</p>
           </div>
           <label>
             ปีดำเนินการ
@@ -847,7 +847,7 @@ export function CfProcessPage() {
                 <span>Credit จาก SOC</span>
                 <strong className="green-text">{socCredit.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
                 <small>tCO2e</small>
-                <em>ใช้เป็น SOC offset</em>
+                <em>ใช้เป็น SOC</em>
               </article>
               <article>
                 <span>Top Camp SOC</span>
@@ -863,16 +863,19 @@ export function CfProcessPage() {
                 <span>Gross Emission</span>
                 <strong>{currentTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
                 <small>tCO2e</small>
+                <em>การปล่อยคาร์บอนรวมทั้งหมดของโครงการ</em>
               </article>
               <article>
                 <span>SOC</span>
                 <strong className="green-text">{socCredit.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
                 <small>tCO2e</small>
+                <em>การสะสมคาร์บอนในดิน (Soil Organic Carbon)</em>
               </article>
               <article>
                 <span>Net Emission</span>
                 <strong className={netEmissions <= currentTotal ? "green-text" : "red-text"}>{netEmissions.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
                 <small>tCO2e</small>
+                <em>การปล่อยคาร์บอนสุทธิ</em>
               </article>
             </>
           )}
@@ -916,7 +919,6 @@ export function CfProcessPage() {
             <div>
               <span className="section-kicker">Carbon Emissions</span>
               <h2>การปล่อยคาร์บอน</h2>
-              <p className="muted">ดู Total Emission, Baseline, Project, Reduction และกราฟเปรียบเทียบเพื่อเห็นแหล่งปล่อยหลักของพื้นที่ที่เลือก</p>
             </div>
           </div>
         </section>
@@ -1198,7 +1200,6 @@ export function CfProcessPage() {
                 <div>
                   <span className="section-kicker">Soil Organic Carbon</span>
                   <h2>การสะสมคาร์บอนในดิน</h2>
-                  <p className="muted">ดู SOC รวม สัดส่วนการใช้วัสดุอินทรีย์ในการปรุงแต่งดิน และแคมป์ที่ทำ SOC ได้ดีตามตัวกรองหลัก</p>
                 </div>
               </div>
               <div className="group-mode-switch soc-material-switch" role="group" aria-label="เลือกมุมมองวัสดุอินทรีย์">
@@ -1430,7 +1431,6 @@ export function CfProcessPage() {
               <div>
                 <span className="section-kicker">Net Carbon Result</span>
                 <h2>การปล่อยและการสะสมคาร์บอนก๊าซเรือนกระจก</h2>
-                <p className="muted">Summary of project emissions, SOC accumulation, and net greenhouse gas result after soil carbon accumulation.</p>
               </div>
             </div>
 

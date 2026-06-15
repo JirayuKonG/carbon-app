@@ -12,7 +12,7 @@ import { MapPinned } from "lucide-react";
 import "../cf-dashboard.css";
 
 type SpatialPreviewTab = "pdf" | "excel";
-type SpatialProcessPeriod = "baseline" | "current";
+type SpatialProcessPeriod = "both" | "baseline" | "current";
 
 interface SpatialExcelRows {
   campRows: Record<string, unknown>[];
@@ -479,7 +479,7 @@ export function CfSpatialPage() {
   const [selectedBoundaryFieldId, setSelectedBoundaryFieldId] = useState("");
   const [selectedProjectCampName, setSelectedProjectCampName] = useState("all");
   const [selectedProjectPlotCode, setSelectedProjectPlotCode] = useState("all");
-  const [processPeriod, setProcessPeriod] = useState<SpatialProcessPeriod>("current");
+  const [processPeriod, setProcessPeriod] = useState<SpatialProcessPeriod>("both");
   const [generatedDocument, setGeneratedDocument] = useState<{ title: string; fields: CampFieldCarbonDetail[]; camps: CampCarbonSummary[] } | null>(null);
   const [activePreviewTab, setActivePreviewTab] = useState<SpatialPreviewTab>("pdf");
   const [documentRenderId, setDocumentRenderId] = useState(0);
@@ -761,9 +761,13 @@ export function CfSpatialPage() {
   const carbonCredit = focusNode ? creditSummary(focusNode.baselineEmission, focusNode.currentEmission) : creditSummary(0, 0);
   const baselineProcessBreakdown = focusNode ? scaleProcessBreakdown(focusNode.processBreakdown, focusNode.baselineEmission) : [];
   const currentProcessBreakdown = focusNode?.processBreakdown ?? [];
-  const processBreakdownForPeriod = processPeriod === "baseline" ? baselineProcessBreakdown : currentProcessBreakdown;
+  const processBreakdownForPeriod = processPeriod === "current" ? currentProcessBreakdown : baselineProcessBreakdown;
   const processComparisonBreakdown = processPeriod === "baseline" ? currentProcessBreakdown : baselineProcessBreakdown;
-  const processPeriodLabel = processPeriod === "baseline" ? "ปีฐาน" : "ปีดำเนินการ";
+  const processPeriodLabel = processPeriod === "both"
+    ? "ปีฐาน VS ปีดำเนินการ"
+    : processPeriod === "baseline"
+      ? "ปีฐาน"
+      : "ปีดำเนินการ";
   const spatialInputs = focusNode?.processInputComparisons ?? [];
   const inputTotals = sumInputs(spatialInputs);
   const fertilizerDiff = inputTotals.baselineFertilizerKg - inputTotals.currentFertilizerKg;
@@ -1053,7 +1057,8 @@ export function CfSpatialPage() {
 
         <section className="card spatial-picker">
           <div>
-            <div className="card-title">เลือกพื้นที่</div>
+            <div className="card-title">ตัวกรองพื้นที่</div>
+            <p className="muted text-xs font-normal" style={{ marginBottom: "1rem", fontSize: "0.85em", opacity: 0.6 }}>กรุณากำหนดขอบเขตพื้นที่และโครงการ เพื่อใช้เป็นเงื่อนไขในการแสดงผลข้อมูลแผนที่เชิงพื้นที่</p>
             <div className="breadcrumb">
               {breadcrumbs.map((item, index) => (
                 <span key={item.id}>
@@ -1292,8 +1297,11 @@ export function CfSpatialPage() {
 
           <article className="card">
             <div className="card-title-row">
-              <div className="card-title">แผนภูมิวงกลม · สัดส่วนกระบวนการในพื้นที่</div>
-              <div className="period-switch spatial-period-switch" role="group" aria-label="เลือกปีข้อมูลแผนภูมิวงกลม">
+              <div className="card-title">กราฟแท่ง · สัดส่วนกระบวนการในพื้นที่</div>
+              <div className="period-switch spatial-period-switch" role="group" aria-label="เลือกปีข้อมูลกราฟแท่ง">
+                <button type="button" className={processPeriod === "both" ? "active" : ""} onClick={() => setProcessPeriod("both")}>
+                  ปีฐาน VS ปีดำเนินการ
+                </button>
                 <button type="button" className={processPeriod === "baseline" ? "active" : ""} onClick={() => setProcessPeriod("baseline")}>
                   ปีฐาน
                 </button>
@@ -1305,7 +1313,8 @@ export function CfSpatialPage() {
             <ProcessDoughnut
               title={`${focusNode.name} · ${processPeriodLabel}`}
               data={processBreakdownForPeriod}
-              comparisonData={processComparisonBreakdown}
+              comparisonData={processPeriod === "both" ? currentProcessBreakdown : processComparisonBreakdown}
+              variant={processPeriod === "both" ? "comparisonBar" : "bar"}
             />
           </article>
         </section>

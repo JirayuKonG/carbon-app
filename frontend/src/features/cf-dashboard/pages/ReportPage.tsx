@@ -810,8 +810,8 @@ export function CfReportPage() {
 
         <section className="card report-toolbar">
           <div>
-            <div className="card-title">ตัวกรองพื้นที่รายงาน</div>
-            <p className="muted">{selectedReportNode ? `กำลังดู: ${selectedReportNode.name}` : "กำลังดู: ภาพรวมทั้งระบบ"}</p>
+            <div className="card-title">ตัวกรองรายงาน</div>
+            <p className="muted text-xs font-normal" style={{ fontSize: "0.85em", opacity: 0.6 }}>กรุณาระบุกลุ่มไร่หลักและพื้นที่โครงการเป้าหมาย เพื่อใช้เป็นเงื่อนไขในการจัดทำเอกสารรายงาน {selectedReportNode ? `(กำลังดู: ${selectedReportNode.name})` : "(กำลังดู: ภาพรวมทั้งระบบ)"}</p>
           </div>
           <label>
             กลุ่มไร่หลัก
@@ -899,12 +899,12 @@ export function CfReportPage() {
               <div className="report-preview-header">
                 <div>
                   <div className="card-title">Preview & Download</div>
-                  <p className="muted">
+                  <p className="muted text-xs font-normal" style={{ fontSize: "0.85em", opacity: 0.6 }}>
                     {generatedReport
                       ? previewIsCurrent
-                        ? `ตัวอย่างล่าสุด: ${new Date(generatedReport.generatedAt).toLocaleString()}`
-                        : "ตัวอย่างเอกสารยังเป็นชุดเดิม กด Generate Report เพื่ออัปเดตตามตัวกรองปัจจุบัน"
-                      : "เลือกตัวกรองด้านซ้ายให้เรียบร้อย แล้วกดสร้างเอกสารใหม่เพื่อดูตัวอย่าง"}
+                        ? `ข้อมูลฉบับร่างล่าสุด: ${new Date(generatedReport.generatedAt).toLocaleString()}`
+                        : "ข้อมูลฉบับร่างยังไม่อัปเดตตามเงื่อนไขปัจจุบัน กรุณากด Generate Report เพื่อสร้างเอกสารใหม่"
+                      : "กรุณากำหนดเงื่อนไขด้านซ้าย และกดสร้างเอกสารใหม่เพื่อแสดงข้อมูลฉบับร่าง"}
                   </p>
                 </div>
                 <div className="report-preview-tabs" role="tablist" aria-label="Report preview tabs">
