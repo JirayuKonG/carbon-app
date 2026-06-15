@@ -2442,6 +2442,232 @@
 .cf-dash .footprint-paper .report-table {
   font-size: 11px;
 }
+.cf-dash .footprint-executive-paper {
+  display: grid;
+  gap: 18px;
+  padding: 0;
+  background: #eef5fb;
+}
+.cf-dash .footprint-pdf-page {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  width: 1120px;
+  min-height: 780px;
+  padding: 28px;
+  background: #f8fbff;
+  color: #172033;
+  overflow: hidden;
+}
+.cf-dash .footprint-pdf-page + .pdd-doc-header,
+.cf-dash .footprint-pdf-page ~ .pdd-doc-header,
+.cf-dash .footprint-executive-paper > .pdd-doc-header,
+.cf-dash .footprint-executive-paper > h2,
+.cf-dash .footprint-executive-paper > table,
+.cf-dash .footprint-executive-paper > .footprint-doc-block-grid,
+.cf-dash .footprint-executive-paper > .footprint-doc-footer {
+  display: none;
+}
+.cf-dash .footprint-pdf-cover {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  align-items: end;
+  gap: 18px;
+  border-radius: 18px;
+  padding: 24px;
+  background: linear-gradient(135deg, #15345f, #2563eb);
+  color: #fff;
+}
+.cf-dash .footprint-pdf-cover span,
+.cf-dash .footprint-pdf-panel-head span {
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.cf-dash .footprint-pdf-cover h1 {
+  margin: 8px 0 6px;
+  font-size: 31px;
+  line-height: 1.1;
+}
+.cf-dash .footprint-pdf-cover p {
+  margin: 0;
+  color: rgba(255,255,255,.78);
+}
+.cf-dash .footprint-pdf-cover-meta {
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(255,255,255,.32);
+  border-radius: 14px;
+  padding: 14px;
+  background: rgba(255,255,255,.12);
+}
+.cf-dash .footprint-pdf-cover-meta strong {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 22px;
+}
+.cf-dash .footprint-pdf-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+.cf-dash .footprint-pdf-metric {
+  display: grid;
+  gap: 4px;
+  min-height: 92px;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  padding: 12px;
+  background: #eff6ff;
+}
+.cf-dash .footprint-pdf-metric.green { border-color: #bbf7d0; background: #f0fdf4; }
+.cf-dash .footprint-pdf-metric.red { border-color: #fecaca; background: #fff1f2; }
+.cf-dash .footprint-pdf-metric.amber { border-color: #fde68a; background: #fffbeb; }
+.cf-dash .footprint-pdf-metric span,
+.cf-dash .footprint-pdf-metric small {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 800;
+}
+.cf-dash .footprint-pdf-metric strong {
+  color: #0f172a;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 18px;
+  line-height: 1.15;
+}
+.cf-dash .footprint-pdf-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: stretch;
+}
+.cf-dash .footprint-pdf-panel {
+  border: 1px solid #d8e7f5;
+  border-radius: 14px;
+  padding: 14px;
+  background: #fff;
+  overflow: hidden;
+}
+.cf-dash .footprint-pdf-panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.cf-dash .footprint-pdf-panel-head div {
+  display: grid;
+  gap: 3px;
+}
+.cf-dash .footprint-pdf-panel-head strong {
+  color: #172033;
+  font-size: 15px;
+}
+.cf-dash .footprint-pdf-panel-head small {
+  color: #64748b;
+  font-size: 10px;
+  text-align: right;
+}
+.cf-dash .footprint-pdf-legend {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 800;
+}
+.cf-dash .footprint-pdf-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 4px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+.cf-dash .footprint-pdf-legend i.baseline { background: #93c5fd; }
+.cf-dash .footprint-pdf-legend i.project { background: #fca5a5; }
+.cf-dash .footprint-grouped-bars,
+.cf-dash .footprint-hotspot-bars,
+.cf-dash .footprint-net-flow,
+.cf-dash .footprint-resource-list {
+  display: grid;
+  gap: 9px;
+}
+.cf-dash .footprint-grouped-bar-row {
+  display: grid;
+  grid-template-columns: 116px minmax(0, 1fr) 112px;
+  gap: 8px;
+  align-items: center;
+}
+.cf-dash .footprint-bar-label {
+  color: #334155;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+.cf-dash .footprint-bar-pair {
+  display: grid;
+  gap: 4px;
+}
+.cf-dash .footprint-bar-track,
+.cf-dash .footprint-hotspot-track,
+.cf-dash .footprint-net-flow-row div {
+  height: 10px;
+  border-radius: 999px;
+  background: #edf4fb;
+  overflow: hidden;
+}
+.cf-dash .footprint-bar-track span,
+.cf-dash .footprint-hotspot-track span,
+.cf-dash .footprint-net-flow-row i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+.cf-dash .footprint-bar-track span.baseline { background: #93c5fd; }
+.cf-dash .footprint-bar-track span.project { background: #fca5a5; }
+.cf-dash .footprint-bar-values {
+  display: grid;
+  gap: 2px;
+  font-size: 10px;
+  text-align: right;
+}
+.cf-dash .footprint-bar-values b,
+.cf-dash .footprint-hotspot-row strong,
+.cf-dash .footprint-net-flow-row strong {
+  color: #0f172a;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+}
+.cf-dash .footprint-hotspot-row,
+.cf-dash .footprint-net-flow-row {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) 96px;
+  gap: 10px;
+  align-items: center;
+}
+.cf-dash .footprint-hotspot-row b,
+.cf-dash .footprint-resource-list strong {
+  color: #1e293b;
+  font-size: 11px;
+}
+.cf-dash .footprint-hotspot-row small,
+.cf-dash .footprint-resource-list span {
+  display: block;
+  color: #64748b;
+  font-size: 10px;
+  line-height: 1.35;
+}
+.cf-dash .footprint-net-flow-row span {
+  color: #334155;
+  font-size: 11px;
+  font-weight: 850;
+}
+.cf-dash .footprint-resource-list > div {
+  border: 1px solid #e2edf7;
+  border-radius: 10px;
+  padding: 10px;
+  background: #f8fbff;
+}
 .cf-dash .compact-report-table th,
 .cf-dash .compact-report-table td {
   padding: 5px 6px;
