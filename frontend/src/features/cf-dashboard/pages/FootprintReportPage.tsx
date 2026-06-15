@@ -107,14 +107,12 @@ function socValues(baselineTotal: number, currentTotal: number, areaRai: number)
   return { socBaseline, socProject, socIncrease, netEmission };
 }
 
-function socPracticeValues(socIncrease: number) {
-  return {
-    vinasse: socIncrease * 0.34,
-    filterCake: socIncrease * 0.28,
-    greenManure: socIncrease * 0.22,
-    trashRetention: socIncrease * 0.16,
-  };
-}
+const organicMaterialRows = [
+  { key: "organicFertilizer", label: "ปุ๋ยอินทรีย์/ปุ๋ยหมัก", share: 0.34 },
+  { key: "filterCake", label: "ฟิลเตอร์เค้ก", share: 0.28 },
+  { key: "vinasse", label: "น้ำกากส่า/Vinasse", share: 0.22 },
+  { key: "trashRetention", label: "ใบอ้อยคลุมดิน", share: 0.16 },
+] as const;
 
 function caneTypeSummaryRows(caneRows: CaneProcessReportRow[]) {
   const grouped = new Map<string, { caneType: string; area: number; baseline: number; project: number; reduction: number }>();
@@ -276,7 +274,6 @@ function reportSections() {
 
 function buildFootprintExcelSheets(report: FootprintReportSnapshot): ExcelPreviewSheet[] {
   const reportSoc = socValues(report.baselineTotal, report.currentTotal, report.kpi.areaRai);
-  const reportPractice = socPracticeValues(reportSoc.socIncrease);
   const reportCaneTypeRows = caneTypeSummaryRows(report.caneRows);
 
   return [
@@ -349,22 +346,21 @@ function buildFootprintExcelSheets(report: FootprintReportSnapshot): ExcelPrevie
       }))),
     },
     {
-      name: "SOC Summary",
-      rows: rowsForSheet([{
-        "SOC Baseline": reportSoc.socBaseline,
-        "SOC Project": reportSoc.socProject,
-        "SOC Increase": reportSoc.socIncrease,
-        Vinasse: reportPractice.vinasse,
-        "Filter Cake": reportPractice.filterCake,
-        "Green Manure": reportPractice.greenManure,
-        "Trash Retention": reportPractice.trashRetention,
-      }]),
+      name: "SOC Material Summary",
+      rows: rowsForSheet(organicMaterialRows.map((material) => ({
+        "ประเภทอ้อย": report.caneLabel,
+        "สัดส่วนพื้นที่": report.caneLabel === "รวมทุกประเภทอ้อย" ? "100%" : "-",
+        "ประเภทวัสดุอินทรีย์": material.label,
+        "SOC Before": reportSoc.socBaseline * material.share,
+        "SOC After": reportSoc.socProject * material.share,
+        "SOC Increase": reportSoc.socIncrease * material.share,
+      }))),
     },
     {
       name: "Net Carbon Result",
       rows: rowsForSheet([{
         "Gross Emission": report.currentTotal,
-        "SOC Offset": reportSoc.socIncrease,
+        "SOC Increase": reportSoc.socIncrease,
         "Net Emission": reportSoc.netEmission,
       }]),
     },
@@ -408,7 +404,6 @@ function footprintWordHtml({
   kpi: OverviewKpi;
 }) {
   const { socBaseline, socProject, socIncrease, netEmission } = socValues(baselineTotal, currentTotal, kpi.areaRai);
-  const practice = socPracticeValues(socIncrease);
   const generatedDate = new Date().toLocaleString();
   const processHtml = processRows.map((row) => `
     <tr>
@@ -441,6 +436,16 @@ function footprintWordHtml({
       <td>${formatNumber(row.currentFertilizerKg, 1)}</td>
       <td>${formatNumber(row.baselineFuelLiter, 1)}</td>
       <td>${formatNumber(row.currentFuelLiter, 1)}</td>
+    </tr>
+  `).join("");
+  const materialHtml = organicMaterialRows.map((material) => `
+    <tr>
+      <td>${escapeHtml(caneLabel)}</td>
+      <td>${caneLabel === "รวมทุกประเภทอ้อย" ? "100%" : "-"}</td>
+      <td>${escapeHtml(material.label)}</td>
+      <td>${formatNumber(socBaseline * material.share)} tCO2e</td>
+      <td>${formatNumber(socProject * material.share)} tCO2e</td>
+      <td>${formatNumber(socIncrease * material.share)} tCO2e</td>
     </tr>
   `).join("");
 
@@ -487,19 +492,15 @@ function footprintWordHtml({
 
         <h2>5. ปัจจัยกิจกรรมหลัก</h2>
         <table><thead><tr><th>กระบวนการ</th><th>ปุ๋ยปีฐาน kg</th><th>ปุ๋ยปีรายงาน kg</th><th>น้ำมันปีฐาน L</th><th>น้ำมันปีรายงาน L</th></tr></thead><tbody>${inputHtml}</tbody></table>
-        <h2>6. SOC Section</h2>
+        <h2>6. สัดส่วนการใช้วัสดุอินทรีย์แยกตามประเภท</h2>
         <table>
-          <tr><th>SOC Baseline</th><th>SOC Project</th><th>SOC Increase</th></tr>
-          <tr><td>${formatNumber(socBaseline)} tCO2e</td><td>${formatNumber(socProject)} tCO2e</td><td>${formatNumber(socIncrease)} tCO2e</td></tr>
-        </table>
-        <table>
-          <tr><th>Vinasse</th><th>Filter Cake</th><th>Green Manure</th><th>Trash Retention</th></tr>
-          <tr><td>${formatNumber(practice.vinasse)} tCO2e</td><td>${formatNumber(practice.filterCake)} tCO2e</td><td>${formatNumber(practice.greenManure)} tCO2e</td><td>${formatNumber(practice.trashRetention)} tCO2e</td></tr>
+          <thead><tr><th>ประเภทอ้อย</th><th>สัดส่วนพื้นที่</th><th>ประเภทวัสดุอินทรีย์</th><th>SOC Before</th><th>SOC After</th><th>SOC Increase</th></tr></thead>
+          <tbody>${materialHtml}</tbody>
         </table>
 
         <h2>7. Net Result Section</h2>
         <table>
-          <tr><th>Gross Emission</th><th>SOC Offset</th><th>Net Emission</th></tr>
+          <tr><th>Gross Emission</th><th>SOC Increase</th><th>Net Emission</th></tr>
           <tr><td>${formatNumber(currentTotal)} tCO2e</td><td>${formatNumber(socIncrease)} tCO2e</td><td>${formatNumber(netEmission)} tCO2e</td></tr>
         </table>
 
@@ -554,6 +555,23 @@ function FootprintReportDocument({
   const topRows = processRows.slice(0, 4);
   const { socBaseline, socProject, socIncrease, netEmission } = socValues(baselineTotal, currentTotal, kpi.areaRai);
   const generatedDate = new Date();
+  const docCaneSummaryRows = caneTypeSummaryRows(caneRows);
+  const docMaterialRows = (docCaneSummaryRows.length ? docCaneSummaryRows : [{ caneType: caneLabel, area: kpi.areaRai, baseline: baselineTotal, project: currentTotal, reduction: reduction.diff }])
+    .flatMap((row) => {
+      const baseline = Math.max(row.baseline * 0.35, 0);
+      const increase = Math.max(row.reduction, 0) * 0.35;
+      const project = baseline + increase;
+      const areaPercent = kpi.areaRai ? (row.area / kpi.areaRai) * 100 : 0;
+      return organicMaterialRows.map((material) => ({
+        caneType: row.caneType,
+        areaPercent,
+        areaRai: row.area,
+        materialType: material.label,
+        socBaseline: baseline * material.share,
+        socProject: project * material.share,
+        socIncrease: increase * material.share,
+      }));
+    });
 
   return (
     <div className="pdd-paper footprint-paper">
@@ -651,14 +669,41 @@ function FootprintReportDocument({
 
       <h2>Carbon Sequestration & Net Carbon Result</h2>
       <div className="footprint-doc-block-grid">
-        <div><span>SOC Baseline</span><strong>{formatNumber(socBaseline)} tCO2e</strong></div>
-        <div><span>SOC Project</span><strong>{formatNumber(socProject)} tCO2e</strong></div>
-        <div><span>SOC Increase / Offset</span><strong>{formatNumber(socIncrease)} tCO2e</strong></div>
+        <div><span>SOC Before</span><strong>{formatNumber(socBaseline)} tCO2e</strong></div>
+        <div><span>SOC After</span><strong>{formatNumber(socProject)} tCO2e</strong></div>
+        <div><span>SOC Increase</span><strong>{formatNumber(socIncrease)} tCO2e</strong></div>
         <div><span>Net Emission</span><strong>{formatNumber(netEmission)} tCO2e</strong></div>
       </div>
+      <table className="report-table compact-report-table">
+        <thead>
+          <tr><th>ประเภทอ้อย</th><th>สัดส่วนพื้นที่</th><th>ประเภทวัสดุอินทรีย์</th><th>SOC Before</th><th>SOC After</th><th>SOC Increase</th></tr>
+        </thead>
+        <tbody>
+          {docMaterialRows.map((row, index, rows) => {
+            const isFirstCaneRow = index === 0 || rows[index - 1].caneType !== row.caneType;
+            const rowSpan = rows.filter((item) => item.caneType === row.caneType).length;
+            return (
+              <tr key={`doc-soc-material-${row.caneType}-${row.materialType}`}>
+                {isFirstCaneRow && (
+                  <>
+                    <td rowSpan={rowSpan} className="rowspan-cell cane-rowspan-name">{row.caneType}</td>
+                    <td rowSpan={rowSpan}>{row.areaPercent.toFixed(1)}% · {formatNumber(row.areaRai, 1)} ไร่</td>
+                  </>
+                )}
+                <td>{row.materialType}</td>
+                <td>{formatNumber(row.socBaseline)} tCO2e</td>
+                <td>{formatNumber(row.socProject)} tCO2e</td>
+                <td className={row.socIncrease >= 0 ? "green-text" : "red-text"}>
+                  {row.socIncrease >= 0 ? "เพิ่มขึ้น" : "ลดลง"} {formatNumber(Math.abs(row.socIncrease))} tCO2e
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
       <table className="report-table">
         <tbody>
-          <tr><th>Gross Emission</th><td>{formatNumber(currentTotal)} tCO2e</td><th>SOC Offset</th><td>{formatNumber(socIncrease)} tCO2e</td></tr>
+          <tr><th>Gross Emission</th><td>{formatNumber(currentTotal)} tCO2e</td><th>SOC Increase</th><td>{formatNumber(socIncrease)} tCO2e</td></tr>
           <tr><th>Net Emission</th><td>{formatNumber(netEmission)} tCO2e</td><th>Carbon Result</th><td>{netEmission <= currentTotal ? "Improved after SOC offset" : "No SOC offset applied"}</td></tr>
         </tbody>
       </table>
@@ -840,18 +885,20 @@ export function CfFootprintReportPage() {
     });
   const hotspotRows = [...processRows].sort((a, b) => b.currentEmission - a.currentEmission);
   const { socBaseline, socProject, socIncrease, netEmission } = socValues(baselineTotal, currentTotal, scopedKpi.areaRai);
-  const socContributionRows = caneProcessRows.map((row) => {
-    const increase = Math.max(row.diff, 0) * 0.35;
-    const baseline = Math.max(row.baselineEmission * 0.35, 0);
-    return {
-      caneType: row.cane.name,
-      canePercent: row.cane.percent,
-      caneAreaRai: row.cane.areaRai,
-      practice: row.activity,
-      socBaseline: baseline,
-      socProject: baseline + increase,
-      socIncrease: increase,
-    };
+  const socContributionRows = selectedCaneTypes.flatMap((cane) => {
+    const caneRowsForType = caneProcessRows.filter((row) => row.cane.name === cane.name);
+    const baseline = caneRowsForType.reduce((sum, row) => sum + Math.max(row.baselineEmission * 0.35, 0), 0);
+    const increase = caneRowsForType.reduce((sum, row) => sum + Math.max(row.diff, 0) * 0.35, 0);
+    const project = baseline + increase;
+    return organicMaterialRows.map((material) => ({
+      caneType: cane.name,
+      canePercent: cane.percent,
+      caneAreaRai: cane.areaRai,
+      materialType: material.label,
+      socBaseline: baseline * material.share,
+      socProject: project * material.share,
+      socIncrease: increase * material.share,
+    }));
   });
   const shouldLazyScopeRows = !areaPath.region && scope === "all" && selectedFieldId === "all";
   const footprintScopeRows = selectedField
@@ -1519,16 +1566,16 @@ export function CfFootprintReportPage() {
         </section>
 
         <section className="card full-span footprint-soc-contribution-block">
-          <div className="card-title">SOC Contribution Analysis</div>
+          <div className="card-title">สัดส่วนการใช้วัสดุอินทรีย์แยกตามประเภท</div>
           <div className="input-table-wrap">
             <table className="input-table">
               <thead>
                 <tr>
                   <th>ประเภทอ้อย</th>
                   <th>สัดส่วนพื้นที่</th>
-                  <th>Practice</th>
-                  <th>SOC Baseline</th>
-                  <th>SOC Project</th>
+                  <th>ประเภทวัสดุอินทรีย์</th>
+                  <th>SOC Before</th>
+                  <th>SOC After</th>
                   <th>SOC Increase</th>
                 </tr>
               </thead>
@@ -1537,22 +1584,24 @@ export function CfFootprintReportPage() {
                   const isFirstCaneRow = index === 0 || rows[index - 1].caneType !== row.caneType;
                   const rowSpan = rows.filter((item) => item.caneType === row.caneType).length;
                   return (
-                  <tr key={`${row.caneType}-${row.practice}-${index}`}>
+                  <tr key={`${row.caneType}-${row.materialType}-${index}`}>
                     {isFirstCaneRow && (
                       <>
                         <td rowSpan={rowSpan} className="rowspan-cell cane-rowspan-name">{row.caneType}</td>
                         <td rowSpan={rowSpan} className="rowspan-cell">{row.canePercent.toFixed(1)}% · {formatNumber(row.caneAreaRai, 1)} ไร่</td>
                       </>
                     )}
-                    <td className="process-name-cell">{row.practice}</td>
+                    <td className="process-name-cell">{row.materialType}</td>
                     <td>{formatNumber(row.socBaseline)} tCO2e</td>
                     <td>{formatNumber(row.socProject)} tCO2e</td>
-                    <td className="green-text">{formatNumber(row.socIncrease)} tCO2e</td>
+                    <td className={row.socIncrease >= 0 ? "green-text" : "red-text"}>
+                      {row.socIncrease >= 0 ? "เพิ่มขึ้น" : "ลดลง"} {formatNumber(Math.abs(row.socIncrease))} tCO2e
+                    </td>
                   </tr>
                   );
                 })}
                 {!socContributionRows.length && (
-                  <tr><td colSpan={6}>ไม่พบข้อมูล SOC Contribution ตามตัวกรองนี้</td></tr>
+                  <tr><td colSpan={6}>ไม่พบข้อมูลสัดส่วนวัสดุอินทรีย์ตามตัวกรองนี้</td></tr>
                 )}
               </tbody>
             </table>

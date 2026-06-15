@@ -4,6 +4,54 @@ import type { ActivityValue } from "../../types/dashboard";
 import { chartColors, chartOptions, chartPalette } from "./ChartRegistry";
 import "./ChartRegistry";
 
+const exactActivityColorMap: Record<string, string> = {
+  // 1. การเตรียมดินและปลูก
+  "น้ำมัน": "#60A5FA", // Pastel Blue
+  "ปุ๋ย/ปูนปรับปรุงดิน": "#86EFAC", // Soft Mint Green
+  "เครื่องจักร": "#FDE68A", // Warm Pastel Yellow
+  // 2. การใช้ปุ๋ย
+  "ปุ๋ยรองพื้น": "#2DD4BF", // Pastel Teal
+  "ท่อนพันธุ์": "#FDBA74", // Pastel Orange
+  // 3. การให้น้ำและกำจัดวัชพืช
+  "ปุ๋ยเคมี": "#FDA4AF", // Pastel Rose Pink
+  "สารเคมี/ยาป้องกันกำจัดศัตรูพืช": "#C4B5FD", // Pastel Lavender
+  "น้ำ/ไฟฟ้า": "#67E8F9", // Pastel Cyan
+  "น้ำมันสูบน้ำ": "#A5B4FC", // Pastel Indigo
+  // 4. การเก็บเกี่ยว
+  "น้ำมันรถตัด": "#38BDF8", // Pastel Sky Blue
+  "แรงงาน/เครื่องมือ": "#FCD34D", // Pastel Gold/Amber
+  "รวบรวมผลผลิต": "#F9A8D4", // Pastel Pink
+};
+
+const activityColorMap: { pattern: RegExp; color: string }[] = [
+  // 1. กลุ่มเชื้อเพลิง/น้ำมัน (น้ำเงินพาสเทล)
+  { pattern: /น้ำมัน|ดีเซล|fuel|สูบน้ำ|รถตัด/i, color: "#93C5FD" }, // Light blue pastel
+  // 2. กลุ่มปุ๋ย/สารปรับปรุงดิน (เขียวพาสเทล)
+  { pattern: /ปุ๋ย|ปูน|อินทรีย์|หมัก|เคมี|ไนโตรเจน/i, color: "#86EFAC" }, // Light green pastel
+  // 3. กลุ่มสารเคมี/ยาปราบศัตรูพืช (ม่วงพาสเทล)
+  { pattern: /สารเคมี|ยาป้องกัน|ศัตรูพืช|chemical|herbicide|pesticide/i, color: "#C4B5FD" }, // Light purple/violet pastel
+  // 4. กลุ่มเครื่องจักร/เครื่องมือ/แรงงาน (ส้ม/เหลืองพาสเทล)
+  { pattern: /เครื่องจักร|เครื่องมือ|แรงงาน|machine|equipment|labor|รวบรวมผลผลิต/i, color: "#FDE68A" }, // Warm cream/yellow-orange pastel
+  // 5. แหล่งน้ำ/ไฟฟ้า (ฟ้า/เทอร์คอยส์พาสเทล)
+  { pattern: /น้ำ\/ไฟฟ้า|ไฟฟ้า|irrigation|water/i, color: "#99F6E4" }, // Cyan/Teal pastel
+  // 6. ท่อนพันธุ์/วัตถุดิบปลูก (เขียวตองอ่อนพาสเทล)
+  { pattern: /ท่อนพันธุ์|พันธุ์|seed/i, color: "#D9F99D" }, // Lime green pastel
+];
+
+function stableColorForLabel(label: string) {
+  const trimmed = label.trim();
+  if (exactActivityColorMap[trimmed]) {
+    return exactActivityColorMap[trimmed];
+  }
+  const mapped = activityColorMap.find((item) => item.pattern.test(trimmed));
+  if (mapped) return mapped.color;
+  let hash = 0;
+  for (let index = 0; index < trimmed.length; index += 1) {
+    hash = ((hash * 31) + trimmed.charCodeAt(index)) % 1000003;
+  }
+  return chartColors[hash % chartColors.length];
+}
+
 export function ProcessDoughnut({
   title,
   data,
@@ -24,6 +72,7 @@ export function ProcessDoughnut({
   const comparisonDiffPct = total ? (comparisonDiff / total) * 100 : 0;
   const comparisonMap = new Map((comparisonData ?? []).map((item) => [item.name, item.emission]));
   const comparisonLabels = Array.from(new Set([...data.map((item) => item.name), ...(comparisonData ?? []).map((item) => item.name)]));
+  const dataColors = data.map((item) => stableColorForLabel(item.name));
   const growthFor = (name: string, value: number) => {
     const previous = comparisonMap.get(name);
     if (previous === undefined || previous === 0) return undefined;
@@ -99,8 +148,8 @@ export function ProcessDoughnut({
                 {
                   label: `ปริมาณการปล่อย (${unit})`,
                   data: data.map((item) => item.emission),
-                  backgroundColor: data.map((_, index) => chartColors[index % chartColors.length]),
-                  borderColor: data.map((_, index) => chartColors[index % chartColors.length]),
+                  backgroundColor: dataColors,
+                  borderColor: dataColors,
                   borderWidth: 1,
                 },
               ],
@@ -115,7 +164,7 @@ export function ProcessDoughnut({
                 datasets: [
                   {
                     data: data.map((item) => item.emission),
-                    backgroundColor: chartColors,
+                    backgroundColor: dataColors,
                     borderColor: "#FFFFFF",
                     borderWidth: 2,
                   },
@@ -178,7 +227,7 @@ export function ProcessDoughnut({
             const growth = growthFor(item.name, item.emission);
             return (
               <div className="value-legend-row" key={item.name}>
-                <span className="legend-swatch" style={{ background: chartColors[index % chartColors.length] }} />
+                <span className="legend-swatch" style={{ background: dataColors[index] }} />
                 <span className="legend-name">{item.name}</span>
                 <span className="legend-values">
                   <strong>{item.emission.toLocaleString(undefined, { maximumFractionDigits: 2 })} {unit}</strong>

@@ -20,6 +20,44 @@ type SocMaterialView = "overview" | "area";
 
 const FOOTPRINT_UNIT = "kgCO2e";
 const CHEMICAL_ACTIVITY_NAME = "สารเคมี/ยาป้องกันกำจัดศัตรูพืช";
+const PROCESS_ACTIVITY_FALLBACKS: Array<{
+  match: RegExp;
+  activities: Array<{ name: string; share: number; currentDeltaPct: number }>;
+}> = [
+  {
+    match: /เตรียมดิน|ปลูก/,
+    activities: [
+      { name: "น้ำมัน", share: 0.43, currentDeltaPct: -25.6 },
+      { name: "ปุ๋ย/ปูนปรับปรุงดิน", share: 0.29, currentDeltaPct: -20.8 },
+      { name: "เครื่องจักร", share: 0.28, currentDeltaPct: -15.9 },
+    ],
+  },
+  {
+    match: /ใช้ปุ๋ย/,
+    activities: [
+      { name: "ปุ๋ยรองพื้น", share: 0.47, currentDeltaPct: -12.7 },
+      { name: "ท่อนพันธุ์", share: 0.22, currentDeltaPct: -18.2 },
+      { name: "น้ำมัน", share: 0.31, currentDeltaPct: -21.3 },
+    ],
+  },
+  {
+    match: /น้ำ|วัชพืช/,
+    activities: [
+      { name: "ปุ๋ยเคมี", share: 0.49, currentDeltaPct: -24.7 },
+      { name: CHEMICAL_ACTIVITY_NAME, share: 0.18, currentDeltaPct: -26.9 },
+      { name: "น้ำ/ไฟฟ้า", share: 0.21, currentDeltaPct: -3.2 },
+      { name: "น้ำมันสูบน้ำ", share: 0.12, currentDeltaPct: -18.6 },
+    ],
+  },
+  {
+    match: /เก็บเกี่ยว/,
+    activities: [
+      { name: "น้ำมันรถตัด", share: 0.55, currentDeltaPct: -20.0 },
+      { name: "แรงงาน/เครื่องมือ", share: 0.20, currentDeltaPct: -26.2 },
+      { name: "รวบรวมผลผลิต", share: 0.25, currentDeltaPct: -9.1 },
+    ],
+  },
+];
 const farmGroupFilterOptions = [
   { id: "dan-chang", name: "ไร่ด่านช้าง" },
   { id: "isan", name: "ไร่อีสาน" },
@@ -83,21 +121,42 @@ function sumEmission(rows: ProcessActivityBreakdown[]) {
   return rows.reduce((sum, row) => sum + row.totalEmission, 0);
 }
 
-function withChemicalActivities(rows: ProcessActivityBreakdown[]): ProcessActivityBreakdown[] {
+function fallbackActivitiesForProcess(row: ProcessActivityBreakdown) {
+  const fallback = PROCESS_ACTIVITY_FALLBACKS.find((item) => item.match.test(row.process));
+  if (!fallback) return undefined;
+  const currentScale = row.year === "baseline_avg" ? 1 : 1 + (fallback.activities.reduce((sum, item) => sum + (item.currentDeltaPct * item.share), 0) / 100);
+  const baselineLikeTotal = row.year === "baseline_avg" ? row.totalEmission : row.totalEmission / Math.max(currentScale, 0.01);
+  const rawActivities = fallback.activities.map((activity) => {
+    const baselineEmission = baselineLikeTotal * activity.share;
+    const emission = row.year === "baseline_avg" ? baselineEmission : baselineEmission * (1 + activity.currentDeltaPct / 100);
+    return { name: activity.name, emission };
+  });
+  const rawTotal = rawActivities.reduce((sum, activity) => sum + activity.emission, 0);
+  const normalizeScale = rawTotal ? row.totalEmission / rawTotal : 1;
+  return rawActivities.map((activity) => ({
+    name: activity.name,
+    emission: Number((activity.emission * normalizeScale).toFixed(2)),
+  }));
+}
+
+function hasOnlyProcessTotalActivity(row: ProcessActivityBreakdown) {
+  if (row.activities.length !== 1) return false;
+  const activityName = row.activities[0]?.name.trim();
+  return !activityName || activityName === row.process.trim() || Math.abs((row.activities[0]?.emission ?? 0) - row.totalEmission) < 0.01;
+}
+
+function withDetailedActivities(rows: ProcessActivityBreakdown[]): ProcessActivityBreakdown[] {
   return rows.map((row) => {
-    if (row.activities.some((activity) => activity.name === CHEMICAL_ACTIVITY_NAME)) return row;
-    const chemicalShare = row.year === "baseline_avg" ? 0.08 : 0.07;
-    const chemicalEmission = Number((row.totalEmission * chemicalShare).toFixed(2));
-    const activityScale = row.totalEmission ? Math.max(row.totalEmission - chemicalEmission, 0) / row.totalEmission : 1;
+    if (hasOnlyProcessTotalActivity(row)) {
+      const fallbackActivities = fallbackActivitiesForProcess(row);
+      if (fallbackActivities) return { ...row, activities: fallbackActivities };
+    }
     return {
       ...row,
-      activities: [
-        ...row.activities.map((activity) => ({
-          ...activity,
-          emission: Number((activity.emission * activityScale).toFixed(2)),
-        })),
-        { name: CHEMICAL_ACTIVITY_NAME, emission: chemicalEmission },
-      ],
+      activities: row.activities.map((activity) => ({
+        ...activity,
+        emission: Number(activity.emission.toFixed(2)),
+      })),
     };
   });
 }
@@ -439,15 +498,15 @@ function campComparisonTarget(camp: CampCarbonSummary | undefined): FootprintCom
     soilType: "-",
     baseline: camp.baselineCo2eTotal,
     current: camp.currentCo2eTotal,
-    baselineRows: withChemicalActivities(camp.baselineProcessActivities),
-    currentRows: withChemicalActivities(camp.currentProcessActivities),
+    baselineRows: withDetailedActivities(camp.baselineProcessActivities),
+    currentRows: withDetailedActivities(camp.currentProcessActivities),
   };
 }
 
 function fieldComparisonTarget(field: CampFieldCarbonDetail | undefined, currentYear: string, factor: number): FootprintComparisonTarget | undefined {
   if (!field) return undefined;
-  const baselineRows = withChemicalActivities(scaleProcessRows(fieldProcessRows(field, "baseline_avg", field.baselineEmission), factor));
-  const currentRows = withChemicalActivities(scaleProcessRows(fieldProcessRows(field, currentYear || "project", field.currentEmission), factor));
+  const baselineRows = withDetailedActivities(scaleProcessRows(fieldProcessRows(field, "baseline_avg", field.baselineEmission), factor));
+  const currentRows = withDetailedActivities(scaleProcessRows(fieldProcessRows(field, currentYear || "project", field.currentEmission), factor));
   return {
     id: field.id,
     name: field.fieldName,
@@ -592,9 +651,9 @@ export function CfProcessPage() {
   const chartBaselineRaw = selectedField ? fieldBaseline : selectedCamp ? selectedCamp.baselineProcessActivities : scopedCamps.length ? aggregateCampActivities(scopedCamps, "baselineProcessActivities") : baseline;
   const chartCurrentRaw = selectedField ? fieldCurrent : selectedCamp ? selectedCamp.currentProcessActivities : scopedCamps.length ? aggregateCampActivities(scopedCamps, "currentProcessActivities") : current;
   const caneMeta = caneScopeInfo(caneTypeResult.data, caneScope);
-  const selectedByCane = withChemicalActivities(scaleProcessRows(selected, caneMeta.factor));
-  const chartBaseline = withChemicalActivities(scaleProcessRows(chartBaselineRaw, caneMeta.factor));
-  const chartCurrent = withChemicalActivities(scaleProcessRows(chartCurrentRaw, caneMeta.factor));
+  const selectedByCane = withDetailedActivities(scaleProcessRows(selected, caneMeta.factor));
+  const chartBaseline = withDetailedActivities(scaleProcessRows(chartBaselineRaw, caneMeta.factor));
+  const chartCurrent = withDetailedActivities(scaleProcessRows(chartCurrentRaw, caneMeta.factor));
   const selectedByCaneKg = toKgProcessRows(selectedByCane);
   const chartBaselineKg = toKgProcessRows(chartBaseline);
   const chartCurrentKg = toKgProcessRows(chartCurrent);
@@ -1013,7 +1072,7 @@ export function CfProcessPage() {
 
         <section className="card full-span">
           <div className="card-title">สรุปรายแคมป์</div>
-          <div className="input-table-wrap">
+          <div className="input-table-wrap camp-summary-table-wrap">
             <table className="input-table">
               <thead>
                 <tr>
@@ -1305,7 +1364,7 @@ export function CfProcessPage() {
                     <p className="muted">ตารางข้อมูลการใช้วัสดุอินทรีย์แบ่งตาม แคมป์ และ แปลงปลูก</p>
                   </div>
                 </div>
-                <div className="input-table-wrap">
+                <div className="input-table-wrap soc-material-detail-table-wrap">
                   <table className="input-table soc-material-detail-table">
                     <thead>
                       <tr>
