@@ -130,6 +130,29 @@ function processTypeLabel(row: ProcessEmission) {
   return row.isBaseline ? "Baseline year" : "Project year";
 }
 
+function getYearGroupRowSpanInfo(groupRows: ProcessEmission[], index: number) {
+  const row = groupRows[index];
+  if (!row) return { shouldRender: false, rowSpan: 1 };
+  if (row.year === "baseline_avg") {
+    return { shouldRender: true, rowSpan: 1 };
+  }
+  if (row.isBaseline) {
+    const baselineYears = groupRows.filter(r => r.isBaseline && r.year !== "baseline_avg");
+    const firstBaselineYearIndex = groupRows.findIndex(r => r.isBaseline && r.year !== "baseline_avg");
+    return {
+      shouldRender: index === firstBaselineYearIndex,
+      rowSpan: baselineYears.length,
+    };
+  } else {
+    const projectRows = groupRows.filter(r => !r.isBaseline);
+    const firstProjectRowIndex = groupRows.findIndex(r => !r.isBaseline);
+    return {
+      shouldRender: index === firstProjectRowIndex,
+      rowSpan: projectRows.length,
+    };
+  }
+}
+
 function spatialOverviewRows(report: ReportSummary) {
   const selected = report.filter.level === "all" || !report.filter.id
     ? report.spatialNodes.find((node) => node.level === "country") ?? report.spatialNodes[0]
@@ -140,14 +163,20 @@ function spatialOverviewRows(report: ReportSummary) {
 
 function processRowsHtml(report: ReportSummary) {
   return processComparisonGroups(report).map((group) =>
-    group.rows.map((row, index) => `
-      <tr>
-        ${index === 0 ? `<td rowspan="${group.rows.length}">${escapeHtml(group.process)}</td>` : ""}
-        <td>${escapeHtml(processTypeLabel(row))}</td>
-        <td>${escapeHtml(row.year)}</td>
-        <td>${escapeHtml(numberCell(row.emission))}</td>
-      </tr>
-    `).join("")
+    group.rows.map((row, index) => {
+      const spanInfo = getYearGroupRowSpanInfo(group.rows, index);
+      const yearGroupCell = spanInfo.shouldRender
+        ? `<td rowspan="${spanInfo.rowSpan}">${escapeHtml(processTypeLabel(row))}</td>`
+        : "";
+      return `
+        <tr>
+          ${index === 0 ? `<td rowspan="${group.rows.length}">${escapeHtml(group.process)}</td>` : ""}
+          ${yearGroupCell}
+          <td>${escapeHtml(row.year)}</td>
+          <td>${escapeHtml(numberCell(row.emission))}</td>
+        </tr>
+      `;
+    }).join("")
   ).join("");
 }
 
@@ -487,14 +516,17 @@ function ExcelPreview({ report }: { report: ReportSummary }) {
           <thead><tr><th>Process</th><th>Year group</th><th>Year</th><th>Emission</th></tr></thead>
           <tbody>
             {processComparisonGroups(report).map((group) =>
-              group.rows.map((row, index) => (
-                <tr key={`excel-process-${row.year}-${row.process}`}>
-                  {index === 0 && <td rowSpan={group.rows.length} className="process-group-cell">{group.process}</td>}
-                  <td>{processTypeLabel(row)}</td>
-                  <td>{row.year}</td>
-                  <td>{numberCell(row.emission)}</td>
-                </tr>
-              ))
+              group.rows.map((row, index) => {
+                const spanInfo = getYearGroupRowSpanInfo(group.rows, index);
+                return (
+                  <tr key={`excel-process-${row.year}-${row.process}`}>
+                    {index === 0 && <td rowSpan={group.rows.length} className="process-group-cell">{group.process}</td>}
+                    {spanInfo.shouldRender && <td rowSpan={spanInfo.rowSpan}>{processTypeLabel(row)}</td>}
+                    <td>{row.year}</td>
+                    <td>{numberCell(row.emission)}</td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -544,14 +576,17 @@ function ReportFullTables({ report }: { report: ReportSummary }) {
           <thead><tr><th>Process</th><th>Year group</th><th>Year</th><th>Emission (tCO2e)</th></tr></thead>
           <tbody>
             {processComparisonGroups(report).map((group) =>
-              group.rows.map((row, index) => (
-                <tr key={`tbl4-${row.year}-${row.process}`}>
-                  {index === 0 && <td rowSpan={group.rows.length} className="process-group-cell">{group.process}</td>}
-                  <td>{processTypeLabel(row)}</td>
-                  <td>{row.year}</td>
-                  <td>{numberCell(row.emission)}</td>
-                </tr>
-              ))
+              group.rows.map((row, index) => {
+                const spanInfo = getYearGroupRowSpanInfo(group.rows, index);
+                return (
+                  <tr key={`tbl4-${row.year}-${row.process}`}>
+                    {index === 0 && <td rowSpan={group.rows.length} className="process-group-cell">{group.process}</td>}
+                    {spanInfo.shouldRender && <td rowSpan={spanInfo.rowSpan}>{processTypeLabel(row)}</td>}
+                    <td>{row.year}</td>
+                    <td>{numberCell(row.emission)}</td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
