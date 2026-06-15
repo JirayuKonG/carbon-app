@@ -33,11 +33,13 @@ interface DetailHeaderLocation {
 interface LogDetail {
   log_act_detail_id: number
   activities_header_id?: number
+  act_productYear_id?: number
   act_header_type_id: number
   act_header_detail_type_id?: number
   act_equipment_id?: number
   act_fertilizer_id?: number
   act_chemiscal_id?: number
+  act_resourceOther_id?: number
   resource_used_type_id: number
   unit_id?: number
   log_act_detail_quatity?: number
@@ -49,6 +51,8 @@ interface LogDetail {
   activities_fertilizers?: { act_fertilizer_name?: string }
   activities_equipments?: { act_equipment_name?: string }
   activities_chemiscals?: { act_chemiscal_name?: string }
+  activities_resourceOther?: { act_resourceOther_name?: string }
+  activities_productYear?: { act_productYear_name?: string }
   resource_used_type?: { resc_used_type_name?: string }
   log_act_detail_calStatus?: { log_act_detail_calStatus_name?: string }
   units?: { unit_name?: string; unit_initial?: string }
@@ -60,6 +64,7 @@ interface HeaderType { act_header_type_id: number; act_header_type_name_th: stri
 interface DetailType { act_header_detail_type_id: number; act_header_detail_type_name_th: string }
 interface ResourceType { resource_used_type_id: number; resc_used_type_name: string }
 interface CalStatus { log_act_detail_calStatus_id: number; log_act_detail_calStatus_name: string }
+interface ProductYear { act_productYear_id: number; act_productYear_name?: string }
 
 type ManualStatusName = 'กำลังเตรียมข้อมูล'
 
@@ -72,6 +77,8 @@ type CalculateRow = {
   id: number
   checked: boolean
   dateLabel: string
+  productYearId: string
+  productYearLabel: string
   headerLabel: string
   activityTypeName: string
   detailTypeName: string
@@ -119,6 +126,7 @@ export function CfCalculatePage() {
   const qc = useQueryClient()
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [statusFilter, setStatusFilter] = useState('')
+  const [productYearFilter, setProductYearFilter] = useState('')
   const [activityTypeFilter, setActivityTypeFilter] = useState('')
   const [resourceTypeFilters, setResourceTypeFilters] = useState<string[]>([])
   const [resourceTypeFilterExpanded, setResourceTypeFilterExpanded] = useState(false)
@@ -145,6 +153,10 @@ export function CfCalculatePage() {
     queryKey: ['resource-types-calculate'],
     queryFn: () => get<ResourceType[]>('/activities/resource-types'),
   })
+  const { data: productYears = [], error: productYearsError } = useQuery({
+    queryKey: ['activity-product-years-calculate'],
+    queryFn: () => get<ProductYear[]>('/activities/product-years'),
+  })
 
   const pageQueryItems = [
     { label: 'รายการสำหรับคำนวณ', error: detailsError },
@@ -152,11 +164,13 @@ export function CfCalculatePage() {
     { label: 'ประเภทกิจกรรม', error: headerTypesError },
     { label: 'รายละเอียดกิจกรรม', error: detailTypesError },
     { label: 'ประเภทปัจจัย', error: resourceTypesError },
+    { label: 'ปีการผลิต', error: productYearsError },
   ]
 
   const headerTypeMap = Object.fromEntries(headerTypes.map((item) => [item.act_header_type_id, item.act_header_type_name_th]))
   const detailTypeMap = Object.fromEntries(detailTypes.map((item) => [item.act_header_detail_type_id, item.act_header_detail_type_name_th]))
   const resourceTypeMap = Object.fromEntries(resourceTypes.map((item) => [item.resource_used_type_id, item.resc_used_type_name]))
+  const productYearMap = Object.fromEntries(productYears.map((year) => [year.act_productYear_id, year.act_productYear_name ?? `#${year.act_productYear_id}`]))
   const selectedResourceTypeLabels = resourceTypes
     .filter((type) => resourceTypeFilters.includes(String(type.resource_used_type_id)))
     .map((type) => type.resc_used_type_name)
@@ -170,6 +184,11 @@ export function CfCalculatePage() {
     detail.activities_fertilizers?.act_fertilizer_name
     ?? detail.activities_equipments?.act_equipment_name
     ?? detail.activities_chemiscals?.act_chemiscal_name
+    ?? detail.activities_resourceOther?.act_resourceOther_name
+    ?? '—'
+  const getDetailProductYearLabel = (detail: LogDetail) =>
+    detail.activities_productYear?.act_productYear_name
+    ?? productYearMap[detail.act_productYear_id ?? 0]
     ?? '—'
 
   const rows = useMemo<CalculateRow[]>(() => details.map((detail) => {
@@ -178,6 +197,8 @@ export function CfCalculatePage() {
       id: detail.log_act_detail_id,
       checked: selectedIds.includes(detail.log_act_detail_id),
       dateLabel: formatBangkokDate(detail.log_act_detail_create_at ?? detail.activities_header?.activities_header_startDate),
+      productYearId: detail.act_productYear_id != null ? String(detail.act_productYear_id) : '',
+      productYearLabel: getDetailProductYearLabel(detail),
       headerLabel: detail.activities_header?.activities_header_idCode ?? (detail.activities_header_id != null ? `#${detail.activities_header_id}` : '—'),
       activityTypeName: headerTypeMap[detail.act_header_type_id] ?? String(detail.act_header_type_id ?? '—'),
       detailTypeName: detailTypeMap[detail.act_header_detail_type_id ?? 0] ?? (detail.act_header_detail_type_id != null ? String(detail.act_header_detail_type_id) : '—'),
@@ -190,10 +211,11 @@ export function CfCalculatePage() {
       statusRawName,
       original: detail,
     }
-  }), [calStatuses, detailTypeMap, details, headerTypeMap, resourceTypeMap, selectedIds])
+  }), [calStatuses, detailTypeMap, details, headerTypeMap, productYearMap, resourceTypeMap, selectedIds])
 
   const filteredRows = rows.filter((row) =>
     (!statusFilter || row.original.log_act_detail_calStatus_id === Number(statusFilter))
+    && (!productYearFilter || row.productYearId === productYearFilter)
     && (!activityTypeFilter || row.original.act_header_type_id === Number(activityTypeFilter))
     && (!resourceTypeFilters.length || resourceTypeFilters.includes(String(row.original.resource_used_type_id)))
     && (
@@ -222,6 +244,7 @@ export function CfCalculatePage() {
   const clearSelectedRows = () => setSelectedIds([])
   const clearFilters = () => {
     setStatusFilter('')
+    setProductYearFilter('')
     setActivityTypeFilter('')
     setResourceTypeFilters([])
     setResourceTypeFilterExpanded(false)
@@ -393,6 +416,7 @@ export function CfCalculatePage() {
       ),
     },
     { key: 'dateLabel', header: 'วันที่ปฏิบัติ', sortable: true },
+    { key: 'productYearLabel', header: 'ปีการผลิต', sortable: true },
     { key: 'headerLabel', header: 'หัวข้อกิจกรรม', sortable: true },
     { key: 'activityTypeName', header: 'กิจกรรม', sortable: true },
     { key: 'detailTypeName', header: 'รายละเอียด', sortable: true },
@@ -533,7 +557,18 @@ export function CfCalculatePage() {
           </div>
 
           <div className="mb-4 rounded-[20px] border border-[#d9e7f2] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(243,247,251,0.96))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
+              <div>
+                <label className="label">ปีการผลิต</label>
+                <select className="select" value={productYearFilter} onChange={(event) => setProductYearFilter(event.target.value)}>
+                  <option value="">ทั้งหมด</option>
+                  {productYears.map((year) => (
+                    <option key={year.act_productYear_id} value={year.act_productYear_id}>
+                      {year.act_productYear_name ?? `#${year.act_productYear_id}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div>
                 <label className="label">สถานะ</label>
                 <select className="select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>

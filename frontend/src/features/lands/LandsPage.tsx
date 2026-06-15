@@ -37,6 +37,21 @@ interface LandCamp {
   land_camp_latitude?: number
   land_camp_longitude?: number
   land_camp_info?: string
+  land_camp_group_id?: number
+  lands_camps_groups?: {
+    land_camp_group_id?: number
+    land_camp_group_idCode?: string
+    land_camp_group_name?: string
+  }
+}
+
+interface LandCampGroup {
+  land_camp_group_id: number
+  land_camp_group_idCode?: string
+  land_camp_group_name?: string
+  _count?: {
+    lands_camps?: number
+  }
 }
 
 interface Landmap {
@@ -65,10 +80,13 @@ interface Subdistrict {
 }
 interface ActivityHeaderType { act_header_type_id: number; act_header_type_name_th?: string }
 interface ActivityDetailType { act_header_detail_type_id: number; act_header_detail_type_name_th?: string }
+interface ProductYear { act_productYear_id: number; act_productYear_name?: string }
 interface LogActivityDetail {
   log_act_detail_id: number
+  act_productYear_id?: number
   act_header_type_id?: number
   act_header_detail_type_id?: number
+  activities_productYear?: { act_productYear_name?: string }
   activities_header?: {
     land_id?: number
   }
@@ -84,15 +102,28 @@ interface BulkSubdistrictUpdateResponse {
   }
 }
 
+interface BulkCampGroupUpdateResponse {
+  updatedCount: number
+  camp_ids: number[]
+  camp_group: {
+    land_camp_group_id: number
+    land_camp_group_idCode?: string
+    land_camp_group_name?: string
+  }
+}
+
 type TabKey = 'lands' | 'camps' | 'landmaps'
+type CampGroupFilter = 'all' | 'grouped' | 'ungrouped'
 type ModalState =
   | { type: 'lands'; row?: Land }
   | { type: 'camps'; row?: LandCamp }
+  | { type: 'camp-groups'; row?: LandCampGroup }
   | { type: 'landmaps'; row?: Landmap }
   | null
 type DeleteState =
   | { type: 'lands'; id: number; name: string }
   | { type: 'camps'; id: number; name: string }
+  | { type: 'camp-groups'; id: number; name: string }
   | { type: 'landmaps'; id: number; name: string }
   | null
 
@@ -126,10 +157,16 @@ export function LandsPage() {
   const [bulkProvinceId, setBulkProvinceId] = useState<number | null>(null)
   const [bulkDistrictId, setBulkDistrictId] = useState<number | null>(null)
   const [bulkSubdistrictId, setBulkSubdistrictId] = useState<number | null>(null)
+  const [campGroupFilter, setCampGroupFilter] = useState<CampGroupFilter>('all')
+  const [selectedCampIds, setSelectedCampIds] = useState<number[]>([])
+  const [bulkCampGroupId, setBulkCampGroupId] = useState<number | null>(null)
+  const [activityProductYearFilter, setActivityProductYearFilter] = useState('')
   const [bulkError, setBulkError] = useState<string | null>(null)
+  const [campBulkError, setCampBulkError] = useState<string | null>(null)
 
   const { data: lands = [], isLoading: lLoad, error: landsError } = useQuery({ queryKey: ['lands'], queryFn: () => get<Land[]>('/lands') })
   const { data: camps = [], isLoading: cLoad, error: campsError } = useQuery({ queryKey: ['camps'], queryFn: () => get<LandCamp[]>('/lands/camps') })
+  const { data: campGroups = [], isLoading: cgLoad, error: campGroupsError } = useQuery({ queryKey: ['camp-groups'], queryFn: () => get<LandCampGroup[]>('/lands/camp-groups') })
   const { data: landmaps = [], isLoading: mLoad, error: landmapsError } = useQuery({ queryKey: ['landmaps'], queryFn: () => get<Landmap[]>('/lands/landmaps') })
   const { data: units = [] } = useQuery({ queryKey: ['units'], queryFn: () => get<Unit[]>('/emission-factors/units') })
   const { data: unitPfxs = [] } = useQuery({ queryKey: ['unit-prefixs'], queryFn: () => get<UnitPrefix[]>('/emission-factors/unit-prefixs') })
@@ -140,9 +177,11 @@ export function LandsPage() {
   const { data: activityDetails = [] } = useQuery({ queryKey: ['activity-details'], queryFn: () => get<LogActivityDetail[]>('/activities/details') })
   const { data: headerTypes = [] } = useQuery({ queryKey: ['header-types'], queryFn: () => get<ActivityHeaderType[]>('/activities/header-types') })
   const { data: detailTypes = [] } = useQuery({ queryKey: ['detail-types-all'], queryFn: () => get<ActivityDetailType[]>('/activities/detail-types') })
+  const { data: productYears = [], error: productYearsError } = useQuery({ queryKey: ['activity-product-years'], queryFn: () => get<ProductYear[]>('/activities/product-years') })
 
   const farmerMap = useMemo(() => Object.fromEntries(farmers.map((f) => [f.farmer_id, `${f.first_name ?? ''} ${f.last_name ?? ''}`.trim()])), [farmers])
   const campMap = useMemo(() => Object.fromEntries(camps.map((c) => [c.land_camp_id, c.land_camp_name ?? ''])), [camps])
+  const campGroupMap = useMemo(() => Object.fromEntries(campGroups.map((group) => [group.land_camp_group_id, group.land_camp_group_name ?? group.land_camp_group_idCode ?? `#${group.land_camp_group_id}`])), [campGroups])
   const unitMap = useMemo(() => Object.fromEntries(units.map((u) => [u.unit_id, u.unit_name ?? u.unit_initial ?? ''])), [units])
   const unitPfxMap = useMemo(() => Object.fromEntries(unitPfxs.map((u) => [u.unit_prefix_id, u.unit_prefix_name ?? u.unit_prefix_initial ?? ''])), [unitPfxs])
   const provinceMap = useMemo(() => Object.fromEntries(provinces.map((province) => [province.provinces_id, province.name_th ?? ''])), [provinces])
@@ -152,15 +191,20 @@ export function LandsPage() {
   const subdistrictById = useMemo(() => Object.fromEntries(subdistricts.map((subdistrict) => [subdistrict.subdistricts_id, subdistrict])), [subdistricts])
   const headerTypeMap = useMemo(() => Object.fromEntries(headerTypes.map((t) => [t.act_header_type_id, t.act_header_type_name_th ?? `#${t.act_header_type_id}`])), [headerTypes])
   const detailTypeMap = useMemo(() => Object.fromEntries(detailTypes.map((t) => [t.act_header_detail_type_id, t.act_header_detail_type_name_th ?? `#${t.act_header_detail_type_id}`])), [detailTypes])
+  const filteredActivityDetails = useMemo(() => (
+    activityProductYearFilter
+      ? activityDetails.filter((detail) => String(detail.act_productYear_id ?? '') === activityProductYearFilter)
+      : activityDetails
+  ), [activityDetails, activityProductYearFilter])
   const landActivityMap = useMemo(() => {
-    return activityDetails.reduce<Record<number, LogActivityDetail[]>>((acc, detail) => {
+    return filteredActivityDetails.reduce<Record<number, LogActivityDetail[]>>((acc, detail) => {
       const landId = detail.activities_header?.land_id
       if (!landId) return acc
       if (!acc[landId]) acc[landId] = []
       acc[landId].push(detail)
       return acc
     }, {})
-  }, [activityDetails])
+  }, [filteredActivityDetails])
 
   const getDistrictName = (subdistrictCode?: number) => {
     if (!subdistrictCode) return '-'
@@ -181,6 +225,7 @@ export function LandsPage() {
   const invalidateLands = () => {
     qc.invalidateQueries({ queryKey: ['lands'] })
     qc.invalidateQueries({ queryKey: ['camps'] })
+    qc.invalidateQueries({ queryKey: ['camp-groups'] })
     qc.invalidateQueries({ queryKey: ['landmaps'] })
   }
 
@@ -191,6 +236,9 @@ export function LandsPage() {
       }
       if (modalState.type === 'camps') {
         return modalState.row ? put(`/lands/camps/${modalState.row.land_camp_id}`, payload) : post('/lands/camps', payload)
+      }
+      if (modalState.type === 'camp-groups') {
+        return modalState.row ? put(`/lands/camp-groups/${modalState.row.land_camp_group_id}`, payload) : post('/lands/camp-groups', payload)
       }
       return modalState.row ? put(`/lands/landmaps/${modalState.row.landmap_id}`, payload) : post('/lands/landmaps', payload)
     },
@@ -221,10 +269,32 @@ export function LandsPage() {
     },
   })
 
+  const bulkCampGroupMut = useMutation({
+    mutationFn: async () => put<BulkCampGroupUpdateResponse>('/lands/camps/bulk-group', {
+      camp_ids: selectedCampIds,
+      land_camp_group_id: bulkCampGroupId,
+    }),
+    onSuccess: (result) => {
+      invalidateLands()
+      setSelectedCampIds([])
+      setCampBulkError(null)
+      toast.success(
+        selectedGroupedCampCount > 0
+          ? 'ย้ายกลุ่มไร่สำเร็จ'
+          : 'เพิ่มเข้ากลุ่มไร่สำเร็จ',
+        `อัปเดตแล้ว ${result.updatedCount} แคมป์ไปยัง ${result.camp_group.land_camp_group_name ?? result.camp_group.land_camp_group_idCode ?? `#${result.camp_group.land_camp_group_id}`}`,
+      )
+    },
+    onError: (error) => {
+      setCampBulkError(error instanceof Error ? error.message : 'Bulk camp group update failed')
+    },
+  })
+
   const deleteMut = useMutation({
     mutationFn: async (target: Exclude<DeleteState, null>) => {
       if (target.type === 'lands') return del(`/lands/${target.id}`)
       if (target.type === 'camps') return del(`/lands/camps/${target.id}`)
+      if (target.type === 'camp-groups') return del(`/lands/camp-groups/${target.id}`)
       return del(`/lands/landmaps/${target.id}`)
     },
     onSuccess: () => {
@@ -234,10 +304,27 @@ export function LandsPage() {
   })
 
   const filteredLands = selectedCamp ? lands.filter((land) => land.land_camp_id === selectedCamp) : lands
+  const filteredCamps = useMemo(() => (
+    campGroupFilter === 'grouped'
+      ? camps.filter((camp) => camp.land_camp_group_id != null)
+      : campGroupFilter === 'ungrouped'
+        ? camps.filter((camp) => camp.land_camp_group_id == null)
+        : camps
+  ), [campGroupFilter, camps])
   const selectedLandIdSet = useMemo(() => new Set(selectedLandIds), [selectedLandIds])
   const filteredLandIds = useMemo(() => filteredLands.map((land) => land.land_id), [filteredLands])
   const filteredLandIdSet = useMemo(() => new Set(filteredLandIds), [filteredLandIds])
   const selectedLands = useMemo(() => lands.filter((land) => selectedLandIdSet.has(land.land_id)), [lands, selectedLandIdSet])
+  const selectedCampIdSet = useMemo(() => new Set(selectedCampIds), [selectedCampIds])
+  const filteredCampIds = useMemo(() => filteredCamps.map((camp) => camp.land_camp_id), [filteredCamps])
+  const filteredCampIdSet = useMemo(() => new Set(filteredCampIds), [filteredCampIds])
+  const selectedCamps = useMemo(() => camps.filter((camp) => selectedCampIdSet.has(camp.land_camp_id)), [camps, selectedCampIdSet])
+  const groupedCampsCount = useMemo(() => camps.filter((camp) => camp.land_camp_group_id != null).length, [camps])
+  const ungroupedCampsCount = camps.length - groupedCampsCount
+  const areAllFilteredCampsSelected = filteredCamps.length > 0 && filteredCamps.every((camp) => selectedCampIdSet.has(camp.land_camp_id))
+  const filteredCampSelectionCount = filteredCamps.filter((camp) => selectedCampIdSet.has(camp.land_camp_id)).length
+  const selectedGroupedCampCount = selectedCamps.filter((camp) => camp.land_camp_group_id != null).length
+  const selectedUngroupedCampCount = selectedCamps.length - selectedGroupedCampCount
   const bulkFilteredDistricts = useMemo(() => {
     if (bulkProvinceId == null) return []
     return districts.filter((district) => district.province_code === bulkProvinceId)
@@ -252,10 +339,12 @@ export function LandsPage() {
   const pageQueryItems = [
     { label: 'ข้อมูลแปลง', error: landsError },
     { label: 'ข้อมูลแคมป์', error: campsError },
+    { label: 'ข้อมูลกลุ่มไร่', error: campGroupsError },
     { label: 'ข้อมูลโฉนด', error: landmapsError },
     { label: 'จังหวัด', error: provincesError },
     { label: 'อำเภอ', error: districtsError },
     { label: 'ตำบล', error: subdistrictsError },
+    { label: 'ปีการผลิตกิจกรรม', error: productYearsError },
   ]
 
   const openCreate = (type: TabKey) => {
@@ -272,9 +361,19 @@ export function LandsPage() {
     setSelectedLandIds((prev) => prev.filter((landId) => lands.some((land) => land.land_id === landId)))
   }, [lands])
 
+  useEffect(() => {
+    setSelectedCampIds((prev) => prev.filter((campId) => camps.some((camp) => camp.land_camp_id === campId)))
+  }, [camps])
+
   const toggleLandSelection = (landId: number) => {
     setSelectedLandIds((prev) => (
       prev.includes(landId) ? prev.filter((id) => id !== landId) : [...prev, landId]
+    ))
+  }
+
+  const toggleCampSelection = (campId: number) => {
+    setSelectedCampIds((prev) => (
+      prev.includes(campId) ? prev.filter((id) => id !== campId) : [...prev, campId]
     ))
   }
 
@@ -292,9 +391,28 @@ export function LandsPage() {
     setSelectedLandIds([])
   }
 
+  const toggleFilteredCampSelection = () => {
+    setSelectedCampIds((prev) => {
+      if (areAllFilteredCampsSelected) {
+        return prev.filter((campId) => !filteredCampIdSet.has(campId))
+      }
+
+      return Array.from(new Set([...prev, ...filteredCampIds]))
+    })
+  }
+
+  const clearSelectedCamps = () => {
+    setSelectedCampIds([])
+  }
+
   const handleLandRowClick = (row: Land) => {
     toggleLandSelection(row.land_id)
     setBulkError(null)
+  }
+
+  const handleCampRowClick = (row: LandCamp) => {
+    toggleCampSelection(row.land_camp_id)
+    setCampBulkError(null)
   }
 
   const actions = <T,>(onEdit: (row: T) => void, onDelete: (row: T) => void) => (row: T) => (
@@ -401,12 +519,73 @@ export function LandsPage() {
   ]
 
   const campColumns: Column<LandCamp>[] = [
+    {
+      key: 'bulk_select',
+      header: (
+        <label className="flex items-center justify-center">
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-surface-300 text-primary-600 focus:ring-primary-500"
+            checked={areAllFilteredCampsSelected}
+            onClick={(event) => event.stopPropagation()}
+            onChange={toggleFilteredCampSelection}
+            title="เลือกหรือยกเลิกทุกแคมป์ในรายการที่กรองอยู่"
+            aria-label="เลือกหรือยกเลิกทุกแคมป์ในรายการที่กรองอยู่"
+          />
+        </label>
+      ),
+      width: '54px',
+      render: (row) => (
+        <label className="flex items-center justify-center">
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-surface-300 text-primary-600 focus:ring-primary-500"
+            checked={selectedCampIdSet.has(row.land_camp_id)}
+            onClick={(event) => event.stopPropagation()}
+            onChange={() => {
+              toggleCampSelection(row.land_camp_id)
+              setCampBulkError(null)
+            }}
+            aria-label={`เลือกแคมป์ ${row.land_camp_name || row.land_camp_idCode || row.land_camp_id}`}
+          />
+        </label>
+      ),
+    },
     { key: 'land_camp_id', header: 'ID', width: '60px' },
     { key: 'land_camp_idCode', header: 'รหัสแคมป์' },
     { key: 'land_camp_name', header: 'ชื่อแคมป์', width: '220px', minWidth: '180px', resizable: true },
+    {
+      key: 'land_camp_group_id',
+      header: 'กลุ่มไร่',
+      render: (row) => row.land_camp_group_id
+        ? <span className="badge-blue">{row.lands_camps_groups?.land_camp_group_name ?? campGroupMap[row.land_camp_group_id] ?? `#${row.land_camp_group_id}`}</span>
+        : <span className="text-surface-400">-</span>,
+    },
+    {
+      key: 'group_status',
+      header: 'สถานะกลุ่ม',
+      sortable: true,
+      sortValue: (row) => row.land_camp_group_id ? 1 : 0,
+      render: (row) => row.land_camp_group_id
+        ? <span className="badge-green">มีกลุ่มแล้ว</span>
+        : <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700">ยังไม่มีกลุ่ม</span>,
+    },
     { key: 'land_camp_latitude', header: 'Lat', render: (row) => row.land_camp_latitude?.toFixed(6) ?? '-' },
     { key: 'land_camp_longitude', header: 'Lng', render: (row) => row.land_camp_longitude?.toFixed(6) ?? '-' },
     { key: 'land_camp_info', header: 'หมายเหตุ', width: '300px', minWidth: '220px', resizable: true, render: (row) => <ExpandableTextCell text={row.land_camp_info} title="หมายเหตุแคมป์" className="text-surface-400" /> },
+  ]
+
+  const campGroupColumns: Column<LandCampGroup>[] = [
+    { key: 'land_camp_group_id', header: 'ID', width: '60px' },
+    { key: 'land_camp_group_idCode', header: 'รหัสกลุ่มไร่' },
+    { key: 'land_camp_group_name', header: 'ชื่อกลุ่มไร่', width: '220px', minWidth: '180px', resizable: true },
+    {
+      key: 'camp_count',
+      header: 'จำนวนแคมป์',
+      sortable: true,
+      sortValue: (row) => row._count?.lands_camps ?? 0,
+      render: (row) => <span className="font-mono">{row._count?.lands_camps ?? 0}</span>,
+    },
   ]
 
   const landmapColumns: Column<Landmap>[] = [
@@ -453,10 +632,16 @@ export function LandsPage() {
           ? {
               land_camp_idCode: toStringValue(field(data, 'land_camp_idCode')),
               land_camp_name: toStringValue(field(data, 'land_camp_name')),
+              land_camp_group_id: toNumber(field(data, 'land_camp_group_id')),
               land_camp_latitude: toNumber(field(data, 'land_camp_latitude')),
               land_camp_longitude: toNumber(field(data, 'land_camp_longitude')),
               land_camp_info: toStringValue(field(data, 'land_camp_info')),
             }
+          : modal.type === 'camp-groups'
+            ? {
+                land_camp_group_idCode: toStringValue(field(data, 'land_camp_group_idCode')),
+                land_camp_group_name: toStringValue(field(data, 'land_camp_group_name')),
+              }
           : {
               landmap_idCode: toStringValue(field(data, 'landmap_idCode')),
               landmap_area_size: toNumber(field(data, 'landmap_area_size')),
@@ -469,6 +654,11 @@ export function LandsPage() {
 
     saveMut.mutate({ modalState: modal, payload })
   }
+
+  const selectedCampActionLabel = selectedGroupedCampCount > 0
+    ? 'ย้ายกลุ่มไร่ให้รายการที่เลือก'
+    : 'เพิ่มเข้ากลุ่มไร่ให้รายการที่เลือก'
+  const canSubmitCampBulkUpdate = selectedCampIds.length > 0 && bulkCampGroupId != null && !bulkCampGroupMut.isPending
 
   return (
     <div>
@@ -488,22 +678,39 @@ export function LandsPage() {
         onRetry={() => { void qc.refetchQueries({ type: 'active' }) }}
       />
 
-      {tab === 'lands' && camps.length > 0 && (
+      {tab === 'lands' && (camps.length > 0 || productYears.length > 0) && (
         <div className="card mb-5">
-          <p className="text-xs font-medium text-surface-600 mb-2">กรองตามแคมป์</p>
-          <div className="flex gap-2 flex-wrap">
-            <button onClick={() => setSelectedCamp(null)} className={`btn btn-sm rounded-full ${!selectedCamp ? 'btn-primary' : 'btn-secondary'}`}>
-              ทั้งหมด ({lands.length})
-            </button>
-            {camps.map((camp) => (
-              <button
-                key={camp.land_camp_id}
-                onClick={() => setSelectedCamp(camp.land_camp_id)}
-                className={`btn btn-sm rounded-full ${selectedCamp === camp.land_camp_id ? 'btn-primary' : 'btn-secondary'}`}
-              >
-                {camp.land_camp_name} ({lands.filter((land) => land.land_camp_id === camp.land_camp_id).length})
-              </button>
-            ))}
+          <p className="text-xs font-medium text-surface-600 mb-3">ตัวกรองแปลงและกิจกรรม</p>
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_240px]">
+            <div>
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-surface-400">กรองตามแคมป์</p>
+              <div className="flex gap-2 flex-wrap">
+                <button onClick={() => setSelectedCamp(null)} className={`btn btn-sm rounded-full ${!selectedCamp ? 'btn-primary' : 'btn-secondary'}`}>
+                  ทั้งหมด ({lands.length})
+                </button>
+                {camps.map((camp) => (
+                  <button
+                    key={camp.land_camp_id}
+                    onClick={() => setSelectedCamp(camp.land_camp_id)}
+                    className={`btn btn-sm rounded-full ${selectedCamp === camp.land_camp_id ? 'btn-primary' : 'btn-secondary'}`}
+                  >
+                    {camp.land_camp_name} ({lands.filter((land) => land.land_camp_id === camp.land_camp_id).length})
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="label">ปีการผลิตของกิจกรรม</label>
+              <select className="select" value={activityProductYearFilter} onChange={(event) => setActivityProductYearFilter(event.target.value)}>
+                <option value="">ทุกปี</option>
+                {productYears.map((year) => (
+                  <option key={year.act_productYear_id} value={year.act_productYear_id}>
+                    {year.act_productYear_name ?? `#${year.act_productYear_id}`}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[11px] text-surface-500">มีผลกับคอลัมน์การดำเนินงานเท่านั้น</p>
+            </div>
           </div>
         </div>
       )}
@@ -685,16 +892,185 @@ export function LandsPage() {
           />
         )}
         {tab === 'camps' && (
-          <DataTable
-            data={camps}
-            columns={campColumns}
-            isLoading={cLoad}
-            rowKey={(row) => row.land_camp_id}
-            actions={actions<LandCamp>(
-              (row) => openEdit({ type: 'camps', row }),
-              (row) => setDeleteTarget({ type: 'camps', id: row.land_camp_id, name: row.land_camp_name || row.land_camp_idCode || `#${row.land_camp_id}` }),
-            )}
-          />
+          <div className="space-y-5">
+            <div className="rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50 p-4">
+              <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h2 className="text-sm font-semibold text-surface-900">กลุ่มไร่</h2>
+                  <p className="mt-1 text-xs text-surface-500">จัดกลุ่มแคมป์เป็นชุดใหญ่ขึ้น เช่น โซนดูแล กลุ่มพื้นที่ หรือทีมรับผิดชอบ</p>
+                </div>
+                <button type="button" className="btn-secondary btn-sm w-full justify-center sm:w-auto" onClick={() => setModal({ type: 'camp-groups' })}>
+                  <Plus size={13} /> เพิ่มกลุ่มไร่
+                </button>
+              </div>
+              <DataTable
+                data={campGroups}
+                columns={campGroupColumns}
+                isLoading={cgLoad}
+                rowKey={(row) => row.land_camp_group_id}
+                searchPlaceholder="ค้นหารหัสกลุ่มไร่ หรือชื่อกลุ่มไร่..."
+                emptyMessage="ยังไม่มีกลุ่มไร่"
+                actions={actions<LandCampGroup>(
+                  (row) => openEdit({ type: 'camp-groups', row }),
+                  (row) => setDeleteTarget({ type: 'camp-groups', id: row.land_camp_group_id, name: row.land_camp_group_name || row.land_camp_group_idCode || `#${row.land_camp_group_id}` }),
+                )}
+              />
+            </div>
+
+            <div>
+              <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h2 className="text-sm font-semibold text-surface-900">แคมป์</h2>
+                  <p className="mt-1 text-xs text-surface-500">คัดดูแคมป์ที่ยังไม่มีกลุ่มหรือมีกลุ่มแล้ว และเลือกหลายรายการเพื่อเพิ่มเข้ากลุ่มหรือย้ายกลุ่มพร้อมกัน</p>
+                </div>
+                <button type="button" className="btn-secondary btn-sm w-full justify-center sm:w-auto" onClick={() => setModal({ type: 'camps' })}>
+                  <Plus size={13} /> เพิ่มแคมป์
+                </button>
+              </div>
+              <div className="mb-4 rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-lime-50 p-4">
+                <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
+                  <div>
+                    <div className="text-[11px] font-medium uppercase tracking-wide text-surface-500">คัดตามสถานะกลุ่ม</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className={`btn btn-sm rounded-full ${campGroupFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setCampGroupFilter('all')}
+                      >
+                        ทั้งหมด ({camps.length})
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn btn-sm rounded-full ${campGroupFilter === 'ungrouped' ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setCampGroupFilter('ungrouped')}
+                      >
+                        ยังไม่มีกลุ่ม ({ungroupedCampsCount})
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn btn-sm rounded-full ${campGroupFilter === 'grouped' ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setCampGroupFilter('grouped')}
+                      >
+                        มีกลุ่มแล้ว ({groupedCampsCount})
+                      </button>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div className="rounded-2xl border border-white/80 bg-white/90 px-4 py-3 shadow-sm">
+                        <div className="text-xs text-surface-500">เลือกอยู่</div>
+                        <div className="mt-1 text-2xl font-semibold text-surface-900">{selectedCampIds.length}</div>
+                        <div className="text-xs text-surface-500">แคมป์</div>
+                      </div>
+                      <div className="rounded-2xl border border-white/80 bg-white/90 px-4 py-3 shadow-sm">
+                        <div className="text-xs text-surface-500">ในรายการที่คัดอยู่</div>
+                        <div className="mt-1 text-2xl font-semibold text-surface-900">{filteredCamps.length}</div>
+                        <div className="text-xs text-surface-500">แคมป์ที่กำลังแสดง</div>
+                      </div>
+                      <div className="rounded-2xl border border-white/80 bg-white/90 px-4 py-3 shadow-sm">
+                        <div className="text-xs text-surface-500">เลือกจากรายการนี้</div>
+                        <div className="mt-1 text-2xl font-semibold text-surface-900">{filteredCampSelectionCount}</div>
+                        <div className="text-xs text-surface-500">แคมป์ในชุดคัดปัจจุบัน</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/80 bg-white/90 p-4 shadow-sm">
+                    <div className="text-[11px] font-medium uppercase tracking-wide text-surface-500">เพิ่มเข้ากลุ่ม / ย้ายกลุ่ม</div>
+                    <div className="mt-3">
+                      <label className="label">กลุ่มไร่ปลายทาง</label>
+                      <select
+                        className="select"
+                        value={bulkCampGroupId ?? ''}
+                        onChange={(event) => {
+                          setBulkCampGroupId(Number(event.target.value) || null)
+                          setCampBulkError(null)
+                        }}
+                      >
+                        <option value="">- เลือกกลุ่มไร่ -</option>
+                        {campGroups.map((group) => (
+                          <option key={group.land_camp_group_id} value={group.land_camp_group_id}>
+                            {group.land_camp_group_name || group.land_camp_group_idCode || `#${group.land_camp_group_id}`}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="mt-3 text-xs text-surface-500">
+                      เลือกแคมป์ที่ยังไม่มีกลุ่มเพื่อเพิ่มเข้ากลุ่ม หรือเลือกแคมป์ที่มีกลุ่มแล้วเพื่อย้ายไปกลุ่มใหม่
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap items-center gap-2">
+                      <button type="button" className="btn-secondary btn-sm flex items-center gap-1" onClick={toggleFilteredCampSelection}>
+                        {areAllFilteredCampsSelected ? <Square size={13} /> : <CheckSquare size={13} />}
+                        {areAllFilteredCampsSelected ? 'ยกเลิกเลือกรายการที่คัดอยู่' : 'เลือกทั้งหมดในรายการที่คัดอยู่'}
+                      </button>
+                      <button type="button" className="btn-secondary btn-sm" onClick={clearSelectedCamps} disabled={selectedCampIds.length === 0}>
+                        ล้างรายการที่เลือก
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-primary btn-sm"
+                        disabled={!canSubmitCampBulkUpdate}
+                        onClick={() => bulkCampGroupMut.mutate()}
+                      >
+                        {bulkCampGroupMut.isPending ? 'กำลังอัปเดตกลุ่มไร่...' : selectedCampActionLabel}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {campBulkError && (
+                  <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {campBulkError}
+                  </div>
+                )}
+
+                <div className="mt-4 rounded-2xl border border-surface-200 bg-white/80 px-4 py-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-surface-500">รายการแคมป์ที่เลือกอยู่</div>
+                  {selectedCamps.length === 0 ? (
+                    <p className="mt-2 text-sm text-surface-500">ยังไม่ได้เลือกแคมป์จากตารางด้านล่าง คุณสามารถติ๊ก checkbox หน้าแถว คลิกที่แถวเพื่อเลือก หรือใช้ปุ่มเลือกทั้งหมดในรายการที่คัดอยู่ได้</p>
+                  ) : (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {selectedCamps.slice(0, 8).map((camp) => (
+                        <span key={camp.land_camp_id} className="inline-flex items-center rounded-full border border-surface-200 bg-surface-50 px-3 py-1 text-xs text-surface-700">
+                          {camp.land_camp_name || camp.land_camp_idCode || `แคมป์ #${camp.land_camp_id}`}
+                          <span className="ml-2 text-surface-400">
+                            {camp.land_camp_group_id
+                              ? camp.lands_camps_groups?.land_camp_group_name ?? campGroupMap[camp.land_camp_group_id] ?? `#${camp.land_camp_group_id}`
+                              : 'ยังไม่มีกลุ่ม'}
+                          </span>
+                        </span>
+                      ))}
+                      {selectedCamps.length > 8 && (
+                        <span className="inline-flex items-center rounded-full border border-surface-200 bg-surface-50 px-3 py-1 text-xs text-surface-500">
+                          +{selectedCamps.length - 8} แคมป์
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {selectedCamps.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-surface-500">
+                      <span>ยังไม่มีกลุ่ม {selectedUngroupedCampCount} แคมป์</span>
+                      <span>มีกลุ่มแล้ว {selectedGroupedCampCount} แคมป์</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <DataTable
+                data={filteredCamps}
+                columns={campColumns}
+                isLoading={cLoad}
+                rowKey={(row) => row.land_camp_id}
+                onRowClick={handleCampRowClick}
+                searchPlaceholder="ค้นหารหัสแคมป์ ชื่อแคมป์ หรือชื่อกลุ่มไร่..."
+                emptyMessage={campGroupFilter === 'ungrouped' ? 'ยังไม่มีแคมป์ที่ยังไม่มีกลุ่ม' : campGroupFilter === 'grouped' ? 'ยังไม่มีแคมป์ที่มีกลุ่มแล้ว' : 'ยังไม่มีข้อมูลแคมป์'}
+                actions={actions<LandCamp>(
+                  (row) => openEdit({ type: 'camps', row }),
+                  (row) => setDeleteTarget({ type: 'camps', id: row.land_camp_id, name: row.land_camp_name || row.land_camp_idCode || `#${row.land_camp_id}` }),
+                )}
+              />
+            </div>
+          </div>
         )}
         {tab === 'landmaps' && (
           <DataTable
@@ -715,10 +1091,10 @@ export function LandsPage() {
           <div className="absolute inset-0 bg-black/40" onClick={() => setModal(null)} />
           <form
             onSubmit={submitForm}
-            className={`relative bg-white rounded-2xl shadow-card-lg p-6 w-full ${modal.type === 'lands' ? 'max-w-6xl' : 'max-w-3xl'} max-h-[90vh] overflow-y-auto animate-slide-up`}
+            className={`relative bg-white rounded-2xl shadow-card-lg p-6 w-full ${modal.type === 'lands' ? 'max-w-6xl' : modal.type === 'camp-groups' ? 'max-w-xl' : 'max-w-3xl'} max-h-[90vh] overflow-y-auto animate-slide-up`}
           >
             <h3 className="font-semibold mb-5">
-              {modal.row ? 'แก้ไข' : 'เพิ่ม'} {modal.type === 'lands' ? 'แปลงที่ดิน' : modal.type === 'camps' ? 'แคมป์' : 'โฉนด'}
+              {modal.row ? 'แก้ไข' : 'เพิ่ม'} {modal.type === 'lands' ? 'แปลงที่ดิน' : modal.type === 'camps' ? 'แคมป์' : modal.type === 'camp-groups' ? 'กลุ่มไร่' : 'โฉนด'}
             </h3>
             {formError && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{formError}</div>}
 
@@ -734,7 +1110,8 @@ export function LandsPage() {
                 subdistricts={subdistricts}
               />
             )}
-            {modal.type === 'camps' && <CampForm row={modal.row} />}
+            {modal.type === 'camps' && <CampForm row={modal.row} campGroups={campGroups} />}
+            {modal.type === 'camp-groups' && <CampGroupForm row={modal.row} />}
             {modal.type === 'landmaps' && <LandmapForm row={modal.row} units={units} unitPfxs={unitPfxs} />}
 
             <div className="flex gap-3 mt-5">
@@ -1040,17 +1417,32 @@ function LandForm({
   )
 }
 
-function CampForm({ row }: { row?: LandCamp }) {
+function CampForm({ row, campGroups }: { row?: LandCamp; campGroups: LandCampGroup[] }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
       <TextField name="land_camp_idCode" label="รหัสแคมป์" defaultValue={row?.land_camp_idCode} />
       <TextField name="land_camp_name" label="ชื่อแคมป์" defaultValue={row?.land_camp_name} />
+      <SelectField
+        name="land_camp_group_id"
+        label="กลุ่มไร่"
+        defaultValue={row?.land_camp_group_id}
+        options={campGroups.map((group) => ({ value: group.land_camp_group_id, label: group.land_camp_group_name || group.land_camp_group_idCode || `#${group.land_camp_group_id}` }))}
+      />
       <NumberField name="land_camp_latitude" label="Latitude" defaultValue={row?.land_camp_latitude} step="0.00000001" />
       <NumberField name="land_camp_longitude" label="Longitude" defaultValue={row?.land_camp_longitude} step="0.00000001" />
       <div className="md:col-span-2">
         <label className="label">หมายเหตุ</label>
         <textarea name="land_camp_info" className="input" rows={3} defaultValue={row?.land_camp_info ?? ''} />
       </div>
+    </div>
+  )
+}
+
+function CampGroupForm({ row }: { row?: LandCampGroup }) {
+  return (
+    <div className="grid grid-cols-1 gap-3">
+      <TextField name="land_camp_group_idCode" label="รหัสกลุ่มไร่" defaultValue={row?.land_camp_group_idCode} />
+      <TextField name="land_camp_group_name" label="ชื่อกลุ่มไร่" defaultValue={row?.land_camp_group_name} />
     </div>
   )
 }

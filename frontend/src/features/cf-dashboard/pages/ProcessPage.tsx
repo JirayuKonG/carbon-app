@@ -5,6 +5,7 @@ import { ActivityGroupedBar } from "../components/charts/ActivityGroupedBar";
 import { chartOptions, chartPalette, sortProcessLabels } from "../components/charts/ChartRegistry";
 import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
 import { CaneTypeSummaryPanel } from "../components/common/CaneTypeSummaryPanel";
+import { SourceBadge } from "../components/common/SourceBadge";
 import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCaneTypeSummaries, getCfProcessActivities, getCfSpatialNodes, getOverviewKpi, getProcessEmissions } from "../services/dashboardApi";
 import type { CampCarbonSummary, CampFieldCarbonDetail, CaneTypeSummary, DataResult, OverviewKpi, ProcessActivityBreakdown, ProcessEmission, ProcessInputComparison, SpatialSummaryNode } from "../types/dashboard";
 import "../cf-dashboard.css";
@@ -603,6 +604,8 @@ export function CfProcessPage() {
   const [regionId, setRegionId] = useState("all");
   const [activities, setActivities] = useState<ProcessActivityBreakdown[]>([]);
   const [emissions, setEmissions] = useState<ProcessEmission[]>([]);
+  const [activityResult, setActivityResult] = useState<DataResult<ProcessActivityBreakdown[]>>({ data: [], source: "mock" });
+  const [emissionResult, setEmissionResult] = useState<DataResult<ProcessEmission[]>>({ data: [], source: "mock" });
   const [campResult, setCampResult] = useState<DataResult<CampCarbonSummary[]>>({ data: [], source: "mock" });
   const [fieldResult, setFieldResult] = useState<DataResult<CampFieldCarbonDetail[]>>({ data: [], source: "mock" });
   const [caneTypeResult, setCaneTypeResult] = useState<DataResult<CaneTypeSummary[]>>({ data: [], source: "mock" });
@@ -616,6 +619,8 @@ export function CfProcessPage() {
       .then(([activityResult, emissionResult, campSummaryResult, fieldDetailResult, caneSummaryResult, kpiResult, spatialResult]) => {
         setActivities(activityResult.data);
         setEmissions(emissionResult.data);
+        setActivityResult(activityResult);
+        setEmissionResult(emissionResult);
         setCampResult(campSummaryResult);
         setFieldResult(fieldDetailResult);
         setCaneTypeResult(caneSummaryResult);
@@ -748,6 +753,16 @@ export function CfProcessPage() {
   const bestSocCamps = [...sequestrationRows].sort((a, b) => b.socIncrease - a.socIncrease).slice(0, 5);
   const worstSocCamps = [...sequestrationRows].sort((a, b) => a.socIncrease - b.socIncrease).slice(0, 5);
   const followUpSocCamps = [...sequestrationRows].sort((a, b) => b.netEmission - a.netEmission).slice(0, 5);
+  const socDerivedSource = {
+    source: "api" as const,
+    meta: {
+      route: "frontend/soc-derived",
+      techniques: ["API emissions", "frontend SOC projection"],
+      rowCount: organicAreaRows.length,
+      datasourceStatus: "api_partial" as const,
+      note: "SOC and organic materials are derived",
+    },
+  };
 
   return (
     <div className="cf-dash">
@@ -982,7 +997,7 @@ export function CfProcessPage() {
           </div>
         </section>
 
-        <CaneTypeSummaryPanel result={caneTypeResult} showSource={false} mode="footprint" />
+        <CaneTypeSummaryPanel result={caneTypeResult} mode="footprint" />
 
         <section className="process-summary-grid">
           <article>
@@ -1013,6 +1028,7 @@ export function CfProcessPage() {
           <div className="card-title-row">
             <div>
               <div className="card-title">การปล่อยคาร์บอนรายกระบวนการ · {selectedField?.fieldName ?? selectedCamp?.campName ?? `ปีดำเนินการ ${currentYear || "-"}`}</div>
+              <SourceBadge source={emissionResult.source} meta={emissionResult.meta} />
             </div>
             <div className="group-mode-switch" role="group" aria-label="เลือกช่วงเปรียบเทียบรายกระบวนการ">
               {[
@@ -1049,7 +1065,10 @@ export function CfProcessPage() {
 
         <section className="card full-span">
           <div className="card-title-row">
-            <div className="card-title">รายการกิจกรรมย่อยในแต่ละขั้นตอน · {periodLabel(period, currentYear)}</div>
+            <div>
+              <div className="card-title">รายการกิจกรรมย่อยในแต่ละขั้นตอน · {periodLabel(period, currentYear)}</div>
+              <SourceBadge source={activityResult.source} meta={activityResult.meta} />
+            </div>
             <PeriodSwitch value={period} currentYear={currentYear} onChange={setPeriod} />
           </div>
           <div className="sub-pie-grid">
@@ -1071,7 +1090,10 @@ export function CfProcessPage() {
         </section>
 
         <section className="card full-span">
-          <div className="card-title">สรุปรายแคมป์</div>
+          <div className="card-title-row">
+            <div className="card-title">สรุปรายแคมป์</div>
+            <SourceBadge source={campResult.source} meta={campResult.meta} />
+          </div>
           <div className="input-table-wrap camp-summary-table-wrap">
             <table className="input-table">
               <thead>
@@ -1109,6 +1131,7 @@ export function CfProcessPage() {
             <div>
               <div className="card-title">เปรียบเทียบแคมป์และรายแปลง</div>
               <p className="muted">ดู benchmark ทุกแคมป์ หรือเลือกพื้นที่ A/B เพื่อเทียบระดับแคมป์และรายแปลงในขอบเขตตัวกรองปัจจุบัน</p>
+              <SourceBadge source={fieldResult.source} meta={fieldResult.meta} />
             </div>
             <div className="group-mode-switch" role="tablist" aria-label="เลือกมุมมองเปรียบเทียบ">
               {[
@@ -1284,6 +1307,7 @@ export function CfProcessPage() {
                   <div>
                     <div className="card-title">สัดส่วนการใช้วัสดุอินทรีย์ในการปรุงแต่งดิน</div>
                     <p className="muted">ข้อมูลจำลองตามขอบเขต filter ปัจจุบัน แสดงพื้นที่ที่ใช้วัสดุ ปริมาณรวม และสัดส่วนต่อไร่</p>
+                    <SourceBadge source={socDerivedSource.source} meta={socDerivedSource.meta} />
                   </div>
                 </div>
 
@@ -1362,6 +1386,7 @@ export function CfProcessPage() {
                   <div>
                     <div className="card-title">รายละเอียดการใช้วัสดุอินทรีย์รายพื้นที่</div>
                     <p className="muted">ตารางข้อมูลการใช้วัสดุอินทรีย์แบ่งตาม แคมป์ และ แปลงปลูก</p>
+                    <SourceBadge source={socDerivedSource.source} meta={socDerivedSource.meta} />
                   </div>
                 </div>
                 <div className="input-table-wrap soc-material-detail-table-wrap">
@@ -1405,6 +1430,7 @@ export function CfProcessPage() {
                 <div>
                   <div className="card-title">ก่อน VS หลัง การปรับปรุงดิน</div>
                   <p className="muted">กราฟแท่งเปรียบเทียบ SOC/SOM ก่อนและหลังใช้วัสดุอินทรีย์ ตามขอบเขต filter ปัจจุบัน</p>
+                  <SourceBadge source={socDerivedSource.source} meta={socDerivedSource.meta} />
                 </div>
               </div>
               

@@ -50,6 +50,7 @@ interface DetailHeaderLocation {
 
 interface LogDetail {
   log_act_detail_id: number
+  act_productYear_id?: number
   activities_header_id?: number
   act_header_type_id: number
   act_header_detail_type_id?: number
@@ -71,6 +72,7 @@ interface LogDetail {
   activities_equipments?: { act_equipment_name?: string }
   activities_chemiscals?: { act_chemiscal_name?: string }
   activities_resourceOther?: { act_resourceOther_name?: string }
+  activities_productYear?: { act_productYear_name?: string }
   resource_used_type?: { resc_used_type_name?: string }
   log_act_detail_calStatus?: { log_act_detail_calStatus_name?: string }
   activities_header?: DetailHeaderLocation
@@ -88,6 +90,7 @@ interface Fertilizer { act_fertilizer_id: number; act_fertilizer_name: string }
 interface Equipment  { act_equipment_id: number; act_equipment_name: string }
 interface Chemical   { act_chemiscal_id: number; act_chemiscal_name: string }
 interface ResourceOther { act_resourceOther_id: number; act_resourceOther_name: string }
+interface ProductYear { act_productYear_id: number; act_productYear_name?: string }
 interface Unit       { unit_id: number; unit_name?: string; unit_initial?: string }
 interface UnitPrefix { unit_prefix_id: number; unit_prefix_name?: string; unit_prefix_initial?: string }
 interface ActivityImportFile {
@@ -130,6 +133,7 @@ type ActivityImportChunk = { rows: Record<string, string>[]; startIndex: number;
 // }
 
 type DetailForm = {
+  act_productYear_id: string
   activities_header_id: string
   act_header_type_id: string
   act_header_detail_type_id: string
@@ -171,6 +175,7 @@ type HeaderFilters = {
 }
 
 type DetailFilters = {
+  productYearId: string
   activitiesHeaderId: string
   hasActivitiesHeader: string
   campId: string
@@ -182,6 +187,7 @@ type DetailFilters = {
 }
 
 const emptyDetailForm: DetailForm = {
+  act_productYear_id: '',
   activities_header_id: '',
   act_header_type_id: '',
   act_header_detail_type_id: '',
@@ -223,6 +229,7 @@ const emptyHeaderFilters: HeaderFilters = {
 }
 
 const emptyDetailFilters: DetailFilters = {
+  productYearId: '',
   activitiesHeaderId: '',
   hasActivitiesHeader: '',
   campId: '',
@@ -298,6 +305,7 @@ function getImportFileUpdaterLabel(file: ActivityImportFile) {
           // ประเภทแปลง · ประเภทอ้อย · รายการปัจจัยการผลิต(listEM - ปุ๋ย 23-12-12 Control Release) · ประเภทปัจจัย(UsageType - ปุ๋ย) · 
           // ปริมาณรวม · จำนวน · ปริมาณต่อ1จำนวน · หน่วยนับ · พื้นที่ปฏิบัติรวม            15 colume
 const ACTIVITY_TARGET_COLUMNS: TargetColumn[] = [  // new 05272026  --------------------------------------------------
+  { key: 'act_productYear_name',          label: 'ปีการผลิต',             required: false, type: 'fk', fkTable: 'activities_productYear' },
   { key: 'log_act_detail_create_at',      label: 'วันที่ปฏิบัติ',           required: true, type: 'date' },
   { key: 'act_header_type',               label: 'หมวดหมู่กิจกรรมหลัก',   required: false, type: 'fk', fkTable: 'activities_header_type' },
   { key: 'act_header_detail_type',        label: 'รายละเอียดกิจกรรมย่อย', required: false, type: 'fk', fkTable: 'activities_detail_type' },
@@ -407,6 +415,7 @@ export function ActivitiesPage() {
   const { data: sugarCaneTypes = [], error: sugarCaneTypesError }       = useQuery({ queryKey: ['sugarcane-types'],    queryFn: () => get<SugarCaneType[]>('/activities/sugarcane-types') })
   const { data: resTypes = [], error: resTypesError }                   = useQuery({ queryKey: ['resource-types'],     queryFn: () => get<ResourceType[]>('/activities/resource-types') })
   const { data: calStatuses = [], error: calStatusesError }             = useQuery({ queryKey: ['cal-statuses'],       queryFn: () => get<CalStatus[]>('/activities/cal-statuses') })
+  const { data: productYears = [], error: productYearsError }           = useQuery({ queryKey: ['activity-product-years'], queryFn: () => get<ProductYear[]>('/activities/product-years') })
   const { data: fertilizers = [], error: fertilizersError }             = useQuery({ queryKey: ['fertilizers'],        queryFn: () => get<Fertilizer[]>('/activities/fertilizers') })
   const { data: equipments = [], error: equipmentsError }               = useQuery({ queryKey: ['equipments'],         queryFn: () => get<Equipment[]>('/activities/equipments') })
   const { data: chemicals = [], error: chemicalsError }                 = useQuery({ queryKey: ['chemicals'],          queryFn: () => get<Chemical[]>('/activities/chemicals') })
@@ -427,6 +436,7 @@ export function ActivitiesPage() {
     { label: 'ประเภทอ้อย', error: sugarCaneTypesError },
     { label: 'ประเภทปัจจัย', error: resTypesError },
     { label: 'สถานะการคำนวณ', error: calStatusesError },
+    { label: 'ปีการผลิต', error: productYearsError },
     { label: 'ปุ๋ย', error: fertilizersError },
     { label: 'อุปกรณ์', error: equipmentsError },
     { label: 'สารเคมี', error: chemicalsError },
@@ -520,6 +530,7 @@ export function ActivitiesPage() {
       qc.invalidateQueries({ queryKey: ['activity-headers'] }),
       qc.invalidateQueries({ queryKey: ['activity-details'] }),
       qc.invalidateQueries({ queryKey: ['activity-import-files'] }),
+      qc.invalidateQueries({ queryKey: ['activity-product-years'] }),
     ])
 
     helpers?.onProgress?.({
@@ -600,6 +611,7 @@ export function ActivitiesPage() {
   const equipmentMap = Object.fromEntries(equipments.map(e => [e.act_equipment_id, e.act_equipment_name]))
   const chemicalMap = Object.fromEntries(chemicals.map(c => [c.act_chemiscal_id, c.act_chemiscal_name]))
   const resourceOtherMap = Object.fromEntries(resourceOthers.map(r => [r.act_resourceOther_id, r.act_resourceOther_name]))
+  const productYearMap = Object.fromEntries(productYears.map((year) => [year.act_productYear_id, year.act_productYear_name ?? `#${year.act_productYear_id}`]))
   const unitMap = Object.fromEntries(units.map(u => [u.unit_id, u.unit_name ?? u.unit_initial ?? `#${u.unit_id}`]))
   const unitPrefixMap = Object.fromEntries(unitPrefixes.map(p => [p.unit_prefix_id, p.unit_prefix_name ?? p.unit_prefix_initial ?? `#${p.unit_prefix_id}`]))
 
@@ -628,6 +640,11 @@ export function ActivitiesPage() {
     if (landId == null) return undefined
     return lands.find((land) => land.land_id === landId)?.land_size
   }
+
+  const getDetailProductYearLabel = (detail: LogDetail) =>
+    detail.activities_productYear?.act_productYear_name
+    ?? productYearMap[detail.act_productYear_id ?? 0]
+    ?? '—'
 
   const getResourceItemName = (detail: LogDetail) =>
     detail.activities_fertilizers?.act_fertilizer_name
@@ -663,7 +680,8 @@ export function ActivitiesPage() {
   })
 
   const filteredDetails = details.filter(detail =>
-    (!detailFilters.activitiesHeaderId || detail.activities_header_id === Number(detailFilters.activitiesHeaderId))
+    (!detailFilters.productYearId || detail.act_productYear_id === Number(detailFilters.productYearId))
+    && (!detailFilters.activitiesHeaderId || detail.activities_header_id === Number(detailFilters.activitiesHeaderId))
     && (!detailFilters.hasActivitiesHeader || (
       detailFilters.hasActivitiesHeader === 'with'
         ? detail.activities_header_id != null
@@ -766,6 +784,7 @@ export function ActivitiesPage() {
     setSelectedLandId(header?.land_id ?? null)
     setSelectedHeader(header ?? null)
     setDetailForm({
+      act_productYear_id: detail.act_productYear_id ? String(detail.act_productYear_id) : '',
       activities_header_id: detail.activities_header_id ? String(detail.activities_header_id) : '',
       act_header_type_id: detail.act_header_type_id ? String(detail.act_header_type_id) : '',
       act_header_detail_type_id: detail.act_header_detail_type_id ? String(detail.act_header_detail_type_id) : '',
@@ -813,6 +832,7 @@ export function ActivitiesPage() {
   const submitDetailForm = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     createDetailMut.mutate({
+      act_productYear_id: toNumberOrUndefined(detailForm.act_productYear_id),
       activities_header_id: toNumberOrUndefined(detailForm.activities_header_id),
       act_header_type_id: toNumberOrUndefined(detailForm.act_header_type_id),
       act_header_detail_type_id: toNumberOrUndefined(detailForm.act_header_detail_type_id),
@@ -924,6 +944,7 @@ export function ActivitiesPage() {
 
   const detailCols: Column<LogDetail>[] = [
     { key: 'activities_header_id', header: 'หัวข้อกิจกรรม', width: '80px', sortable: true, sortValue: (row) => row.activities_header_id != null ? hdrMap[row.activities_header_id] ?? row.activities_header_id : '—', render: (r) => r.activities_header_id != null ? hdrMap[r.activities_header_id] ?? r.activities_header_id : '—' },
+    { key: 'act_productYear_id', header: 'ปีการผลิต', sortable: true, sortValue: (row) => getDetailProductYearLabel(row), render: (r) => getDetailProductYearLabel(r) },
     { key: 'log_act_detail_create_at', header: 'วันที่ปฏิบัติ', sortable: true, sortValue: (row) => row.log_act_detail_create_at ?? row.activities_header?.activities_header_startDate ?? '', render: (r) => formatBangkokDate(r.log_act_detail_create_at ?? r.activities_header?.activities_header_startDate) },
     { key: 'detail_camp', header: 'แคมป์', sortable: true, sortValue: (row) => getDetailCampName(row) ?? '—', render: (r) => getDetailCampName(r) ? <span className="badge-blue">{getDetailCampName(r)}</span> : '—' },
     { key: 'detail_land', header: 'แปลง', sortable: true, sortValue: (row) => getDetailLandLabel(row), render: (r) => getDetailLandId(r) != null ? <span className="badge-green">{getDetailLandLabel(r)}</span> : '—' },
@@ -1356,7 +1377,18 @@ export function ActivitiesPage() {
               ล้างตัวกรอง
             </button>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-8 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-9 gap-3">
+            <div>
+              <label className="label">ปีการผลิต</label>
+              <select className="select" value={detailFilters.productYearId} onChange={(e) => setDetailFilterValue('productYearId', e.target.value)}>
+                <option value="">ทั้งหมด</option>
+                {productYears.map((year) => (
+                  <option key={year.act_productYear_id} value={year.act_productYear_id}>
+                    {year.act_productYear_name ?? `#${year.act_productYear_id}`}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="label">หัวข้อกิจกรรม</label>
               <select className="select" value={detailFilters.activitiesHeaderId} onChange={(e) => setDetailFilterValue('activitiesHeaderId', e.target.value)}>
@@ -1485,6 +1517,18 @@ export function ActivitiesPage() {
                       </select>
                     </div>
                   )}
+                </div>
+
+                <div>
+                  <label className="label">ปีการผลิต</label>
+                  <select className="select" value={detailForm.act_productYear_id} onChange={(e) => setFormValue('act_productYear_id', e.target.value)}>
+                    <option value="">— ไม่ระบุ —</option>
+                    {productYears.map((year) => (
+                      <option key={year.act_productYear_id} value={year.act_productYear_id}>
+                        {year.act_productYear_name ?? `#${year.act_productYear_id}`}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="md:col-span-2">
@@ -1783,7 +1827,7 @@ export function ActivitiesPage() {
       {showWizard && (
         <CsvMappingWizard
           title="นำเข้ากิจกรรมจาก CSV"
-          subtitle="รองรับคอลัมน์ เช่น วันที่ปฏิบัติ · หมวดหมู่กิจกรรมหลัก · รายละเอียดกิจกรรมย่อย · ไร่/แคมป์ · แปลง · พื้นที่ตามแปลง · ประเภทแปลง · ประเภทอ้อย · รายการปัจจัยการผลิต · ประเภทปัจจัย · ปริมาณรวม · จำนวน · ปริมาณต่อ 1 จำนวน · หน่วยนับ · พื้นที่ปฏิบัติรวม โดยระบบจะใช้ข้อมูลไร่และแปลงเพื่อเชื่อมโยงข้อมูลกิจกรรมให้โดยอัตโนมัติ"
+          subtitle="รองรับคอลัมน์ เช่น ปีการผลิต · วันที่ปฏิบัติ · หมวดหมู่กิจกรรมหลัก · รายละเอียดกิจกรรมย่อย · ไร่/แคมป์ · แปลง · พื้นที่ตามแปลง · ประเภทแปลง · ประเภทอ้อย · รายการปัจจัยการผลิต · ประเภทปัจจัย · ปริมาณรวม · จำนวน · ปริมาณต่อ 1 จำนวน · หน่วยนับ · พื้นที่ปฏิบัติรวม โดยระบบจะใช้ข้อมูลไร่และแปลงเพื่อเชื่อมโยงข้อมูลกิจกรรมให้โดยอัตโนมัติ"
           targetColumns={ACTIVITY_TARGET_COLUMNS}
           onComplete={importActivityCsvInChunks}
           onCancel={() => setShowWizard(false)}

@@ -30,6 +30,7 @@ type ActivityHeaderPayload = {
 }
 
 type ActivityDetailPayload = {
+  act_productYear_id?: number | string | null
   activities_header_id?: number | string | null
   act_header_type_id?: number | string | null
   act_header_detail_type_id?: number | string | null
@@ -79,6 +80,12 @@ type ImportFilePayload = {
   activities_fileNameUse_rowCount?: number | string | null
   activities_fileNameUse_columnCount?: number | string | null
   activities_fileNameUse_update_uid?: number | string | null
+}
+
+type ProductYearPayload = {
+  act_productYear_name?: string | null
+  act_productYear_info?: string | null
+  act_productYear_update_uid?: number | string | null
 }
 
 type CarbonPreparationPayload = {
@@ -203,11 +210,13 @@ type InputUsageComparisonTarget = {
 
 type InputUsageSourceDetail = {
   log_act_detail_id: number
+  act_productYear_id?: number | null
   log_act_detail_quatity?: number | null
   log_act_detail_volumePerUnit?: number | null
   log_act_detail_volumeAll?: number | null
   log_act_detail_areawork?: number | null
   log_act_detail_create_at?: Date | null
+  activities_productYear?: { act_productYear_name?: string | null } | null
   activities_header?: {
     activities_header_startDate?: Date | null
     land_id?: number | null
@@ -327,6 +336,7 @@ export class ActivitiesService {
 
   private normalizeDetailPayload(data: ActivityDetailPayload) {
     return {
+      act_productYear_id:                this.toOptionalNumber(data.act_productYear_id),
       activities_header_id:              this.toOptionalNumber(data.activities_header_id),
       act_header_type_id:                this.toOptionalNumber(data.act_header_type_id),
       act_header_detail_type_id:         this.toOptionalNumber(data.act_header_detail_type_id),
@@ -362,6 +372,14 @@ export class ActivitiesService {
       activities_fileNameUse_rowCount: this.toOptionalNumber(data.activities_fileNameUse_rowCount),
       activities_fileNameUse_columnCount: this.toOptionalNumber(data.activities_fileNameUse_columnCount),
       activities_fileNameUse_update_uid: this.toOptionalNumber(data.activities_fileNameUse_update_uid),
+    }
+  }
+
+  private normalizeProductYearPayload(data: ProductYearPayload) {
+    return {
+      act_productYear_name: this.toRequiredText(data.act_productYear_name, 'act_productYear_name'),
+      act_productYear_info: this.toOptionalText(data.act_productYear_info),
+      act_productYear_update_uid: this.toOptionalNumber(data.act_productYear_update_uid),
     }
   }
 
@@ -1108,11 +1126,26 @@ export class ActivitiesService {
   }
 
   private getInputUsageYear(detail: InputUsageSourceDetail) {
+    const productionYear = this.parseProductionYearNumber(detail.activities_productYear?.act_productYear_name)
+    if (productionYear != null) return productionYear
+
     const date = detail.activities_header?.activities_header_startDate ?? detail.log_act_detail_create_at
     if (!date) return null
     const parsed = date instanceof Date ? date : new Date(date)
     if (Number.isNaN(parsed.getTime())) return null
     return parsed.getFullYear()
+  }
+
+  private parseProductionYearNumber(value?: string | null) {
+    const text = value?.trim()
+    if (!text) return null
+
+    const fullYearMatch = text.match(/\b(24\d{2}|25\d{2}|26\d{2}|19\d{2}|20\d{2}|21\d{2})\b/)
+    if (fullYearMatch) {
+      return this.normalizeImportedYear(Number(fullYearMatch[1]))
+    }
+
+    return null
   }
 
   private addInputUsageRow(map: Map<string, InputUsageSummaryRow>, row: InputUsageSummaryRow) {
@@ -1279,6 +1312,7 @@ export class ActivitiesService {
           activities_equipments: { select: { act_equipment_name: true } },
           activities_chemiscals: { select: { act_chemiscal_name: true } },
           activities_resourceOther: { select: { act_resourceOther_name: true } },
+          activities_productYear: { select: { act_productYear_name: true } },
           resource_used_type: { select: { resc_used_type_name: true } },
           log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
           units: { select: { unit_name: true, unit_initial: true } },
@@ -1453,6 +1487,7 @@ export class ActivitiesService {
         activities_equipments:  { select: { act_equipment_name: true } },
         activities_chemiscals:  { select: { act_chemiscal_name: true } },
         activities_resourceOther: { select: { act_resourceOther_name: true } },
+        activities_productYear: { select: { act_productYear_name: true } },
         resource_used_type:     { select: { resc_used_type_name: true } },
         log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
         units: { select: { unit_name: true, unit_initial: true } },
@@ -2591,6 +2626,7 @@ export class ActivitiesService {
           activities_equipments: { select: { act_equipment_name: true } },
           activities_chemiscals: { select: { act_chemiscal_name: true } },
           activities_resourceOther: { select: { act_resourceOther_name: true } },
+          activities_productYear: { select: { act_productYear_name: true } },
           resource_used_type: { select: { resc_used_type_name: true } },
           log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
           units: { select: { unit_name: true, unit_initial: true } },
@@ -2754,12 +2790,40 @@ export class ActivitiesService {
       orderBy: { act_resourceOther_id: 'asc' },
     })
   }
+  getProductYears() {
+    return this.prisma.activities_productYear.findMany({
+      orderBy: { act_productYear_id: 'asc' },
+    })
+  }
   getSugarCaneTypes(){ return this.prisma.activities_header_typeSugarCane.findMany() }
   getLandTypes()     { return this.prisma.activities_header_typeLand.findMany() }
   async getCalStatuses() {
     await this.ensureCalStatusMap()
     return this.prisma.log_act_detail_calStatus.findMany({
       orderBy: { log_act_detail_calStatus_id: 'asc' },
+    })
+  }
+
+  createProductYear(data: ProductYearPayload) {
+    const normalized = this.normalizeProductYearPayload(data)
+    const now = new Date()
+
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.activities_productYear.findFirst({
+        where: { act_productYear_name: { equals: normalized.act_productYear_name } },
+        orderBy: { act_productYear_id: 'asc' },
+      })
+      if (existing) return existing
+
+      const last = await tx.activities_productYear.aggregate({ _max: { act_productYear_id: true } })
+      return tx.activities_productYear.create({
+        data: {
+          act_productYear_id: (last._max.act_productYear_id ?? 0) + 1,
+          ...this.cleanData(normalized),
+          act_productyear_create_at: now,
+          act_productYear_update_at: now,
+        },
+      })
     })
   }
 
@@ -3086,6 +3150,7 @@ export class ActivitiesService {
       units,
       landTypes,
       sugarCaneTypes,
+      productYears,
       existingHeaders,
     ] = await this.prisma.$transaction([
       this.prisma.lands_camps.findMany({ select: { land_camp_id: true, land_camp_name: true } }),
@@ -3100,6 +3165,7 @@ export class ActivitiesService {
       this.prisma.units.findMany({ select: { unit_id: true, unit_name: true, unit_initial: true } }),
       this.prisma.activities_header_typeLand.findMany({ select: { act_header_typeLand_id: true, act_header_typeLand_name: true } }),
       this.prisma.activities_header_typeSugarCane.findMany({ select: { act_header_typeSugarCane_id: true, act_header_typeSugarCane_name: true } }),
+      this.prisma.activities_productYear.findMany({ select: { act_productYear_id: true, act_productYear_name: true } }),
       this.prisma.activities_header.findMany({
         select: {
           activities_header_id: true,
@@ -3139,6 +3205,10 @@ export class ActivitiesService {
       sugarCaneType: Object.fromEntries(sugarCaneTypes.flatMap(t => [
         [String(t.act_header_typeSugarCane_id), t.act_header_typeSugarCane_id],
         [t.act_header_typeSugarCane_name?.toLowerCase() ?? '', t.act_header_typeSugarCane_id],
+      ])),
+      productYear: Object.fromEntries(productYears.flatMap(y => [
+        [String(y.act_productYear_id), y.act_productYear_id],
+        [y.act_productYear_name?.toLowerCase() ?? '', y.act_productYear_id],
       ])),
       unit: Object.fromEntries(units.flatMap(u => [
         [u.unit_name?.toLowerCase() ?? '', u.unit_id],
@@ -3301,6 +3371,36 @@ export class ActivitiesService {
       byName.sugarCaneType[String(created.act_header_typeSugarCane_id)] = created.act_header_typeSugarCane_id
       byName.sugarCaneType[key] = created.act_header_typeSugarCane_id
       return created.act_header_typeSugarCane_id
+    }
+
+    const nextProductYearId = async () => {
+      const current = await this.prisma.activities_productYear.aggregate({ _max: { act_productYear_id: true } })
+      return (current._max.act_productYear_id ?? 0) + 1
+    }
+
+    const ensureProductYearId = async (value?: string) => {
+      const trimmedValue = value?.trim()
+      const key = normalizeKey(trimmedValue)
+      if (!key) return undefined
+
+      if (byName.productYear[key]) return byName.productYear[key]
+
+      if (/^\d+$/.test(trimmedValue ?? '') && byName.productYear[trimmedValue ?? '']) {
+        return byName.productYear[trimmedValue ?? '']
+      }
+
+      const created = await this.prisma.activities_productYear.create({
+        data: {
+          act_productYear_id: await nextProductYearId(),
+          act_productYear_name: trimmedValue,
+          act_productyear_create_at: new Date(),
+          act_productYear_update_at: new Date(),
+        },
+      })
+
+      byName.productYear[String(created.act_productYear_id)] = created.act_productYear_id
+      byName.productYear[key] = created.act_productYear_id
+      return created.act_productYear_id
     }
 
     const nextFertilizerId = async () => {
@@ -3554,6 +3654,7 @@ export class ActivitiesService {
         const actTypeId = await ensureHeaderTypeId(actTypeName)
         const actHeaderTypeLandId = resolveMappedReferenceId(get('act_header_typeLand_id'), byName.landType)
         const actHeaderTypeSugarCaneId = await ensureSugarCaneTypeId(get('act_header_typeSugarCane_id'))
+        const actProductYearId = await ensureProductYearId(get('act_productYear_name'))
 
         let activitiesHeaderId = headerCache.get(landId)?.activities_header_id
         if (!activitiesHeaderId) {
@@ -3617,6 +3718,7 @@ export class ActivitiesService {
         const areawork      = parseFloat(get('log_act_detail_areawork'))   || undefined
 
         await this.createDetail({
+          act_productYear_id:        actProductYearId,
           activities_header_id:      activitiesHeaderId,
           act_header_type_id:        actTypeId,
           act_header_detail_type_id: detailTypeId,

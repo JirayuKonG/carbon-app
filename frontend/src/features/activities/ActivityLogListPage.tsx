@@ -35,6 +35,7 @@ interface DetailHeaderLocation {
 interface LogDetail {
   log_act_detail_id: number
   activities_header_id?: number
+  act_productYear_id?: number
   act_header_type_id: number
   act_header_detail_type_id?: number
   act_header_detail_type_update_uid?: number
@@ -55,6 +56,7 @@ interface LogDetail {
   activities_equipments?: { act_equipment_name?: string }
   activities_chemiscals?: { act_chemiscal_name?: string }
   activities_resourceOther?: { act_resourceOther_name?: string }
+  activities_productYear?: { act_productYear_name?: string }
   resource_used_type?: { resc_used_type_name?: string }
   log_act_detail_calStatus?: { log_act_detail_calStatus_name?: string }
   activities_header?: DetailHeaderLocation
@@ -70,11 +72,13 @@ interface Fertilizer { act_fertilizer_id: number; act_fertilizer_name: string }
 interface Equipment { act_equipment_id: number; act_equipment_name: string }
 interface Chemical { act_chemiscal_id: number; act_chemiscal_name: string }
 interface ResourceOther { act_resourceOther_id: number; act_resourceOther_name: string }
+interface ProductYear { act_productYear_id: number; act_productYear_name?: string }
 interface Unit { unit_id: number; unit_name?: string; unit_initial?: string }
 interface UnitPrefix { unit_prefix_id: number; unit_prefix_name?: string; unit_prefix_initial?: string }
 
 type DetailForm = {
   activities_header_id: string
+  act_productYear_id: string
   act_header_type_id: string
   act_header_detail_type_id: string
   act_header_detail_type_update_uid: string
@@ -92,6 +96,7 @@ type DetailForm = {
 }
 
 type DetailFilters = {
+  productYearId: string
   activitiesHeaderId: string
   campId: string
   landId: string
@@ -104,6 +109,7 @@ type DetailFilters = {
 interface ActivityLogRow {
   log_act_detail_id: number
   activityDateLabel: string
+  productYearLabel: string
   headerLabel: string
   campName: string
   landLabel: string
@@ -122,6 +128,7 @@ interface ActivityLogRow {
 
 const emptyDetailForm: DetailForm = {
   activities_header_id: '',
+  act_productYear_id: '',
   act_header_type_id: '',
   act_header_detail_type_id: '',
   act_header_detail_type_update_uid: '',
@@ -139,6 +146,7 @@ const emptyDetailForm: DetailForm = {
 }
 
 const emptyDetailFilters: DetailFilters = {
+  productYearId: '',
   activitiesHeaderId: '',
   campId: '',
   landId: '',
@@ -210,6 +218,7 @@ export function ActivityLogListPage() {
   const { data: equipments = [], error: equipmentsError } = useQuery({ queryKey: ['equipments'], queryFn: () => get<Equipment[]>('/activities/equipments') })
   const { data: chemicals = [], error: chemicalsError } = useQuery({ queryKey: ['chemicals'], queryFn: () => get<Chemical[]>('/activities/chemicals') })
   const { data: resourceOthers = [], error: resourceOthersError } = useQuery({ queryKey: ['resource-others'], queryFn: () => get<ResourceOther[]>('/activities/resource-others') })
+  const { data: productYears = [], error: productYearsError } = useQuery({ queryKey: ['activity-product-years'], queryFn: () => get<ProductYear[]>('/activities/product-years') })
   const { data: units = [], error: unitsError } = useQuery({ queryKey: ['units'], queryFn: () => get<Unit[]>('/emission-factors/units') })
   const { data: unitPrefixes = [], error: unitPrefixesError } = useQuery({ queryKey: ['unit-prefixs'], queryFn: () => get<UnitPrefix[]>('/emission-factors/unit-prefixs') })
 
@@ -226,6 +235,7 @@ export function ActivityLogListPage() {
     { label: 'อุปกรณ์', error: equipmentsError },
     { label: 'สารเคมี', error: chemicalsError },
     { label: 'รายการอื่น ๆ', error: resourceOthersError },
+    { label: 'ปีการผลิต', error: productYearsError },
     { label: 'หน่วยนับ', error: unitsError },
     { label: 'คำนำหน้าหน่วย', error: unitPrefixesError },
   ]
@@ -265,6 +275,7 @@ export function ActivityLogListPage() {
   const equipmentMap = Object.fromEntries(equipments.map((item) => [item.act_equipment_id, item.act_equipment_name]))
   const chemicalMap = Object.fromEntries(chemicals.map((item) => [item.act_chemiscal_id, item.act_chemiscal_name]))
   const resourceOtherMap = Object.fromEntries(resourceOthers.map((item) => [item.act_resourceOther_id, item.act_resourceOther_name]))
+  const productYearMap = Object.fromEntries(productYears.map((year) => [year.act_productYear_id, year.act_productYear_name ?? `#${year.act_productYear_id}`]))
   const unitMap = Object.fromEntries(units.map((unit) => [unit.unit_id, unit.unit_name ?? unit.unit_initial ?? `#${unit.unit_id}`]))
   const unitPrefixMap = Object.fromEntries(unitPrefixes.map((prefix) => [prefix.unit_prefix_id, prefix.unit_prefix_name ?? prefix.unit_prefix_initial ?? `#${prefix.unit_prefix_id}`]))
 
@@ -287,6 +298,10 @@ export function ActivityLogListPage() {
 
     return getLandDisplayLabel(landCode, landName)
   }
+  const getDetailProductYearLabel = (detail: LogDetail) =>
+    detail.activities_productYear?.act_productYear_name
+    ?? productYearMap[detail.act_productYear_id ?? 0]
+    ?? '—'
 
   const formatNumber = (value?: number, digits = 0) => {
     if (value == null || Number.isNaN(value)) return '—'
@@ -315,7 +330,8 @@ export function ActivityLogListPage() {
   }
 
   const filteredDetails = details.filter((detail) =>
-    (!detailFilters.activitiesHeaderId || detail.activities_header_id === Number(detailFilters.activitiesHeaderId))
+    (!detailFilters.productYearId || detail.act_productYear_id === Number(detailFilters.productYearId))
+    && (!detailFilters.activitiesHeaderId || detail.activities_header_id === Number(detailFilters.activitiesHeaderId))
     && (!detailFilters.campId || getDetailCampId(detail) === Number(detailFilters.campId))
     && (!detailFilters.landId || getDetailLandId(detail) === Number(detailFilters.landId))
     && (!detailFilters.actHeaderTypeId || detail.act_header_type_id === Number(detailFilters.actHeaderTypeId))
@@ -327,6 +343,7 @@ export function ActivityLogListPage() {
   const rows: ActivityLogRow[] = filteredDetails.map((detail) => ({
     log_act_detail_id: detail.log_act_detail_id,
     activityDateLabel: formatBangkokDate(detail.log_act_detail_create_at ?? detail.activities_header?.activities_header_startDate),
+    productYearLabel: getDetailProductYearLabel(detail),
     headerLabel: detail.activities_header?.activities_header_idCode ?? headerMap[detail.activities_header_id ?? 0] ?? (detail.activities_header_id != null ? `#${detail.activities_header_id}` : '—'),
     campName: getDetailCampName(detail) ?? '—',
     landLabel: getDetailLandLabel(detail),
@@ -416,6 +433,7 @@ export function ActivityLogListPage() {
     setSelectedLandId(header?.land_id ?? null)
     setDetailForm({
       activities_header_id: detail.activities_header_id ? String(detail.activities_header_id) : '',
+      act_productYear_id: detail.act_productYear_id ? String(detail.act_productYear_id) : '',
       act_header_type_id: detail.act_header_type_id ? String(detail.act_header_type_id) : '',
       act_header_detail_type_id: detail.act_header_detail_type_id ? String(detail.act_header_detail_type_id) : '',
       act_header_detail_type_update_uid: detail.act_header_detail_type_update_uid ? String(detail.act_header_detail_type_update_uid) : '',
@@ -448,6 +466,7 @@ export function ActivityLogListPage() {
     e.preventDefault()
     createDetailMut.mutate({
       activities_header_id: toNumberOrUndefined(detailForm.activities_header_id),
+      act_productYear_id: toNumberOrUndefined(detailForm.act_productYear_id),
       act_header_type_id: toNumberOrUndefined(detailForm.act_header_type_id),
       act_header_detail_type_id: toNumberOrUndefined(detailForm.act_header_detail_type_id),
       act_header_detail_type_update_uid: toNumberOrUndefined(detailForm.act_header_detail_type_update_uid),
@@ -480,6 +499,7 @@ export function ActivityLogListPage() {
       sortValue: (row) => row.original.log_act_detail_create_at ?? row.original.activities_header?.activities_header_startDate ?? '',
     },
     { key: 'headerLabel', header: 'หัวข้อกิจกรรม', sortable: true, render: (row) => <span className="badge-cyan">{row.headerLabel}</span> },
+    { key: 'productYearLabel', header: 'ปีการผลิต', sortable: true },
     { key: 'campName', header: 'แคมป์', sortable: true, render: (row) => row.campName !== '—' ? <span className="badge-blue">{row.campName}</span> : '—' },
     { key: 'landLabel', header: 'แปลง', sortable: true, render: (row) => row.landLabel !== '—' ? <span className="badge-green">{row.landLabel}</span> : '—' },
     { key: 'activityTypeName', header: 'กิจกรรม', sortable: true },
@@ -635,7 +655,18 @@ export function ActivityLogListPage() {
         </div>
 
         <div className="mb-4 rounded-lg border border-surface-200 p-3">
-          <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-7">
+          <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-8">
+            <div>
+              <label className="label">ปีการผลิต</label>
+              <select className="select" value={detailFilters.productYearId} onChange={(e) => setDetailFilterValue('productYearId', e.target.value)}>
+                <option value="">ทั้งหมด</option>
+                {productYears.map((year) => (
+                  <option key={year.act_productYear_id} value={year.act_productYear_id}>
+                    {year.act_productYear_name ?? `#${year.act_productYear_id}`}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="label">หัวข้อกิจกรรม</label>
               <select className="select" value={detailFilters.activitiesHeaderId} onChange={(e) => setDetailFilterValue('activitiesHeaderId', e.target.value)}>
@@ -776,6 +807,18 @@ export function ActivityLogListPage() {
                       </select>
                     </div>
                   )}
+                </div>
+
+                <div>
+                  <label className="label">ปีการผลิต</label>
+                  <select className="select" value={detailForm.act_productYear_id} onChange={(e) => setFormValue('act_productYear_id', e.target.value)}>
+                    <option value="">— ไม่ระบุ —</option>
+                    {productYears.map((year) => (
+                      <option key={year.act_productYear_id} value={year.act_productYear_id}>
+                        {year.act_productYear_name ?? `#${year.act_productYear_id}`}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="md:col-span-2">

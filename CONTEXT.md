@@ -437,6 +437,37 @@ Recent fertilizer factor-selection update from user prompt on 2026-06-13:
 - Verification: `npm run build --workspace=frontend` and `npm run build --workspace=backend`.
 - Related docs updated: `CONTEXT.md` updated for project memory. No schema changes were made.
 
+Recent activity production-year CSV/filter update from user prompt on 2026-06-15:
+
+- Prompt summary: support the new `log_activities_detail.act_productYear_id` field in activity CSV import, store CSV-selected `อื่น ๆ` resource items in `activities_resourceOther`, create or reuse `activities_productYear` rows during import, and add production-year filters to activity-related tables.
+- CSV behavior: `frontend/src/features/activities/ActivitiesPage.tsx` adds `ปีการผลิต` as the first activity CSV mapping target, and `frontend/src/components/ui/CsvMappingWizard.tsx` now auto-maps common production-year headers such as `ปีการผลิต`, `cropyear`, and `seasonyear`.
+- Backend behavior: `backend/src/modules/activities/activities.service.ts` now reads `act_productYear_name` during CSV import, reuses an existing `activities_productYear` by id/name when present, creates a new row when missing, and writes the resulting `act_productYear_id` into `log_activities_detail`.
+- Resource behavior: CSV resource category selection/inference now preserves `อื่น ๆ` so backend import creates or links `activities_resourceOther` instead of falling back to fertilizer when an item is explicitly classified as other.
+- UI behavior: production-year display/filtering was added to the activity management table, daily activity log page, Carbon preparation page, Carbon Footprint queue page, Carbon Credit year selection, and the activity-operation badges on the lands table; manual activity detail forms on the activity pages can select an existing production year. The input usage summary keeps its existing year filter, but backend aggregation now uses production year first when available.
+- Source of truth: `frontend/src/features/activities/ActivitiesPage.tsx`, `frontend/src/features/activities/ActivityLogListPage.tsx`, `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx`, `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`, `frontend/src/features/cf-dashboard/pages/CarbonCreditPage.tsx`, `frontend/src/features/lands/LandsPage.tsx`, `frontend/src/components/ui/CsvMappingWizard.tsx`, `backend/src/modules/activities/activities.service.ts`, and `backend/src/modules/activities/activities.controller.ts`.
+- Verification: `npm run build --workspace=backend` and `npm run build --workspace=frontend`.
+- Related docs updated: `CONTEXT.md` and `COMPONENT_PJ.md` updated for project memory/component map. No additional database schema edits were made in this task.
+
+Recent land camp-group management update from user prompt on 2026-06-15:
+
+- Prompt summary: after adding the new `lands_camps_groups` table, add a grouped-camp management section into the `พื้นที่เพาะปลูก` page so camp records can be organized under reusable farm/camp groups.
+- Backend behavior: `backend/src/modules/lands/lands.controller.ts` and `backend/src/modules/lands/lands.service.ts` now expose `/api/lands/camp-groups` CRUD endpoints, include `_count` metadata for linked camps, and let camp create/update requests save `land_camp_group_id`.
+- Frontend behavior: `frontend/src/features/lands/LandsPage.tsx` now shows a `กลุ่มไร่` management table inside the `แคมป์` tab, supports add/edit/delete for camp groups, and adds a group selector to the camp form so each camp can be linked to an existing group.
+- UI result: users can maintain reusable camp-group master data and immediately assign camps into those groups from the same page without leaving the land-management workflow.
+- Source of truth: `frontend/src/features/lands/LandsPage.tsx`, `backend/src/modules/lands/lands.controller.ts`, and `backend/src/modules/lands/lands.service.ts`.
+- Verification: `npm run build --workspace=backend` and `npm run build --workspace=frontend`.
+- Related docs updated: `CONTEXT.md` and `COMPONENT_PJ.md` updated for project memory/component map. No Prisma schema or SQL snapshot changes were made in this task.
+
+Recent camp bulk group-assignment update from user prompt on 2026-06-15:
+
+- Prompt summary: on the `พื้นที่เพาะปลูก` page inside the `แคมป์` section, clearly separate camps with and without a farm group, then allow multi-select assignment for ungrouped camps and group moves for already-grouped camps.
+- Frontend behavior: `frontend/src/features/lands/LandsPage.tsx` now adds grouped/ungrouped filter chips, row multi-select checkboxes for camps, a bulk target-group picker, and a shared action flow for both `เพิ่มเข้ากลุ่มไร่` and `ย้ายกลุ่มไร่`.
+- Backend behavior: `backend/src/modules/lands/lands.controller.ts` and `backend/src/modules/lands/lands.service.ts` now expose `/api/lands/camps/bulk-group` so many selected camps can be linked to one `lands_camps_groups` row in a single request.
+- UI result: users can quickly review which camps still need grouping, select many rows at once, assign them into a group, or move already-grouped camps to another group without editing each camp individually.
+- Source of truth: `frontend/src/features/lands/LandsPage.tsx`, `backend/src/modules/lands/lands.controller.ts`, and `backend/src/modules/lands/lands.service.ts`.
+- Verification: `npm run build --workspace=backend` and `npm run build --workspace=frontend`.
+- Related docs updated: `CONTEXT.md` and `COMPONENT_PJ.md` updated for project memory/component map. No Prisma schema or SQL snapshot changes were made in this task.
+
 ## Important Feature Areas
 
 - `geo`: Thailand geography reference data
@@ -521,3 +552,12 @@ After finishing work from a user prompt:
 1. Decide whether the prompt changed project memory in a meaningful way.
 2. If yes, add a short update to this file in the same task.
 3. Keep the note factual and compact so this file stays easy to scan.
+
+## Recent Carbon Analytics Datasource Status Update - 2026-06-15
+
+- Prompt summary: implement Phase 2D by showing datasource status on the Carbon Analytics UI so users can distinguish real API data, partial frontend-derived data, and fallback/mock data.
+- Result: `DataResult.meta` now supports `datasourceStatus` and `note`, `SourceBadge` displays `API real calculation`, `API partial`, or `Fallback dataset`, and dashboard pages show badges on important KPI/chart/report blocks.
+- Follow-up update: datasource badges are hidden by default for end users. A small `DS` toggle on the Carbon Credit Premium T-VER page controls visibility globally through localStorage for the Carbon Analytics pages.
+- Source of truth: `frontend/src/features/cf-dashboard/types/dashboard.ts`, `frontend/src/features/cf-dashboard/services/dashboardApi.ts`, `frontend/src/features/cf-dashboard/components/common/SourceBadge.tsx`, and the Carbon Analytics pages under `frontend/src/features/cf-dashboard/pages/`.
+- Current limitation: this is a UI/status transparency layer. It does not replace Phase 2B/2C real SOC, cane type, yield, or data-quality calculation work.
+- Verification: `npm run build --workspace=frontend` passed. The first sandboxed build hit an EPERM on `C:\Users\User`, then passed when rerun with approved unsandboxed execution.

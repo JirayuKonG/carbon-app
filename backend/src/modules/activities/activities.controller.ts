@@ -134,6 +134,8 @@ export class ActivitiesController {
   @Post('resource-others') createResourceOther(@Body() b: any) { return this.svc.createResourceOther(b) }
   @Put('resource-others/:id') updateResourceOther(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateResourceOther(id, b) }
   @Delete('resource-others/:id') deleteResourceOther(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteResourceOther(id) }
+  @Get('product-years') getProductYears(){ return this.svc.getProductYears() }
+  @Post('product-years') createProductYear(@Body() b: any) { return this.svc.createProductYear(b) }
   @Get('sugarcane-types') getSugarCaneTypes(){ return this.svc.getSugarCaneTypes() }
   @Get('land-types')      getLandTypes()     { return this.svc.getLandTypes() }
   @Get('cal-statuses')    getCalStatuses()   { return this.svc.getCalStatuses() }
