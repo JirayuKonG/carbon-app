@@ -41,6 +41,11 @@ export class LandsController {
     return this.svc.getMappings(lid ? +lid : undefined, mid ? +mid : undefined)
   }
 
+  @Put('bulk/subdistrict')
+  bulkUpdateLandSubdistrict(@Body() b: any) {
+    return this.svc.bulkUpdateLandSubdistrict(b)
+  }
+
   @Get(':id')    getLandById(@Param('id', ParseIntPipe) id: number)  { return this.svc.getLandById(id) }
   @Post()        createLand(@Body() b: any)                           { return this.svc.createLand(b) }
   @Put(':id')    updateLand(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateLand(id, b) }

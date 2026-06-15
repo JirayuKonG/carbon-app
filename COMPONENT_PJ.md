@@ -73,7 +73,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | `/infra` | `frontend/src/features/infra/InfraPage.tsx` | Factories, service areas, and departments. |
 | `/users` | `frontend/src/features/users/UsersPage.tsx` | Users and roles. |
 | `/farmers` | `frontend/src/features/farmers/FarmersPage.tsx` | Farmer records. |
-| `/lands` | `frontend/src/features/lands/LandsPage.tsx` | Lands, camps, landmaps, grouped land form, and geo-assisted location selection. |
+| `/lands` | `frontend/src/features/lands/LandsPage.tsx` | Lands, camps, landmaps, grouped land form, geo-assisted location selection, and a bulk subdistrict-management panel for updating many selected lands at once. |
 | `/lands/weather` | `frontend/src/features/weather/WeatherPage.tsx` | Weather station records and CSV import. |
 | `/emission-factors` | `frontend/src/features/emission-factors/EmissionFactorsPage.tsx` | Emission factors, GWP, units, and reference data. |
 | `/activities` | `frontend/src/App.tsx` | Redirects to `/activities/logs`. |
@@ -99,7 +99,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Infra | `backend/src/modules/infra/*` | `/api/infra` |
 | Users | `backend/src/modules/users/*` | `/api/users` |
 | Farmers | `backend/src/modules/farmers/*` | `/api/farmers` |
-| Lands | `backend/src/modules/lands/*` | `/api/lands` |
+| Lands | `backend/src/modules/lands/*` | `/api/lands` including the bulk subdistrict update endpoint `/api/lands/bulk/subdistrict`. |
 | Weather | `backend/src/modules/weather/*` | `/api/lands/weather` |
 | Emission factors | `backend/src/modules/emission-factors/*` | `/api/emission-factors` |
 | Activities | `backend/src/modules/activities/*` | `/api/activities` including headers/details, CSV import, import-history endpoints, input usage summary `/api/activities/input-usage-summary`, and carbon queue endpoints such as `/api/activities/carbon-process-queue`. |
@@ -131,6 +131,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Where is weather manual/import page? | `frontend/src/features/weather/WeatherPage.tsx` |
 | Where is the activity log page? | `frontend/src/features/activities/ActivityLogListPage.tsx` |
 | Where is the advanced activity management page? | `frontend/src/features/activities/ActivitiesPage.tsx` |
+| Where is the bulk subdistrict tool for lands? | `frontend/src/features/lands/LandsPage.tsx`; backend update endpoint is `backend/src/modules/lands/lands.service.ts`. |
 | Where are `/lands/camps` routes handled? | `backend/src/modules/lands/lands.controller.ts` |
 | Where is PostgreSQL/Prisma schema? | `backend/src/prisma/schema.prisma` |
 | Where are API requests configured? | `frontend/src/lib/api.ts` |

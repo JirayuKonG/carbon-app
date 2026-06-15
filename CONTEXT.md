@@ -199,6 +199,29 @@ Recent input-usage header/comparison workspace update from user prompt on 2026-0
 - Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`.
 - Verification: `npm run build --workspace=frontend`.
 
+Recent lands bulk-subdistrict management update from user prompt on 2026-06-15:
+
+- Prompt summary: the user asked whether the `lands` table can manage subdistrict data and requested an easy-to-find tool under `พื้นที่เพาะปลูก` to change `subdistrict code` for many rows at once, preferably using selected lands as the main driver.
+- Result: `frontend/src/features/lands/LandsPage.tsx` still keeps the existing per-row edit flow for subdistricts, and now also renders a new `จัดการตำบลหลายแปลง` panel directly on the `แปลงที่ดิน` tab. Users can select lands by checkbox, select all rows in the current camp-filtered list, choose province/district/subdistrict once, preview the zip code, and bulk-apply the new subdistrict to all selected lands.
+- Backend behavior: `PUT /api/lands/bulk/subdistrict` in `backend/src/modules/lands/lands.controller.ts` and `backend/src/modules/lands/lands.service.ts` validates the selected land IDs, validates the destination subdistrict, updates `subdistrict_code` for all selected `lands` rows, and copies the subdistrict zip code onto `lands.zip_code` when available.
+- Source of truth: `frontend/src/features/lands/LandsPage.tsx`, `backend/src/modules/lands/lands.controller.ts`, and `backend/src/modules/lands/lands.service.ts`.
+- Verification: `npm run build --workspace=backend` and `npm run build --workspace=frontend`.
+- Related docs updated: `CONTEXT.md` and `COMPONENT_PJ.md` updated for project memory and lookup guidance. No schema or route-structure docs needed beyond the API note.
+
+Follow-up usability fix on 2026-06-15 for the same lands bulk-subdistrict tool:
+
+- Prompt summary: the user reported that updating selected lands did not work because the panel still behaved as if no lands were selected.
+- Result: `frontend/src/features/lands/LandsPage.tsx` now supports selecting lands by clicking the entire row in addition to the checkbox, and the checkbox click path explicitly stops row propagation so selection no longer feels broken or inconsistent between row-click and checkbox-click behavior.
+- Additional behavior: the empty-state helper text in the bulk-subdistrict panel now tells users they can select by checkbox, by row click, or by the bulk-select button.
+- Verification: `npm run build --workspace=frontend`.
+
+Follow-up completion-notice update on 2026-06-15 for the same lands bulk-subdistrict tool:
+
+- Prompt summary: after bulk-updating subdistricts from the `พื้นที่เพาะปลูก` page, the user wanted a visible success notification when the process finishes.
+- Result: `frontend/src/main.tsx` now wraps the app with `ToastProvider`, and `frontend/src/features/lands/LandsPage.tsx` now shows a success toast after `อัปเดตตำบลให้แปลงที่เลือก` completes.
+- Additional behavior: the toast message includes both the number of updated lands and the destination subdistrict name, plus zip code when available.
+- Verification: `npm run build --workspace=frontend`.
+
 Recent workflow update from user prompt on 2026-06-12:
 
 - Prompt summary: update the bulk action card on the Carbon preparation queue page so the fuel preset button labeled `ใช้ preset m3` becomes `ใช้ preset ml`, and add an easy-to-see checkbox that optionally moves processed rows from `กำลังเตรียมข้อมูล` to `พร้อมคำนวณมาตรฐาน` immediately after bulk preparation completes.
