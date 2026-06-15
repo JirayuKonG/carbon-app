@@ -257,6 +257,15 @@ Recent Carbon preparation-queue status timeout update from user prompt on 2026-0
 
 Recent Carbon preparation queue visual-separation update from user prompt on 2026-06-14:
 
+Recent calculation-status naming update from user prompt on 2026-06-15:
+
+- Prompt summary: rename the calculation status label `คำนวณแล้ว(มาตรฐาน,CFP)` to `คำนวณแล้ว(มาตรฐาน,C-credit)` across backend and frontend because the current project meaning treats `มาตรฐาน` and `CFP` as overlapping, while the combined status should communicate `มาตรฐาน` plus `C-credit`.
+- Result: the canonical calculated-combined status name is now `คำนวณแล้ว(มาตรฐาน,C-credit)` in `backend/src/modules/activities/activities.service.ts` and `frontend/src/features/activities/cal-status.ts`.
+- Compatibility behavior: the backend status bootstrap still recognizes legacy names `คำนวณแล้ว(มาตรฐาน,CFP)` and `คำนวณแล้ว(มาตรฐาน+CFP)` and upgrades them to the new canonical label, while the frontend still renders old saved values as the new label until backend normalization runs.
+- Frontend alignment: dashboard cards, filters, and status-facing helper text that referenced the old combined label now show `คำนวณแล้ว(มาตรฐาน,C-credit)` in the activity pages and Carbon calculation pages.
+- Source of truth: combined calculation-status naming now lives in `backend/src/modules/activities/activities.service.ts` and `frontend/src/features/activities/cal-status.ts`.
+- Verification: pending focused frontend and backend builds for this rename-only change.
+
 - Prompt summary: on `คำนวณ Carbon -> เตรียมข้อมูล Carbon`, the lower `คิวเตรียมข้อมูลทั้งหมด` area looked too visually similar to the upper `เตรียมข้อมูล Carbon` area, making the queue section harder to recognize quickly.
 - Result: `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` now wraps the embedded queue workspace in a distinct warm-toned section with its own heading and descriptive label, while `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` applies a matching warm-toned card treatment when rendered in embedded preparation mode.
 - Additional behavior: the lower queue workspace now reads as a separate operational area from the upper import/preparation section without changing the actual workflow or data behavior.

@@ -298,7 +298,7 @@ export function CfCalculatePage() {
     { key: 'preparing', label: 'กำลังเตรียมข้อมูล' },
     { key: 'ready', label: 'พร้อมคำนวณมาตรฐาน' },
     { key: 'standardDone', label: 'คำนวณแล้ว(มาตรฐาน)' },
-    { key: 'cfpDone', label: 'คำนวณแล้ว(มาตรฐาน,CFP)' },
+    { key: 'cfpDone', label: 'คำนวณแล้ว(มาตรฐาน,C-credit)' },
     { key: 'error', label: 'คำนวณผิดพลาด' },
   ]
 
@@ -361,7 +361,7 @@ export function CfCalculatePage() {
     },
     {
       key: 'cfpDone',
-      label: 'คำนวณแล้ว(มาตรฐาน,CFP)',
+      label: 'คำนวณแล้ว(มาตรฐาน,C-credit)',
       icon: <Leaf size={14} className="text-cyan-600" />,
       value: cfpDoneCount,
       valueClassName: 'stat-value text-cyan-700',

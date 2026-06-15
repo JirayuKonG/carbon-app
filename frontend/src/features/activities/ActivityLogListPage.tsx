@@ -507,7 +507,7 @@ export function ActivityLogListPage() {
     { key: 'preparing', label: 'กำลังเตรียมข้อมูล' },
     { key: 'ready', label: 'พร้อมคำนวณมาตรฐาน' },
     { key: 'standardDone', label: 'คำนวณแล้ว(มาตรฐาน)' },
-    { key: 'cfpDone', label: 'คำนวณแล้ว(มาตรฐาน,CFP)' },
+    { key: 'cfpDone', label: 'คำนวณแล้ว(มาตรฐาน,C-credit)' },
     { key: 'error', label: 'คำนวณผิดพลาด' },
   ]
 
@@ -560,7 +560,7 @@ export function ActivityLogListPage() {
     },
     {
       key: 'cfpDone',
-      label: 'คำนวณแล้ว(มาตรฐาน,CFP)',
+      label: 'คำนวณแล้ว(มาตรฐาน,C-credit)',
       icon: <CheckCircle2 size={14} className="text-cyan-600" />,
       value: standardCfpDoneCount,
       valueClassName: 'stat-value text-cyan-700',
@@ -725,7 +725,7 @@ export function ActivityLogListPage() {
               <div className="min-w-40">
                 <label className="label">การคำนวณ</label>
                 <div className="rounded-lg border border-surface-200 bg-surface-50 px-3 py-2 text-xs text-surface-600">
-                  ใช้เมนู <span className="font-medium text-primary-700">คำนวณ Carbon</span> สำหรับคำนวณมาตรฐานและ CFP
+                  ใช้เมนู <span className="font-medium text-primary-700">คำนวณ Carbon</span> สำหรับคำนวณมาตรฐานและ C-credit
                 </div>
               </div>
             </div>

@@ -3215,7 +3215,7 @@ export function CarbonFootprintQueuePage({
                   {isPreparationMode && <option value="preparing">กำลังเตรียมข้อมูล</option>}
                   <option value="ready">พร้อมคำนวณมาตรฐาน</option>
                   <option value="standardDone">คำนวณแล้ว(มาตรฐาน)</option>
-                  <option value="cfpDone">คำนวณแล้ว(มาตรฐาน,CFP)</option>
+                  <option value="cfpDone">คำนวณแล้ว(มาตรฐาน,C-credit)</option>
                   <option value="error">คำนวณผิดพลาด</option>
                 </select>
               </div>

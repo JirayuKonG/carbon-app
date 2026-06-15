@@ -9,7 +9,7 @@ const CAL_STATUS_NAMES = {
   preparing: 'กำลังเตรียมข้อมูล',
   ready: 'พร้อมคำนวณมาตรฐาน',
   standardDone: 'คำนวณแล้ว(มาตรฐาน)',
-  cfpDone: 'คำนวณแล้ว(มาตรฐาน,CFP)',
+  cfpDone: 'คำนวณแล้ว(มาตรฐาน,C-credit)',
   error: 'คำนวณผิดพลาด',
 } as const
 
@@ -437,7 +437,7 @@ export class ActivitiesService {
 
     const legacyAliases: Partial<Record<CalStatusName, string[]>> = {
       [CAL_STATUS_NAMES.ready]: ['ยังไม่คำนวณ/รอการคำนวณมาตรฐาน', 'รอคำนวณค่ามาตรฐาน'],
-      [CAL_STATUS_NAMES.cfpDone]: ['คำนวณแล้ว(มาตรฐาน+CFP)'],
+      [CAL_STATUS_NAMES.cfpDone]: ['คำนวณแล้ว(มาตรฐาน,CFP)', 'คำนวณแล้ว(มาตรฐาน+CFP)'],
       [CAL_STATUS_NAMES.error]: ['ผิดพลาด'],
     }
 
