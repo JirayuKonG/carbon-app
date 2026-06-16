@@ -108,13 +108,18 @@
 }
 .cf-dash .overview-farm-filter-card {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(320px, 520px);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 520px);
   align-items: center;
   gap: 16px;
 }
 .cf-dash .overview-farm-toggle {
   justify-self: end;
-  width: min(100%, 520px);
+  width: 100%;
+  max-width: 520px;
+}
+.cf-dash .overview-farm-toggle button {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .cf-dash .kpi { position: relative; min-height: 140px; overflow: hidden; padding: 16px; transition: all .25s ease; }
 .cf-dash .kpi::before {
@@ -3805,10 +3810,15 @@
   }
   .cf-dash .process-scope-panel,
   .cf-dash .process-executive-filter,
+  .cf-dash .overview-farm-filter-card,
   .cf-dash .footprint-view-tabs-card,
   .cf-dash .footprint-report-filter,
   .cf-dash .footprint-area-filter {
     grid-template-columns: 1fr;
+  }
+  .cf-dash .overview-farm-toggle {
+    justify-self: stretch;
+    max-width: none;
   }
   .cf-dash .cane-scope-switch,
   .cf-dash .group-mode-switch,
