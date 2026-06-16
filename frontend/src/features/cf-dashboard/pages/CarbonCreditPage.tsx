@@ -119,6 +119,7 @@ function parseProductionYear(value?: string | null) {
   return year >= 2400 ? year - 543 : year
 }
 
+// Importance to select the data 
 function getDetailYear(detail: LogDetail) {
   return parseProductionYear(detail.activities_productYear?.act_productYear_name)
     ?? parseYear(detail.activities_header?.activities_header_startDate)

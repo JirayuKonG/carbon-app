@@ -657,6 +657,7 @@ function getQueueStatusName(item: CarbonProcessQueueItem) {
 
 function getPreparationTypeLabel(value?: string | null) {
   if (value === 'fertilizer') return 'ปุ๋ย'
+  if (value === 'liquid_fertilizer') return 'ปุ๋ยน้ำ'
   if (value === 'chemical') return 'ปุ๋ยเคมี'
   if (value === 'organic') return 'ปุ๋ยอินทรีย์'
   if (value === 'fuel') return 'น้ำมัน'
@@ -729,7 +730,8 @@ function getPreparationStateBadgeClass(row: QueueRow) {
   return 'inline-flex items-center rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700'
 }
 
-function getDefaultPreparationType(rowType: PreparationRowType) {
+function getDefaultPreparationType(rowType: PreparationRowType, options?: { liquidFertilizer?: boolean }) {
+  if (options?.liquidFertilizer) return 'liquid_fertilizer'
   if (rowType === 'fertilizer') return 'fertilizer'
   if (rowType === 'fuel') return 'fuel'
   return 'other'
@@ -740,7 +742,52 @@ function isKgUnitLabel(value: string) {
   return ['kg', 'kilogram', 'kilograms', 'กิโลกรัม'].some((alias) => normalized.includes(alias))
 }
 
-function getFootprintFormulaMode(rowType: PreparationRowType, resourceText: string): FootprintFormulaMode {
+function isBagLikeUnitText(value: string) {
+  return /sck|sack|bag|กระสอบ/.test(value)
+}
+
+function isLiterLikeUnitText(value: string) {
+  return /(^|\s)(l|lit|liter|litre|litter|ลิตร)(\s|$)/.test(value)
+}
+
+function isCubicMeterLikeUnitText(value: string) {
+  return /m3|m\^3|m³|cubicmeter|cubicmetre|ลูกบาศก์เมตร/.test(value)
+}
+
+function isMilliliterUnitText(value: string) {
+  return /(^|\s)(ml|milliliter|millilitre|มิลลิลิตร)(\s|$)|cc|ซีซี/.test(value)
+}
+
+function isLiquidUnitText(value: string) {
+  return isLiterLikeUnitText(value) || isCubicMeterLikeUnitText(value) || isMilliliterUnitText(value)
+}
+
+function isLiquidFertilizerContext({
+  rowType,
+  resourceText,
+  unitText,
+  preparationType,
+}: {
+  rowType?: PreparationRowType
+  resourceText?: string
+  unitText?: string
+  preparationType?: string | null
+}) {
+  if ((preparationType ?? '').trim().toLowerCase() === 'liquid_fertilizer') return true
+  if (rowType !== 'fertilizer' && !/ปุ๋ย|fertilizer/.test(resourceText ?? '')) return false
+  const normalizedUnit = (unitText ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+  const compactUnit = normalizeUnitText(unitText ?? '')
+  if (!compactUnit || isBagLikeUnitText(compactUnit)) return false
+  return isLiquidUnitText(normalizedUnit)
+}
+
+function getFootprintFormulaMode(
+  rowType: PreparationRowType,
+  resourceText: string,
+  unitText = '',
+  preparationType?: string | null,
+): FootprintFormulaMode {
+  if (isLiquidFertilizerContext({ rowType, resourceText, unitText, preparationType })) return 'generic_ef'
   if (rowType === 'fertilizer' || /ปุ๋ย|fertilizer/.test(resourceText)) return 'fertilizer_n2o'
   if (/soc|soil|ดิน|ตรวจดิน|carbon stock/.test(resourceText)) return 'soc_removal'
   if (/fnfix|ปอเทือง|ถั่วเขียว|ถั่วเหลือง|ถั่วลิสง|legume/.test(resourceText)) return 'fnfix_group'
@@ -1405,7 +1452,13 @@ export function CarbonFootprintQueuePage({
       unitLabel(preparedUnit),
     ].filter(Boolean).join(' ')
     const rowType = getRowTypeFromDetail(detail)
-    const formulaMode = getFootprintFormulaMode(rowType, getDetailResourceText(detail))
+    const activeUnitLabel = preparedUnitLabel || sourceUnitLabel
+    const formulaMode = getFootprintFormulaMode(
+      rowType,
+      getDetailResourceText(detail),
+      activeUnitLabel,
+      preparationInfo.fertilizerPrepareType ?? undefined,
+    )
     const calculationAmount = preparedVolumeAll ?? sourceVolumeAll
     const normalizedNValue = item.N ?? preparationInfo.soilN ?? null
     const inputStatus = getFootprintInputStatus({
@@ -1686,7 +1739,15 @@ export function CarbonFootprintQueuePage({
     row.resourceTypeId || `other:${row.resourceTypeName || 'uncategorized'}`
   )
 
-  const getOtherGroupLabel = (row: Pick<QueueRow, 'resourceTypeName'>) => {
+  const getOtherGroupLabel = (row: Pick<QueueRow, 'resourceTypeName'> & Partial<QueueRow>) => {
+    if (row && 'rowType' in row && row.rowType === 'fertilizer' && isLiquidFertilizerContext({
+      rowType: row.rowType,
+      resourceText: getDetailResourceText(row.original?.log_activities_detail),
+      unitText: row ? getRowUnitText(row as QueueRow) : '',
+      preparationType: row.preparationType,
+    })) {
+      return 'ปุ๋ยน้ำ'
+    }
     const label = row.resourceTypeName?.trim()
     return label && label !== '—' ? label : 'ประเภทอื่น'
   }
@@ -1795,6 +1856,14 @@ export function CarbonFootprintQueuePage({
     `${row.resourceTypeName} ${row.resourceItemName} ${row.quantityUnitLabel}`.toLowerCase()
   )
 
+  const isLiquidFertilizerRow = (row: QueueRow) => isLiquidFertilizerContext({
+    rowType: row.rowType,
+    resourceText: getDetailResourceText(row.original.log_activities_detail),
+    unitText: getRowUnitText(row),
+    preparationType: row.preparationType,
+  })
+
+  const isSolidFertilizerRow = (row: QueueRow) => row.rowType === 'fertilizer' && !isLiquidFertilizerRow(row)
   const isFuelRow = (row: QueueRow) => row.rowType === 'fuel' || /น้ำมัน|fuel|diesel|gasohol|benzene|เบนซิน|lit|liter|litre|litter|ลิตร|m3|m\^3|m³|ลูกบาศก์เมตร/.test(getRowResourceText(row))
   const isLiterRow = (row: QueueRow) => isLiterUnitText(getRowUnitText(row))
   const isCubicMeterRow = (row: QueueRow) => isCubicMeterUnitText(getRowUnitText(row))
@@ -1807,7 +1876,7 @@ export function CarbonFootprintQueuePage({
     const currentUnitLabel = row.quantityUnitLabel
     const preparedVolumePerUnit = calculatePreparedVolumePerUnit(quantity, sourceVolumeAll)
 
-    if (row.rowType === 'fertilizer') {
+    if (isSolidFertilizerRow(row)) {
       const fertilizerUnitFactor = toNumberOrUndefined(bulkFertilizerUnitFactor) ?? 1
       const fertilizerBaseKg = quantity * bagWeightKg
       const fertilizerPreparedVolumeAll = fertilizerBaseKg * fertilizerUnitFactor
@@ -1846,6 +1915,38 @@ export function CarbonFootprintQueuePage({
           fertilizerPrepareType: 'fertilizer',
           soilN: resolvedFertilizerN,
           note: `Bulk fertilizer conversion: (${quantity} x ${bagWeightKg}) x ${fertilizerUnitFactor} = ${fertilizerPreparedVolumeAll} ${fertilizerTarget.preparedUnitLabel}`,
+        },
+      }
+    }
+
+    if (row.rowType === 'fertilizer' && isLiquidFertilizerRow(row)) {
+      const liquidTarget = resolveBulkPreparedUnit({
+        preparedUnitId: bulkFuelPreparedUnitId,
+        preparedUnitName: bulkFuelPreparedUnitName,
+        preparedUnitInitial: bulkFuelPreparedUnitInitial,
+        fallbackUnit: detail?.unit_id != null ? unitById[detail.unit_id] : undefined,
+        fallbackLabel: currentUnitLabel === '—' ? 'L' : currentUnitLabel,
+      })
+      const liquidValuePerUnit = toNumberOrUndefined(bulkFuelValuePerUnit) ?? detail?.log_act_detail_volumePerUnit ?? 1
+      const liquidPreparedVolumeAll = quantity * liquidValuePerUnit
+
+      return {
+        row,
+        rowType: 'other',
+        ruleLabel: `ปุ๋ยน้ำ: จำนวน x ค่าหลังแปลงต่อจำนวน -> ${liquidTarget.preparedUnitLabel}`,
+        currentUnitLabel,
+        formulaText: `${formatNumber(quantity)} * ${formatNumber(liquidValuePerUnit, 6)} = ${formatNumber(liquidPreparedVolumeAll)} ${liquidTarget.preparedUnitLabel}`,
+        preparedUnitLabel: liquidTarget.preparedUnitLabel,
+        preparedVolumeAll: liquidPreparedVolumeAll,
+        payload: {
+          preparedUnitId: liquidTarget.preparedUnitId,
+          preparedUnitName: liquidTarget.preparedUnitName,
+          preparedUnitInitial: liquidTarget.preparedUnitInitial,
+          preparedVolumePerUnit: liquidValuePerUnit,
+          preparedVolumeAll: liquidPreparedVolumeAll,
+          conversionFactor: liquidValuePerUnit,
+          fertilizerPrepareType: 'liquid_fertilizer',
+          note: `Bulk liquid fertilizer conversion: ${quantity} x ${liquidValuePerUnit} = ${liquidPreparedVolumeAll} ${liquidTarget.preparedUnitLabel}`,
         },
       }
     }
@@ -1927,7 +2028,8 @@ export function CarbonFootprintQueuePage({
   }
 
   const bulkConversionPreview = selectedQueueRows.map(buildBulkConversionPreview)
-  const selectedFertilizerRows = selectedQueueRows.filter((row) => row.rowType === 'fertilizer')
+  const selectedLiquidFertilizerRows = selectedQueueRows.filter((row) => row.rowType === 'fertilizer' && isLiquidFertilizerRow(row))
+  const selectedFertilizerRows = selectedQueueRows.filter(isSolidFertilizerRow)
   const selectedFuelRows = selectedQueueRows.filter((row) => row.rowType === 'fuel')
   const selectedOtherRows = selectedQueueRows.filter((row) => row.rowType === 'other')
   const fertilizerNitrogenProfiles = selectedFertilizerRows.map((row) => ({
@@ -1954,9 +2056,10 @@ export function CarbonFootprintQueuePage({
       return groups
     }, new Map<string, { key: string; label: string; rows: QueueRow[] }>()),
   ).map(([, value]) => value)
+  const bulkLiquidFertilizerPreview = bulkConversionPreview.filter((item) => isLiquidFertilizerRow(item.row))
   const bulkFertilizerPreview = bulkConversionPreview.filter((item) => item.rowType === 'fertilizer')
   const bulkFuelPreview = bulkConversionPreview.filter((item) => item.rowType === 'fuel')
-  const bulkOtherPreview = bulkConversionPreview.filter((item) => item.rowType === 'other')
+  const bulkOtherPreview = bulkConversionPreview.filter((item) => item.rowType === 'other' && !isLiquidFertilizerRow(item.row))
   const bulkOtherPreviewGroups = otherGroupEntries.map((group) => ({
     ...group,
     items: bulkOtherPreview.filter((item) => getOtherGroupKey(item.row) === group.key),
@@ -2206,8 +2309,11 @@ export function CarbonFootprintQueuePage({
     const item = row.original
     const detail = item.log_activities_detail
     const preparationInfo = row.preparationInfo
-    const defaultPreparationType = preparationInfo.fertilizerPrepareType ?? getDefaultPreparationType(row.rowType)
-    const fertilizerProfile = row.rowType === 'fertilizer'
+    const liquidFertilizer = isLiquidFertilizerRow(row)
+    const defaultPreparationType = preparationInfo.fertilizerPrepareType ?? getDefaultPreparationType(row.rowType, {
+      liquidFertilizer,
+    })
+    const fertilizerProfile = row.rowType === 'fertilizer' && !liquidFertilizer
       ? getFertilizerNitrogenProfile(row.resourceItemName)
       : null
     setSelectedRow(row)
@@ -2731,7 +2837,7 @@ export function CarbonFootprintQueuePage({
     event.preventDefault()
     if (!selectedRow) return
 
-    const selectedFertilizerNitrogen = selectedRow.rowType === 'fertilizer'
+    const selectedFertilizerNitrogen = selectedRow.rowType === 'fertilizer' && !isLiquidFertilizerRow(selectedRow)
       ? getFertilizerNitrogenProfile(selectedRow.resourceItemName)
       : null
     const resolvedSoilN = (() => {
@@ -2869,11 +2975,12 @@ export function CarbonFootprintQueuePage({
 
   const selectedRowType = selectedRow?.rowType ?? 'other'
   const selectedIsFertilizer = selectedRowType === 'fertilizer'
+  const selectedIsLiquidFertilizer = selectedRow ? isLiquidFertilizerRow(selectedRow) : false
   const selectedIsFuel = selectedRowType === 'fuel'
-  const selectedFertilizerProfile = selectedIsFertilizer
+  const selectedFertilizerProfile = selectedIsFertilizer && !selectedIsLiquidFertilizer
     ? getFertilizerNitrogenProfile(selectedRow?.resourceItemName)
     : null
-  const canApplyFuelPresets = selectedIsFuel && (sourceIsLiter || sourceIsCubicMeter)
+  const canApplyFuelPresets = (selectedIsFuel || selectedIsLiquidFertilizer) && (sourceIsLiter || sourceIsCubicMeter)
   const previewPreparedVolume = toNumberOrUndefined(form.preparedVolumeAll)
   const previewDiff = previewPreparedVolume != null ? previewPreparedVolume - sourceVolume : undefined
   const previewPreparedUnitLabel = form.preparedUnitId
@@ -4427,6 +4534,64 @@ export function CarbonFootprintQueuePage({
                       </div>
                     )}
 
+                    {selectedLiquidFertilizerRows.length > 0 && (
+                      <div className="rounded-xl border border-[#d9e7f2] bg-white/90 p-3">
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <div>
+                            <h5 className="text-sm font-semibold text-surface-800">ปุ๋ยน้ำ</h5>
+                            <p className="text-xs text-surface-500">{selectedLiquidFertilizerRows.length.toLocaleString('th-TH')} รายการ</p>
+                          </div>
+                          <span className="rounded-full bg-[#eefbf7] px-3 py-1 text-xs font-medium text-green-700">เลือกหน่วยปลายทางแบบปริมาตร</span>
+                        </div>
+                        <div className="mb-3 flex flex-wrap gap-2">
+                          <button type="button" className="btn-secondary btn-sm" onClick={() => applyBulkFuelPreset('liter')}>ใช้ preset L</button>
+                          <button type="button" className="btn-secondary btn-sm" onClick={() => applyBulkFuelPreset('milliliter')}>ใช้ preset ml</button>
+                        </div>
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                          <div>
+                            <label className="label">หน่วยหลังเตรียม</label>
+                            <select className="select" value={bulkFuelPreparedUnitId} onChange={(event) => setBulkFuelPreparedUnitId(event.target.value)}>
+                              <option value="">— กรอกหน่วยเอง / คงเดิม —</option>
+                              {units.map((unit) => <option key={unit.unit_id} value={unit.unit_id}>{unitLabel(unit)}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="label">ค่าหลังแปลงต่อจำนวน</label>
+                            <input
+                              type="number"
+                              step="0.000001"
+                              className="input"
+                              value={bulkFuelValuePerUnit}
+                              onChange={(event) => setBulkFuelValuePerUnit(event.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <label className="label">ชื่อหน่วยใหม่</label>
+                            <input
+                              className="input"
+                              value={bulkFuelPreparedUnitName}
+                              onChange={(event) => setBulkFuelPreparedUnitName(event.target.value)}
+                              disabled={Boolean(bulkFuelPreparedUnitId)}
+                              placeholder="เช่น litre"
+                            />
+                          </div>
+                          <div>
+                            <label className="label">ตัวย่อหน่วยใหม่</label>
+                            <input
+                              className="input"
+                              value={bulkFuelPreparedUnitInitial}
+                              onChange={(event) => setBulkFuelPreparedUnitInitial(event.target.value)}
+                              disabled={Boolean(bulkFuelPreparedUnitId)}
+                              placeholder="เช่น L หรือ m3"
+                            />
+                          </div>
+                          <p className="text-xs text-surface-500 md:col-span-2">
+                            ปุ๋ยน้ำจะไม่แสดงหรือใช้สูตรแปลงแบบกระสอบ/kg แล้ว โดยสูตรที่ใช้บันทึกคือ จำนวน * ค่าหลังแปลงต่อจำนวน เช่น 1000 * 0.001 = 1 m3
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
                     {selectedFuelRows.length > 0 && (
                       <div className="rounded-xl border border-[#d9e7f2] bg-white/90 p-3">
                         <div className="mb-3 flex items-center justify-between gap-3">
@@ -4624,6 +4789,23 @@ export function CarbonFootprintQueuePage({
                       </div>
                     )}
 
+                    {selectedLiquidFertilizerRows.length > 0 && (
+                      <div className="rounded-xl border border-[#d9e7f2]">
+                        <div className="border-b border-[#d9e7f2] bg-[#f8fbff] px-4 py-3">
+                          <h5 className="text-sm font-semibold">สูตรปุ๋ยน้ำ</h5>
+                        </div>
+                        <div className="p-4">
+                          <pre className="overflow-x-auto rounded-xl border border-[#d9e7f2] bg-[#101827] p-4 text-xs leading-6 text-slate-100">
+                            <code>
+                              <span className="text-sky-300">const</span> <span className="text-emerald-300">liquidValuePerUnit</span> = <span className="text-amber-300">{toNumberOrUndefined(bulkFuelValuePerUnit) ?? 1}</span>{'\n'}
+                              <span className="text-sky-300">const</span> <span className="text-emerald-300">liquidFertilizerResult</span> = <span className="text-violet-300">quantity</span> * <span className="text-emerald-300">liquidValuePerUnit</span>{'\n'}
+                              <span className="text-slate-400">{'// '}</span><span className="text-slate-300">{bulkLiquidFertilizerPreview[0]?.formulaText ?? 'เลือกรายการปุ๋ยน้ำเพื่อดูสูตรตัวอย่าง'}</span>
+                            </code>
+                          </pre>
+                        </div>
+                      </div>
+                    )}
+
                     {selectedFuelRows.length > 0 && (
                       <div className="rounded-xl border border-[#d9e7f2]">
                         <div className="border-b border-[#d9e7f2] bg-[#f8fbff] px-4 py-3">
@@ -4663,6 +4845,7 @@ export function CarbonFootprintQueuePage({
                     })}
 
                     {[
+                      { key: 'liquid-fertilizer', label: 'ปุ๋ยน้ำ', items: bulkLiquidFertilizerPreview },
                       { key: 'fertilizer', label: 'ปุ๋ย', items: bulkFertilizerPreview },
                       { key: 'fuel', label: 'น้ำมัน', items: bulkFuelPreview },
                       ...bulkOtherPreviewGroups.map((group) => ({ key: group.key, label: group.label, items: group.items })),
@@ -4891,32 +5074,46 @@ export function CarbonFootprintQueuePage({
 
                 {selectedIsFertilizer && (
                   <section className="rounded-xl border border-[#d9e7f2] p-4">
-                    <h4 className="mb-3 text-sm font-semibold">ปุ๋ย</h4>
-                    <div className="mb-3 flex flex-wrap gap-2">
-                      <button type="button" className="btn-secondary btn-sm" onClick={() => applyFertilizerBag(50)}>ตั้งค่า 50 kg/จำนวน</button>
-                      <button type="button" className="btn-secondary btn-sm" onClick={() => applyFertilizerBag(30)}>ตั้งค่า 30 kg/จำนวน</button>
-                    </div>
-                    {selectedFertilizerProfile && (
-                      <div className="mb-3 rounded-xl border border-[#d9e7f2] bg-[#f8fbff] px-3 py-3 text-xs text-surface-600">
-                        <div><strong className="text-surface-800">{selectedFertilizerProfile.label}</strong></div>
-                        <div className="mt-1">{selectedFertilizerProfile.reason}</div>
-                        <div className="mt-1">
-                          ค่า N ที่ระบบแนะนำ:
-                          {' '}
-                          <strong>{selectedFertilizerProfile.detectedN != null ? formatNumber(selectedFertilizerProfile.detectedN, 3) : 'null'}</strong>
+                    <h4 className="mb-3 text-sm font-semibold">{selectedIsLiquidFertilizer ? 'ปุ๋ยน้ำ' : 'ปุ๋ย'}</h4>
+                    {selectedIsLiquidFertilizer ? (
+                      <>
+                        <div className="mb-3 flex flex-wrap gap-2">
+                          <button type="button" className="btn-secondary btn-sm" onClick={applyFuelLiter} disabled={!canApplyFuelPresets}>เตรียมเป็น L</button>
+                          <button type="button" className="btn-secondary btn-sm" onClick={applyFuelCubicMeter} disabled={!canApplyFuelPresets}>เตรียมเป็น m3</button>
                         </div>
-                        {selectedFertilizerProfile.kind === 'unknown' && (
-                          <div className="mt-1 text-amber-700">ถ้าปุ๋ยนี้มีค่า N ให้กรอกเองในช่อง N ด้านล่าง</div>
+                        <div className="rounded-xl border border-[#d9e7f2] bg-[#f8fbff] px-3 py-3 text-xs text-surface-600">
+                          ระบบจะไม่บังคับปุ๋ยหน่วยของเหลวให้เข้าทางกระสอบ/kg แล้ว และจะคำนวณผ่านโหมด EF ทั่วไปแทนปุ๋ยแบบ SCK
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="mb-3 flex flex-wrap gap-2">
+                          <button type="button" className="btn-secondary btn-sm" onClick={() => applyFertilizerBag(50)}>ตั้งค่า 50 kg/จำนวน</button>
+                          <button type="button" className="btn-secondary btn-sm" onClick={() => applyFertilizerBag(30)}>ตั้งค่า 30 kg/จำนวน</button>
+                        </div>
+                        {selectedFertilizerProfile && (
+                          <div className="mb-3 rounded-xl border border-[#d9e7f2] bg-[#f8fbff] px-3 py-3 text-xs text-surface-600">
+                            <div><strong className="text-surface-800">{selectedFertilizerProfile.label}</strong></div>
+                            <div className="mt-1">{selectedFertilizerProfile.reason}</div>
+                            <div className="mt-1">
+                              ค่า N ที่ระบบแนะนำ:
+                              {' '}
+                              <strong>{selectedFertilizerProfile.detectedN != null ? formatNumber(selectedFertilizerProfile.detectedN, 3) : 'null'}</strong>
+                            </div>
+                            {selectedFertilizerProfile.kind === 'unknown' && (
+                              <div className="mt-1 text-amber-700">ถ้าปุ๋ยนี้มีค่า N ให้กรอกเองในช่อง N ด้านล่าง</div>
+                            )}
+                          </div>
                         )}
-                      </div>
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                          <div><label className="label">ปริมาณต่อจำนวน / ต่อชิ้น (kg)</label><input type="number" step="0.001" className="input" value={form.fertilizerBagWeightKg} onChange={(event) => setFormValue('fertilizerBagWeightKg', event.target.value)} /></div>
+                          <div><label className="label">N</label><input type="number" step="0.001" className="input" value={form.soilN} onChange={(event) => setFormValue('soilN', event.target.value)} placeholder={selectedFertilizerProfile?.detectedN != null ? String(selectedFertilizerProfile.detectedN) : 'ปล่อยว่างได้ถ้ายังไม่มีค่า'} /></div>
+                        </div>
+                        <p className="mt-3 text-xs text-surface-500">
+                          สูตรปุ๋ยคือ (จำนวน x ปริมาณต่อจำนวนเป็น kg) x ตัวคูณแปลงหน่วย เช่น ถ้าต้องการ g ให้เลือกหน่วย g และใส่ตัวคูณ 1000
+                        </p>
+                      </>
                     )}
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <div><label className="label">ปริมาณต่อจำนวน / ต่อชิ้น (kg)</label><input type="number" step="0.001" className="input" value={form.fertilizerBagWeightKg} onChange={(event) => setFormValue('fertilizerBagWeightKg', event.target.value)} /></div>
-                      <div><label className="label">N</label><input type="number" step="0.001" className="input" value={form.soilN} onChange={(event) => setFormValue('soilN', event.target.value)} placeholder={selectedFertilizerProfile?.detectedN != null ? String(selectedFertilizerProfile.detectedN) : 'ปล่อยว่างได้ถ้ายังไม่มีค่า'} /></div>
-                    </div>
-                    <p className="mt-3 text-xs text-surface-500">
-                      สูตรปุ๋ยคือ (จำนวน x ปริมาณต่อจำนวนเป็น kg) x ตัวคูณแปลงหน่วย เช่น ถ้าต้องการ g ให้เลือกหน่วย g และใส่ตัวคูณ 1000
-                    </p>
                   </section>
                 )}
 

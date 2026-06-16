@@ -10,6 +10,7 @@ import { EmissionFactorsPage }  from '@/features/emission-factors/EmissionFactor
 import { ActivitiesPage }       from '@/features/activities/ActivitiesPage'
 import { ActivityLogListPage }  from '@/features/activities/ActivityLogListPage'
 import { ActivityResourcesPage } from '@/features/activities/ActivityResourcesPage'
+import { ActivityTypesPage } from '@/features/activities/ActivityTypesPage'
 import { DashboardPage }        from '@/features/dashboard/DashboardPage'
 import { CfOverviewPage }       from '@/features/cf-dashboard/pages/OverviewPage'
 import { CfProcessPage }        from '@/features/cf-dashboard/pages/ProcessPage'
@@ -56,6 +57,7 @@ export default function App() {
         <Route path="activities"        element={<Navigate to="/activities/logs" replace />} />
         <Route path="activities/logs"   element={<ActivityLogListPage />} />
         <Route path="activities/resources" element={<ActivityResourcesPage />} />
+        <Route path="activities/types" element={<ActivityTypesPage />} />
         <Route path="activities/manage" element={<ActivitiesPage />} />
         <Route path="activities/logs/new" element={<RedirectWithSearch to="/activities/manage" />} />
         <Route path="*"                 element={<Navigate to="/overview" replace />} />

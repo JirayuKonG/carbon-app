@@ -63,6 +63,13 @@ type EquipmentPayload = {
   resource_used_type_id?: number | string | null
 }
 
+type ChemicalPayload = {
+  act_chemiscal_name?: string | null
+  act_chemiscal_info?: string | null
+  resource_used_type_id?: number | string | null
+  act_chemiscal_update_uid?: number | string | null
+}
+
 type ResourceOtherPayload = {
   act_resourceOther_name?: string | null
   act_resourceOther_info?: string | null
@@ -73,6 +80,18 @@ type ResourceOtherPayload = {
 type ResourceTypePayload = {
   resc_used_type_name?: string | null
   resc_used_type_info?: string | null
+}
+
+type HeaderTypePayload = {
+  act_header_type_idCode?: string | null
+  act_header_type_name_th?: string | null
+  act_header_type_name_en?: string | null
+  act_header_type_update_uid?: number | string | null
+}
+
+type DetailTypePayload = {
+  act_header_type_id?: number | string | null
+  act_header_detail_type_name_th?: string | null
 }
 
 type ImportFilePayload = {
@@ -296,6 +315,14 @@ export class ActivitiesService {
     return num
   }
 
+  private toNullableNumber(value: unknown) {
+    if (value === undefined) return undefined
+    if (value === null || value === '') return null
+    const num = Number(value)
+    if (Number.isNaN(num)) throw new BadRequestException(`Invalid number: ${String(value)}`)
+    return num
+  }
+
   private toOptionalDate(value: unknown) {
     if (value === undefined || value === null || value === '') return undefined
     const date = value instanceof Date ? value : new Date(String(value))
@@ -313,6 +340,25 @@ export class ActivitiesService {
     const text = this.toOptionalText(value)
     if (!text) throw new BadRequestException(`${fieldName} is required`)
     return text
+  }
+
+  private normalizeTextKey(value?: string | null) {
+    return value?.trim().replace(/\s+/g, ' ').toLowerCase() ?? ''
+  }
+
+  private sanitizeDetailTypeName(value?: string | null) {
+    return (value ?? '')
+      .replace(/^\uFEFF/, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^\d+\s*[-–—:]\s*/, '')
+      .replace(/\s*[-–—:]\s*(?:น้ำ|นํ้า|water)\s*\d+\s*$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
+  private normalizeDetailTypeKey(value?: string | null) {
+    return this.sanitizeDetailTypeName(value).toLowerCase()
   }
 
   private normalizeHeaderPayload(data: ActivityHeaderPayload, withCreateAt = false) {
@@ -380,6 +426,30 @@ export class ActivitiesService {
       act_productYear_name: this.toRequiredText(data.act_productYear_name, 'act_productYear_name'),
       act_productYear_info: this.toOptionalText(data.act_productYear_info),
       act_productYear_update_uid: this.toOptionalNumber(data.act_productYear_update_uid),
+    }
+  }
+
+  private normalizeHeaderTypePayload(data: HeaderTypePayload) {
+    return {
+      act_header_type_idCode: this.toOptionalText(data.act_header_type_idCode),
+      act_header_type_name_th: this.toRequiredText(data.act_header_type_name_th, 'act_header_type_name_th'),
+      act_header_type_name_en: this.toOptionalText(data.act_header_type_name_en),
+      act_header_type_update_uid: this.toOptionalNumber(data.act_header_type_update_uid),
+    }
+  }
+
+  private normalizeDetailTypePayload(data: DetailTypePayload) {
+    const sanitizedName = this.sanitizeDetailTypeName(
+      this.toRequiredText(data.act_header_detail_type_name_th, 'act_header_detail_type_name_th'),
+    )
+
+    if (!sanitizedName) {
+      throw new BadRequestException('act_header_detail_type_name_th is required')
+    }
+
+    return {
+      act_header_type_id: this.toNullableNumber(data.act_header_type_id),
+      act_header_detail_type_name_th: sanitizedName,
     }
   }
 
@@ -1011,6 +1081,31 @@ export class ActivitiesService {
       .replace(/³/g, '3')
   }
 
+  private isInputUsagePackageUnit(unitLabel: string) {
+    const unit = this.normalizeInputUsageUnitText(unitLabel)
+    return /^(sck|sack|sacks|bag|bags)$|กระสอบ|ถุง/.test(unit)
+  }
+
+  private isInputUsageLiterUnit(unitLabel: string) {
+    const unit = this.normalizeInputUsageUnitText(unitLabel)
+    const plain = unitLabel.trim().toLowerCase()
+    const lettersOnly = plain.replace(/[^a-z]/g, '')
+    return /^(l|lt|ltr|liter|litre|liters|litres)$|ลิตร/.test(unit)
+      || /^(l|lt|ltr|liter|litre|liters|litres)$/.test(plain)
+      || /^(l|lt|ltr|liter|litre|liters|litres)$/.test(lettersOnly)
+  }
+
+  private parseInputUsagePackageKg(text: string) {
+    const normalized = text.toLowerCase()
+    const direct = normalized.match(/(\d+(?:\.\d+)?)\s*(?:kg|kgs|kilogram|kilograms|กก|กิโลกรัม|กิโล)\s*(?:\/|per)?\s*(?:bag|sack|bags|sacks|ถุง|กระสอบ)/)
+      ?? normalized.match(/(?:bag|sack|bags|sacks|ถุง|กระสอบ)\s*(?:ละ|per)?\s*(\d+(?:\.\d+)?)\s*(?:kg|kgs|kilogram|kilograms|กก|กิโลกรัม|กิโล)/)
+    const parsed = direct ? Number(direct[1]) : null
+    if (parsed != null && Number.isFinite(parsed) && parsed > 0) return parsed
+
+    if (/sck|sack|sacks|bag|bags|กระสอบ|ถุง/.test(normalized)) return 50
+    return null
+  }
+
   private unitLabel(unit?: InputUsageUnitRef | null, prefix?: InputUsagePrefixRef | null) {
     const prefixLabel = this.compactText(prefix?.unit_prefix_initial) || this.compactText(prefix?.unit_prefix_name)
     const unitText = this.compactText(unit?.unit_initial) || this.compactText(unit?.unit_name)
@@ -1065,18 +1160,23 @@ export class ActivitiesService {
     return { kind: 'unknown', formula: null }
   }
 
-  private normalizeInputUsageAmount(bucket: InputUsageBucket, amount: number, unitLabel: string) {
+  private normalizeInputUsageAmount(bucket: InputUsageBucket, amount: number, unitLabel: string, contextText = '') {
     const unit = this.normalizeInputUsageUnitText(unitLabel)
 
     if (bucket === 'fertilizer') {
+      if (this.isInputUsagePackageUnit(unitLabel)) {
+        const packageKg = this.parseInputUsagePackageKg(`${contextText} ${unitLabel}`)
+        if (packageKg != null) return { amount: this.roundUsageValue(amount * packageKg), unit: 'kg', warning: null as string | null }
+      }
       if (/kg|กก|กิโลกรัม|กิโล/.test(unit)) return { amount: this.roundUsageValue(amount), unit: 'kg', warning: null as string | null }
       if (/ตัน|ton|tonne/.test(unit)) return { amount: this.roundUsageValue(amount * 1000), unit: 'kg', warning: null as string | null }
       if (/กรัม|gram|^g$/.test(unit)) return { amount: this.roundUsageValue(amount / 1000), unit: 'kg', warning: null as string | null }
+      if (this.isInputUsageLiterUnit(unitLabel)) return { amount: this.roundUsageValue(amount), unit: 'L', warning: null as string | null }
       return { amount: 0, unit: 'kg', warning: `ไม่สามารถแปลงหน่วย "${unitLabel}" เป็น kg` }
     }
 
     if (bucket === 'fuel') {
-      if (/^(l|liter|litre)$|ลิตร/.test(unit)) return { amount: this.roundUsageValue(amount), unit: 'L', warning: null as string | null }
+      if (this.isInputUsageLiterUnit(unitLabel)) return { amount: this.roundUsageValue(amount), unit: 'L', warning: null as string | null }
       if (/ml|มล|มิลลิลิตร|cc|ซีซี/.test(unit)) return { amount: this.roundUsageValue(amount / 1000), unit: 'L', warning: null as string | null }
       if (/m3|ลบ\.?ม|ลูกบาศก์เมตร/.test(unit)) return { amount: this.roundUsageValue(amount * 1000), unit: 'L', warning: null as string | null }
       return { amount: 0, unit: 'L', warning: `ไม่สามารถแปลงหน่วย "${unitLabel}" เป็น L` }
@@ -1092,12 +1192,15 @@ export class ActivitiesService {
   ): InputUsageResolvedAmount | null {
     const info = this.parseCarbonPreparationInfo(detail.carbon_process_queue?.carbon_process_queue_info)
     const preparedAmount = this.toFiniteNumberOrNull(info.preparedVolumeAll)
-    const sourceAmount = this.toFiniteNumberOrNull(detail.log_act_detail_volumeAll)
-      ?? (
-        this.toFiniteNumberOrNull(detail.log_act_detail_quatity) != null
-        && this.toFiniteNumberOrNull(detail.log_act_detail_volumePerUnit) != null
-          ? Number(detail.log_act_detail_quatity) * Number(detail.log_act_detail_volumePerUnit)
-          : null
+    const sourceVolumeAll = this.toFiniteNumberOrNull(detail.log_act_detail_volumeAll)
+    const sourceQuantity = this.toFiniteNumberOrNull(detail.log_act_detail_quatity)
+    const sourceVolumePerUnit = this.toFiniteNumberOrNull(detail.log_act_detail_volumePerUnit)
+    const sourceAmount = sourceVolumeAll != null && sourceVolumeAll > 0
+      ? sourceVolumeAll
+      : (
+        sourceQuantity != null && sourceVolumePerUnit != null && sourceVolumePerUnit > 0
+          ? sourceQuantity * sourceVolumePerUnit
+          : sourceQuantity
       )
 
     const sourceUnitLabel = this.unitLabel(detail.units, detail.units_prefixs)
@@ -1182,7 +1285,7 @@ export class ActivitiesService {
       landCount: landIds.size,
       recordCount: rows.reduce((sum, row) => sum + row.recordCount, 0),
       areaRai: this.roundUsageValue(Array.from(landAreas.values()).reduce((sum, area) => sum + area, 0), 2),
-      fertilizerKg: this.roundUsageValue(rows.filter((row) => row.bucket === 'fertilizer').reduce((sum, row) => sum + row.amount, 0)),
+      fertilizerKg: this.roundUsageValue(rows.filter((row) => row.bucket === 'fertilizer' && row.unit === 'kg').reduce((sum, row) => sum + row.amount, 0)),
       fuelLiter: this.roundUsageValue(rows.filter((row) => row.bucket === 'fuel').reduce((sum, row) => sum + row.amount, 0)),
       otherRecordCount: rows.filter((row) => row.bucket === 'other').reduce((sum, row) => sum + row.recordCount, 0),
       unknownUnitCount: rows.reduce((sum, row) => sum + row.warningCount, 0),
@@ -1240,7 +1343,7 @@ export class ActivitiesService {
         const areaKey = row.landId != null ? String(row.landId) : row.landLabel
         target.landAreas.set(areaKey, Math.max(target.landAreas.get(areaKey) ?? 0, row.areaRai))
 
-        if (row.bucket === 'fertilizer') {
+        if (row.bucket === 'fertilizer' && row.unit === 'kg') {
           target.fertilizerKg = this.roundUsageValue(target.fertilizerKg + row.amount)
           target.fertilizerItems.set(row.itemName, (target.fertilizerItems.get(row.itemName) ?? 0) + row.amount)
         } else if (row.bucket === 'fuel') {
@@ -1350,7 +1453,12 @@ export class ActivitiesService {
       const bucket = this.classifyInputUsageBucket(detail)
       const itemName = this.getDetailItemName(detail)
       const resourceTypeName = this.compactText(detail.resource_used_type?.resc_used_type_name) || 'ไม่ระบุประเภท'
-      const normalized = this.normalizeInputUsageAmount(bucket, amountInput.amount, amountInput.unitLabel)
+      const normalized = this.normalizeInputUsageAmount(
+        bucket,
+        amountInput.amount,
+        amountInput.unitLabel,
+        `${itemName} ${resourceTypeName}`,
+      )
       const fertilizerProfile = bucket === 'fertilizer'
         ? this.getFertilizerProfile(`${itemName} ${resourceTypeName}`)
         : null
@@ -1798,9 +1906,36 @@ export class ActivitiesService {
     return this.normalizeSearchText(this.getCarbonQueueResourceNames(queue).join(' '))
   }
 
+  private isLiquidUnitText(value?: string | null) {
+    const normalized = this.normalizeInputUsageUnitText(value ?? '')
+    if (!normalized) return false
+    return /^(l|lit|liter|litre|litter|ลิตร)$/.test(normalized)
+      || /^(ml|milliliter|millilitre|มิลลิลิตร|cc|ซีซี)$/.test(normalized)
+      || /^(m3|cubicmeter|cubicmetre|ลูกบาศก์เมตร)$/.test(normalized)
+  }
+
+  private isLiquidFertilizerQueue(queue: any) {
+    const detail = queue?.log_activities_detail
+    const resourceText = this.getCarbonQueueResourceText(queue)
+    const info = this.parseCarbonPreparationInfo(queue?.carbon_process_queue_info)
+    const preparationType = String(info.fertilizerPrepareType ?? '').trim().toLowerCase()
+    const unitText = this.unitLabel(detail?.units, detail?.units_prefixs)
+    const normalizedUnitText = this.normalizeInputUsageUnitText(unitText)
+    const isFertilizerResource = detail?.act_fertilizer_id != null || /ปุ๋ย|fertilizer/.test(resourceText)
+
+    if (!isFertilizerResource) return false
+    if (preparationType === 'liquid_fertilizer') return true
+    if (!normalizedUnitText || /sck|sack|bag|กระสอบ/.test(normalizedUnitText)) return false
+    return this.isLiquidUnitText(unitText)
+  }
+
   private resolveCarbonFormulaMode(queue: any): CarbonFormulaMode {
     const detail = queue?.log_activities_detail
     const resourceText = this.getCarbonQueueResourceText(queue)
+
+    if (this.isLiquidFertilizerQueue(queue)) {
+      return 'generic_ef'
+    }
 
     if (
       detail?.act_fertilizer_id != null
@@ -2745,13 +2880,257 @@ export class ActivitiesService {
   }
 
   // ── Reference lists ────────────────────────────────────────
-  getHeaderTypes() { 
-    return this.prisma.activities_header_type.findMany({ 
-      orderBy: { act_header_type_id: 'asc' } }) 
+  async getHeaderTypes() {
+    const rows = await this.prisma.activities_header_type.findMany({
+      orderBy: { act_header_type_id: 'asc' },
+      include: {
+        _count: {
+          select: {
+            activities_header_detail_type: true,
+            activities_header: true,
+            log_activities_detail: true,
+          },
+        },
+      },
+    })
+
+    return rows.map(({ _count, ...row }) => ({
+      ...row,
+      detailTypeCount: _count.activities_header_detail_type,
+      activityHeaderCount: _count.activities_header,
+      logDetailCount: _count.log_activities_detail,
+    }))
   }
+
   getDetailTypes(headerTypeId?: number) {
     return this.prisma.activities_header_detail_type.findMany({
       where: headerTypeId ? { act_header_type_id: headerTypeId } : undefined,
+      orderBy: { act_header_detail_type_id: 'asc' },
+      include: {
+        activities_header_type: {
+          select: {
+            act_header_type_id: true,
+            act_header_type_name_th: true,
+            act_header_type_name_en: true,
+          },
+        },
+        _count: {
+          select: {
+            log_activities_detail: true,
+          },
+        },
+      },
+    }).then((rows) => rows.map(({ _count, ...row }) => ({
+      ...row,
+      logDetailCount: _count.log_activities_detail,
+    })))
+  }
+
+  async createHeaderType(data: HeaderTypePayload) {
+    const normalized = this.normalizeHeaderTypePayload(data)
+    const nameKey = this.normalizeTextKey(normalized.act_header_type_name_th)
+    const now = new Date()
+
+    return this.prisma.$transaction(async (tx) => {
+      const [existingRows, last] = await Promise.all([
+        tx.activities_header_type.findMany({
+          select: { act_header_type_id: true, act_header_type_name_th: true },
+        }),
+        tx.activities_header_type.aggregate({ _max: { act_header_type_id: true } }),
+      ])
+
+      const duplicate = existingRows.find((row) => this.normalizeTextKey(row.act_header_type_name_th) === nameKey)
+      if (duplicate) {
+        throw new BadRequestException(`กิจกรรมหลัก "${normalized.act_header_type_name_th}" มีอยู่แล้ว`)
+      }
+
+      return tx.activities_header_type.create({
+        data: {
+          act_header_type_id: (last._max.act_header_type_id ?? 0) + 1,
+          ...this.cleanData(normalized),
+          act_header_type_create_at: now,
+        },
+      })
+    })
+  }
+
+  async updateHeaderType(id: number, data: HeaderTypePayload) {
+    const normalized = this.normalizeHeaderTypePayload(data)
+    const nameKey = this.normalizeTextKey(normalized.act_header_type_name_th)
+
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.activities_header_type.findUnique({
+        where: { act_header_type_id: id },
+        select: { act_header_type_id: true },
+      })
+      if (!existing) {
+        throw new BadRequestException(`ไม่พบกิจกรรมหลัก #${id}`)
+      }
+
+      const existingRows = await tx.activities_header_type.findMany({
+        select: { act_header_type_id: true, act_header_type_name_th: true },
+      })
+      const duplicate = existingRows.find((row) => (
+        row.act_header_type_id !== id
+        && this.normalizeTextKey(row.act_header_type_name_th) === nameKey
+      ))
+      if (duplicate) {
+        throw new BadRequestException(`กิจกรรมหลัก "${normalized.act_header_type_name_th}" มีอยู่แล้ว`)
+      }
+
+      return tx.activities_header_type.update({
+        where: { act_header_type_id: id },
+        data: this.cleanData(normalized),
+      })
+    })
+  }
+
+  async deleteHeaderType(id: number) {
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.activities_header_type.findUnique({
+        where: { act_header_type_id: id },
+        select: { act_header_type_id: true },
+      })
+      if (!existing) {
+        throw new BadRequestException(`ไม่พบกิจกรรมหลัก #${id}`)
+      }
+
+      const [activityHeaderCount, detailTypeCount, logDetailCount] = await Promise.all([
+        tx.activities_header.count({ where: { act_header_type_id: id } }),
+        tx.activities_header_detail_type.count({ where: { act_header_type_id: id } }),
+        tx.log_activities_detail.count({ where: { act_header_type_id: id } }),
+      ])
+
+      if (activityHeaderCount > 0 || detailTypeCount > 0 || logDetailCount > 0) {
+        throw new BadRequestException(
+          `ลบกิจกรรมหลักไม่ได้ เพราะยังถูกใช้อยู่: header ${activityHeaderCount} รายการ, กิจกรรมย่อย ${detailTypeCount} รายการ, log ${logDetailCount} รายการ`,
+        )
+      }
+
+      return tx.activities_header_type.delete({
+        where: { act_header_type_id: id },
+      })
+    })
+  }
+
+  async createDetailType(data: DetailTypePayload) {
+    const normalized = this.normalizeDetailTypePayload(data)
+    const nameKey = this.normalizeDetailTypeKey(normalized.act_header_detail_type_name_th)
+
+    return this.prisma.$transaction(async (tx) => {
+      if (normalized.act_header_type_id != null) {
+        const parent = await tx.activities_header_type.findUnique({
+          where: { act_header_type_id: normalized.act_header_type_id },
+          select: { act_header_type_id: true },
+        })
+        if (!parent) {
+          throw new BadRequestException(`ไม่พบกิจกรรมหลัก #${normalized.act_header_type_id}`)
+        }
+      }
+
+      const [existingRows, last] = await Promise.all([
+        tx.activities_header_detail_type.findMany({
+          select: { act_header_detail_type_id: true, act_header_detail_type_name_th: true },
+        }),
+        tx.activities_header_detail_type.aggregate({ _max: { act_header_detail_type_id: true } }),
+      ])
+
+      const duplicate = existingRows.find((row) => (
+        this.normalizeDetailTypeKey(row.act_header_detail_type_name_th) === nameKey
+      ))
+      if (duplicate) {
+        throw new BadRequestException(`กิจกรรมย่อย "${normalized.act_header_detail_type_name_th}" มีอยู่แล้ว`)
+      }
+
+      return tx.activities_header_detail_type.create({
+        data: {
+          act_header_detail_type_id: (last._max.act_header_detail_type_id ?? 0) + 1,
+          ...this.cleanData(normalized),
+        },
+        include: {
+          activities_header_type: {
+            select: {
+              act_header_type_id: true,
+              act_header_type_name_th: true,
+              act_header_type_name_en: true,
+            },
+          },
+        },
+      })
+    })
+  }
+
+  async updateDetailType(id: number, data: DetailTypePayload) {
+    const normalized = this.normalizeDetailTypePayload(data)
+    const nameKey = this.normalizeDetailTypeKey(normalized.act_header_detail_type_name_th)
+
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.activities_header_detail_type.findUnique({
+        where: { act_header_detail_type_id: id },
+        select: { act_header_detail_type_id: true },
+      })
+      if (!existing) {
+        throw new BadRequestException(`ไม่พบกิจกรรมย่อย #${id}`)
+      }
+
+      if (normalized.act_header_type_id != null) {
+        const parent = await tx.activities_header_type.findUnique({
+          where: { act_header_type_id: normalized.act_header_type_id },
+          select: { act_header_type_id: true },
+        })
+        if (!parent) {
+          throw new BadRequestException(`ไม่พบกิจกรรมหลัก #${normalized.act_header_type_id}`)
+        }
+      }
+
+      const existingRows = await tx.activities_header_detail_type.findMany({
+        select: { act_header_detail_type_id: true, act_header_detail_type_name_th: true },
+      })
+      const duplicate = existingRows.find((row) => (
+        row.act_header_detail_type_id !== id
+        && this.normalizeDetailTypeKey(row.act_header_detail_type_name_th) === nameKey
+      ))
+      if (duplicate) {
+        throw new BadRequestException(`กิจกรรมย่อย "${normalized.act_header_detail_type_name_th}" มีอยู่แล้ว`)
+      }
+
+      return tx.activities_header_detail_type.update({
+        where: { act_header_detail_type_id: id },
+        data: this.cleanData(normalized),
+        include: {
+          activities_header_type: {
+            select: {
+              act_header_type_id: true,
+              act_header_type_name_th: true,
+              act_header_type_name_en: true,
+            },
+          },
+        },
+      })
+    })
+  }
+
+  async deleteDetailType(id: number) {
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.activities_header_detail_type.findUnique({
+        where: { act_header_detail_type_id: id },
+        select: { act_header_detail_type_id: true },
+      })
+      if (!existing) {
+        throw new BadRequestException(`ไม่พบกิจกรรมย่อย #${id}`)
+      }
+
+      const logDetailCount = await tx.log_activities_detail.count({
+        where: { act_header_detail_type_id: id },
+      })
+
+      if (logDetailCount > 0) {
+        throw new BadRequestException(`ลบกิจกรรมย่อยไม่ได้ เพราะยังถูกใช้ใน log ${logDetailCount} รายการ`)
+      }
+
+      return tx.activities_header_detail_type.delete({
+        where: { act_header_detail_type_id: id },
+      })
     })
   }
 
@@ -2781,7 +3160,14 @@ export class ActivitiesService {
       orderBy: { act_equipment_id: 'asc' },
     })
   }
-  getChemicals()     { return this.prisma.activities_chemiscals.findMany({ orderBy: { act_chemiscal_id: 'asc' } }) }
+  getChemicals()     {
+    return this.prisma.activities_chemiscals.findMany({
+      include: {
+        resource_used_type: { select: { resc_used_type_name: true } },
+      },
+      orderBy: { act_chemiscal_id: 'asc' },
+    })
+  }
   getResourceOthers() {
     return this.prisma.activities_resourceOther.findMany({
       include: {
@@ -3003,6 +3389,63 @@ export class ActivitiesService {
     })
   }
 
+  createChemical(data: ChemicalPayload) {
+    const act_chemiscal_name = this.toRequiredText(data.act_chemiscal_name, 'act_chemiscal_name')
+    const act_chemiscal_info = this.toOptionalText(data.act_chemiscal_info)
+    const resource_used_type_id = this.toOptionalNumber(data.resource_used_type_id)
+    const act_chemiscal_update_uid = this.toOptionalNumber(data.act_chemiscal_update_uid)
+    const now = new Date()
+
+    return this.prisma.$transaction(async (tx) => {
+      const last = await tx.activities_chemiscals.aggregate({ _max: { act_chemiscal_id: true } })
+      const actChemiscalId = (last._max.act_chemiscal_id ?? 0) + 1
+
+      return tx.activities_chemiscals.create({
+        data: {
+          act_chemiscal_id: actChemiscalId,
+          act_chemiscal_name,
+          act_chemiscal_info,
+          resource_used_type_id,
+          act_chemiscal_update_uid,
+          act_chemiscal_date_add: now,
+          act_chemiscal_update_at: now,
+        },
+        include: {
+          resource_used_type: { select: { resc_used_type_name: true } },
+        },
+      })
+    })
+  }
+
+  updateChemical(id: number, data: ChemicalPayload) {
+    return this.prisma.activities_chemiscals.update({
+      where: { act_chemiscal_id: id },
+      data: {
+        act_chemiscal_name: this.toRequiredText(data.act_chemiscal_name, 'act_chemiscal_name'),
+        act_chemiscal_info: this.toOptionalText(data.act_chemiscal_info),
+        resource_used_type_id: this.toOptionalNumber(data.resource_used_type_id),
+        act_chemiscal_update_uid: this.toOptionalNumber(data.act_chemiscal_update_uid),
+        act_chemiscal_update_at: new Date(),
+      },
+      include: {
+        resource_used_type: { select: { resc_used_type_name: true } },
+      },
+    })
+  }
+
+  deleteChemical(id: number) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.log_activities_detail.updateMany({
+        where: { act_chemiscal_id: id },
+        data: { act_chemiscal_id: null },
+      })
+
+      return tx.activities_chemiscals.delete({
+        where: { act_chemiscal_id: id },
+      })
+    })
+  }
+
   createResourceOther(data: ResourceOtherPayload) {
     const act_resourceOther_name = this.toRequiredText(data.act_resourceOther_name, 'act_resourceOther_name')
     const act_resourceOther_info = this.toOptionalText(data.act_resourceOther_info)
@@ -3179,7 +3622,15 @@ export class ActivitiesService {
     ])
 
     const normalizeKey = (value?: string) => value?.trim().toLowerCase() ?? ''
-    const normalizeDetailTypeKey = (value?: string) => normalizeKey(value).replace(/^0.{1,3}-(?=.+)/, '')
+    const sanitizeDetailTypeName = (value?: string) => (value ?? '')
+      .replace(/^\uFEFF/, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^\d+\s*[-–—:]\s*/, '')
+      .replace(/\s*[-–—:]\s*(?:น้ำ|นํ้า|water)\s*\d+\s*$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    const normalizeDetailTypeKey = (value?: string) => sanitizeDetailTypeName(value).toLowerCase()
 
     const byName = {
       camp:         Object.fromEntries(camps.map(c => [c.land_camp_name?.toLowerCase() ?? '', c.land_camp_id])),
@@ -3295,8 +3746,8 @@ export class ActivitiesService {
     }
 
     const ensureDetailTypeId = async (name?: string, headerTypeId?: number) => {
-      const trimmedName = name?.trim()
-      const key = normalizeDetailTypeKey(trimmedName)
+      const canonicalName = sanitizeDetailTypeName(name)
+      const key = normalizeDetailTypeKey(canonicalName)
       if (!key) return undefined
       if (byName.detailType[key]) return byName.detailType[key]
 
@@ -3304,11 +3755,11 @@ export class ActivitiesService {
         data: {
           act_header_detail_type_id: await nextDetailTypeId(),
           ...(headerTypeId ? { act_header_type_id: headerTypeId } : {}),
-          act_header_detail_type_name_th: trimmedName,
+          act_header_detail_type_name_th: canonicalName,
         },
       })
 
-      byName.detailType[normalizeKey(trimmedName)] = created.act_header_detail_type_id
+      byName.detailType[normalizeKey(canonicalName)] = created.act_header_detail_type_id
       byName.detailType[key] = created.act_header_detail_type_id
       return created.act_header_detail_type_id
     }

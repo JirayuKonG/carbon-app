@@ -1,6 +1,6 @@
 import { type FormEvent, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Calculator, Leaf, Pencil, Plus, RefreshCw, Save, Sprout, Trash2 } from 'lucide-react'
+import { Calculator, Leaf, Pencil, Plus, RefreshCw, Save, Search, Sprout, Trash2 } from 'lucide-react'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
@@ -19,7 +19,21 @@ interface Land {
   name?: string | null
   land_size?: number | string | null
   area_size?: number | string | null
-  lands_camps?: { land_camp_name?: string | null } | null
+  lands_camps?: {
+    land_camp_name?: string | null
+    land_camp_group_id?: number | null
+    lands_camps_groups?: {
+      land_camp_group_id?: number | null
+      land_camp_group_idCode?: string | null
+      land_camp_group_name?: string | null
+    } | null
+  } | null
+}
+
+interface CampGroup {
+  land_camp_group_id: number
+  land_camp_group_idCode?: string | null
+  land_camp_group_name?: string | null
 }
 
 interface ResourceOther {
@@ -119,6 +133,22 @@ type DeleteTarget =
   | { type: 'soc'; id: number; name: string }
   | { type: 'plant'; id: number; name: string }
 
+const SOC_ANNUALIZATION_YEARS = 20
+const LAND_SELECT_LIMIT = 80
+
+const socStandardUnits = [
+  ['SOC sample', '%'],
+  ['Bulk density', 'g/cm3'],
+  ['Depth', 'cm'],
+  ['ผล SOC', 'tCO2e/ปี'],
+] as const
+
+const plantStandardUnits = [
+  ['mc dry matter', 'kg/ไร่'],
+  ['nc nitrogen', '%N'],
+  ['ผล Fnfix', 'tN'],
+] as const
+
 const emptySocForm: SocFormState = {
   land_id: '',
   carbon_soc_idCode: '',
@@ -165,11 +195,6 @@ const formatNumber = (value: unknown, digits = 2) => {
   return num.toLocaleString('th-TH', { maximumFractionDigits: digits })
 }
 
-const unitLabel = (unit?: Unit | null, fallback = '—') => {
-  const label = [unit?.unit_initial, unit?.unit_name].filter(Boolean).join(' · ')
-  return label || fallback
-}
-
 const landAreaRai = (land?: Land | null) => {
   const landSize = numberOrZero(land?.land_size)
   if (landSize > 0) return landSize
@@ -181,6 +206,36 @@ const landLabel = (land?: Land | null) => {
   if (!land) return '—'
   const code = land.land_code ? `${land.land_code} · ` : ''
   return `${code}${land.name || `แปลง ${land.land_id}`}`
+}
+
+const landCampGroupLabel = (land?: Land | null) => {
+  const group = land?.lands_camps?.lands_camps_groups
+  return group?.land_camp_group_name || group?.land_camp_group_idCode || (group?.land_camp_group_id ? `#${group.land_camp_group_id}` : 'ไม่มีกลุ่มไร่')
+}
+
+const groupLabel = (group?: CampGroup | null) => {
+  if (!group) return 'ทุกกลุ่มไร่'
+  return group.land_camp_group_name || group.land_camp_group_idCode || `#${group.land_camp_group_id}`
+}
+
+const normalizeSearch = (value: unknown) => String(value ?? '').toLowerCase().replace(/\s+/g, ' ').trim()
+
+const landSearchText = (land: Land) => normalizeSearch([
+  land.land_id,
+  land.land_code,
+  land.name,
+  land.lands_camps?.land_camp_name,
+  land.lands_camps?.lands_camps_groups?.land_camp_group_name,
+  land.lands_camps?.lands_camps_groups?.land_camp_group_idCode,
+].filter(Boolean).join(' '))
+
+const filterLandOptions = (lands: Land[], filter: string, campGroupId?: string) => {
+  const filteredByGroup = campGroupId
+    ? lands.filter((land) => String(land.lands_camps?.land_camp_group_id ?? '') === campGroupId)
+    : lands
+  const query = normalizeSearch(filter)
+  if (!query) return filteredByGroup
+  return filteredByGroup.filter((land) => landSearchText(land).includes(query))
 }
 
 const payloadWithNumbers = (data: Record<string, unknown>) => {
@@ -207,11 +262,103 @@ const payloadWithNumbers = (data: Record<string, unknown>) => {
   return payload
 }
 
+type FilteredLandSelectProps = {
+  label: string
+  lands: Land[]
+  campGroups: CampGroup[]
+  value: string
+  filter: string
+  campGroupId: string
+  onCampGroupChange: (value: string) => void
+  onFilterChange: (value: string) => void
+  onChange: (value: string) => void
+  className?: string
+}
+
+function FilteredLandSelect({
+  label,
+  lands,
+  campGroups,
+  value,
+  filter,
+  campGroupId,
+  onCampGroupChange,
+  onFilterChange,
+  onChange,
+  className = '',
+}: FilteredLandSelectProps) {
+  const selectedLand = lands.find((land) => String(land.land_id) === value)
+  const matchedLands = filterLandOptions(lands, filter, campGroupId)
+  const limitedLands = matchedLands.slice(0, LAND_SELECT_LIMIT)
+  const options = selectedLand && !limitedLands.some((land) => land.land_id === selectedLand.land_id)
+    ? [selectedLand, ...limitedLands]
+    : limitedLands
+  const hiddenCount = Math.max(matchedLands.length - limitedLands.length, 0)
+
+  return (
+    <div className={className}>
+      <label className="label">{label}</label>
+      <div className="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.1fr)]">
+        <select className="select" value={campGroupId} onChange={(event) => onCampGroupChange(event.target.value)}>
+          <option value="">ทุกกลุ่มไร่</option>
+          {campGroups.map((group) => (
+            <option key={group.land_camp_group_id} value={group.land_camp_group_id}>
+              {groupLabel(group)}
+            </option>
+          ))}
+        </select>
+        <div className="relative">
+          <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-surface-400" />
+          <input
+            className="input pl-9"
+            placeholder="ค้นหารหัสแปลง / ชื่อ / แคมป์"
+            value={filter}
+            onChange={(event) => onFilterChange(event.target.value)}
+          />
+        </div>
+        <select className="select" required value={value} onChange={(event) => onChange(event.target.value)}>
+          <option value="">เลือกแปลง</option>
+          {options.map((land) => (
+            <option key={land.land_id} value={land.land_id}>
+              {landLabel(land)} · {land.lands_camps?.land_camp_name || 'ไม่ระบุแคมป์'}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-surface-500">
+        <span>พบ {formatNumber(matchedLands.length, 0)} จาก {formatNumber(lands.length, 0)} แปลง</span>
+        {hiddenCount > 0 && <span>พิมพ์เพิ่มเพื่อเจาะจงอีก {formatNumber(hiddenCount, 0)} แปลง</span>}
+        {selectedLand && (
+          <span className="font-medium text-surface-700">
+            เลือกอยู่: {landLabel(selectedLand)} · {landCampGroupLabel(selectedLand)} · {formatNumber(landAreaRai(selectedLand), 2)} ไร่
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function StandardUnitStrip({ items }: { items: readonly (readonly [string, string])[] }) {
+  return (
+    <div className="flex flex-wrap gap-2 text-xs">
+      {items.map(([label, unit]) => (
+        <span key={`${label}-${unit}`} className="rounded-md border border-surface-200 bg-white px-2 py-1 text-surface-700">
+          <span className="text-surface-500">{label}</span> <strong>{unit}</strong>
+        </span>
+      ))}
+    </div>
+  )
+}
+
 export function SoilOrganicCarbonPage() {
   const qc = useQueryClient()
   const toast = useToast()
   const [socForm, setSocForm] = useState<SocFormState>(emptySocForm)
   const [plantForm, setPlantForm] = useState<SoilImprovementFormState>(emptySoilImprovementForm)
+  const [socLandFilter, setSocLandFilter] = useState('')
+  const [plantLandFilter, setPlantLandFilter] = useState('')
+  const [socCampGroupFilter, setSocCampGroupFilter] = useState('')
+  const [plantCampGroupFilter, setPlantCampGroupFilter] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
 
   const { data: summary, error: summaryError } = useQuery({
@@ -234,14 +381,14 @@ export function SoilOrganicCarbonPage() {
     queryFn: () => get<Land[]>('/lands'),
   })
 
-  const { data: units = [], error: unitsError } = useQuery({
-    queryKey: ['emission-units'],
-    queryFn: () => get<Unit[]>('/emission-factors/units'),
-  })
-
   const { data: resourceOthers = [], error: resourceOthersError } = useQuery({
     queryKey: ['activity-resource-others'],
     queryFn: () => get<ResourceOther[]>('/activities/resource-others'),
+  })
+
+  const { data: campGroups = [], error: campGroupsError } = useQuery({
+    queryKey: ['camp-groups'],
+    queryFn: () => get<CampGroup[]>('/lands/camp-groups'),
   })
 
   const landById = useMemo(() => {
@@ -258,9 +405,12 @@ export function SoilOrganicCarbonPage() {
     if (!area || !soc || !bd || !depth) return null
 
     const tCPerRai = soc * bd * depth * 0.16
-    const tCO2ePerRai = tCPerRai * (44 / 12)
+    const tCO2ePerRai = (tCPerRai * (44 / 12)) / SOC_ANNUALIZATION_YEARS
     return {
       area,
+      soc,
+      bd,
+      depth,
       tCPerRai,
       tCO2ePerRai,
       total: tCO2ePerRai * area,
@@ -276,6 +426,8 @@ export function SoilOrganicCarbonPage() {
     const tNPerRai = (mc / 1000) * (nc / 100)
     return {
       area,
+      mc,
+      nc,
       tNPerRai,
       total: area * tNPerRai,
     }
@@ -295,6 +447,8 @@ export function SoilOrganicCarbonPage() {
     onSuccess: () => {
       invalidateSoc()
       setSocForm(emptySocForm)
+      setSocLandFilter('')
+      setSocCampGroupFilter('')
       toast.success('บันทึกข้อมูล SOC แล้ว')
     },
     onError: (error) => toast.error('บันทึกข้อมูล SOC ไม่สำเร็จ', error instanceof Error ? error.message : undefined),
@@ -308,6 +462,8 @@ export function SoilOrganicCarbonPage() {
     onSuccess: () => {
       invalidateSoc()
       setPlantForm(emptySoilImprovementForm)
+      setPlantLandFilter('')
+      setPlantCampGroupFilter('')
       toast.success('บันทึกข้อมูลพืชปรับปรุงดินแล้ว')
     },
     onError: (error) => toast.error('บันทึกข้อมูลพืชปรับปรุงดินไม่สำเร็จ', error instanceof Error ? error.message : undefined),
@@ -331,7 +487,7 @@ export function SoilOrganicCarbonPage() {
     onError: (error) => toast.error('คำนวณ Fnfix ไม่สำเร็จ', error instanceof Error ? error.message : undefined),
   })
 
-  const deleteMut = useMutation({
+  const deleteMut = useMutation<unknown, Error, DeleteTarget>({
     mutationFn: (target: DeleteTarget) =>
       target.type === 'soc'
         ? del<SocMeasurement>(`/carbon-soc/soc-measurements/${target.id}`)
@@ -361,17 +517,19 @@ export function SoilOrganicCarbonPage() {
   }
 
   const editSoc = (row: SocMeasurement) => {
+    setSocLandFilter(landLabel(row.lands))
+    setSocCampGroupFilter(asString(row.lands?.lands_camps?.land_camp_group_id))
     setSocForm({
       id: row.carbon_soc_id,
       land_id: asString(row.land_id),
       carbon_soc_idCode: asString(row.carbon_soc_idCode),
       carbon_soc_socSampleIT: asString(row.carbon_soc_socSampleIT),
-      unit_socSampleIT: asString(row.unit_socSampleIT),
+      unit_socSampleIT: '',
       carbon_soc_bdSampleIt: asString(row.carbon_soc_bdSampleIt),
-      unit_socbdSampleIT: asString(row.unit_socbdSampleIT),
+      unit_socbdSampleIT: '',
       carbon_soc_depSampleIT: asString(row.carbon_soc_depSampleIT),
-      unit_depSampleIT: asString(row.unit_depSampleIT),
-      unit_socIT: asString(row.unit_socIT),
+      unit_depSampleIT: '',
+      unit_socIT: '',
       carbon_soc_numLandSample: asString(row.carbon_soc_numLandSample),
       carbon_soc_numSample: asString(row.carbon_soc_numSample),
       carbon_soc_yearBeginPro: asString(row.carbon_soc_yearBeginPro),
@@ -379,16 +537,18 @@ export function SoilOrganicCarbonPage() {
   }
 
   const editPlant = (row: SoilImprovementPlant) => {
+    setPlantLandFilter(landLabel(row.lands))
+    setPlantCampGroupFilter(asString(row.lands?.lands_camps?.land_camp_group_id))
     setPlantForm({
       id: row.carbon_soilImprovementPlant_id,
       land_id: asString(row.land_id),
       carbon_soilImprovementPlant_idCode: asString(row.carbon_soilImprovementPlant_idCode),
       act_resourceOther_id: asString(row.act_resourceOther_id),
       carbon_soilImprovementPlant_mc: asString(row.carbon_soilImprovementPlant_mc),
-      unit_mc: asString(row.unit_mc),
+      unit_mc: '',
       carbon_soilImprovementPlant_nc: asString(row.carbon_soilImprovementPlant_nc),
-      unit_nc: asString(row.unit_nc),
-      unit_fnFix: asString(row.unit_fnFix),
+      unit_nc: '',
+      unit_fnFix: '',
     })
   }
 
@@ -409,14 +569,14 @@ export function SoilOrganicCarbonPage() {
     { key: 'carbon_soc_bdSampleIt', header: 'BD', render: (row) => formatNumber(row.carbon_soc_bdSampleIt, 4) },
     { key: 'carbon_soc_depSampleIT', header: 'Depth', render: (row) => formatNumber(row.carbon_soc_depSampleIT, 4) },
     { key: 'area', header: 'พื้นที่ไร่', render: (row) => formatNumber(row.derived?.areaRai, 2) },
-    { key: 'perRai', header: 'SOC tCO2e/ไร่', render: (row) => formatNumber(row.derived?.socTco2ePerRai, 4) },
+    { key: 'perRai', header: 'SOC tCO2e/ไร่/ปี', render: (row) => formatNumber(row.derived?.socTco2ePerRai, 4) },
     {
       key: 'result',
-      header: 'SOC รวม',
+      header: 'SOC รวม/ปี',
       render: (row) => (
         <div>
           <div className="font-semibold text-emerald-700">{formatNumber(row.derived?.socTco2eTotal, 4)}</div>
-          <div className="text-xs text-surface-500">{unitLabel(row.units_socIT, 'tCO2e')}</div>
+          <div className="text-xs text-surface-500">tCO2e/ปี</div>
         </div>
       ),
     },
@@ -450,7 +610,7 @@ export function SoilOrganicCarbonPage() {
       render: (row) => (
         <div>
           <div className="font-semibold text-emerald-700">{formatNumber(row.derived?.fnfixTnTotal, 4)}</div>
-          <div className="text-xs text-surface-500">{unitLabel(row.units_fnFix, 'tN')}</div>
+          <div className="text-xs text-surface-500">tN</div>
         </div>
       ),
     },
@@ -461,7 +621,7 @@ export function SoilOrganicCarbonPage() {
     { label: 'SOC measurement', error: socError },
     { label: 'พืชปรับปรุงดิน', error: plantError },
     { label: 'แปลง', error: landsError },
-    { label: 'หน่วย', error: unitsError },
+    { label: 'กลุ่มไร่', error: campGroupsError },
     { label: 'resource other', error: resourceOthersError },
   ]
 
@@ -485,8 +645,8 @@ export function SoilOrganicCarbonPage() {
           qc.invalidateQueries({ queryKey: ['carbon-soc-soc-measurements'] })
           qc.invalidateQueries({ queryKey: ['carbon-soc-soil-improvement-plants'] })
           qc.invalidateQueries({ queryKey: ['lands'] })
-          qc.invalidateQueries({ queryKey: ['emission-units'] })
           qc.invalidateQueries({ queryKey: ['activity-resource-others'] })
+          qc.invalidateQueries({ queryKey: ['camp-groups'] })
         }}
       />
 
@@ -494,7 +654,7 @@ export function SoilOrganicCarbonPage() {
         <div className="stat-card border-l-4 border-l-emerald-500">
           <span className="stat-label">SOC รวม</span>
           <strong className="stat-value">{formatNumber(summary?.socTotalTco2e, 2)}</strong>
-          <span className="stat-sub">tCO2e รวมทั้งแปลง</span>
+          <span className="stat-sub">tCO2e/ปี รวมทั้งแปลง</span>
         </div>
         <div className="stat-card border-l-4 border-l-sky-500">
           <span className="stat-label">Fnfix รวม</span>
@@ -528,15 +688,18 @@ export function SoilOrganicCarbonPage() {
         <form className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.6fr)]" onSubmit={onSubmitPlant}>
           <div className="rounded-xl border border-surface-100 bg-surface-50/60 p-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div>
-                <label className="label">แปลง</label>
-                <select className="select" required value={plantForm.land_id} onChange={(event) => setPlantForm((prev) => ({ ...prev, land_id: event.target.value }))}>
-                  <option value="">เลือกแปลง</option>
-                  {lands.map((land) => (
-                    <option key={land.land_id} value={land.land_id}>{landLabel(land)}</option>
-                  ))}
-                </select>
-              </div>
+              <FilteredLandSelect
+                className="md:col-span-2"
+                label="แปลง"
+                lands={lands}
+                campGroups={campGroups}
+                value={plantForm.land_id}
+                filter={plantLandFilter}
+                campGroupId={plantCampGroupFilter}
+                onCampGroupChange={setPlantCampGroupFilter}
+                onFilterChange={setPlantLandFilter}
+                onChange={(value) => setPlantForm((prev) => ({ ...prev, land_id: value }))}
+              />
               <div>
                 <label className="label">พืช/วัสดุ</label>
                 <select className="select" value={plantForm.act_resourceOther_id} onChange={(event) => setPlantForm((prev) => ({ ...prev, act_resourceOther_id: event.target.value }))}>
@@ -557,29 +720,12 @@ export function SoilOrganicCarbonPage() {
                 <input type="number" step="0.0001" min="0" className="input" required value={plantForm.carbon_soilImprovementPlant_mc} onChange={(event) => setPlantForm((prev) => ({ ...prev, carbon_soilImprovementPlant_mc: event.target.value }))} />
               </div>
               <div>
-                <label className="label">หน่วย mc</label>
-                <select className="select" value={plantForm.unit_mc} onChange={(event) => setPlantForm((prev) => ({ ...prev, unit_mc: event.target.value }))}>
-                  <option value="">ไม่ระบุ</option>
-                  {units.map((unit) => <option key={unit.unit_id} value={unit.unit_id}>{unitLabel(unit)}</option>)}
-                </select>
-              </div>
-              <div>
                 <label className="label">nc (%N)</label>
                 <input type="number" step="0.0001" min="0" className="input" required value={plantForm.carbon_soilImprovementPlant_nc} onChange={(event) => setPlantForm((prev) => ({ ...prev, carbon_soilImprovementPlant_nc: event.target.value }))} />
               </div>
-              <div>
-                <label className="label">หน่วย nc</label>
-                <select className="select" value={plantForm.unit_nc} onChange={(event) => setPlantForm((prev) => ({ ...prev, unit_nc: event.target.value }))}>
-                  <option value="">ไม่ระบุ</option>
-                  {units.map((unit) => <option key={unit.unit_id} value={unit.unit_id}>{unitLabel(unit)}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="label">หน่วยผล Fnfix</label>
-                <select className="select" value={plantForm.unit_fnFix} onChange={(event) => setPlantForm((prev) => ({ ...prev, unit_fnFix: event.target.value }))}>
-                  <option value="">ให้ระบบเลือก tN</option>
-                  {units.map((unit) => <option key={unit.unit_id} value={unit.unit_id}>{unitLabel(unit)}</option>)}
-                </select>
+              <div className="md:col-span-3">
+                <label className="label">หน่วยมาตรฐาน</label>
+                <StandardUnitStrip items={plantStandardUnits} />
               </div>
             </div>
           </div>
@@ -591,13 +737,29 @@ export function SoilOrganicCarbonPage() {
               <div className="flex justify-between gap-3"><span className="text-emerald-700">Fnfix ต่อไร่</span><strong>{formatNumber(plantPreview?.tNPerRai, 6)} tN/ไร่</strong></div>
               <div className="flex justify-between gap-3"><span className="text-emerald-700">Fnfix รวม</span><strong>{formatNumber(plantPreview?.total, 4)} tN</strong></div>
             </div>
+            <div className="mt-4 rounded-lg border border-emerald-200 bg-white/75 p-3 text-xs text-emerald-950">
+              <div className="font-semibold">Simulation สูตร</div>
+              <div className="mt-2 space-y-1 font-mono leading-5">
+                <div>tN/ไร่ = (mc / 1000) * (nc / 100)</div>
+                <div>= ({formatNumber(plantPreview?.mc, 4)} / 1000) * ({formatNumber(plantPreview?.nc, 4)} / 100)</div>
+                <div>รวม = {formatNumber(plantPreview?.tNPerRai, 6)} * {formatNumber(plantPreview?.area, 2)} = {formatNumber(plantPreview?.total, 4)} tN</div>
+              </div>
+            </div>
             <div className="mt-4 flex flex-col gap-2">
               <button type="submit" className="btn-primary justify-center" disabled={savePlantMut.isPending}>
                 {plantForm.id ? <Save size={15} /> : <Plus size={15} />}
                 {savePlantMut.isPending ? 'กำลังบันทึก...' : plantForm.id ? 'บันทึกการแก้ไข' : 'เพิ่มรายการ'}
               </button>
               {plantForm.id && (
-                <button type="button" className="btn-secondary justify-center" onClick={() => setPlantForm(emptySoilImprovementForm)}>
+                <button
+                  type="button"
+                  className="btn-secondary justify-center"
+                  onClick={() => {
+                    setPlantForm(emptySoilImprovementForm)
+                    setPlantLandFilter('')
+                    setPlantCampGroupFilter('')
+                  }}
+                >
                   ยกเลิกแก้ไข
                 </button>
               )}
@@ -638,7 +800,7 @@ export function SoilOrganicCarbonPage() {
               <RefreshCw size={18} className="text-sky-600" />
               การวัดผล SOC
             </div>
-            <p className="mt-1 text-sm text-surface-500">คำนวณ SOC stock จาก SOC sample, bulk density, depth และพื้นที่แปลง</p>
+            <p className="mt-1 text-sm text-surface-500">คำนวณ SOC stock แล้วเฉลี่ยผล CO2e เป็นรายปีตลอด 20 ปี จาก SOC sample, bulk density, depth และพื้นที่แปลง</p>
           </div>
           <span className="badge-blue">{formatNumber(summary?.socMeasurementCount, 0)} รายการ</span>
         </div>
@@ -646,15 +808,18 @@ export function SoilOrganicCarbonPage() {
         <form className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.6fr)]" onSubmit={onSubmitSoc}>
           <div className="rounded-xl border border-surface-100 bg-surface-50/60 p-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-              <div>
-                <label className="label">แปลง</label>
-                <select className="select" required value={socForm.land_id} onChange={(event) => setSocForm((prev) => ({ ...prev, land_id: event.target.value }))}>
-                  <option value="">เลือกแปลง</option>
-                  {lands.map((land) => (
-                    <option key={land.land_id} value={land.land_id}>{landLabel(land)}</option>
-                  ))}
-                </select>
-              </div>
+              <FilteredLandSelect
+                className="md:col-span-2"
+                label="แปลง"
+                lands={lands}
+                campGroups={campGroups}
+                value={socForm.land_id}
+                filter={socLandFilter}
+                campGroupId={socCampGroupFilter}
+                onCampGroupChange={setSocCampGroupFilter}
+                onFilterChange={setSocLandFilter}
+                onChange={(value) => setSocForm((prev) => ({ ...prev, land_id: value }))}
+              />
               <div>
                 <label className="label">รหัสรายการ</label>
                 <input className="input" value={socForm.carbon_soc_idCode} onChange={(event) => setSocForm((prev) => ({ ...prev, carbon_soc_idCode: event.target.value }))} />
@@ -664,44 +829,16 @@ export function SoilOrganicCarbonPage() {
                 <input className="input" value={socForm.carbon_soc_yearBeginPro} onChange={(event) => setSocForm((prev) => ({ ...prev, carbon_soc_yearBeginPro: event.target.value }))} />
               </div>
               <div>
-                <label className="label">หน่วยผล SOC</label>
-                <select className="select" value={socForm.unit_socIT} onChange={(event) => setSocForm((prev) => ({ ...prev, unit_socIT: event.target.value }))}>
-                  <option value="">ให้ระบบเลือก tCO2e</option>
-                  {units.map((unit) => <option key={unit.unit_id} value={unit.unit_id}>{unitLabel(unit)}</option>)}
-                </select>
-              </div>
-              <div>
                 <label className="label">SOC sample (%)</label>
                 <input type="number" step="0.0001" min="0" className="input" required value={socForm.carbon_soc_socSampleIT} onChange={(event) => setSocForm((prev) => ({ ...prev, carbon_soc_socSampleIT: event.target.value }))} />
               </div>
               <div>
-                <label className="label">หน่วย SOC sample</label>
-                <select className="select" value={socForm.unit_socSampleIT} onChange={(event) => setSocForm((prev) => ({ ...prev, unit_socSampleIT: event.target.value }))}>
-                  <option value="">ไม่ระบุ</option>
-                  {units.map((unit) => <option key={unit.unit_id} value={unit.unit_id}>{unitLabel(unit)}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="label">Bulk density</label>
+                <label className="label">Bulk density (g/cm3)</label>
                 <input type="number" step="0.0001" min="0" className="input" required value={socForm.carbon_soc_bdSampleIt} onChange={(event) => setSocForm((prev) => ({ ...prev, carbon_soc_bdSampleIt: event.target.value }))} />
-              </div>
-              <div>
-                <label className="label">หน่วย BD</label>
-                <select className="select" value={socForm.unit_socbdSampleIT} onChange={(event) => setSocForm((prev) => ({ ...prev, unit_socbdSampleIT: event.target.value }))}>
-                  <option value="">ไม่ระบุ</option>
-                  {units.map((unit) => <option key={unit.unit_id} value={unit.unit_id}>{unitLabel(unit)}</option>)}
-                </select>
               </div>
               <div>
                 <label className="label">Depth (cm)</label>
                 <input type="number" step="0.0001" min="0" className="input" required value={socForm.carbon_soc_depSampleIT} onChange={(event) => setSocForm((prev) => ({ ...prev, carbon_soc_depSampleIT: event.target.value }))} />
-              </div>
-              <div>
-                <label className="label">หน่วย Depth</label>
-                <select className="select" value={socForm.unit_depSampleIT} onChange={(event) => setSocForm((prev) => ({ ...prev, unit_depSampleIT: event.target.value }))}>
-                  <option value="">ไม่ระบุ</option>
-                  {units.map((unit) => <option key={unit.unit_id} value={unit.unit_id}>{unitLabel(unit)}</option>)}
-                </select>
               </div>
               <div>
                 <label className="label">จำนวนแปลงตัวอย่าง</label>
@@ -711,6 +848,10 @@ export function SoilOrganicCarbonPage() {
                 <label className="label">จำนวนตัวอย่าง</label>
                 <input type="number" step="1" min="0" className="input" value={socForm.carbon_soc_numSample} onChange={(event) => setSocForm((prev) => ({ ...prev, carbon_soc_numSample: event.target.value }))} />
               </div>
+              <div className="md:col-span-4">
+                <label className="label">หน่วยมาตรฐาน</label>
+                <StandardUnitStrip items={socStandardUnits} />
+              </div>
             </div>
           </div>
 
@@ -719,8 +860,17 @@ export function SoilOrganicCarbonPage() {
             <div className="mt-3 space-y-2 text-sm">
               <div className="flex justify-between gap-3"><span className="text-sky-700">พื้นที่</span><strong>{formatNumber(socPreview?.area, 2)} ไร่</strong></div>
               <div className="flex justify-between gap-3"><span className="text-sky-700">Ton C/ไร่</span><strong>{formatNumber(socPreview?.tCPerRai, 4)}</strong></div>
-              <div className="flex justify-between gap-3"><span className="text-sky-700">tCO2e/ไร่</span><strong>{formatNumber(socPreview?.tCO2ePerRai, 4)}</strong></div>
-              <div className="flex justify-between gap-3"><span className="text-sky-700">SOC รวม</span><strong>{formatNumber(socPreview?.total, 4)} tCO2e</strong></div>
+              <div className="flex justify-between gap-3"><span className="text-sky-700">tCO2e/ไร่/ปี</span><strong>{formatNumber(socPreview?.tCO2ePerRai, 4)}</strong></div>
+              <div className="flex justify-between gap-3"><span className="text-sky-700">SOC รวม/ปี</span><strong>{formatNumber(socPreview?.total, 4)} tCO2e/ปี</strong></div>
+            </div>
+            <div className="mt-4 rounded-lg border border-sky-200 bg-white/75 p-3 text-xs text-sky-950">
+              <div className="font-semibold">Simulation สูตร</div>
+              <div className="mt-2 space-y-1 font-mono leading-5">
+                <div>Ton C/ไร่ = SOC * BD * Depth * 0.16</div>
+                <div>= {formatNumber(socPreview?.soc, 4)} * {formatNumber(socPreview?.bd, 4)} * {formatNumber(socPreview?.depth, 4)} * 0.16 = {formatNumber(socPreview?.tCPerRai, 4)}</div>
+                <div>tCO2e/ไร่/ปี = ({formatNumber(socPreview?.tCPerRai, 4)} * 44/12) / {SOC_ANNUALIZATION_YEARS} = {formatNumber(socPreview?.tCO2ePerRai, 4)}</div>
+                <div>รวม/ปี = {formatNumber(socPreview?.tCO2ePerRai, 4)} * {formatNumber(socPreview?.area, 2)} = {formatNumber(socPreview?.total, 4)} tCO2e/ปี</div>
+              </div>
             </div>
             <div className="mt-4 flex flex-col gap-2">
               <button type="submit" className="btn-primary justify-center" disabled={saveSocMut.isPending}>
@@ -728,7 +878,15 @@ export function SoilOrganicCarbonPage() {
                 {saveSocMut.isPending ? 'กำลังบันทึก...' : socForm.id ? 'บันทึกการแก้ไข' : 'เพิ่มรายการ'}
               </button>
               {socForm.id && (
-                <button type="button" className="btn-secondary justify-center" onClick={() => setSocForm(emptySocForm)}>
+                <button
+                  type="button"
+                  className="btn-secondary justify-center"
+                  onClick={() => {
+                    setSocForm(emptySocForm)
+                    setSocLandFilter('')
+                    setSocCampGroupFilter('')
+                  }}
+                >
                   ยกเลิกแก้ไข
                 </button>
               )}

@@ -1,6 +1,6 @@
 # Project Context Memory
 
-Last updated: 2026-06-15
+Last updated: 2026-06-16
 
 This file is a working memory for the project. It summarizes the current repo state, important decisions, active risks, and where future work should start. Update it when major behavior, routes, architecture, or project status changes.
 
@@ -108,7 +108,7 @@ Verified from `frontend/src/App.tsx` on 2026-06-11:
 - `/dashboard`: older GHG dashboard
 - `/geo`, `/infra`, `/users`, `/farmers`, `/lands`, `/lands/weather`
 - `/emission-factors`
-- `/activities/logs`, `/activities/resources`, `/activities/manage`
+- `/activities/logs`, `/activities/resources`, `/activities/types`, `/activities/manage`
 
 Important route notes:
 
@@ -147,6 +147,7 @@ Verified from `frontend/src/components/layout/Sidebar.tsx` on 2026-06-11:
   - `/infra`
   - `/users`
   - `/emission-factors`
+  - `/activities/types`
   - `/activities/resources`
 
 ## Carbon Analytics Data Source Reality
@@ -426,6 +427,53 @@ Recent long-text table readability update from user prompt on 2026-06-13:
 - Verification: `npm run build --workspace=frontend`.
 - Related docs updated: `CONTEXT.md` updated for project memory. `COMPONENT_PJ.md`, `README.md`, `GUIDE.md`, and `BUG_LOG.md` were not changed in this task.
 
+Recent emission-factors favorites update from user prompt on 2026-06-16:
+
+- Prompt summary: on `EF / GWP / หน่วย`, the user wanted a way to mark frequently used rows as favorites without changing the database, and wanted a dedicated page/view that shows the favorited rows together.
+- Result: `frontend/src/features/emission-factors/EmissionFactorsPage.tsx` now adds a heart/favorite toggle on every `Emission Factors`, `GWP`, and `units` row, plus quick filters to show only favorited rows inside those tabs.
+- Favorites view behavior: the same page now includes a `รายการโปรด` tab that aggregates only the favorited `EF`, `GWP`, and `Unit` rows into separate searchable tables so users can reopen common rows quickly.
+- Storage behavior: favorites are stored in browser `localStorage` under the emission-factors page only, so no database schema, Prisma schema, API contract, or backend behavior changed.
+- Limitation: favorites are browser-specific for that machine/profile and currently do not include `CF Type`, `กลุ่ม EF`, or `units_prefixs`.
+- Source of truth: `frontend/src/features/emission-factors/EmissionFactorsPage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+- Related docs updated: `CONTEXT.md` and `COMPONENT_PJ.md` updated. `README.md`, `GUIDE.md`, and `BUG_LOG.md` were not changed in this task.
+
+Recent activity type management page update from user prompt on 2026-06-16:
+
+- Prompt summary: create a system-settings page for `activities_header_type` and `activities_header_detail_type`, including management of which activity detail type belongs under which activity header type, with careful loading/update behavior and no schema changes.
+- Result: `/activities/types` now renders `frontend/src/features/activities/ActivityTypesPage.tsx` and is listed under `ตั้งค่าระบบ` as `กิจกรรมหลัก / กิจกรรมย่อย`.
+- Backend behavior: `backend/src/modules/activities/activities.controller.ts` and `backend/src/modules/activities/activities.service.ts` now expose CRUD for `/api/activities/header-types` and `/api/activities/detail-types`. List responses include usage counts, and deletes are guarded with readable `BadRequestException` messages when rows are still referenced.
+- Relationship behavior: this uses the existing one-parent relationship `activities_header_detail_type.act_header_type_id -> activities_header_type.act_header_type_id`. Updating a detail type changes only the master row and does not rewrite old `log_activities_detail` records.
+- Safety behavior: create/update trims names, validates parent header types, prevents new duplicate header/detail master names using canonical comparison, invalidates the shared frontend query keys used by existing activity dropdowns, and disables pending mutations in the UI.
+- Source of truth: `frontend/src/features/activities/ActivityTypesPage.tsx`, `frontend/src/App.tsx`, `frontend/src/components/layout/Sidebar.tsx`, `backend/src/modules/activities/activities.controller.ts`, and `backend/src/modules/activities/activities.service.ts`.
+- Verification: `npm run build --workspace=backend` and `npm run build --workspace=frontend`.
+- Related docs updated: `CONTEXT.md` and `COMPONENT_PJ.md` updated. No Prisma schema, SQL snapshot, or migration files were changed.
+
+Recent input-usage density filter update from user prompt on 2026-06-16:
+
+- Prompt summary: on `สรุปการใช้ปัจจัย`, remove the shared filter control named `ความหนาแน่น` and make the page use the expanded layout by default.
+- Result: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now locks the density mode to `expanded`, removes the visible density selector from `ตัวกรองร่วมของทั้งหน้า`, and keeps the remaining shared filters aligned in a 5-column desktop grid.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+- Related docs updated: `CONTEXT.md` updated. No route, backend, schema, or API changes were made.
+
+Recent input-usage year-label clarification from user prompt on 2026-06-16:
+
+- Prompt summary: the user asked what the shared `ปี` filter on `สรุปการใช้ปัจจัย` means and requested a clearer name.
+- Clarification: backend input-usage aggregation resolves `year` from `activities_productYear.act_productYear_name` first, and only falls back to activity/log dates when no production-year master value is available.
+- Result: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now labels the shared year filter, table columns, workbook labels, empty labels, and search placeholders as `ปีการผลิต` instead of the ambiguous `ปี`.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` for UI wording and `backend/src/modules/activities/activities.service.ts` for year resolution behavior.
+- Verification: `npm run build --workspace=frontend`.
+
+Recent fertilizer input-usage table/export update from user prompt on 2026-06-16:
+
+- Prompt summary: on `สรุปการใช้ปัจจัย -> ส่วนที่ 1: ปุ๋ย`, let users choose which production years appear, make the fertilizer table switch rows between camp and land views, shorten land-view labels to plot codes only, and export the visible fertilizer table to Excel.
+- Result: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now uses multi-select production-year chips in the shared filters, and the fertilizer workbook/table rows follow `มุมมองตาราง` (`รายไร่` aggregates by camp/year; `รายแปลง` aggregates by land/year).
+- Display behavior: land-view fertilizer rows show `landCode`/plot number as the main label to keep cells compact, while the full land label remains available in table search/title and in the exported summary sheet.
+- Export behavior: Section 1 now has an `Export Excel` action that writes the currently filtered fertilizer workbook sheet plus the fertilizer summary sheet for the active camp/land view and selected production years.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+
 Recent fertilizer factor-selection update from user prompt on 2026-06-13:
 
 - Prompt summary: on `Carbon Footprint -> คำนวณรายการที่เลือก`, keep the fertilizer CFP formula but make its variable constants user-selectable from master data: `Emission Factor value total` for `ยูเรีย as N`, `DAP as P2O5`, `KCl as K2O`, plus a selectable `GWP` value for `N2O`, and make sure frontend preview uses those selected values correctly.
@@ -561,3 +609,52 @@ After finishing work from a user prompt:
 - Source of truth: `frontend/src/features/cf-dashboard/types/dashboard.ts`, `frontend/src/features/cf-dashboard/services/dashboardApi.ts`, `frontend/src/features/cf-dashboard/components/common/SourceBadge.tsx`, and the Carbon Analytics pages under `frontend/src/features/cf-dashboard/pages/`.
 - Current limitation: this is a UI/status transparency layer. It does not replace Phase 2B/2C real SOC, cane type, yield, or data-quality calculation work.
 - Verification: `npm run build --workspace=frontend` passed. The first sandboxed build hit an EPERM on `C:\Users\User`, then passed when rerun with approved unsandboxed execution.
+
+## Recent Activity CSV Detail-Type Deduplication Update - 2026-06-16
+
+- Prompt summary: the user noticed many near-duplicate `activities_header_detail_type` rows such as `416-ให้น้ำ ปลูก (จ้างเหมา)- น้ำ 416` and asked to prevent the CSV Validate flow from creating repeated activity-detail master rows.
+- Result: `frontend/src/components/ui/CsvMappingWizard.tsx` now normalizes activity-detail names during Step Validate, grouping raw CSV values by a canonical name before users confirm the import. Names with numeric prefixes such as `416-` or `604-` and row-number suffixes such as `- น้ำ 416`, `- น้ำ417`, or `- water 416` are grouped under the same clean detail type.
+- Backend behavior: `backend/src/modules/activities/activities.service.ts` now applies the same detail-type normalization during CSV import, so imports that bypass or chunk through the frontend still reuse/create only the canonical detail type.
+- Additional verification fix: `frontend/src/features/cf-dashboard/pages/SoilOrganicCarbonPage.tsx` now types its delete mutation as `unknown` because the same mutation can delete either SOC rows or soil-improvement plant rows; this was needed for the frontend build to pass.
+- Source of truth: `frontend/src/components/ui/CsvMappingWizard.tsx` and `backend/src/modules/activities/activities.service.ts`.
+- Verification: detail-type normalization was checked with the four sample names from the user prompt, then `npm run build --workspace=backend` and `npm run build --workspace=frontend` passed.
+- Limitation: this prevents new duplicate detail-type master rows from future imports. Existing duplicate rows in the database were intentionally not cleaned up; a future cleanup should remap `log_activities_detail.act_header_detail_type_id` to canonical rows before deleting or hiding old duplicate master rows.
+
+## Recent SOC Annualization Formula Update - 2026-06-16
+
+- Prompt summary: the user requested that SOC CO2e results be annualized across 20 years by dividing the converted `tCO2e/rai` value by `20` before multiplying by area.
+- Result: the SOC formula in `frontend/src/features/cf-dashboard/pages/SoilOrganicCarbonPage.tsx` and `backend/src/modules/carbon-soc/carbon-soc.service.ts` now uses `soc_tCO2e_per_rai = (soc_tC_per_rai * (44 / 12)) / 20`, and `soc_tCO2e_total` is now the annualized total per plot based on that per-year value.
+- UI clarification: the SOC preview card, table headers, and summary labels now describe the result as `tCO2e/ไร่/ปี` and `SOC รวม/ปี` so the page better reflects the new annualized meaning without changing the underlying database column names.
+- Documentation update: `CONCLUSION_CARBON_CAL_TABLE.md` now records the 20-year annualization note alongside the SOC formula example.
+- Source of truth: `backend/src/modules/carbon-soc/carbon-soc.service.ts`, `frontend/src/features/cf-dashboard/pages/SoilOrganicCarbonPage.tsx`, and `CONCLUSION_CARBON_CAL_TABLE.md`.
+- Limitation: the database still stores the annualized SOC total in the existing `carbon_soc_socIT` column and still uses the existing result-unit relation, so the numeric meaning changed without a schema/unit redesign. If future reporting needs explicit yearly units, that should be handled as a follow-up task.
+
+## Recent SOC Page Usability And Unit Standardization Update - 2026-06-16
+
+- Prompt summary: the user asked to make land selection easier in both SOC and soil-improvement plant forms, show the formulas as calculation simulations, and lock the units so users cannot accidentally choose inconsistent units.
+- Result: `frontend/src/features/cf-dashboard/pages/SoilOrganicCarbonPage.tsx` now uses a searchable land selector for both forms, filtering by land camp group, land ID/code/name, and camp while keeping the selected land visible during edits.
+- Formula UI: both preview panels now show a simulation block that substitutes current input values into the Fnfix and SOC formulas, including the SOC 20-year annualization step.
+- Unit behavior: the frontend no longer shows unit dropdowns for SOC/Fnfix inputs. It displays fixed standard units instead: SOC `%`, BD `g/cm3`, depth `cm`, SOC result `tCO2e/ปี`, plant dry matter `kg/ไร่`, plant nitrogen `%N`, and Fnfix result `tN`.
+- Backend behavior: `backend/src/modules/carbon-soc/carbon-soc.service.ts` now enforces the same standard units on create, update, and calculate. If a required unit is missing from `units`, the service creates/reuses it before saving the SOC or soil-improvement plant record. `backend/src/modules/lands/lands.service.ts` now also includes camp-group relation data on `/api/lands` so the SOC page can filter plots by `กลุ่มไร่`.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/SoilOrganicCarbonPage.tsx`, `backend/src/modules/carbon-soc/carbon-soc.service.ts`, and `CONCLUSION_CARBON_CAL_TABLE.md`.
+- Limitation: this adds/reuses rows in the existing `units` master table but does not clean old SOC/Fnfix rows that may already point to non-standard unit IDs until those rows are updated or recalculated.
+
+## Recent Activity Resource Destination Selection Update - 2026-06-16
+
+- Prompt summary: the user found that the `เพิ่มรายการ` flow on the activity resource page could save new items into the wrong master table because the frontend inferred the target from `ประเภทปัจจัย`, and asked to choose the destination explicitly from `chemical`, `Equipment`, `Fertilizer`, and `otherSource`.
+- Result: `frontend/src/features/activities/ActivityResourcesPage.tsx` now shows a required `ปลายทางรายการ` selector in the add-item modal, so new resource rows are created in the exact destination chosen by the user instead of being inferred.
+- Expanded page scope: the same page now fully supports `chemical` records alongside fertilizer, fuel/equipment, and other-source records, including list display, filter visibility, add/edit/delete modal flows, and delete confirmation handling.
+- Backend behavior: `backend/src/modules/activities/activities.controller.ts` and `backend/src/modules/activities/activities.service.ts` now expose full CRUD endpoints for `activities_chemiscals`, and `GET /api/activities/chemicals` now includes `resource_used_type` label data like the other resource master lists.
+- Documentation update: `COMPONENT_PJ.md` now describes `/activities/resources` as a real master-data CRUD page with explicit destination selection instead of a read-only reference list.
+- Source of truth: `frontend/src/features/activities/ActivityResourcesPage.tsx`, `backend/src/modules/activities/activities.controller.ts`, `backend/src/modules/activities/activities.service.ts`, and `COMPONENT_PJ.md`.
+
+## Recent Carbon Queue Liquid Fertilizer Preparation Update - 2026-06-16
+
+- Prompt summary: the user found that some fertilizer rows use liquid units such as `L`, but the Carbon Footprint queue bulk action `ทำรายการทั้งหมดจากที่เลือก` still prepared them like sack fertilizer and pushed them into `kg`.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now detects liquid-fertilizer rows from the current/prepared unit and preparation type, keeps them out of the sack-fertilizer bulk preset, and routes them through the generic conversion path instead of forcing `จำนวน x kg/กระสอบ`.
+- UI clarification: the `ทำรายการทั้งหมดจากที่เลือก` modal now renders `ปุ๋ยน้ำ` as its own section with volume-style controls and preview text, so liquid rows no longer show the fertilizer card that explains `จำนวน x ปริมาณต่อจำนวน = kg`.
+- Calculation behavior: liquid fertilizer rows now resolve to `EF ทั่วไป` instead of `ปุ๋ย / CFP Simple`, and the single-row preparation modal shows them as `ปุ๋ยน้ำ` with volume presets (`L` / `m3`) instead of sack `kg` shortcuts.
+- Backend behavior: `backend/src/modules/activities/activities.service.ts` now mirrors the same liquid-fertilizer detection so the actual Carbon Footprint calculation does not fall back to `fertilizer_n2o` for rows prepared as `liquid_fertilizer` or rows still carrying liquid units.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` and `backend/src/modules/activities/activities.service.ts`.
+- Verification: `npm run build --workspace=backend` and `npm run build --workspace=frontend` passed.
+- Limitation: this change stops new liquid-fertilizer rows from being auto-forced into sack/kg preparation, but it does not retroactively reclassify already prepared historical rows until those rows are edited or prepared again.

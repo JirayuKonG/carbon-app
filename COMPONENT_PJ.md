@@ -1,6 +1,6 @@
 # Project Component Map
 
-Last updated: 2026-06-15
+Last updated: 2026-06-16
 
 Use this file to quickly find where a page, component, layout element, or related API code lives.
 
@@ -29,7 +29,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | `CARBON ANALYTICS` | `ข้อมูลสรุปคาร์บอนเครดิต`, `ข้อมูลสรุปคาร์บอนฟุตพริ้นท์`, `แผนที่พื้นที่` | `ข้อมูลสรุปคาร์บอนเครดิต` expands to `คาร์บอนเครดิต` and `รายงาน Premium T-VER`; `ข้อมูลสรุปคาร์บอนฟุตพริ้นท์` expands to `คาร์บอนฟุตพริ้นท์` and `รายงานคาร์บอนฟุตพริ้นท์`. |
 | `CARBON` | `บันทึกกิจกรรม`, `คำนวณ Carbon` | `บันทึกกิจกรรม` expands to `จัดการกิจกรรม` and `รายการบันทึกกิจกรรม`; `คำนวณ Carbon` expands to `เตรียมข้อมูล Carbon`, `สรุปการใช้ปัจจัย`, `Carbon Footprint`, and `Carbon Credit`. |
 | `ข้อมูลเกษตรกร` | `จัดการเกษตรกร`, `พื้นที่เพาะปลูก`, `ข้อมูลสภาพอากาศ` | Farmer and land-related operational pages. |
-| `ตั้งค่าระบบ` | `พื้นที่ในประเทศไทย`, `โรงงาน / บริการ`, `จัดการผู้ใช้`, `EF / GWP / หน่วย`, `ปุ๋ย / น้ำมัน` | System reference data, user management, and activity-resource setup pages. |
+| `ตั้งค่าระบบ` | `พื้นที่ในประเทศไทย`, `โรงงาน / บริการ`, `จัดการผู้ใช้`, `EF / GWP / หน่วย`, `กิจกรรมหลัก / กิจกรรมย่อย`, `ปุ๋ย / น้ำมัน` | System reference data, user management, activity-type mapping, and activity-resource setup pages. |
 
 ## Shared UI Components
 
@@ -75,10 +75,11 @@ Use this file to quickly find where a page, component, layout element, or relate
 | `/farmers` | `frontend/src/features/farmers/FarmersPage.tsx` | Farmer records. |
 | `/lands` | `frontend/src/features/lands/LandsPage.tsx` | Lands, camp groups, camps, landmaps, grouped land form, geo-assisted location selection, activity-operation badges with production-year filtering, a bulk subdistrict-management panel for updating many selected lands at once, and a camp-group assignment panel for filtering/grouping camps in bulk. |
 | `/lands/weather` | `frontend/src/features/weather/WeatherPage.tsx` | Weather station records and CSV import. |
-| `/emission-factors` | `frontend/src/features/emission-factors/EmissionFactorsPage.tsx` | Emission factors, GWP, units, and reference data. |
+| `/emission-factors` | `frontend/src/features/emission-factors/EmissionFactorsPage.tsx` | Emission factors, GWP, units, reference data, row-level favorites for EF/GWP/Unit, and a `รายการโปรด` tab that shows saved favorites from browser local storage. |
 | `/activities` | `frontend/src/App.tsx` | Redirects to `/activities/logs`. |
 | `/activities/logs` | `frontend/src/features/activities/ActivityLogListPage.tsx` | Daily-use list for `log_activities_detail` with production-year filters and add/edit/delete. |
-| `/activities/resources` | `frontend/src/features/activities/ActivityResourcesPage.tsx` | Read-only activity resource reference lists for fertilizers, chemicals, and equipments. |
+| `/activities/resources` | `frontend/src/features/activities/ActivityResourcesPage.tsx` | Activity resource master-data page for fertilizers, fuels/equipments, chemicals, and other resource items, with type filters, add/edit/delete modals, and explicit destination selection when creating new items. |
+| `/activities/types` | `frontend/src/features/activities/ActivityTypesPage.tsx` | Activity master-data page for `activities_header_type`, `activities_header_detail_type`, and the one-parent mapping from activity detail type to activity header type, with usage counts and guarded deletes. |
 | `/activities/manage` | `frontend/src/features/activities/ActivitiesPage.tsx` | Advanced activity management page with headers, activity CSV import including production year, workflow tools, and imported-file history. |
 | `/activities/logs/new` | `frontend/src/App.tsx` | Redirect helper that preserves the query string and sends users to `/activities/manage`. |
 
@@ -102,7 +103,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Lands | `backend/src/modules/lands/*` | `/api/lands` including camp-group CRUD at `/api/lands/camp-groups`, bulk camp-group assignment at `/api/lands/camps/bulk-group`, and the bulk subdistrict update endpoint `/api/lands/bulk/subdistrict`. |
 | Weather | `backend/src/modules/weather/*` | `/api/lands/weather` |
 | Emission factors | `backend/src/modules/emission-factors/*` | `/api/emission-factors` |
-| Activities | `backend/src/modules/activities/*` | `/api/activities` including headers/details, production-year reference endpoints `/api/activities/product-years`, CSV import, import-history endpoints, input usage summary `/api/activities/input-usage-summary`, and carbon queue endpoints such as `/api/activities/carbon-process-queue`. |
+| Activities | `backend/src/modules/activities/*` | `/api/activities` including headers/details, activity type CRUD at `/api/activities/header-types` and `/api/activities/detail-types`, production-year reference endpoints `/api/activities/product-years`, CSV import, import-history endpoints, input usage summary `/api/activities/input-usage-summary`, and carbon queue endpoints such as `/api/activities/carbon-process-queue`. |
 | Prisma database access | `backend/src/modules/prisma/*` | Used by all backend services. |
 
 ## Database And Schema
@@ -131,6 +132,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Where is weather manual/import page? | `frontend/src/features/weather/WeatherPage.tsx` |
 | Where is the activity log page? | `frontend/src/features/activities/ActivityLogListPage.tsx` |
 | Where is the advanced activity management page? | `frontend/src/features/activities/ActivitiesPage.tsx` |
+| Where are activity main/sub type mappings managed? | `frontend/src/features/activities/ActivityTypesPage.tsx`; backend CRUD lives in `backend/src/modules/activities/activities.service.ts`. |
 | Where is the bulk subdistrict tool for lands? | `frontend/src/features/lands/LandsPage.tsx`; backend update endpoint is `backend/src/modules/lands/lands.service.ts`. |
 | Where are `/lands/camps` and `/lands/camp-groups` routes handled? | `backend/src/modules/lands/lands.controller.ts` |
 | Where is PostgreSQL/Prisma schema? | `backend/src/prisma/schema.prisma` |
