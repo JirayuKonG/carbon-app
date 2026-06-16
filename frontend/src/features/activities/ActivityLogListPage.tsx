@@ -6,7 +6,7 @@ import { Column, DataTable } from '@/components/ui/DataTable'
 import { DashboardVisibilityMenu, useDashboardVisibility } from '@/components/ui/DashboardVisibilityMenu'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
-import { getActivityCalStatusBadgeClass, getActivityCalStatusKind, getActivityCalStatusLabel } from '@/features/activities/cal-status'
+import { ACTIVITY_CAL_STATUS_NAMES, getActivityCalStatusBadgeClass, getActivityCalStatusKind, getActivityCalStatusLabel } from '@/features/activities/cal-status'
 import { del, get, post, put } from '@/lib/api'
 import { formatBangkokDate } from '@/lib/datetime'
 
@@ -518,17 +518,19 @@ export function ActivityLogListPage() {
   const preparingCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'preparing').length
   const readyCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'ready').length
   const standardDoneCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'standardDone').length
+  const creditDoneCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'creditDone').length
   const standardCfpDoneCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'cfpDone').length
   const errorCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'error').length
 
   const dashboardOptions = [
     { key: 'total', label: 'รายการทั้งหมด' },
-    { key: 'imported', label: 'นำเข้าข้อมูลแล้ว' },
-    { key: 'preparing', label: 'กำลังเตรียมข้อมูล' },
-    { key: 'ready', label: 'พร้อมคำนวณมาตรฐาน' },
-    { key: 'standardDone', label: 'คำนวณแล้ว(มาตรฐาน)' },
-    { key: 'cfpDone', label: 'คำนวณแล้ว(มาตรฐาน,C-credit)' },
-    { key: 'error', label: 'คำนวณผิดพลาด' },
+    { key: 'imported', label: ACTIVITY_CAL_STATUS_NAMES.imported },
+    { key: 'preparing', label: ACTIVITY_CAL_STATUS_NAMES.preparing },
+    { key: 'ready', label: ACTIVITY_CAL_STATUS_NAMES.ready },
+    { key: 'standardDone', label: ACTIVITY_CAL_STATUS_NAMES.standardDone },
+    { key: 'creditDone', label: ACTIVITY_CAL_STATUS_NAMES.creditDone },
+    { key: 'cfpDone', label: ACTIVITY_CAL_STATUS_NAMES.cfpDone },
+    { key: 'error', label: ACTIVITY_CAL_STATUS_NAMES.error },
   ]
 
   const {
@@ -566,28 +568,35 @@ export function ActivityLogListPage() {
     },
     {
       key: 'ready',
-      label: 'พร้อมคำนวณมาตรฐาน',
+      label: ACTIVITY_CAL_STATUS_NAMES.ready,
       icon: <Clock3 size={14} className="text-accent-500" />,
       value: readyCount,
       valueClassName: 'stat-value text-accent-600',
     },
     {
       key: 'standardDone',
-      label: 'คำนวณแล้ว(มาตรฐาน)',
+      label: ACTIVITY_CAL_STATUS_NAMES.standardDone,
       icon: <CheckCircle2 size={14} className="text-primary-500" />,
       value: standardDoneCount,
       valueClassName: 'stat-value text-primary-700',
     },
     {
+      key: 'creditDone',
+      label: ACTIVITY_CAL_STATUS_NAMES.creditDone,
+      icon: <CheckCircle2 size={14} className="text-purple-600" />,
+      value: creditDoneCount,
+      valueClassName: 'stat-value text-purple-700',
+    },
+    {
       key: 'cfpDone',
-      label: 'คำนวณแล้ว(มาตรฐาน,C-credit)',
+      label: ACTIVITY_CAL_STATUS_NAMES.cfpDone,
       icon: <CheckCircle2 size={14} className="text-cyan-600" />,
       value: standardCfpDoneCount,
       valueClassName: 'stat-value text-cyan-700',
     },
     {
       key: 'error',
-      label: 'คำนวณผิดพลาด',
+      label: ACTIVITY_CAL_STATUS_NAMES.error,
       icon: <CircleAlert size={14} className="text-red-500" />,
       value: errorCount,
       valueClassName: 'stat-value text-red-700',
@@ -756,7 +765,7 @@ export function ActivityLogListPage() {
               <div className="min-w-40">
                 <label className="label">การคำนวณ</label>
                 <div className="rounded-lg border border-surface-200 bg-surface-50 px-3 py-2 text-xs text-surface-600">
-                  ใช้เมนู <span className="font-medium text-primary-700">คำนวณ Carbon</span> สำหรับคำนวณมาตรฐานและ C-credit
+                  ใช้เมนู <span className="font-medium text-primary-700">คำนวณ Carbon</span> สำหรับคำนวณ CFP และ C-credit
                 </div>
               </div>
             </div>

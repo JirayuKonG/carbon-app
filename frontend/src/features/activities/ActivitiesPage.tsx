@@ -6,7 +6,7 @@ import { CsvMappingWizard, TargetColumn, ColumnMapping, type CsvImportHelpers } 
 import { DashboardVisibilityMenu, useDashboardVisibility } from '@/components/ui/DashboardVisibilityMenu'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
-import { getActivityCalStatusBadgeClass, getActivityCalStatusKind, getActivityCalStatusLabel } from '@/features/activities/cal-status'
+import { ACTIVITY_CAL_STATUS_NAMES, getActivityCalStatusBadgeClass, getActivityCalStatusKind, getActivityCalStatusLabel } from '@/features/activities/cal-status'
 import { del, get, post, put } from '@/lib/api'
 import { formatBangkokDate, formatBangkokDateKey, formatBangkokDateTime, formatBangkokDateTimeLocal } from '@/lib/datetime'
 import { ActivitySquare, Upload, Plus, Calculator, Leaf, Edit, Trash2, ChevronDown, ChevronUp, CheckCircle2, Clock3, CircleAlert } from 'lucide-react'
@@ -1052,6 +1052,7 @@ export function ActivitiesPage() {
   const preparingCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'preparing').length
   const readyCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'ready').length
   const standardDoneCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'standardDone').length
+  const creditDoneCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'creditDone').length
   const standardCfpDoneCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'cfpDone').length
   const errorCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'error').length
   const totalLogRecords = details.length
@@ -1061,12 +1062,13 @@ export function ActivitiesPage() {
     { key: 'total', label: 'หัวข้อกิจกรรมทั้งหมด' },
     { key: 'totalLogs', label: 'บันทึกกิจกรรมทั้งหมด' },
     { key: 'importFiles', label: 'ไฟล์ที่นำเข้าแล้ว' },
-    { key: 'imported', label: 'นำเข้าข้อมูลแล้ว' },
-    { key: 'preparing', label: 'กำลังเตรียมข้อมูล' },
-    { key: 'ready', label: 'พร้อมคำนวณมาตรฐาน' },
-    { key: 'standardDone', label: 'คำนวณแล้ว(มาตรฐาน)' },
-    { key: 'cfpDone', label: 'คำนวณแล้ว(มาตรฐาน,C-credit)' },
-    { key: 'error', label: 'คำนวณผิดพลาด' },
+    { key: 'imported', label: ACTIVITY_CAL_STATUS_NAMES.imported },
+    { key: 'preparing', label: ACTIVITY_CAL_STATUS_NAMES.preparing },
+    { key: 'ready', label: ACTIVITY_CAL_STATUS_NAMES.ready },
+    { key: 'standardDone', label: ACTIVITY_CAL_STATUS_NAMES.standardDone },
+    { key: 'creditDone', label: ACTIVITY_CAL_STATUS_NAMES.creditDone },
+    { key: 'cfpDone', label: ACTIVITY_CAL_STATUS_NAMES.cfpDone },
+    { key: 'error', label: ACTIVITY_CAL_STATUS_NAMES.error },
   ]
 
   const {
@@ -1118,28 +1120,35 @@ export function ActivitiesPage() {
     },
     {
       key: 'ready',
-      label: 'พร้อมคำนวณมาตรฐาน',
+      label: ACTIVITY_CAL_STATUS_NAMES.ready,
       icon: <Clock3 size={14} className="text-accent-500" />,
       value: readyCount,
       valueClassName: 'stat-value text-accent-600',
     },
     {
       key: 'standardDone',
-      label: 'คำนวณแล้ว(มาตรฐาน)',
+      label: ACTIVITY_CAL_STATUS_NAMES.standardDone,
       icon: <CheckCircle2 size={14} className="text-primary-500" />,
       value: standardDoneCount,
       valueClassName: 'stat-value text-primary-700',
     },
     {
+      key: 'creditDone',
+      label: ACTIVITY_CAL_STATUS_NAMES.creditDone,
+      icon: <CheckCircle2 size={14} className="text-purple-600" />,
+      value: creditDoneCount,
+      valueClassName: 'stat-value text-purple-700',
+    },
+    {
       key: 'cfpDone',
-      label: 'คำนวณแล้ว(มาตรฐาน,C-credit)',
+      label: ACTIVITY_CAL_STATUS_NAMES.cfpDone,
       icon: <Leaf size={14} className="text-cyan-600" />,
       value: standardCfpDoneCount,
       valueClassName: 'stat-value text-cyan-700',
     },
     {
       key: 'error',
-      label: 'คำนวณผิดพลาด',
+      label: ACTIVITY_CAL_STATUS_NAMES.error,
       icon: <CircleAlert size={14} className="text-red-500" />,
       value: errorCount,
       valueClassName: 'stat-value text-red-700',

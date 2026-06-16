@@ -658,3 +658,18 @@ After finishing work from a user prompt:
 - Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` and `backend/src/modules/activities/activities.service.ts`.
 - Verification: `npm run build --workspace=backend` and `npm run build --workspace=frontend` passed.
 - Limitation: this change stops new liquid-fertilizer rows from being auto-forced into sack/kg preparation, but it does not retroactively reclassify already prepared historical rows until those rows are edited or prepared again.
+
+## Recent Calculation Status Rename Alignment Update - 2026-06-16
+
+- Prompt summary: the user shared updated `log_act_detail_calStatus` names from the live database and asked to align frontend and backend behavior with the newer labels.
+- Result: the app now treats the renamed statuses as:
+  - `id 1` -> `คำนวณแล้ว(CFP)`
+  - `id 2` -> `พร้อมคำนวณ`
+  - `id 3` -> `คำนวณแล้ว(CFP,C-credit)`
+  - `id 7` -> `คำนวณแล้ว(C-credit)`
+- Frontend behavior: `frontend/src/features/activities/cal-status.ts` now recognizes both old and new status names, maps fallback IDs correctly, and adds a separate `creditDone` status kind for `คำนวณแล้ว(C-credit)` instead of merging it into the combined done state. Dashboard cards and status filters on the activity pages, Carbon preparation page, Carbon Footprint queue page, and Carbon Credit page now show the new labels.
+- Backend behavior: `backend/src/modules/activities/activities.service.ts` and `backend/src/modules/activities/activities.controller.ts` now use the new canonical names for ready/CFP/C-credit statuses, accept the legacy names as aliases for compatibility, and allow manual status operations to include the new standalone `C-credit` done state.
+- Source of truth: `frontend/src/features/activities/cal-status.ts`, `frontend/src/features/activities/ActivitiesPage.tsx`, `frontend/src/features/activities/ActivityLogListPage.tsx`, `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx`, `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`, `frontend/src/features/cf-dashboard/pages/CarbonCreditPage.tsx`, `backend/src/modules/activities/activities.service.ts`, and `backend/src/modules/activities/activities.controller.ts`.
+- Verification: `npm run build --workspace=backend` and `npm run build --workspace=frontend` passed.
+- Assumption kept intentionally: the code still treats `คำนวณผิดพลาด` as the canonical error label, but now also accepts the typo variant `คำนวณผิดผลาด` as an alias in case that text exists in live data.
+- Related docs updated: `CONTEXT.md` updated for project memory. `COMPONENT_PJ.md` and `BUG_LOG.md` did not need changes for this status-label alignment task.

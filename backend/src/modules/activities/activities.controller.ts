@@ -41,11 +41,11 @@ export class ActivitiesController {
   @Get('input-usage-summary') getInputUsageSummary() { return this.svc.getInputUsageSummary() }
   @Post('details') createDetail(@Body() b: any) { return this.svc.createDetail(b) }
   @Post('details/workflow-status/bulk')
-  moveDetailsToWorkflowStatusBulk(@Body() b: { ids: number[]; statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' }) {
+  moveDetailsToWorkflowStatusBulk(@Body() b: { ids: number[]; statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณ' }) {
     return this.svc.moveDetailsToWorkflowStatus(b.ids, b.statusName)
   }
   @Post('details/manual-status/bulk')
-  moveDetailsToManualStatusBulk(@Body() b: { ids: number[]; statusName: 'นำเข้าข้อมูลแล้ว' | 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' | 'คำนวณแล้ว(มาตรฐาน)' }) {
+  moveDetailsToManualStatusBulk(@Body() b: { ids: number[]; statusName: 'นำเข้าข้อมูลแล้ว' | 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณ' | 'คำนวณแล้ว(CFP)' | 'คำนวณแล้ว(C-credit)' | 'คำนวณแล้ว(CFP,C-credit)' }) {
     return this.svc.moveDetailsToManualStatus(b.ids, b.statusName)
   }
   @Post('details/calculate/bulk')
@@ -55,14 +55,14 @@ export class ActivitiesController {
   @Post('details/:id/workflow-status')
   moveDetailToWorkflowStatus(
     @Param('id', ParseIntPipe) id: number,
-    @Body() b: { statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' },
+    @Body() b: { statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณ' },
   ) {
     return this.svc.moveDetailToWorkflowStatus(id, b.statusName)
   }
   @Post('details/:id/manual-status')
   moveDetailToManualStatus(
     @Param('id', ParseIntPipe) id: number,
-    @Body() b: { statusName: 'นำเข้าข้อมูลแล้ว' | 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' | 'คำนวณแล้ว(มาตรฐาน)' },
+    @Body() b: { statusName: 'นำเข้าข้อมูลแล้ว' | 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณ' | 'คำนวณแล้ว(CFP)' | 'คำนวณแล้ว(C-credit)' | 'คำนวณแล้ว(CFP,C-credit)' },
   ) {
     return this.svc.moveDetailToManualStatus(id, b.statusName)
   }

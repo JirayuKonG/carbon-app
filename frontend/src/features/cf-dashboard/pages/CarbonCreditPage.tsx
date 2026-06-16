@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { Calculator, Droplets, Layers, Leaf, MapPin, Sprout, Tractor } from 'lucide-react'
 import { DataTable, type Column } from '@/components/ui/DataTable'
-import { getActivityCalStatusKind } from '@/features/activities/cal-status'
+import { ACTIVITY_CAL_STATUS_NAMES, getActivityCalStatusKind } from '@/features/activities/cal-status'
 import { get } from '@/lib/api'
 import '../cf-dashboard.css'
 
@@ -182,7 +182,7 @@ export function CarbonCreditPage() {
   ), [readyDetails])
 
   const validationMessage = useMemo(() => {
-    if (!availableYears.length) return 'ยังไม่มีข้อมูลกิจกรรมสถานะพร้อมคำนวณมาตรฐานที่มีปีการผลิตสำหรับใช้คำนวณ Carbon Credit'
+    if (!availableYears.length) return `ยังไม่มีข้อมูลกิจกรรมสถานะ ${ACTIVITY_CAL_STATUS_NAMES.ready} ที่มีปีการผลิตสำหรับใช้คำนวณ Carbon Credit`
 
     const missingKey = (Object.keys(selections) as SelectionKey[]).find((key) => !selections[key])
     if (missingKey) return `กรุณาเลือก ${SELECTION_LABELS[missingKey]} ให้ครบทั้ง 5 ส่วน`
@@ -448,7 +448,7 @@ export function CarbonCreditPage() {
           <div className="page-header mb-0">
             <div>
               <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold text-surface-900"><Leaf size={20} className="text-primary-600 shrink-0" /> Carbon Credit</h1>
-              <p className="page-subtitle">ใช้เฉพาะข้อมูลสถานะพร้อมคำนวณมาตรฐาน เพื่อเลือกปีฐานการผลิต 4 ส่วนและปีการผลิตโครงการ 1 ส่วนสำหรับเปรียบเทียบรายแปลง</p>
+              <p className="page-subtitle">{`ใช้เฉพาะข้อมูลสถานะ ${ACTIVITY_CAL_STATUS_NAMES.ready} เพื่อเลือกปีฐานการผลิต 4 ส่วนและปีการผลิตโครงการ 1 ส่วนสำหรับเปรียบเทียบรายแปลง`}</p>
             </div>
             <div className="source-badge w-full justify-start md:w-auto md:justify-end">
               <span>Ready Only</span>

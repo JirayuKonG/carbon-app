@@ -7,9 +7,10 @@ export interface ColumnMapping { targetKey: string; sourceKey: string | null }
 const CAL_STATUS_NAMES = {
   imported: 'นำเข้าข้อมูลแล้ว',
   preparing: 'กำลังเตรียมข้อมูล',
-  ready: 'พร้อมคำนวณมาตรฐาน',
-  standardDone: 'คำนวณแล้ว(มาตรฐาน)',
-  cfpDone: 'คำนวณแล้ว(มาตรฐาน,C-credit)',
+  ready: 'พร้อมคำนวณ',
+  standardDone: 'คำนวณแล้ว(CFP)',
+  creditDone: 'คำนวณแล้ว(C-credit)',
+  cfpDone: 'คำนวณแล้ว(CFP,C-credit)',
   error: 'คำนวณผิดพลาด',
 } as const
 
@@ -625,9 +626,11 @@ export class ActivitiesService {
     })
 
     const legacyAliases: Partial<Record<CalStatusName, string[]>> = {
-      [CAL_STATUS_NAMES.ready]: ['ยังไม่คำนวณ/รอการคำนวณมาตรฐาน', 'รอคำนวณค่ามาตรฐาน'],
-      [CAL_STATUS_NAMES.cfpDone]: ['คำนวณแล้ว(มาตรฐาน,CFP)', 'คำนวณแล้ว(มาตรฐาน+CFP)'],
-      [CAL_STATUS_NAMES.error]: ['ผิดพลาด'],
+      [CAL_STATUS_NAMES.ready]: ['พร้อมคำนวณมาตรฐาน', 'ยังไม่คำนวณ/รอการคำนวณมาตรฐาน', 'รอคำนวณค่ามาตรฐาน'],
+      [CAL_STATUS_NAMES.standardDone]: ['คำนวณแล้ว(มาตรฐาน)'],
+      [CAL_STATUS_NAMES.creditDone]: ['คำนวณแล้ว(มาตรฐาน,CFP)', 'คำนวณแล้ว(มาตรฐาน+CFP)'],
+      [CAL_STATUS_NAMES.cfpDone]: ['คำนวณแล้ว(มาตรฐาน,C-credit)'],
+      [CAL_STATUS_NAMES.error]: ['ผิดพลาด', 'คำนวณผิดผลาด'],
     }
 
     const map: Record<CalStatusName, number> = {} as Record<CalStatusName, number>
@@ -738,6 +741,7 @@ export class ActivitiesService {
         currentStatusName === CAL_STATUS_NAMES.imported
         || currentStatusName === CAL_STATUS_NAMES.ready
         || currentStatusName === CAL_STATUS_NAMES.standardDone
+        || currentStatusName === CAL_STATUS_NAMES.creditDone
         || currentStatusName === CAL_STATUS_NAMES.cfpDone
         || currentStatusName === CAL_STATUS_NAMES.error
       )
@@ -759,6 +763,7 @@ export class ActivitiesService {
       return (
         currentStatusName === CAL_STATUS_NAMES.preparing
         || currentStatusName === CAL_STATUS_NAMES.ready
+        || currentStatusName === CAL_STATUS_NAMES.creditDone
         || currentStatusName === CAL_STATUS_NAMES.error
       )
     }
@@ -766,6 +771,23 @@ export class ActivitiesService {
     if (nextStatusName === CAL_STATUS_NAMES.standardDone) {
       return (
         currentStatusName === CAL_STATUS_NAMES.ready
+        || currentStatusName === CAL_STATUS_NAMES.creditDone
+        || currentStatusName === CAL_STATUS_NAMES.standardDone
+        || currentStatusName === CAL_STATUS_NAMES.cfpDone
+      )
+    }
+
+    if (nextStatusName === CAL_STATUS_NAMES.creditDone) {
+      return (
+        currentStatusName === CAL_STATUS_NAMES.standardDone
+        || currentStatusName === CAL_STATUS_NAMES.cfpDone
+      )
+    }
+
+    if (nextStatusName === CAL_STATUS_NAMES.cfpDone) {
+      return (
+        currentStatusName === CAL_STATUS_NAMES.standardDone
+        || currentStatusName === CAL_STATUS_NAMES.creditDone
         || currentStatusName === CAL_STATUS_NAMES.cfpDone
       )
     }
@@ -885,7 +907,9 @@ export class ActivitiesService {
       | typeof CAL_STATUS_NAMES.imported
       | typeof CAL_STATUS_NAMES.preparing
       | typeof CAL_STATUS_NAMES.ready
-      | typeof CAL_STATUS_NAMES.standardDone,
+      | typeof CAL_STATUS_NAMES.standardDone
+      | typeof CAL_STATUS_NAMES.creditDone
+      | typeof CAL_STATUS_NAMES.cfpDone,
     statusId: number,
     tx: any = this.prisma,
   ) {
@@ -978,7 +1002,9 @@ export class ActivitiesService {
       | typeof CAL_STATUS_NAMES.imported
       | typeof CAL_STATUS_NAMES.preparing
       | typeof CAL_STATUS_NAMES.ready
-      | typeof CAL_STATUS_NAMES.standardDone,
+      | typeof CAL_STATUS_NAMES.standardDone
+      | typeof CAL_STATUS_NAMES.creditDone
+      | typeof CAL_STATUS_NAMES.cfpDone,
     transitionMode: 'workflow' | 'manual',
   ) {
     if (!ids.length) throw new BadRequestException('No detail IDs provided')
@@ -1744,7 +1770,9 @@ export class ActivitiesService {
       | typeof CAL_STATUS_NAMES.imported
       | typeof CAL_STATUS_NAMES.preparing
       | typeof CAL_STATUS_NAMES.ready
-      | typeof CAL_STATUS_NAMES.standardDone,
+      | typeof CAL_STATUS_NAMES.standardDone
+      | typeof CAL_STATUS_NAMES.creditDone
+      | typeof CAL_STATUS_NAMES.cfpDone,
   ) {
     const detail = await this.getDetailForWorkflow(id)
     const currentStatusName = this.getDetailStatusName(detail)
@@ -1779,7 +1807,9 @@ export class ActivitiesService {
       | typeof CAL_STATUS_NAMES.imported
       | typeof CAL_STATUS_NAMES.preparing
       | typeof CAL_STATUS_NAMES.ready
-      | typeof CAL_STATUS_NAMES.standardDone,
+      | typeof CAL_STATUS_NAMES.standardDone
+      | typeof CAL_STATUS_NAMES.creditDone
+      | typeof CAL_STATUS_NAMES.cfpDone,
   ) {
     return this.moveDetailsToStatusBulk(ids, statusName, 'manual')
   }
@@ -1789,15 +1819,16 @@ export class ActivitiesService {
     const currentStatusName = this.getDetailStatusName(detail)
 
     if (calcMode === 'standard' && currentStatusName !== CAL_STATUS_NAMES.ready) {
-      throw new BadRequestException(`Detail ${id} must be "${CAL_STATUS_NAMES.ready}" before standard calculation`)
+      throw new BadRequestException(`Detail ${id} must be "${CAL_STATUS_NAMES.ready}" before CFP calculation`)
     }
 
     if (
       calcMode === 'tver'
       && currentStatusName !== CAL_STATUS_NAMES.standardDone
+      && currentStatusName !== CAL_STATUS_NAMES.creditDone
       && currentStatusName !== CAL_STATUS_NAMES.cfpDone
     ) {
-      throw new BadRequestException(`Detail ${id} must be "${CAL_STATUS_NAMES.standardDone}" before CFP calculation`)
+      throw new BadRequestException(`Detail ${id} must be "${CAL_STATUS_NAMES.standardDone}" before C-credit calculation`)
     }
 
     return this.triggerCalc(

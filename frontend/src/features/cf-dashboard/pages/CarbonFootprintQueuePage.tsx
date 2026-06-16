@@ -1549,7 +1549,7 @@ export function CarbonFootprintQueuePage({
 
   const scopedRows = isPreparationMode
     ? rows
-    : rows.filter((row) => ['ready', 'standardDone', 'cfpDone', 'error'].includes(row.statusKind))
+    : rows.filter((row) => ['ready', 'standardDone', 'creditDone', 'cfpDone', 'error'].includes(row.statusKind))
 
   const selectedResourceTypeRows = resourceTypeFilter
     ? scopedRows.filter((row) => row.resourceTypeId === resourceTypeFilter)
@@ -2445,7 +2445,7 @@ export function CarbonFootprintQueuePage({
           kind: 'loading',
           current: items.length,
           total: items.length,
-          currentLabel: 'กำลังย้ายสถานะเป็น พร้อมคำนวณมาตรฐาน',
+          currentLabel: `กำลังย้ายสถานะเป็น ${ACTIVITY_CAL_STATUS_NAMES.ready}`,
         })
 
         try {
@@ -2455,7 +2455,7 @@ export function CarbonFootprintQueuePage({
               : post('/activities/details/manual-status/bulk', { ids: detailIds, statusName: ACTIVITY_CAL_STATUS_NAMES.ready }, { timeout: 10 * 60_000 })
           )
         } catch (error) {
-          throw new Error(`บันทึกการเตรียมข้อมูลสำเร็จแล้ว แต่ย้ายสถานะเป็น พร้อมคำนวณมาตรฐาน ไม่สำเร็จ - ${getErrorMessage(error)}`)
+          throw new Error(`บันทึกการเตรียมข้อมูลสำเร็จแล้ว แต่ย้ายสถานะเป็น ${ACTIVITY_CAL_STATUS_NAMES.ready} ไม่สำเร็จ - ${getErrorMessage(error)}`)
         }
       }
 
@@ -3102,7 +3102,7 @@ export function CarbonFootprintQueuePage({
               </h1>
               <p className={`page-subtitle ${isEmbeddedPreparationSection ? 'text-[#6d5a31]' : ''}`}>
                 {isPreparationMode
-                  ? 'จัดการคิวเตรียมข้อมูล Carbon ปรับหน่วย ปริมาณ และตรวจสอบความพร้อมก่อนเปลี่ยนเป็น พร้อมคำนวณมาตรฐาน'
+                  ? `จัดการคิวเตรียมข้อมูล Carbon ปรับหน่วย ปริมาณ และตรวจสอบความพร้อมก่อนเปลี่ยนเป็น ${ACTIVITY_CAL_STATUS_NAMES.ready}`
                   : 'คำนวณจากคิวที่พร้อม แสดงผลที่คำนวณแล้ว และติดตามรายการที่ผิดพลาดเพื่อ retry ได้'}
               </p>
             </div>
@@ -3125,7 +3125,7 @@ export function CarbonFootprintQueuePage({
               <h2 className="text-sm font-semibold">{isPreparationMode ? 'ตารางคิวเตรียมข้อมูล Carbon' : 'ตาราง Carbon Footprint Ready Queue'}</h2>
               <p className={`mt-1 text-xs ${isEmbeddedPreparationSection ? 'text-[#6d5a31]' : 'text-surface-500'}`}>
                 {isPreparationMode
-                  ? 'ปรับข้อมูลให้อยู่ในหน่วยกลาง และยืนยันความพร้อมก่อนเปลี่ยนเป็น พร้อมคำนวณมาตรฐาน'
+                  ? `ปรับข้อมูลให้อยู่ในหน่วยกลาง และยืนยันความพร้อมก่อนเปลี่ยนเป็น ${ACTIVITY_CAL_STATUS_NAMES.ready}`
                   : 'หน้า Carbon Footprint ใช้รายการที่พร้อมคำนวณ พร้อมผลลัพธ์และข้อผิดพลาดจากการประมวลผลล่าสุด'}
               </p>
             </div>
@@ -3332,10 +3332,11 @@ export function CarbonFootprintQueuePage({
                 <select className="select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
                   <option value="">ทั้งหมด</option>
                   {isPreparationMode && <option value="preparing">กำลังเตรียมข้อมูล</option>}
-                  <option value="ready">พร้อมคำนวณมาตรฐาน</option>
-                  <option value="standardDone">คำนวณแล้ว(มาตรฐาน)</option>
-                  <option value="cfpDone">คำนวณแล้ว(มาตรฐาน,C-credit)</option>
-                  <option value="error">คำนวณผิดพลาด</option>
+                  <option value="ready">{ACTIVITY_CAL_STATUS_NAMES.ready}</option>
+                  <option value="standardDone">{ACTIVITY_CAL_STATUS_NAMES.standardDone}</option>
+                  <option value="creditDone">{ACTIVITY_CAL_STATUS_NAMES.creditDone}</option>
+                  <option value="cfpDone">{ACTIVITY_CAL_STATUS_NAMES.cfpDone}</option>
+                  <option value="error">{ACTIVITY_CAL_STATUS_NAMES.error}</option>
                 </select>
               </div>
               <div>
@@ -3405,7 +3406,7 @@ export function CarbonFootprintQueuePage({
             isLoading={isLoading}
             rowKey={(row) => row.id}
             searchPlaceholder="ค้นหาแคมป์ แปลง รายการปัจจัย หรือสถานะ..."
-            emptyMessage={isPreparationMode ? 'ไม่พบรายการในคิวเตรียมข้อมูล Carbon' : 'ไม่พบรายการสถานะพร้อมคำนวณมาตรฐานสำหรับ Carbon Footprint'}
+            emptyMessage={isPreparationMode ? 'ไม่พบรายการในคิวเตรียมข้อมูล Carbon' : `ไม่พบรายการสถานะ${ACTIVITY_CAL_STATUS_NAMES.ready}สำหรับ Carbon Footprint`}
             actions={(row) => (
               <div className="flex flex-wrap justify-end gap-1">
                 {isPreparationMode && (
@@ -4914,7 +4915,7 @@ export function CarbonFootprintQueuePage({
                   disabled={bulkPreparationPopup.kind === 'loading'}
                 />
                 <span>
-                  <span className="block font-medium text-surface-900">เสร็จแล้ว ย้ายสถานะเป็น พร้อมคำนวณมาตรฐาน</span>
+                  <span className="block font-medium text-surface-900">เสร็จแล้ว ย้ายสถานะเป็น {ACTIVITY_CAL_STATUS_NAMES.ready}</span>
                   <span className="mt-1 block text-xs text-surface-500">
                     ถ้าไม่ติ๊กไว้ ระบบจะบันทึกการเตรียมข้อมูลอย่างเดียว และคงสถานะเดิมเป็น กำลังเตรียมข้อมูล
                   </span>
@@ -4982,7 +4983,7 @@ export function CarbonFootprintQueuePage({
                         </p>
                         {(bulkPreparationPopup.movedToReadyCount ?? 0) > 0 && (
                           <p className="mt-2 text-sm font-medium text-green-700">
-                            พร้อมย้ายสถานะ {bulkPreparationPopup.movedToReadyCount?.toLocaleString('th-TH')} รายการเป็น พร้อมคำนวณมาตรฐาน แล้ว
+                            พร้อมย้ายสถานะ {bulkPreparationPopup.movedToReadyCount?.toLocaleString('th-TH')} รายการเป็น {ACTIVITY_CAL_STATUS_NAMES.ready} แล้ว
                           </p>
                         )}
                         <div className="mt-4 rounded-2xl border border-[#d9e7f2] bg-white/90 px-4 py-3 shadow-sm">
