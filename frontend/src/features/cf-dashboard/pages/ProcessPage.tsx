@@ -1426,7 +1426,8 @@ export function CfProcessPage() {
             baselineLabel={graphLabelA}
             currentLabel={graphLabelB}
           />
-          <div className="summary-list">
+          <details className="summary-list" style={{ marginTop: "12px" }}>
+            <summary>ดูรายละเอียดรายกระบวนการ</summary>
             {activityChartMode !== "current" && <div><span>{graphLabelA}</span><strong>{formatTco2e(chartBaselineTotal)} {TCO2E_UNIT}</strong></div>}
             {activityChartMode !== "baseline" && <div><span>{graphLabelB}</span><strong>{formatTco2e(chartCurrentTotal)} {TCO2E_UNIT}</strong></div>}
             {activityChartMode === "both" && (
@@ -1437,17 +1438,6 @@ export function CfProcessPage() {
                 </strong>
               </div>
             )}
-          </div>
-          <details className="summary-list" style={{ marginTop: "12px" }} open={activityChartMode === "details"}>
-            <summary>ดูรายละเอียดรายกระบวนการ</summary>
-            {processDetailRows.map((row) => (
-              <div key={`process-detail-${row.process}`}>
-                <span>{row.process}</span>
-                <strong className={row.diff >= 0 ? "green-text" : "red-text"}>
-                  {graphLabelA} {formatTco2e(row.valueA)} / {graphLabelB} {formatTco2e(row.valueB)} {TCO2E_UNIT} · {row.diff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} {formatTco2e(Math.abs(row.diff))} ({Math.abs(row.pct).toFixed(1)}%)
-                </strong>
-              </div>
-            ))}
           </details>
         </section>
 

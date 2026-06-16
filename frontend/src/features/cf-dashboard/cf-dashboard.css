@@ -693,17 +693,17 @@
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 24px;
 }
-.cf-dash .summary-list { display: grid; gap: 8px; margin-top: 12px; }
+.cf-dash .summary-list { display: grid; gap: 16px; margin-top: 12px; }
 .cf-dash .summary-list > div {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 12px 14px;
   background: var(--surface2);
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: 13px;
 }
 .cf-dash .summary-list strong { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .cf-dash .ranked-list > div { align-items: center; }

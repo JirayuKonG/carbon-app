@@ -42,6 +42,51 @@ function wrapGroupedBarLabel(label: string, maxChars = 14, maxRows = 3): string 
   return [...splitRows.slice(0, maxRows - 1), `${splitRows.slice(maxRows - 1).join("").slice(0, maxChars - 3)}...`];
 }
 
+const differencePlugin = {
+  id: "differencePlugin",
+  afterDatasetsDraw(chart: any) {
+    if (chart.config.data.datasets.length !== 2) return;
+    const ctx = chart.ctx;
+    const metaA = chart.getDatasetMeta(0);
+    const metaB = chart.getDatasetMeta(1);
+    if (metaA.hidden || metaB.hidden) return;
+
+    chart.data.labels.forEach((_: any, i: number) => {
+      const barA = metaA.data[i];
+      const barB = metaB.data[i];
+      if (!barA || !barB) return;
+
+      const valA = chart.data.datasets[0].data[i] as number;
+      const valB = chart.data.datasets[1].data[i] as number;
+      if (valA === 0 && valB === 0) return;
+
+      const diff = valB - valA;
+      const diffPercent = valA > 0 ? (diff / valA) * 100 : 0;
+      const isUp = diff > 0;
+      const sign = isUp ? "+" : "";
+
+      const textVal = `${isUp ? "เพิ่ม" : "ลด"} ${Math.abs(diff).toLocaleString(undefined, { maximumFractionDigits: 1 })}`;
+      const textPct = `(${sign}${diffPercent.toFixed(1)}%)`;
+
+      const y = Math.min(barA.y, barB.y) - 6;
+      const x = (barA.x + barB.x) / 2;
+
+      ctx.save();
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      ctx.fillStyle = isUp ? "#DC2626" : "#059669";
+      
+      ctx.font = "bold 11px Inter, sans-serif";
+      ctx.fillText(textVal, x, y - 12);
+      
+      ctx.font = "10px Inter, sans-serif";
+      ctx.fillText(textPct, x, y);
+      
+      ctx.restore();
+    });
+  },
+};
+
 export function ActivityGroupedBar({
   baseline,
   current,
@@ -86,6 +131,7 @@ export function ActivityGroupedBar({
         backgroundColor: chartPalette.project.bg,
         borderColor: chartPalette.project.border,
         borderWidth: 1,
+
       }
       : undefined,
   ].filter((item): item is NonNullable<typeof item> => Boolean(item));
@@ -94,6 +140,7 @@ export function ActivityGroupedBar({
     maintainAspectRatio: false,
     layout: {
       padding: {
+        top: mode === "both" ? 40 : 10,
         bottom: maxLabelRows * 10,
       },
     },
@@ -107,6 +154,10 @@ export function ActivityGroupedBar({
           font: { size: needsScroll ? 11 : 12 },
           padding: 10,
         },
+      },
+      y: {
+        ...chartOptions.scales.y,
+        grace: "20%",
       },
     },
     datasets: {
@@ -126,6 +177,7 @@ export function ActivityGroupedBar({
             datasets,
           }}
           options={groupedBarOptions}
+          plugins={mode === "both" ? [differencePlugin] : []}
         />
       </div>
     </div>
