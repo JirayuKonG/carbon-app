@@ -1138,6 +1138,9 @@ export function CfProcessPage() {
             <div><span>Top fuel</span><strong>{resourceUsage.topFuel}</strong></div>
             <div><span>Organic fertilizer</span><strong>{resourceUsage.organicFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg</strong></div>
             <div><span>Chemical fertilizer</span><strong>{resourceUsage.chemicalFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg</strong></div>
+            {resourceUsage.liquidFertilizerLiter > 0 && (
+              <div><span>Liquid fertilizer</span><strong>{resourceUsage.liquidFertilizerLiter.toLocaleString(undefined, { maximumFractionDigits: 1 })} L</strong></div>
+            )}
             <div><span>Other resource records</span><strong>{resourceUsage.otherRecordCount.toLocaleString()}</strong></div>
           </div>
           {resourceUsage.warnings.length > 0 && (

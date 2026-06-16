@@ -526,6 +526,9 @@ export function CfOverviewPage() {
           <div className="summary-list resource-raw-list">
             <div><span>Resource Consumption source</span><strong><SourceBadge source={inputUsage.source} meta={inputUsage.meta} loading={inputUsage.loading} /></strong></div>
             <div><span>Prepared quantity rows</span><strong>{physicalResourceUsage.sourcePreparedCount.toLocaleString()} / {physicalResourceUsage.recordCount.toLocaleString()}</strong></div>
+            {physicalResourceUsage.liquidFertilizerLiter > 0 && (
+              <div><span>Liquid fertilizer</span><strong>{physicalResourceUsage.liquidFertilizerLiter.toLocaleString(undefined, { maximumFractionDigits: 1 })} L</strong></div>
+            )}
             <div><span>ปุ๋ยเคมี</span><strong>{physicalResourceUsage.chemicalFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg</strong></div>
             <div><span>ปุ๋ยอินทรีย์</span><strong>{physicalResourceUsage.organicFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg</strong></div>
           </div>

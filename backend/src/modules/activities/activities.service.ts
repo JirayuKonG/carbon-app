@@ -1016,6 +1016,15 @@ export class ActivitiesService {
     return /^(sck|sack|sacks|bag|bags)$|กระสอบ|ถุง/.test(unit)
   }
 
+  private isInputUsageLiterUnit(unitLabel: string) {
+    const unit = this.normalizeInputUsageUnitText(unitLabel)
+    const plain = unitLabel.trim().toLowerCase()
+    const lettersOnly = plain.replace(/[^a-z]/g, '')
+    return /^(l|lt|ltr|liter|litre|liters|litres)$|ลิตร/.test(unit)
+      || /^(l|lt|ltr|liter|litre|liters|litres)$/.test(plain)
+      || /^(l|lt|ltr|liter|litre|liters|litres)$/.test(lettersOnly)
+  }
+
   private parseInputUsagePackageKg(text: string) {
     const normalized = text.toLowerCase()
     const direct = normalized.match(/(\d+(?:\.\d+)?)\s*(?:kg|kgs|kilogram|kilograms|กก|กิโลกรัม|กิโล)\s*(?:\/|per)?\s*(?:bag|sack|bags|sacks|ถุง|กระสอบ)/)
@@ -1092,11 +1101,12 @@ export class ActivitiesService {
       if (/kg|กก|กิโลกรัม|กิโล/.test(unit)) return { amount: this.roundUsageValue(amount), unit: 'kg', warning: null as string | null }
       if (/ตัน|ton|tonne/.test(unit)) return { amount: this.roundUsageValue(amount * 1000), unit: 'kg', warning: null as string | null }
       if (/กรัม|gram|^g$/.test(unit)) return { amount: this.roundUsageValue(amount / 1000), unit: 'kg', warning: null as string | null }
+      if (this.isInputUsageLiterUnit(unitLabel)) return { amount: this.roundUsageValue(amount), unit: 'L', warning: null as string | null }
       return { amount: 0, unit: 'kg', warning: `ไม่สามารถแปลงหน่วย "${unitLabel}" เป็น kg` }
     }
 
     if (bucket === 'fuel') {
-      if (/^(l|liter|litre)$|ลิตร/.test(unit)) return { amount: this.roundUsageValue(amount), unit: 'L', warning: null as string | null }
+      if (this.isInputUsageLiterUnit(unitLabel)) return { amount: this.roundUsageValue(amount), unit: 'L', warning: null as string | null }
       if (/ml|มล|มิลลิลิตร|cc|ซีซี/.test(unit)) return { amount: this.roundUsageValue(amount / 1000), unit: 'L', warning: null as string | null }
       if (/m3|ลบ\.?ม|ลูกบาศก์เมตร/.test(unit)) return { amount: this.roundUsageValue(amount * 1000), unit: 'L', warning: null as string | null }
       return { amount: 0, unit: 'L', warning: `ไม่สามารถแปลงหน่วย "${unitLabel}" เป็น L` }
@@ -1205,7 +1215,7 @@ export class ActivitiesService {
       landCount: landIds.size,
       recordCount: rows.reduce((sum, row) => sum + row.recordCount, 0),
       areaRai: this.roundUsageValue(Array.from(landAreas.values()).reduce((sum, area) => sum + area, 0), 2),
-      fertilizerKg: this.roundUsageValue(rows.filter((row) => row.bucket === 'fertilizer').reduce((sum, row) => sum + row.amount, 0)),
+      fertilizerKg: this.roundUsageValue(rows.filter((row) => row.bucket === 'fertilizer' && row.unit === 'kg').reduce((sum, row) => sum + row.amount, 0)),
       fuelLiter: this.roundUsageValue(rows.filter((row) => row.bucket === 'fuel').reduce((sum, row) => sum + row.amount, 0)),
       otherRecordCount: rows.filter((row) => row.bucket === 'other').reduce((sum, row) => sum + row.recordCount, 0),
       unknownUnitCount: rows.reduce((sum, row) => sum + row.warningCount, 0),
@@ -1263,7 +1273,7 @@ export class ActivitiesService {
         const areaKey = row.landId != null ? String(row.landId) : row.landLabel
         target.landAreas.set(areaKey, Math.max(target.landAreas.get(areaKey) ?? 0, row.areaRai))
 
-        if (row.bucket === 'fertilizer') {
+        if (row.bucket === 'fertilizer' && row.unit === 'kg') {
           target.fertilizerKg = this.roundUsageValue(target.fertilizerKg + row.amount)
           target.fertilizerItems.set(row.itemName, (target.fertilizerItems.get(row.itemName) ?? 0) + row.amount)
         } else if (row.bucket === 'fuel') {

@@ -28,6 +28,8 @@ export interface ResourceUsageSummary {
   rows: InputUsageSummaryRow[];
   fertilizerRows: InputUsageSummaryRow[];
   fuelRows: InputUsageSummaryRow[];
+  solidFertilizerRows: InputUsageSummaryRow[];
+  liquidFertilizerRows: InputUsageSummaryRow[];
   organicFertilizerRows: InputUsageSummaryRow[];
   chemicalFertilizerRows: InputUsageSummaryRow[];
   areaRai: number;
@@ -37,6 +39,7 @@ export interface ResourceUsageSummary {
   fertilizerKg: number;
   chemicalFertilizerKg: number;
   organicFertilizerKg: number;
+  liquidFertilizerLiter: number;
   fuelLiter: number;
   otherRecordCount: number;
   topFertilizer: string;
@@ -52,6 +55,10 @@ function matchesScope(row: InputUsageSummaryRow, scope: ResourceUsageScope) {
 
 function sumAmount(rows: InputUsageSummaryRow[]) {
   return rows.reduce((sum, row) => sum + row.amount, 0);
+}
+
+function normalizedUnit(row: InputUsageSummaryRow) {
+  return row.unit.trim().toLowerCase();
 }
 
 function topItem(rows: InputUsageSummaryRow[]) {
@@ -71,23 +78,28 @@ export function summarizeResourceUsage(data: InputUsageSummaryResponse, scope: R
   const rows = [...data.fertilizer, ...data.fuel, ...data.other].filter((row) => matchesScope(row, scope));
   const fertilizerRows = rows.filter((row) => row.bucket === "fertilizer");
   const fuelRows = rows.filter((row) => row.bucket === "fuel");
-  const organicFertilizerRows = fertilizerRows.filter((row) => row.fertilizerKind === "organic");
-  const chemicalFertilizerRows = fertilizerRows.filter((row) => row.fertilizerKind === "chemical");
+  const solidFertilizerRows = fertilizerRows.filter((row) => normalizedUnit(row) === "kg");
+  const liquidFertilizerRows = fertilizerRows.filter((row) => ["l", "liter", "litre"].includes(normalizedUnit(row)));
+  const organicFertilizerRows = solidFertilizerRows.filter((row) => row.fertilizerKind === "organic");
+  const chemicalFertilizerRows = solidFertilizerRows.filter((row) => row.fertilizerKind === "chemical");
   const warningMessages = rows.flatMap((row) => row.warnings).filter(Boolean);
 
   return {
     rows,
     fertilizerRows,
     fuelRows,
+    solidFertilizerRows,
+    liquidFertilizerRows,
     organicFertilizerRows,
     chemicalFertilizerRows,
     areaRai: uniqueArea(rows),
     recordCount: rows.reduce((sum, row) => sum + row.recordCount, 0),
     sourcePreparedCount: rows.reduce((sum, row) => sum + row.sourcePreparedCount, 0),
     warningCount: rows.reduce((sum, row) => sum + row.warningCount, 0),
-    fertilizerKg: sumAmount(fertilizerRows),
+    fertilizerKg: sumAmount(solidFertilizerRows),
     chemicalFertilizerKg: sumAmount(chemicalFertilizerRows),
     organicFertilizerKg: sumAmount(organicFertilizerRows),
+    liquidFertilizerLiter: sumAmount(liquidFertilizerRows),
     fuelLiter: sumAmount(fuelRows),
     otherRecordCount: rows.filter((row) => row.bucket === "other").reduce((sum, row) => sum + row.recordCount, 0),
     topFertilizer: topItem(fertilizerRows),
