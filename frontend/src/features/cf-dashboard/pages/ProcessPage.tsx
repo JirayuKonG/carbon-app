@@ -185,7 +185,7 @@ interface OrganicMaterialUsage {
 const organicMaterialDefinitions: OrganicMaterialDefinition[] = [
   { key: "compost", name: "ปุ๋ยอินทรีย์/ปุ๋ยหมัก", unit: "kg", baseCoveragePct: 48, amountPerRai: 120, shareWeight: 34 },
   { key: "filter-cake", name: "ฟิลเตอร์เค้ก", unit: "ตัน", baseCoveragePct: 32, amountPerRai: 0.42, shareWeight: 24 },
-  { key: "vinasse", name: "น้ำกากส่า/Vinasse", unit: "ลิตร", baseCoveragePct: 28, amountPerRai: 160, shareWeight: 22 },
+  { key: "vinasse", name: "Vinasse", unit: "ลิตร", baseCoveragePct: 28, amountPerRai: 160, shareWeight: 22 },
   { key: "trash", name: "ใบอ้อยคลุมดิน", unit: "kg", baseCoveragePct: 42, amountPerRai: 95, shareWeight: 20 },
 ];
 
@@ -1505,7 +1505,6 @@ export function CfProcessPage() {
                 <div className="card-title-row">
                   <div>
                     <div className="card-title">สัดส่วนการใช้วัสดุอินทรีย์ในการปรุงแต่งดิน</div>
-                    <p className="muted">ข้อมูลจำลองตามขอบเขต filter ปัจจุบัน แสดงพื้นที่ที่ใช้วัสดุ ปริมาณรวม และสัดส่วนต่อไร่</p>
                     <SourceBadge source={socDerivedSource.source} meta={socDerivedSource.meta} />
                   </div>
                 </div>
@@ -1562,7 +1561,6 @@ export function CfProcessPage() {
                         <th>% ของพื้นที่ทั้งหมด</th>
                         <th>พื้นที่ที่ใช้</th>
                         <th>ปริมาณรวม</th>
-                        <th>% ต่อไร่</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1572,7 +1570,6 @@ export function CfProcessPage() {
                           <td>{row.usagePctOfTotalArea.toFixed(1)}%</td>
                           <td>{row.usedAreaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })} ไร่</td>
                           <td>{row.amount.toLocaleString(undefined, { maximumFractionDigits: row.unit === "ตัน" ? 2 : 0 })} {row.unit}</td>
-                          <td>{row.perRaiPct.toFixed(1)}%</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1592,13 +1589,11 @@ export function CfProcessPage() {
                   <table className="input-table soc-material-detail-table">
                     <thead>
                       <tr>
-                        <th>พื้นที่</th>
-                        <th>ระดับ</th>
-                        <th>ไร่</th>
+                        <th>{organicAreaRows[0]?.level || "พื้นที่"}</th>
+                        <th>พื้นที่ (ไร่)</th>
                         <th>ประเภทวัสดุ</th>
                         <th>ปริมาณ</th>
                         <th>% พื้นที่ที่ใช้</th>
-                        <th>% ต่อไร่</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1607,17 +1602,15 @@ export function CfProcessPage() {
                           {materialIndex === 0 && (
                             <>
                               <td className="rowspan-cell soc-area-name-cell" rowSpan={area.materials.length}>{area.name}</td>
-                              <td className="rowspan-cell" rowSpan={area.materials.length}>{area.level}</td>
                               <td className="rowspan-cell" rowSpan={area.materials.length}>{area.areaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
                             </>
                           )}
                           <td className="soc-material-type-cell">{material.material}</td>
                           <td>{material.amount.toLocaleString(undefined, { maximumFractionDigits: material.unit === "ตัน" ? 2 : 0 })} {material.unit}</td>
                           <td>{material.usagePctOfTotalArea.toFixed(1)}%</td>
-                          <td>{material.perRaiPct.toFixed(1)}%</td>
                         </tr>
                       )))}
-                      {!organicAreaRows.length && <tr><td colSpan={7}>ยังไม่มีข้อมูลวัสดุอินทรีย์ตามตัวกรองนี้</td></tr>}
+                      {!organicAreaRows.length && <tr><td colSpan={5}>ยังไม่มีข้อมูลวัสดุอินทรีย์ตามตัวกรองนี้</td></tr>}
                     </tbody>
                   </table>
                 </div>
@@ -1627,8 +1620,7 @@ export function CfProcessPage() {
             <section className="card full-span soc-before-after-card">
               <div className="card-title-row">
                 <div>
-                  <div className="card-title">ก่อน VS หลัง การปรับปรุงดิน</div>
-                  <p className="muted">กราฟแท่งเปรียบเทียบ SOC/SOM ก่อนและหลังใช้วัสดุอินทรีย์ ตามขอบเขต filter ปัจจุบัน</p>
+                  <div className="card-title">กราฟแท่งเปรียบเทียบ SOC รายปี</div>
                   <SourceBadge source={socDerivedSource.source} meta={socDerivedSource.meta} />
                 </div>
               </div>
@@ -1648,13 +1640,7 @@ export function CfProcessPage() {
                 </div>
               </div>
 
-              <ActivityGroupedBar baseline={socBeforeAfter.baselineRows} current={socBeforeAfter.currentRows} unit="% SOC" />
-              
-              <div className="summary-list soc-before-after-summary" style={{ marginTop: "12px" }}>
-                <div><span>พื้นที่ในกราฟ</span><strong>{socBeforeAfter.currentRows.length.toLocaleString()} รายการ</strong></div>
-                <div><span>ค่าเฉลี่ยก่อนปรับปรุงดิน</span><strong>{avgBaselineSoc.toFixed(2)}%</strong></div>
-                <div><span>ค่าเฉลี่ยหลังปรับปรุงดิน</span><strong>{avgCurrentSoc.toFixed(2)}%</strong></div>
-              </div>
+              <ActivityGroupedBar baseline={socBeforeAfter.baselineRows} current={socBeforeAfter.currentRows} unit="% SOC" baselineLabel="Before" currentLabel="After" />
             </section>
 
             <section className="card full-span">

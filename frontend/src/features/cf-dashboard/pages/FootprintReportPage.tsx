@@ -114,7 +114,7 @@ function socValues(baselineTotal: number, currentTotal: number, areaRai: number)
 const organicMaterialRows = [
   { key: "organicFertilizer", label: "ปุ๋ยอินทรีย์/ปุ๋ยหมัก", share: 0.34 },
   { key: "filterCake", label: "ฟิลเตอร์เค้ก", share: 0.28 },
-  { key: "vinasse", label: "น้ำกากส่า/Vinasse", share: 0.22 },
+  { key: "vinasse", label: "Vinasse", share: 0.22 },
   { key: "trashRetention", label: "ใบอ้อยคลุมดิน", share: 0.16 },
 ] as const;
 
