@@ -321,6 +321,15 @@ fnfix_tN_per_rai = dry_matter_ton_per_rai * n_fraction
 fnfix = 177 * 1.296 * 0.0198 = 4.54 tN
 ```
 
+หน่วยมาตรฐานที่ระบบใช้ในหน้า Soil Organic Carbon:
+
+| ค่า | หน่วยมาตรฐาน |
+|---|---|
+| `dry_matter_kg_per_rai` / `mc` | `kg/ไร่` |
+| `n_percent` / `nc` | `%N` |
+| `fnfix_tN` | `tN` |
+| `fnfix_tN_per_rai` | `tN/ไร่` |
+
 ### 4.3 Input ที่ต้องมี
 
 | Field | ความหมาย |
@@ -369,9 +378,22 @@ delta_soc_percent = delta_som_percent / 1.724
 
 ```text
 soc_tC_per_rai = soc_percent * bulk_density_g_cm3 * depth_cm * 0.16
-soc_tCO2e_per_rai = soc_tC_per_rai * (44/12)
+soc_tCO2e_per_rai = (soc_tC_per_rai * (44/12)) / 20
 soc_tCO2e_total = soc_tCO2e_per_rai * area_rai
 ```
+
+หมายเหตุ: ถ้าต้องการใช้แนวคิดเฉลี่ยการกักเก็บ/เสื่อมสภาพตลอดช่วงเวลา 20 ปี ให้หาร `20` หลังแปลงจาก `Ton C/rai` เป็น `Ton CO2e/rai` เพื่อให้ผลลัพธ์อยู่ในรูป `tCO2e/rai/ปี` และ `tCO2e/ปี` ระดับทั้งแปลง
+
+หน่วยมาตรฐานที่ระบบใช้ในหน้า Soil Organic Carbon:
+
+| ค่า | หน่วยมาตรฐาน |
+|---|---|
+| `soc_sample_percent` | `%` |
+| `bulk_density_g_cm3` | `g/cm3` |
+| `depth_cm` | `cm` |
+| `soc_tC_per_rai` | `Ton C/ไร่` |
+| `soc_tCO2e_per_rai` | `tCO2e/ไร่/ปี` |
+| `soc_tCO2e_total` | `tCO2e/ปี` |
 
 ตัวอย่างจากไฟล์
 

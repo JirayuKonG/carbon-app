@@ -32,6 +32,16 @@ interface Equipment {
   }
 }
 
+interface Chemical {
+  act_chemiscal_id: number
+  act_chemiscal_name?: string | null
+  act_chemiscal_info?: string | null
+  resource_used_type_id?: number | null
+  resource_used_type?: {
+    resc_used_type_name?: string | null
+  }
+}
+
 interface ResourceOther {
   act_resourceOther_id: number
   act_resourceOther_name?: string | null
@@ -42,9 +52,9 @@ interface ResourceOther {
   }
 }
 
-type ResourceSectionKey = 'fertilizers' | 'equipments' | 'resourceOthers'
+type ResourceSectionKey = 'fertilizers' | 'equipments' | 'chemicals' | 'resourceOthers'
 type VisibleButtonKey = ResourceSectionKey | 'resourceTypes'
-type ResourceCategory = 'fertilizer' | 'equipment' | 'resourceOther'
+type ResourceCategory = 'fertilizer' | 'equipment' | 'chemical' | 'resourceOther'
 
 type ResourceTypePayload = {
   resc_used_type_name: string
@@ -63,6 +73,12 @@ type EquipmentPayload = {
   resource_used_type_id?: number
 }
 
+type ChemicalPayload = {
+  act_chemiscal_name: string
+  act_chemiscal_info?: string
+  resource_used_type_id?: number
+}
+
 type ResourceOtherPayload = {
   act_resourceOther_name: string
   act_resourceOther_info?: string
@@ -76,13 +92,14 @@ type ResourceRow = {
   name: string
   info: string
   resourceUsedTypeName: string
-  source: Fertilizer | Equipment | ResourceOther
+  source: Fertilizer | Equipment | Chemical | ResourceOther
 }
 
 type DeleteTarget =
   | { type: 'resource-type'; id: number; name: string }
   | { type: 'fertilizer'; id: number; name: string }
   | { type: 'equipment'; id: number; name: string }
+  | { type: 'chemical'; id: number; name: string }
   | { type: 'resource-other'; id: number; name: string }
 
 type ResourceTypeFormState = {
@@ -94,8 +111,16 @@ const RESOURCE_PAGE_PREFS_KEY = 'activity-resources-page-prefs'
 const RESOURCE_CATEGORY_LABELS: Record<ResourceCategory, string> = {
   fertilizer: 'ปุ๋ย',
   equipment: 'น้ำมัน',
+  chemical: 'สารเคมี',
   resourceOther: 'รายการอื่น ๆ',
 }
+
+const ADD_RESOURCE_DESTINATIONS: { value: ResourceCategory; label: string }[] = [
+  { value: 'chemical', label: 'chemical' },
+  { value: 'equipment', label: 'Equipment' },
+  { value: 'fertilizer', label: 'Fertilizer' },
+  { value: 'resourceOther', label: 'otherSource' },
+]
 
 const readStoredPreferences = () => {
   if (typeof window === 'undefined') {
@@ -124,10 +149,12 @@ export function ActivityResourcesPage() {
   const [showResourceTypeModal, setShowResourceTypeModal] = useState(false)
   const [showFertilizerModal, setShowFertilizerModal] = useState(false)
   const [showEquipmentModal, setShowEquipmentModal] = useState(false)
+  const [showChemicalModal, setShowChemicalModal] = useState(false)
   const [showResourceOtherModal, setShowResourceOtherModal] = useState(false)
   const [editingResourceType, setEditingResourceType] = useState<ResourceType | null>(null)
   const [editingFertilizer, setEditingFertilizer] = useState<Fertilizer | null>(null)
   const [editingEquipment, setEditingEquipment] = useState<Equipment | null>(null)
+  const [editingChemical, setEditingChemical] = useState<Chemical | null>(null)
   const [editingResourceOther, setEditingResourceOther] = useState<ResourceOther | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [resourceTypeForm, setResourceTypeForm] = useState<ResourceTypeFormState>({
@@ -139,6 +166,7 @@ export function ActivityResourcesPage() {
     return {
       fertilizers: prefs?.visibleButtons?.fertilizers ?? true,
       equipments: prefs?.visibleButtons?.equipments ?? true,
+      chemicals: prefs?.visibleButtons?.chemicals ?? true,
       resourceOthers: prefs?.visibleButtons?.resourceOthers ?? true,
       resourceTypes: prefs?.visibleButtons?.resourceTypes ?? false,
     }
@@ -162,6 +190,11 @@ export function ActivityResourcesPage() {
     queryFn: () => get<Equipment[]>('/activities/equipments'),
   })
 
+  const { data: chemicals = [], isLoading: chemicalsLoading, error: chemicalsError } = useQuery({
+    queryKey: ['activity-resource-chemicals'],
+    queryFn: () => get<Chemical[]>('/activities/chemicals'),
+  })
+
   const { data: resourceOthers = [], isLoading: resourceOthersLoading, error: resourceOthersError } = useQuery({
     queryKey: ['activity-resource-others'],
     queryFn: () => get<ResourceOther[]>('/activities/resource-others'),
@@ -174,7 +207,8 @@ export function ActivityResourcesPage() {
 
   const pageQueryItems = [
     { label: 'ปุ๋ย', error: fertilizersError },
-    { label: 'อุปกรณ์', error: equipmentsError },
+    { label: 'น้ำมัน', error: equipmentsError },
+    { label: 'สารเคมี', error: chemicalsError },
     { label: 'รายการอื่น ๆ', error: resourceOthersError },
     { label: 'ประเภทปัจจัย', error: resourceTypesError },
   ]
@@ -262,6 +296,31 @@ export function ActivityResourcesPage() {
     },
   })
 
+  const saveChemicalMut = useMutation({
+    mutationFn: ({ id, payload }: { id?: number; payload: ChemicalPayload }) =>
+      id ? put<Chemical>(`/activities/chemicals/${id}`, payload) : post<Chemical>('/activities/chemicals', payload),
+    onSuccess: (saved) => {
+      qc.setQueryData<Chemical[]>(['activity-resource-chemicals'], (current = []) => {
+        const next = [...current]
+        const existingIndex = next.findIndex((item) => item.act_chemiscal_id === saved.act_chemiscal_id)
+
+        if (existingIndex >= 0) {
+          next[existingIndex] = saved
+        } else {
+          next.push(saved)
+        }
+
+        return next.sort((left, right) => left.act_chemiscal_id - right.act_chemiscal_id)
+      })
+
+      qc.invalidateQueries({ queryKey: ['activity-resource-chemicals'] })
+      qc.invalidateQueries({ queryKey: ['activity-resource-types'] })
+      setShowAddResourceModal(false)
+      setShowChemicalModal(false)
+      setEditingChemical(null)
+    },
+  })
+
   const saveResourceOtherMut = useMutation({
     mutationFn: ({ id, payload }: { id?: number; payload: ResourceOtherPayload }) =>
       id ? put<ResourceOther>(`/activities/resource-others/${id}`, payload) : post<ResourceOther>('/activities/resource-others', payload),
@@ -295,6 +354,9 @@ export function ActivityResourcesPage() {
       if (target.type === 'fertilizer') {
         return del(`/activities/fertilizers/${target.id}`)
       }
+      if (target.type === 'chemical') {
+        return del(`/activities/chemicals/${target.id}`)
+      }
       if (target.type === 'resource-other') {
         return del(`/activities/resource-others/${target.id}`)
       }
@@ -305,6 +367,7 @@ export function ActivityResourcesPage() {
         qc.invalidateQueries({ queryKey: ['activity-resource-types'] })
         qc.invalidateQueries({ queryKey: ['activity-resource-fertilizers'] })
         qc.invalidateQueries({ queryKey: ['activity-resource-equipments'] })
+        qc.invalidateQueries({ queryKey: ['activity-resource-chemicals'] })
         qc.invalidateQueries({ queryKey: ['activity-resource-others'] })
         setVisibleResourceTypeFilters((prev) => {
           const next = { ...prev }
@@ -316,6 +379,8 @@ export function ActivityResourcesPage() {
         }
       } else if (target.type === 'fertilizer') {
         qc.invalidateQueries({ queryKey: ['activity-resource-fertilizers'] })
+      } else if (target.type === 'chemical') {
+        qc.invalidateQueries({ queryKey: ['activity-resource-chemicals'] })
       } else if (target.type === 'resource-other') {
         qc.invalidateQueries({ queryKey: ['activity-resource-others'] })
       } else {
@@ -371,7 +436,9 @@ export function ActivityResourcesPage() {
           ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
           : row.category === 'equipment'
             ? 'bg-amber-50 text-amber-700 ring-amber-200'
-            : 'bg-sky-50 text-sky-700 ring-sky-200'
+            : row.category === 'chemical'
+              ? 'bg-rose-50 text-rose-700 ring-rose-200'
+              : 'bg-sky-50 text-sky-700 ring-sky-200'
 
         return row.resourceUsedTypeName && row.resourceUsedTypeName !== '-'
           ? (
@@ -395,6 +462,7 @@ export function ActivityResourcesPage() {
 
   const visibleResourceSectionCount = Number(visibleButtons.fertilizers)
     + Number(visibleButtons.equipments)
+    + Number(visibleButtons.chemicals)
     + Number(visibleButtons.resourceOthers)
   const hasVisibleResourceSections = visibleResourceSectionCount > 0
 
@@ -403,6 +471,7 @@ export function ActivityResourcesPage() {
     if (!normalized) return false
     return /น้ำมัน|diesel|fuel|gas|gasoline|benzene|equipment|อุปกรณ์/.test(normalized)
       || /ปุ๋ย|fertilizer/.test(normalized)
+      || /เคมี|chemical|chemiscal|สาร/.test(normalized)
       || /อื่น|other|พันธุ์|variety|sugarcane|อ้อย/.test(normalized)
   }
 
@@ -465,6 +534,10 @@ export function ActivityResourcesPage() {
     ? equipments
     : equipments.filter((row) => row.resource_used_type_id === activeResourceTypeFilter)
 
+  const filteredChemicals = activeResourceTypeFilter === 'all'
+    ? chemicals
+    : chemicals.filter((row) => row.resource_used_type_id === activeResourceTypeFilter)
+
   const filteredResourceOthers = activeResourceTypeFilter === 'all'
     ? resourceOthers
     : resourceOthers.filter((row) => row.resource_used_type_id === activeResourceTypeFilter)
@@ -492,6 +565,17 @@ export function ActivityResourcesPage() {
           source: row,
         }))
       : []),
+    ...(visibleButtons.chemicals
+      ? filteredChemicals.map((row) => ({
+          key: `chemical-${row.act_chemiscal_id}`,
+          category: 'chemical' as const,
+          resourceId: row.act_chemiscal_id,
+          name: row.act_chemiscal_name?.trim() || '-',
+          info: row.act_chemiscal_info?.trim() || '',
+          resourceUsedTypeName: row.resource_used_type?.resc_used_type_name ?? resourceTypeMap[row.resource_used_type_id ?? 0] ?? '-',
+          source: row,
+        }))
+      : []),
     ...(visibleButtons.resourceOthers
       ? filteredResourceOthers.map((row) => ({
           key: `resource-other-${row.act_resourceOther_id}`,
@@ -504,33 +588,6 @@ export function ActivityResourcesPage() {
         }))
       : []),
   ]
-
-  const inferResourceKindFromTypeName = (name?: string | null): ResourceCategory | null => {
-    const normalized = name?.trim().toLowerCase()
-    if (!normalized) return null
-
-    if (/น้ำมัน|diesel|fuel|gas|gasoline|benzene|equipment|อุปกรณ์/.test(normalized)) {
-      return 'equipment'
-    }
-
-    if (/ปุ๋ย|fertilizer/.test(normalized)) {
-      return 'fertilizer'
-    }
-
-    if (/อื่น|other|พันธุ์|variety|sugarcane|อ้อย/.test(normalized)) {
-      return 'resourceOther'
-    }
-
-    return null
-  }
-
-  const inferResourceKindFromExistingType = (typeId?: number): ResourceCategory | null => {
-    if (!typeId || typeId <= 0) return null
-    if (fertilizers.some((row) => row.resource_used_type_id === typeId)) return 'fertilizer'
-    if (equipments.some((row) => row.resource_used_type_id === typeId)) return 'equipment'
-    if (resourceOthers.some((row) => row.resource_used_type_id === typeId)) return 'resourceOther'
-    return null
-  }
 
   const closeResourceTypeModal = () => {
     setShowResourceTypeModal(false)
@@ -572,6 +629,12 @@ export function ActivityResourcesPage() {
     saveEquipmentMut.reset()
   }
 
+  const closeChemicalModal = () => {
+    setShowChemicalModal(false)
+    setEditingChemical(null)
+    saveChemicalMut.reset()
+  }
+
   const closeResourceOtherModal = () => {
     setShowResourceOtherModal(false)
     setEditingResourceOther(null)
@@ -583,6 +646,7 @@ export function ActivityResourcesPage() {
     setAddResourceFormError('')
     saveFertilizerMut.reset()
     saveEquipmentMut.reset()
+    saveChemicalMut.reset()
     saveResourceOtherMut.reset()
   }
 
@@ -590,6 +654,7 @@ export function ActivityResourcesPage() {
     setAddResourceFormError('')
     saveFertilizerMut.reset()
     saveEquipmentMut.reset()
+    saveChemicalMut.reset()
     saveResourceOtherMut.reset()
     setShowAddResourceModal(true)
   }
@@ -672,36 +737,41 @@ export function ActivityResourcesPage() {
     })
   }
 
+  const handleSaveChemical = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const act_chemiscal_name = String(form.get('act_chemiscal_name') ?? '').trim()
+    const act_chemiscal_info = String(form.get('act_chemiscal_info') ?? '').trim()
+    const resource_used_type_id = Number(form.get('resource_used_type_id') ?? '')
+
+    if (!act_chemiscal_name) return
+
+    saveChemicalMut.mutate({
+      id: editingChemical?.act_chemiscal_id,
+      payload: {
+        act_chemiscal_name,
+        act_chemiscal_info: act_chemiscal_info || undefined,
+        resource_used_type_id: Number.isFinite(resource_used_type_id) && resource_used_type_id > 0 ? resource_used_type_id : undefined,
+      },
+    })
+  }
+
   const handleSaveAddResource = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     saveFertilizerMut.reset()
     saveEquipmentMut.reset()
+    saveChemicalMut.reset()
     saveResourceOtherMut.reset()
     const form = new FormData(event.currentTarget)
+    const destination = String(form.get('resource_destination') ?? '').trim() as ResourceCategory
     const resource_used_type_id = Number(form.get('resource_used_type_id') ?? '')
-    const selectedResourceType = resourceTypes.find((item) => item.resource_used_type_id === resource_used_type_id)
-    const firstVisibleKind = (
-      visibleButtons.fertilizers
-        ? 'fertilizer'
-        : visibleButtons.equipments
-          ? 'equipment'
-          : 'resourceOther'
-    ) as ResourceCategory
-    const shouldInferKind = visibleResourceSectionCount > 1
-    const selectedKind = shouldInferKind
-      ? inferResourceKindFromExistingType(resource_used_type_id) ?? inferResourceKindFromTypeName(selectedResourceType?.resc_used_type_name)
-      : firstVisibleKind
-
-    if (shouldInferKind && (!Number.isFinite(resource_used_type_id) || resource_used_type_id <= 0)) {
-      setAddResourceFormError('กรุณาเลือกประเภทปัจจัยก่อนบันทึก')
+    if (!destination) {
+      setAddResourceFormError('กรุณาเลือกปลายทางรายการก่อนบันทึก')
       return
     }
 
     setAddResourceFormError('')
-
-    const finalKind = selectedKind ?? firstVisibleKind
-
-    if (finalKind === 'fertilizer') {
+    if (destination === 'fertilizer') {
       const act_fertilizer_name = String(form.get('resource_name') ?? '').trim()
       const act_fertilizer_info = String(form.get('resource_info') ?? '').trim()
       if (!act_fertilizer_name) return
@@ -716,7 +786,22 @@ export function ActivityResourcesPage() {
       return
     }
 
-    if (finalKind === 'resourceOther') {
+    if (destination === 'chemical') {
+      const act_chemiscal_name = String(form.get('resource_name') ?? '').trim()
+      const act_chemiscal_info = String(form.get('resource_info') ?? '').trim()
+      if (!act_chemiscal_name) return
+
+      saveChemicalMut.mutate({
+        payload: {
+          act_chemiscal_name,
+          act_chemiscal_info: act_chemiscal_info || undefined,
+          resource_used_type_id: Number.isFinite(resource_used_type_id) && resource_used_type_id > 0 ? resource_used_type_id : undefined,
+        },
+      })
+      return
+    }
+
+    if (destination === 'resourceOther') {
       const act_resourceOther_name = String(form.get('resource_name') ?? '').trim()
       const act_resourceOther_info = String(form.get('resource_info') ?? '').trim()
       if (!act_resourceOther_name) return
@@ -749,6 +834,13 @@ export function ActivityResourcesPage() {
       saveFertilizerMut.reset()
       setEditingFertilizer(row.source as Fertilizer)
       setShowFertilizerModal(true)
+      return
+    }
+
+    if (row.category === 'chemical') {
+      saveChemicalMut.reset()
+      setEditingChemical(row.source as Chemical)
+      setShowChemicalModal(true)
       return
     }
 
@@ -785,6 +877,15 @@ export function ActivityResourcesPage() {
       return
     }
 
+    if (row.category === 'chemical') {
+      setDeleteTarget({
+        type: 'chemical',
+        id: row.resourceId,
+        name: row.name,
+      })
+      return
+    }
+
     setDeleteTarget({
       type: 'equipment',
       id: row.resourceId,
@@ -797,9 +898,9 @@ export function ActivityResourcesPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title flex items-center gap-2">
-            <FlaskConical size={20} className="text-primary-600" /> ปุ๋ย / น้ำมัน / รายการอื่น ๆ
+            <FlaskConical size={20} className="text-primary-600" /> ปุ๋ย / น้ำมัน / สารเคมี / รายการอื่น ๆ
           </h1>
-          <p className="page-subtitle">จัดการข้อมูลอ้างอิงสำหรับปุ๋ย น้ำมัน และรายการอื่น ๆ ที่ใช้ในหน้าบันทึกกิจกรรมและการนำเข้าข้อมูล</p>
+          <p className="page-subtitle">จัดการข้อมูลอ้างอิงสำหรับปุ๋ย น้ำมัน สารเคมี และรายการอื่น ๆ ที่ใช้ในหน้าบันทึกกิจกรรมและการนำเข้าข้อมูล</p>
         </div>
       </div>
 
@@ -917,14 +1018,14 @@ export function ActivityResourcesPage() {
       {!hasVisibleResourceSections ? (
         <div className="card">
           <div className="rounded-xl border border-dashed border-surface-300 bg-surface-50 px-4 py-8 text-center text-sm text-surface-600">
-            ยังไม่มีส่วนข้อมูลที่เปิดแสดงอยู่ กรุณากด <span className="font-medium text-surface-800">Edit ปุ่ม</span> เพื่อเลือกให้แสดง `ปุ๋ย`, `น้ำมัน` หรือ `รายการอื่น ๆ`
+            ยังไม่มีส่วนข้อมูลที่เปิดแสดงอยู่ กรุณากด <span className="font-medium text-surface-800">Edit ปุ่ม</span> เพื่อเลือกให้แสดง `ปุ๋ย`, `น้ำมัน`, `สารเคมี` หรือ `รายการอื่น ๆ`
           </div>
         </div>
       ) : (
         <div className="card">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-surface-800">
-              รายการปุ๋ย / น้ำมัน / รายการอื่น ๆ ({mergedResources.length})
+              รายการปุ๋ย / น้ำมัน / สารเคมี / รายการอื่น ๆ ({mergedResources.length})
             </h2>
             <button
               className="btn-primary btn-sm"
@@ -937,11 +1038,11 @@ export function ActivityResourcesPage() {
           <DataTable
             data={mergedResources}
             columns={resourceCols}
-            isLoading={fertilizersLoading || equipmentsLoading || resourceOthersLoading}
+            isLoading={fertilizersLoading || equipmentsLoading || chemicalsLoading || resourceOthersLoading}
             rowKey={(row) => row.key}
             defaultPageSize={10}
-            searchPlaceholder="ค้นหาชื่อปุ๋ย ชื่อน้ำมัน รายการอื่น ๆ หรือประเภทปัจจัย..."
-            emptyMessage="ไม่พบข้อมูลปุ๋ย น้ำมัน หรือรายการอื่น ๆ"
+            searchPlaceholder="ค้นหาชื่อปุ๋ย ชื่อน้ำมัน ชื่อสารเคมี รายการอื่น ๆ หรือประเภทปัจจัย..."
+            emptyMessage="ไม่พบข้อมูลปุ๋ย น้ำมัน สารเคมี หรือรายการอื่น ๆ"
             actions={(row) => (
               <div className="flex items-center justify-end gap-1">
                 <button
@@ -1026,7 +1127,7 @@ export function ActivityResourcesPage() {
             <div className="border-b border-surface-200 px-6 py-5">
               <h3 className="font-semibold">ตั้งค่าการแสดงปุ่มและตัวกรอง</h3>
               <p className="mt-2 text-sm text-surface-600">
-                เลือกได้ว่าหน้านี้จะแสดงตัวกรองหรือส่วนข้อมูลไหนบ้าง เช่น ปุ๋ย, น้ำมัน, รายการอื่น ๆ และประเภทปัจจัย
+                เลือกได้ว่าหน้านี้จะแสดงตัวกรองหรือส่วนข้อมูลไหนบ้าง เช่น ปุ๋ย, น้ำมัน, สารเคมี, รายการอื่น ๆ และประเภทปัจจัย
               </p>
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-5">
@@ -1045,6 +1146,14 @@ export function ActivityResourcesPage() {
                     type="checkbox"
                     checked={visibleButtons.equipments}
                     onChange={(event) => setVisibleButtons((prev) => ({ ...prev, equipments: event.target.checked }))}
+                  />
+                </label>
+                <label className="flex items-center justify-between gap-3 rounded-lg border border-surface-200 px-4 py-3">
+                  <span className="text-sm text-surface-700">แสดงตัวกรอง สารเคมี</span>
+                  <input
+                    type="checkbox"
+                    checked={visibleButtons.chemicals}
+                    onChange={(event) => setVisibleButtons((prev) => ({ ...prev, chemicals: event.target.checked }))}
                   />
                 </label>
                 <label className="flex items-center justify-between gap-3 rounded-lg border border-surface-200 px-4 py-3">
@@ -1150,6 +1259,15 @@ export function ActivityResourcesPage() {
             <form onSubmit={handleSaveAddResource}>
               <div className="space-y-3">
                 <div>
+                  <label className="label">ปลายทางรายการ *</label>
+                  <select className="select" name="resource_destination" defaultValue="" required>
+                    <option value="">เลือกปลายทางที่จะบันทึก</option>
+                    {ADD_RESOURCE_DESTINATIONS.map((item) => (
+                      <option key={item.value} value={item.value}>{item.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
                   <label className="label">
                     ชื่อรายการ *
                   </label>
@@ -1185,6 +1303,9 @@ export function ActivityResourcesPage() {
               {saveEquipmentMut.isError && (
                 <p className="mt-3 text-sm text-red-600">{saveEquipmentMut.error.message}</p>
               )}
+              {saveChemicalMut.isError && (
+                <p className="mt-3 text-sm text-red-600">{saveChemicalMut.error.message}</p>
+              )}
               {saveResourceOtherMut.isError && (
                 <p className="mt-3 text-sm text-red-600">{saveResourceOtherMut.error.message}</p>
               )}
@@ -1193,9 +1314,9 @@ export function ActivityResourcesPage() {
                 <button
                   type="submit"
                   className="btn-primary flex-1"
-                  disabled={saveFertilizerMut.isPending || saveEquipmentMut.isPending || saveResourceOtherMut.isPending}
+                  disabled={saveFertilizerMut.isPending || saveEquipmentMut.isPending || saveChemicalMut.isPending || saveResourceOtherMut.isPending}
                 >
-                  {saveFertilizerMut.isPending || saveEquipmentMut.isPending || saveResourceOtherMut.isPending ? 'กำลังบันทึก...' : 'บันทึก'}
+                  {saveFertilizerMut.isPending || saveEquipmentMut.isPending || saveChemicalMut.isPending || saveResourceOtherMut.isPending ? 'กำลังบันทึก...' : 'บันทึก'}
                 </button>
               </div>
             </form>
@@ -1274,6 +1395,45 @@ export function ActivityResourcesPage() {
                 <button type="button" className="btn-secondary flex-1" onClick={closeEquipmentModal}>ยกเลิก</button>
                 <button type="submit" className="btn-primary flex-1" disabled={saveEquipmentMut.isPending}>
                   {saveEquipmentMut.isPending ? 'กำลังบันทึก...' : 'บันทึก'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showChemicalModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={closeChemicalModal} />
+          <div className="relative w-full max-w-md animate-slide-up rounded-2xl bg-white p-6 shadow-card-lg">
+            <h3 className="mb-5 font-semibold">{editingChemical ? 'แก้ไขสารเคมี' : 'เพิ่มสารเคมี'}</h3>
+            <form onSubmit={handleSaveChemical}>
+              <div className="space-y-3">
+                <div>
+                  <label className="label">ชื่อสารเคมี *</label>
+                  <input className="input" name="act_chemiscal_name" required defaultValue={editingChemical?.act_chemiscal_name ?? ''} />
+                </div>
+                <div>
+                  <label className="label">ประเภทปัจจัย</label>
+                  <select className="select" name="resource_used_type_id" defaultValue={editingChemical?.resource_used_type_id ?? ''}>
+                    <option value="">— ไม่ระบุ —</option>
+                    {resourceTypes.map((item) => (
+                      <option key={item.resource_used_type_id} value={item.resource_used_type_id}>
+                        {item.resc_used_type_name ?? `#${item.resource_used_type_id}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">ข้อมูลเพิ่มเติม</label>
+                  <textarea className="input min-h-24" name="act_chemiscal_info" defaultValue={editingChemical?.act_chemiscal_info ?? ''} />
+                </div>
+              </div>
+              {saveChemicalMut.isError && <p className="mt-3 text-sm text-red-600">{saveChemicalMut.error.message}</p>}
+              <div className="mt-5 flex gap-3">
+                <button type="button" className="btn-secondary flex-1" onClick={closeChemicalModal}>ยกเลิก</button>
+                <button type="submit" className="btn-primary flex-1" disabled={saveChemicalMut.isPending}>
+                  {saveChemicalMut.isPending ? 'กำลังบันทึก...' : 'บันทึก'}
                 </button>
               </div>
             </form>

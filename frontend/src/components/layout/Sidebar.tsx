@@ -8,6 +8,7 @@ import {
   Leaf, ChevronDown, ChevronRight, X, Sprout, MapPin, Calculator, // kong form    
   // KONGJIRAYU05JUNE2026
   Coins, BadgeCheck, FileCheck2, Footprints, ClipboardList,
+  GitBranch,
   
   // main form
   // Leaf, ChevronDown, ChevronRight, X, BarChart3, Sprout, MapPin, FileText, Calculator,
@@ -97,6 +98,7 @@ const NAV_GROUPS: NavGroup[] = [
       { path: '/infra', label: 'โรงงาน / บริการ', labelEn: 'Infrastructure', icon: <Factory size={17} /> },
       { path: '/users', label: 'จัดการผู้ใช้', labelEn: 'Users', icon: <Users size={17} /> },
       { path: '/emission-factors', label: 'EF / GWP / หน่วย', labelEn: 'Emission Factors', icon: <FlaskConical size={17} /> },
+      { path: '/activities/types', label: 'กิจกรรมหลัก / กิจกรรมย่อย', labelEn: 'Activity Types', icon: <GitBranch size={17} /> },
       { path: '/activities/resources', label: 'ปุ๋ย / น้ำมัน', labelEn: 'Activity Resources', icon: <FlaskConical size={17} /> },
     ],
   },

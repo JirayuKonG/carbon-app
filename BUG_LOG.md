@@ -1,6 +1,6 @@
 # Bug Tracking Log
 
-Last updated: 2026-06-11
+Last updated: 2026-06-16
 
 Use the checkboxes to track what is fixed. Keep new findings here so future work can restart quickly.
 
@@ -60,6 +60,20 @@ Use the checkboxes to track what is fixed. Keep new findings here so future work
   - Fix: import now treats repeated activity rows as valid separate `log_activities_detail` records; requires a valid `log_act_detail_create_at`; skips only rows with missing land/camp identity or bad date before creating related data; reuses the latest `activities_header` per `land_id`; keeps camp-only rows through internal `AUTO-CAMP-*` placeholder land while the UI displays `เบิกเข้าไร่`; and groups skip reasons in the import result.
   - Verify: `npm run build --workspace=backend`; `npm run build --workspace=frontend`.
 
+- [x] BUG-017: Activity CSV Validate could create near-duplicate detail-type master rows.
+  - Impact: CSV values such as `416-ให้น้ำ ปลูก (จ้างเหมา)- น้ำ 416`, `416-ให้น้ำ ปลูก (จ้างเหมา)- น้ำ 417`, and similar row-number variants could be saved as separate `activities_header_detail_type` rows, growing master data with near-duplicates.
+  - Evidence: the CSV Validate step grouped detail types by raw CSV text, and backend import created a new `activities_header_detail_type` when the raw value did not exactly match an existing row.
+  - Fix: frontend CSV Validate and backend import now share the same canonical detail-type normalization: numeric prefixes are removed, row-number suffixes such as `- น้ำ 416`, `- น้ำ416`, and `- water 416` are removed, whitespace is collapsed, and imports reuse/create the canonical detail type.
+  - Verify: sample detail-type names from the duplicate pattern normalize to 2 canonical groups; `npm run build --workspace=backend`; `npm run build --workspace=frontend`.
+  - Limitation: this prevents new duplicates only. Existing duplicate rows should be cleaned in a separate database task that remaps `log_activities_detail.act_header_detail_type_id` before removing old master rows.
+
+- [x] BUG-018: Carbon queue bulk preparation treated liquid fertilizers like sack/kg fertilizer.
+  - Impact: fertilizer rows stored in liquid units such as `L` could be pulled into the bulk fertilizer preset on the Carbon Footprint queue page, then prepared and calculated as if they were sack fertilizer with `kg`-based CFP simple logic.
+  - Evidence: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` classified fertilizer rows before checking whether their unit was liquid, and `backend/src/modules/activities/activities.service.ts` resolved all fertilizer rows to `fertilizer_n2o`.
+  - Fix: liquid-fertilizer rows are now detected from unit/preparation metadata, excluded from the sack-fertilizer bulk path, shown in a dedicated `ปุ๋ยน้ำ` bulk-preparation section on the frontend, and calculated through `generic_ef` instead of `fertilizer_n2o`.
+  - Verify: `npm run build --workspace=backend`; `npm run build --workspace=frontend`.
+  - Limitation: rows that were already prepared into the wrong `kg` pathway before this fix must be re-opened and prepared again if they should behave as liquid fertilizer.
+
 ## Open
 
 - [ ] BUG-002: PostgreSQL insert can fail for geo tables because primary keys have no Prisma default.
@@ -107,9 +121,13 @@ Use the checkboxes to track what is fixed. Keep new findings here so future work
 - `npm run build --workspace=backend`: passed after BUG-001 fix and again on 2026-05-30.
 - `npm run build --workspace=backend`: passed again on 2026-06-05 after activity CSV import rule changes.
 - `npm run build --workspace=backend`: passed again on 2026-06-08 after syncing Prisma schema from the live Aiven PostgreSQL database and updating affected create flows.
+- `npm run build --workspace=backend`: passed again on 2026-06-16 after the activity CSV detail-type deduplication update.
+- `npm run build --workspace=backend`: passed again on 2026-06-16 after the liquid-fertilizer queue preparation fix.
 - `npm run prisma:generate --workspace=backend`: passed.
 - `npm run build --workspace=frontend`: passed on 2026-05-25 and again on 2026-05-30.
 - `npm run build --workspace=frontend`: passed again on 2026-06-05 after activity CSV import UI updates.
+- `npm run build --workspace=frontend`: passed again on 2026-06-16 after the activity CSV detail-type deduplication update and a delete-mutation type alignment in `SoilOrganicCarbonPage.tsx`.
+- `npm run build --workspace=frontend`: passed again on 2026-06-16 after the liquid-fertilizer queue preparation fix.
 - PostgreSQL metadata confirmed BUG-002 for the live database configured by `backend/.env`.
 - PostgreSQL metadata confirmed `land_id`, `land_camp_id`, and `landmap_id` also have no default/identity; BUG-012 backend workaround is in place.
 - Static review on 2026-05-30 confirmed BUG-005 is fixed, BUG-006 is now weather-only, and added BUG-013 and BUG-014.

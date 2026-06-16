@@ -116,7 +116,13 @@ export class ActivitiesController {
 
   // Reference lists
   @Get('header-types')    getHeaderTypes()   { return this.svc.getHeaderTypes() }
+  @Post('header-types')   createHeaderType(@Body() b: any) { return this.svc.createHeaderType(b) }
+  @Put('header-types/:id') updateHeaderType(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateHeaderType(id, b) }
+  @Delete('header-types/:id') deleteHeaderType(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteHeaderType(id) }
   @Get('detail-types')    getDetailTypes(@Query('header_type_id') htid?: string) { return this.svc.getDetailTypes(htid ? +htid : undefined) }
+  @Post('detail-types')   createDetailType(@Body() b: any) { return this.svc.createDetailType(b) }
+  @Put('detail-types/:id') updateDetailType(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateDetailType(id, b) }
+  @Delete('detail-types/:id') deleteDetailType(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteDetailType(id) }
   @Get('resource-types')  getResourceTypes() { return this.svc.getResourceTypes() }
   @Post('resource-types') createResourceType(@Body() b: any) { return this.svc.createResourceType(b) }
   @Put('resource-types/:id') updateResourceType(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateResourceType(id, b) }
@@ -130,6 +136,9 @@ export class ActivitiesController {
   @Put('equipments/:id')  updateEquipment(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateEquipment(id, b) }
   @Delete('equipments/:id') deleteEquipment(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteEquipment(id) }
   @Get('chemicals')       getChemicals()     { return this.svc.getChemicals() }
+  @Post('chemicals')      createChemical(@Body() b: any) { return this.svc.createChemical(b) }
+  @Put('chemicals/:id')   updateChemical(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateChemical(id, b) }
+  @Delete('chemicals/:id') deleteChemical(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteChemical(id) }
   @Get('resource-others') getResourceOthers(){ return this.svc.getResourceOthers() }
   @Post('resource-others') createResourceOther(@Body() b: any) { return this.svc.createResourceOther(b) }
   @Put('resource-others/:id') updateResourceOther(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateResourceOther(id, b) }
