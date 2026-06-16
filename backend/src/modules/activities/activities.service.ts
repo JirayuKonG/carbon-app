@@ -1011,6 +1011,22 @@ export class ActivitiesService {
       .replace(/³/g, '3')
   }
 
+  private isInputUsagePackageUnit(unitLabel: string) {
+    const unit = this.normalizeInputUsageUnitText(unitLabel)
+    return /^(sck|sack|sacks|bag|bags)$|กระสอบ|ถุง/.test(unit)
+  }
+
+  private parseInputUsagePackageKg(text: string) {
+    const normalized = text.toLowerCase()
+    const direct = normalized.match(/(\d+(?:\.\d+)?)\s*(?:kg|kgs|kilogram|kilograms|กก|กิโลกรัม|กิโล)\s*(?:\/|per)?\s*(?:bag|sack|bags|sacks|ถุง|กระสอบ)/)
+      ?? normalized.match(/(?:bag|sack|bags|sacks|ถุง|กระสอบ)\s*(?:ละ|per)?\s*(\d+(?:\.\d+)?)\s*(?:kg|kgs|kilogram|kilograms|กก|กิโลกรัม|กิโล)/)
+    const parsed = direct ? Number(direct[1]) : null
+    if (parsed != null && Number.isFinite(parsed) && parsed > 0) return parsed
+
+    if (/sck|sack|sacks|bag|bags|กระสอบ|ถุง/.test(normalized)) return 50
+    return null
+  }
+
   private unitLabel(unit?: InputUsageUnitRef | null, prefix?: InputUsagePrefixRef | null) {
     const prefixLabel = this.compactText(prefix?.unit_prefix_initial) || this.compactText(prefix?.unit_prefix_name)
     const unitText = this.compactText(unit?.unit_initial) || this.compactText(unit?.unit_name)
@@ -1065,10 +1081,14 @@ export class ActivitiesService {
     return { kind: 'unknown', formula: null }
   }
 
-  private normalizeInputUsageAmount(bucket: InputUsageBucket, amount: number, unitLabel: string) {
+  private normalizeInputUsageAmount(bucket: InputUsageBucket, amount: number, unitLabel: string, contextText = '') {
     const unit = this.normalizeInputUsageUnitText(unitLabel)
 
     if (bucket === 'fertilizer') {
+      if (this.isInputUsagePackageUnit(unitLabel)) {
+        const packageKg = this.parseInputUsagePackageKg(`${contextText} ${unitLabel}`)
+        if (packageKg != null) return { amount: this.roundUsageValue(amount * packageKg), unit: 'kg', warning: null as string | null }
+      }
       if (/kg|กก|กิโลกรัม|กิโล/.test(unit)) return { amount: this.roundUsageValue(amount), unit: 'kg', warning: null as string | null }
       if (/ตัน|ton|tonne/.test(unit)) return { amount: this.roundUsageValue(amount * 1000), unit: 'kg', warning: null as string | null }
       if (/กรัม|gram|^g$/.test(unit)) return { amount: this.roundUsageValue(amount / 1000), unit: 'kg', warning: null as string | null }
@@ -1092,12 +1112,15 @@ export class ActivitiesService {
   ): InputUsageResolvedAmount | null {
     const info = this.parseCarbonPreparationInfo(detail.carbon_process_queue?.carbon_process_queue_info)
     const preparedAmount = this.toFiniteNumberOrNull(info.preparedVolumeAll)
-    const sourceAmount = this.toFiniteNumberOrNull(detail.log_act_detail_volumeAll)
-      ?? (
-        this.toFiniteNumberOrNull(detail.log_act_detail_quatity) != null
-        && this.toFiniteNumberOrNull(detail.log_act_detail_volumePerUnit) != null
-          ? Number(detail.log_act_detail_quatity) * Number(detail.log_act_detail_volumePerUnit)
-          : null
+    const sourceVolumeAll = this.toFiniteNumberOrNull(detail.log_act_detail_volumeAll)
+    const sourceQuantity = this.toFiniteNumberOrNull(detail.log_act_detail_quatity)
+    const sourceVolumePerUnit = this.toFiniteNumberOrNull(detail.log_act_detail_volumePerUnit)
+    const sourceAmount = sourceVolumeAll != null && sourceVolumeAll > 0
+      ? sourceVolumeAll
+      : (
+        sourceQuantity != null && sourceVolumePerUnit != null && sourceVolumePerUnit > 0
+          ? sourceQuantity * sourceVolumePerUnit
+          : sourceQuantity
       )
 
     const sourceUnitLabel = this.unitLabel(detail.units, detail.units_prefixs)
@@ -1350,7 +1373,12 @@ export class ActivitiesService {
       const bucket = this.classifyInputUsageBucket(detail)
       const itemName = this.getDetailItemName(detail)
       const resourceTypeName = this.compactText(detail.resource_used_type?.resc_used_type_name) || 'ไม่ระบุประเภท'
-      const normalized = this.normalizeInputUsageAmount(bucket, amountInput.amount, amountInput.unitLabel)
+      const normalized = this.normalizeInputUsageAmount(
+        bucket,
+        amountInput.amount,
+        amountInput.unitLabel,
+        `${itemName} ${resourceTypeName}`,
+      )
       const fertilizerProfile = bucket === 'fertilizer'
         ? this.getFertilizerProfile(`${itemName} ${resourceTypeName}`)
         : null
