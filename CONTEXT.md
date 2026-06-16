@@ -213,6 +213,14 @@ Recent input-usage header/comparison workspace update from user prompt on 2026-0
 - Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`.
 - Verification: `npm run build --workspace=frontend`.
 
+Recent Carbon Footprint simulation-preview usability update from user prompt on 2026-06-16:
+
+- Prompt summary: the user asked to make the simulation preview less dominant than the row tables in both the preparation workflow and the Carbon Footprint calculation preview, with preview sections collapsed by default, easier vertical resizing in the preparation modal, and a cleaner presentation that prioritizes important variables like amount and EF instead of code-style `const` displays.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now opens both simulation-preview areas in a collapsed state by default. The preparation modal preview can be expanded and vertically resized by dragging, so the row tables keep priority on screen. The Carbon Footprint calculation preview modal now keeps the preview optional, simplifies the simulation cards to show key variables first, and replaces code-block styling with plain readable formula text.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+- Docs impact: no additional updates were applied to `README.md`, `GUIDE.md`, `COMPONENT_PJ.md`, or `BUG_LOG.md` because this change is a focused UI/UX refinement inside an existing page.
+
 Recent lands bulk-subdistrict management update from user prompt on 2026-06-15:
 
 - Prompt summary: the user asked whether the `lands` table can manage subdistrict data and requested an easy-to-find tool under `พื้นที่เพาะปลูก` to change `subdistrict code` for many rows at once, preferably using selected lands as the main driver.
@@ -673,3 +681,11 @@ After finishing work from a user prompt:
 - Verification: `npm run build --workspace=backend` and `npm run build --workspace=frontend` passed.
 - Assumption kept intentionally: the code still treats `คำนวณผิดพลาด` as the canonical error label, but now also accepts the typo variant `คำนวณผิดผลาด` as an alias in case that text exists in live data.
 - Related docs updated: `CONTEXT.md` updated for project memory. `COMPONENT_PJ.md` and `BUG_LOG.md` did not need changes for this status-label alignment task.
+
+## Recent Preparation Queue Header Rename Update - 2026-06-16
+
+- Prompt summary: the user asked to rename the embedded `คิวเตรียมข้อมูล Carbon` header on the `คำนวณ Carbon` -> `เตรียมข้อมูล Carbon` page and make that heading slightly smaller.
+- Result: the embedded preparation section now shows `การเปลี่ยนหน่วยปัจจัยการผลิตก่อนคำนวณ` as its main header, and that header uses a slightly smaller size than the standard Carbon Footprint page heading.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: not re-built yet in this small follow-up change at the time of this note.
+- Related docs updated: `CONTEXT.md` updated for project memory. No route/component-map changes were needed.
