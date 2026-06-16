@@ -76,6 +76,7 @@ const NAV_GROUPS: NavGroup[] = [
           { path: '/calculate/prepare', label: 'เตรียมข้อมูล Carbon', labelEn: 'Prepare Carbon', icon: <ClipboardList size={15} /> },
           { path: '/calculate/usage', label: 'สรุปการใช้ปัจจัย', labelEn: 'Input Usage', icon: <BarChart3 size={15} /> },
           { path: '/calculate/footprint', label: 'Carbon Footprint', labelEn: 'Carbon Footprint', icon: <Calculator size={15} /> },
+          { path: '/calculate/soc', label: 'Soil Organic Carbon', labelEn: 'Soil Organic Carbon', icon: <Sprout size={15} /> },
           { path: '/calculate/credit', label: 'Carbon Credit', labelEn: 'Carbon Credit', icon: <Leaf size={15} /> },
         ],
       },

@@ -20,6 +20,7 @@ import { CfCalculatePage }      from '@/features/cf-dashboard/pages/CalculatePag
 import { CfPipelinePage }       from '@/features/cf-dashboard/pages/PipelinePage'  // KONGJIRAYU05JUNE2026
 import { InputUsageSummaryPage } from '@/features/cf-dashboard/pages/InputUsageSummaryPage'
 import { CarbonFootprintQueuePage } from '@/features/cf-dashboard/pages/CarbonFootprintQueuePage'
+import { SoilOrganicCarbonPage } from '@/features/cf-dashboard/pages/SoilOrganicCarbonPage'
 import { CarbonCreditPage }     from '@/features/cf-dashboard/pages/CarbonCreditPage'
 
 function RedirectWithSearch({ to }: { to: string }) {
@@ -42,6 +43,7 @@ export default function App() {
         <Route path="calculate/prepare" element={<CfCalculatePage />} />
         <Route path="calculate/usage"   element={<InputUsageSummaryPage />} />
         <Route path="calculate/footprint" element={<CarbonFootprintQueuePage />} />
+        <Route path="calculate/soc"     element={<SoilOrganicCarbonPage />} />
         <Route path="calculate/credit"  element={<CarbonCreditPage />} />
         <Route path="dashboard"         element={<DashboardPage />} />
         <Route path="geo"               element={<GeoPage />} />
