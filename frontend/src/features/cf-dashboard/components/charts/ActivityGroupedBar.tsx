@@ -47,11 +47,15 @@ export function ActivityGroupedBar({
   current,
   mode = "both",
   unit = "tCO2e",
+  baselineLabel = "Baseline avg",
+  currentLabel = "Project year",
 }: {
   baseline: ProcessActivityBreakdown[];
   current: ProcessActivityBreakdown[];
   mode?: "both" | "baseline" | "current";
   unit?: string;
+  baselineLabel?: string;
+  currentLabel?: string;
 }) {
   const labels = sortProcessLabels(Array.from(new Set([...baseline, ...current].map((item) => item.process))));
   const chartLabels = labels.map((label) => wrapGroupedBarLabel(label));
@@ -68,7 +72,7 @@ export function ActivityGroupedBar({
   const datasets = [
     mode !== "current"
       ? {
-        label: `Baseline avg (${unit})`,
+        label: `${baselineLabel} (${unit})`,
         data: labels.map((label) => baselineMap.get(label) ?? 0),
         backgroundColor: chartPalette.baseline.bg,
         borderColor: chartPalette.baseline.border,
@@ -77,7 +81,7 @@ export function ActivityGroupedBar({
       : undefined,
     mode !== "baseline"
       ? {
-        label: `Project year (${unit})`,
+        label: `${currentLabel} (${unit})`,
         data: labels.map((label) => currentMap.get(label) ?? 0),
         backgroundColor: chartPalette.project.bg,
         borderColor: chartPalette.project.border,
