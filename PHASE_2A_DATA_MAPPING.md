@@ -1,6 +1,6 @@
 # Phase 2A: Carbon Analytics Data Mapping
 
-วันที่อัปเดต: 15 มิถุนายน 2569
+วันที่อัปเดต: 16 มิถุนายน 2569
 
 เอกสารนี้สรุปการตรวจ field จริงของ database/queue และ mapping ระหว่างข้อมูลต้นทางกับ metric ที่ใช้ในหน้า Carbon Analytics, Carbon Footprint, Spatial, Report และ Premium T-VER เพื่อใช้เป็นฐานก่อนทำ Phase 2B/2C
 
@@ -43,7 +43,7 @@
 | Fertilizer amount | `log_act_detail_volumeAll` หรือ prepared amount ใน `carbon_process_queue_info` | analytics ปัจจุบันรวมจาก `input_amount`; input usage summary normalize เป็น kg | ใช้ได้บางส่วน |
 | Fuel amount | `log_act_detail_volumeAll` หรือ prepared amount | input usage summary normalize เป็น L | ใช้ได้บางส่วน |
 | Calculation breakdown | `carbon_process_queue_info.calculation` | parse JSON จาก queue info แล้วส่ง `calculationBreakdowns` | ใช้จริงแล้วเฉพาะ queue ที่คำนวณใหม่ |
-| Cane type analysis | `activities_header_typeSugarCane` | source มีแล้ว แต่ `getCfCaneTypes()` ยังคืน array ว่าง | ยังไม่ครบ |
+| Cane type analysis | `activities_header_typeSugarCane` | `getCfCaneTypes()` aggregate cane type จริงตาม current year, area, percent และ co2eTotal | ใช้จริงแล้วใน dashboard |
 | SOC before/after/increase | ยังไม่มีตาราง SOC จริงโดยตรง | frontend ใช้สูตรประมาณจาก area/reduction/fallback | ยังไม่ใช่ข้อมูลจริง |
 | Organic material usage | ยังไม่มี field แยกวัสดุอินทรีย์จริง | frontend ใช้ fallback share: ปุ๋ยอินทรีย์/ปุ๋ยหมัก, ฟิลเตอร์เค้ก, Vinasse, ใบอ้อยคลุมดิน | ยังไม่ใช่ข้อมูลจริง |
 | Carbon credit | ใช้ reduction + SOC fallback | ยังไม่ผูกสูตร credit จริงครบ | ยังไม่ครบ |
@@ -82,7 +82,7 @@
 | `/api/analytics/cf-camps` | analytics service | camp summary, activity breakdown, calculationBreakdowns | ใช้ stable camp id สำหรับกลุ่มไร่บางกรณี ต้องระวัง match กับ lands จริง |
 | `/api/analytics/cf-camp-fields` | analytics service | field detail, spatial, process input, breakdown | soil/irrigation/chanot ยังว่าง |
 | `/api/analytics/cf-spatial` | analytics service | hierarchy ประเทศ/ภาค/จังหวัด/อำเภอ/ตำบล/แปลง | ต้อง sync กับ dropdown lands ที่เพื่อนทำล่าสุด |
-| `/api/activities/input-usage-summary` | activities service ใน branch เพื่อน | fertilizer/fuel usage summary จริง | ยังไม่ได้ merge เข้า branch งานเรา |
+| `/api/activities/input-usage-summary` | `backend/src/modules/activities/activities.service.ts` | fertilizer/fuel/resource usage summary จริง, `warningCount`, `warnings`, `sourcePreparedCount`, `fertilizerKind`, `areaRai`, `campName`, `landLabel`, `caneTypeName` | merge แล้ว และ frontend นำไปแสดงใน Overview, Carbon Footprint dashboard, Footprint Report และหน้า Input Usage; ยังไม่ใช้แทน CO2e หลัก |
 | `/api/lands/bulk/subdistrict` | lands service ใน branch เพื่อน | bulk update subdistrict สำหรับแปลง | ยังไม่ได้ merge เข้า branch งานเรา |
 
 ## 6. Data Readiness
@@ -98,7 +98,7 @@
 
 ยังต้องเติมก่อนใช้เป็น “คำนวณจริง 100%”:
 
-- `getCfCaneTypes()` ต้องอ่าน `activities_header_typeSugarCane` จริง
+- `getCfCaneTypes()` อ่าน `activities_header_typeSugarCane` จริงแล้ว แต่ควรเพิ่ม test ครอบ filter ระดับ region/camp/field ใน Phase 2E
 - SOC removal ต้องมี source แยก baseline SOC, project SOC, practice/material input หรืออย่างน้อย mapping จาก resource/activity ที่ชัด
 - Organic material usage ต้อง map จาก activity/resource จริง ไม่ใช้ share fallback
 - Area source ต้องเลือกมาตรฐานเดียว เช่น `lands.land_size` สำหรับพื้นที่ปลูก หรือ `lands.area_size` สำหรับพื้นที่โฉนด
@@ -121,7 +121,7 @@
 
 ลำดับแนะนำ:
 
-1. เพิ่ม `getCfCaneTypes()` ให้ใช้ `activities_header_typeSugarCane` จริง
+1. เพิ่ม regression/smoke test ให้ `getCfCaneTypes()` และ endpoint dashboard หลักยังทำงานตาม filter
 2. เพิ่ม `dataQuality` และ `datasourceStatus` ใน analytics response หลัก
 3. รวม logic normalize fertilizer/fuel จาก `/activities/input-usage-summary` เข้ากับ analytics หรือ reuse helper เดียวกัน
 4. เพิ่ม calculation breakdown summary ต่อ process/activity:
@@ -140,3 +140,33 @@
 Phase 2A ยังทำต่อได้และไม่ชนงานเพื่อน โดยตอนนี้ข้อมูลพื้นที่/dropdown จากงานเพื่อนช่วยให้ mapping พื้นที่สมบูรณ์ขึ้น แต่ควร merge เฉพาะส่วน `lands` แบบ selective ก่อน ไม่ควร merge ทั้ง branch เพราะมีไฟล์ Carbon Dashboard หลายไฟล์ที่ชนกับงาน UI/PDF ล่าสุด
 
 สำหรับงาน Carbon Analytics ฝั่งเรา ตอนนี้ data pipeline หลัก “queue -> analytics -> dashboard” ใช้ข้อมูลจริงได้แล้วในส่วน emission/process/spatial/camp/field ส่วนที่ยังไม่จริงคือ cane type summary, SOC removal, organic material contribution, yield และ data quality flag
+
+## 10. อัปเดตหลัง merge งาน Phase 2B บางส่วน - 16 มิถุนายน 2569
+
+งานจาก `block_dev` ที่เกี่ยวกับ `/api/activities/input-usage-summary` ถูก merge เข้า `idea` แล้ว และรอบนี้นำมาใช้ใน frontend เพิ่มเติมเฉพาะส่วนรายงานปริมาณทางกายภาพและ Data Quality เท่านั้น
+
+ข้อมูลที่นำมาแสดงเพิ่ม:
+
+- `fertilizerKg` และ `fuelLiter` สำหรับ Resource Consumption ในหน้า Overview, Carbon Footprint dashboard และ Footprint Report
+- `areaRai`, `campName`, `landLabel`, `caneTypeName` เพื่อช่วยอธิบาย scope ของข้อมูลกิจกรรมและพื้นที่
+- `warningCount` และ `warnings` เพื่อแสดง Data Quality guard ว่ามีหน่วย/ข้อมูลที่ normalize ไม่ได้หรือไม่
+- `sourcePreparedCount` เพื่อบอกจำนวน record ที่ใช้ปริมาณหลัง prepare แล้ว เทียบกับจำนวน record ทั้งหมด
+- `fertilizerKind` เพื่อแยกปุ๋ยเคมี/ปุ๋ยอินทรีย์ และใช้เป็นฐานข้อมูลประกอบ SOC/organic material summary ในอนาคต
+
+ข้อจำกัดที่ยังตั้งใจคงไว้:
+
+- ยังไม่ใช้ข้อมูลปริมาณจาก `/api/activities/input-usage-summary` แทนตัวเลข CO2e หลัก
+- ตัวเลข CO2e หลักยังต้องอิง pipeline เดิมจาก queue/analytics จนกว่าจะนำปริมาณทางกายภาพชุดนี้เข้า `co2e-engine.service.ts`
+- การ filter ตาม field จะพยายาม map จาก `field-{land_id}`; ถ้า map ไม่ได้จะใช้ระดับ camp เป็น fallback
+- Phase 2E ควรทดสอบทั้ง endpoint analytics เดิมและ endpoint resource usage ใหม่ โดยเช็กว่า source badge/data quality ไม่ทำให้ผู้ใช้เข้าใจผิดว่าเป็น CO2e ที่คำนวณสมบูรณ์แล้ว
+
+## 11. อัปเดต Dynamic SOC และ Cane Types API - 16 มิถุนายน 2569
+
+เพิ่มงานต่อยอดจาก Phase 2D เพื่อให้ flow Carbon Footprint / Sequestration ใกล้ข้อมูลจริงขึ้น:
+
+- หน้า Carbon Footprint แท็บ Sequestration เปลี่ยน `socIncrease` จากสูตรประมาณการณ์เดิมที่อิง `reduction * 0.35 + area * 0.012` มาอิง `organicFertilizerKg` จาก `resourceUsage.ts`
+- ค่าการกักเก็บ SOC ใน dashboard ตอนนี้เปลี่ยนตามปริมาณปุ๋ยอินทรีย์จริงที่อยู่ใน `/activities/input-usage-summary`
+- เพิ่ม `SOC_TCO2E_PER_ORGANIC_FERTILIZER_KG` เป็น coefficient proxy ฝั่ง frontend เพื่อแปลง kg ปุ๋ยอินทรีย์เป็น tCO2e SOC ชั่วคราว
+- ข้อจำกัดสำคัญ: coefficient นี้ยังไม่ใช่สูตร CO2e engine อย่างเป็นทางการ และควรถูกย้าย/ยืนยันใน `co2e-engine.service.ts` ใน Phase 2B ถัดไป
+- Backend `getCfCaneTypes()` ใน `analytics.service.ts` เริ่มส่ง cane type จริงจาก `activities_header_typeSugarCane` แล้ว โดย aggregate ตาม current year, area, percent และ co2eTotal
+- Mapping ยังสอดคล้องกับ Phase 2A: `activities_header_typeSugarCane` เป็น source ของ cane type, `input-usage-summary.fertilizerKind=organic` เป็น source ของ organic material/SOC proxy, ส่วน CO2e หลักยังคงมาจาก queue/analytics เดิม

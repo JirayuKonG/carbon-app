@@ -4,6 +4,7 @@ import type {
   CampCarbonSummary,
   CampFieldCarbonDetail,
   DataResult,
+  InputUsageSummaryResponse,
   OverviewKpi,
   ProcessInputComparison,
   ProcessActivityBreakdown,
@@ -17,6 +18,24 @@ import { projectDashboardDataset } from "../data/projectDashboardDataset";
 
 const ANALYTICS_SOURCE = import.meta.env.VITE_CF_ANALYTICS_SOURCE;
 const USE_ANALYTICS_API = ANALYTICS_SOURCE === "api" || ANALYTICS_SOURCE === "auto";
+
+const emptyInputUsageSummary: InputUsageSummaryResponse = {
+  filters: { years: [], camps: [], lands: [] },
+  totals: {
+    campCount: 0,
+    landCount: 0,
+    recordCount: 0,
+    areaRai: 0,
+    fertilizerKg: 0,
+    fuelLiter: 0,
+    otherRecordCount: 0,
+    unknownUnitCount: 0,
+  },
+  fertilizer: [],
+  fuel: [],
+  other: [],
+  comparisonTargets: [],
+};
 
 function cleanParams(filter?: Partial<ReportFilter>, extra?: Record<string, string>) {
   const params: Record<string, string> = { ...(extra ?? {}) };
@@ -93,6 +112,16 @@ export async function getCfSpatialNodes(filter?: Partial<ReportFilter>): Promise
 export async function getProcessInputComparisons(filter?: Partial<ReportFilter>): Promise<DataResult<ProcessInputComparison[]>> {
   const route = "/analytics/cf-process-inputs";
   return apiOrMock(route, () => get<ProcessInputComparison[]>(route, cleanParams(filter)), projectDashboardDataset.processInputComparisons, hasInputRows);
+}
+
+export async function getInputUsageSummary(): Promise<DataResult<InputUsageSummaryResponse>> {
+  const route = "/activities/input-usage-summary";
+  try {
+    const data = await get<InputUsageSummaryResponse>(route);
+    return apiResult(route, data);
+  } catch {
+    return mockResult(route, emptyInputUsageSummary);
+  }
 }
 
 export async function getCaneTypeSummaries(filter?: Partial<ReportFilter>): Promise<DataResult<CaneTypeSummary[]>> {

@@ -1,6 +1,6 @@
 # สรุปงานส่วน Carbon Dashboard และรายงาน Premium T-VER
 
-Last updated: 2026-06-15
+Last updated: 2026-06-16
 
 ผู้รับผิดชอบงานส่วนนี้: งานหน้าสรุปผล Carbon Dashboard, การแสดงผลเชิงวิเคราะห์, แผนที่สรุปพื้นที่ และรายงานสำหรับเตรียมยื่น Premium T-VER
 
@@ -9,6 +9,91 @@ Current local branch ตอน review เอกสารนี้: `kong_dev`
 Current local HEAD ตอน review เอกสารนี้: `8b212f4 Merge pull request #26 from JirayuKonG/idea`
 
 Commit ล่าสุดที่อัปขึ้น Git: `723cd3c เพิ่มแคมป์ผลงานการกักเก็บคาร์บอนในดิน`
+
+## อัปเดตงานประจำวันที่ 16 มิถุนายน 2569 - เชื่อมข้อมูลจริงจากฐานข้อมูลเพื่อนและแก้ Data Quality Guard ของ Resource Consumption
+
+รอบนี้เน้นตรวจสอบว่า dashboard ดึงข้อมูลจริงจากฐานข้อมูลของเพื่อนผ่าน environment ใหม่หรือไม่ และแก้ปัญหา Data quality guard ในส่วน `Resource Consumption & Data Quality` ที่แจ้งว่าไม่สามารถแปลงหน่วย `SCK` และ `L` เป็น kg ได้
+
+### 1. อัปเดต environment ให้ชี้ API/ฐานข้อมูลจริง
+
+- อัปเดต `backend/.env` ให้รองรับ `ALLOWED_ORIGINS` ชุดใหม่ของเพื่อน:
+  - `http://localhost:5173`
+  - `http://localhost:4173`
+  - `https://carbon-app-1.onrender.com`
+- ตรวจสอบว่า `backend/.env` มี `DATABASE_URL` ไปยังฐานข้อมูล PostgreSQL จริงของเพื่อนแล้ว
+- อัปเดต `frontend/.env` และ `frontend/.env.example` ให้ใช้ API path ผ่าน `/api`:
+  - `VITE_API_BASE_URL=/api`
+  - `VITE_API_URL=/api`
+  - `VITE_CF_API_URL=/api`
+- ตั้งค่า `VITE_CF_ANALYTICS_SOURCE=api` ใน local frontend เพื่อให้หน้า Carbon Dashboard พยายามเรียก API จริงก่อน fallback
+- ยังไม่ลบเส้น API จริงหรือ logic fallback/mock เดิมออก เพื่อให้ระบบยังเปิดหน้าได้หาก API บาง endpoint ยังไม่พร้อม
+
+### 2. ตรวจสอบข้อมูลจริงในฐานข้อมูลของเพื่อน
+
+ตรวจสอบผ่าน Prisma กับฐานข้อมูลจริงแล้วพบข้อมูลพร้อมใช้งานในส่วนกิจกรรมและแปลง:
+
+```json
+{
+  "activityDetails": 1842,
+  "headers": 454,
+  "processQueue": 14,
+  "lands": 460,
+  "inputUsageReadyDetails": 1842
+}
+```
+
+สรุปคือข้อมูลปริมาณปัจจัยการผลิตจริงมีอยู่ในฐานข้อมูล และ endpoint `/activities/input-usage-summary` สามารถใช้แสดง Resource Consumption/Data Quality ได้ แต่ข้อมูลที่ผ่าน `carbon_process_queue` ยังมีเพียง 14 rows จึงยังไม่ควรนำตัวเลขนี้ไปแทน CO2e หลักจนกว่าจะผ่าน `co2e-engine.service.ts`
+
+### 3. แก้ปัญหา Data quality guard: SCK/L
+
+- ตรวจพบว่า warning เดิมเกิดจาก backend จัดข้อมูลปุ๋ยเป็นกลุ่ม fertilizer ถูกต้องแล้ว แต่ยังไม่รู้จักหน่วย `SCK` ซึ่งหมายถึงกระสอบ/ถุง จึงแปลงเป็น kg ไม่ได้
+- พบข้อมูลจริงเดิมมี warning รวม 784 รายการ:
+  - `SCK` 783 รายการ
+  - `L` 1 รายการ
+- แก้ที่ `backend/src/modules/activities/activities.service.ts`
+  - เพิ่มการรู้จักหน่วย `SCK`, `sack`, `bag`, `กระสอบ`, `ถุง`
+  - ถ้าชื่อปุ๋ยมีข้อความเช่น `50 kgs/bag` ให้ใช้ค่านั้นเป็น kg ต่อถุง
+  - ถ้าเป็นหน่วยกระสอบแต่ไม่มี kg ต่อถุงในชื่อรายการ ให้ใช้ค่า default `50 kg/กระสอบ`
+  - แก้การอ่านปริมาณจาก activity raw data: ถ้า `volumeAll` เป็น 0 ให้ fallback ไปใช้ `quantity * volumePerUnit` หรือ `quantity`
+- ยังไม่แปลงปุ๋ยน้ำหน่วย `L` เป็น kg หากไม่มี density เพราะจะทำให้ตัวเลขผิด
+
+ผลหลังแก้และยิง endpoint จริง:
+
+```json
+{
+  "fertilizerKg": 622350,
+  "fuelLiter": 11812,
+  "recordCount": 1842,
+  "warningCount": 1
+}
+```
+
+warning ที่เหลือ 1 รายการคือ `ปุ๋ย CORON 25-0-0` หน่วย `L` จำนวน 40 ลิตร ซึ่งควรคงเป็น data quality warning จนกว่าจะมี density หรือสูตรแปลงปุ๋ยน้ำ
+
+### 4. ตรวจสอบว่า frontend ใช้ข้อมูลจริงหรือ mock
+
+- ตรวจสอบแล้ว `frontend/.env` ชี้ `/api` และ Vite proxy ส่งต่อไป `http://localhost:3000`
+- รัน backend local จากโค้ดปัจจุบันและเรียก `http://localhost:3000/api/activities/input-usage-summary` ได้ข้อมูลจริงจากฐานข้อมูล
+- รัน frontend local และเรียกผ่าน proxy `http://localhost:5173/api/activities/input-usage-summary` ได้ค่าตรงกับ backend:
+  - `recordCount = 1842`
+  - `fertilizerKg = 622350`
+  - `fuelLiter = 11812`
+  - `warningCount = 1`
+- หากหน้าเว็บยังเห็น warning `SCK | L` หรือจำนวน warning 784 แสดงว่าเปิด frontend/backend build เก่า, dev server ยังไม่ได้ restart, browser cache เก่า, หรือ production ยังไม่ได้ deploy commit ล่าสุด
+
+### 5. การตรวจสอบหลังแก้
+
+- รัน `npm run build` ใน `backend` ผ่าน
+- เปิด backend local ที่ `http://localhost:3000/api`
+- เปิด frontend local ที่ `http://localhost:5173/`
+- ทดสอบ endpoint `/activities/input-usage-summary` ผ่านทั้ง backend และ frontend proxy แล้วได้ข้อมูลจริงตรงกัน
+
+### 6. ไฟล์ที่เกี่ยวข้องกับงานวันที่ 16 มิถุนายน 2569
+
+- `backend/src/modules/activities/activities.service.ts`
+- `frontend/.env.example`
+- `backend/.env` และ `frontend/.env` สำหรับ local environment
+- `DASHBOARD_WORK_SUMMARY.md`
 
 ## อัปเดตงานประจำวันที่ 15 มิถุนายน 2569 - ปรับผลลัพธ์สุทธิ Carbon Footprint, กราฟ Scroll Row และเอกสารรายแปลง
 
@@ -1377,3 +1462,33 @@ Backend API:
 - ระบุ block ที่ยังเป็น frontend-derived เช่น filter กลุ่มไร่, SOC/Organic Material และ report compose เป็น `API partial` เพื่อกันผู้ใช้เข้าใจว่าเป็นข้อมูลคำนวณจริงครบทั้งหมด
 - เพิ่มปุ่ม `DS` ขนาดเล็กในหน้า Carbon Credit Premium T-VER มุมขวาบน เพื่อเปิด/ปิดการแสดง datasource status ทั้ง Carbon Analytics โดยค่าเริ่มต้นจะซ่อนไว้ไม่ให้ผู้ใช้ทั่วไปเห็นเด่นบนหน้าเว็บ
 - ตรวจสอบแล้วด้วย `npm run build --workspace=frontend` ผ่านเรียบร้อย
+
+### Phase 2D Resource Consumption/Data Quality Update - 16 มิถุนายน 2569
+
+- เชื่อม `/activities/input-usage-summary` เข้ากับ dashboard/report หลักสำหรับการแสดงปริมาณปัจจัยการผลิตทางกายภาพเท่านั้น
+- เพิ่มบล็อก Resource Consumption ในหน้า Overview เพื่อแสดง `fertilizerKg`, `fuelLiter`, ปุ๋ยเคมี, ปุ๋ยอินทรีย์, `sourcePreparedCount` และ `warningCount`
+- เพิ่มบล็อก Resource Consumption & Data Quality ในหน้า Carbon Footprint dashboard โดยกรองตาม camp/field/year ที่เลือกเท่าที่ key เชื่อมได้
+- เพิ่มบล็อก Resource Consumption & Data Quality ในหน้า Footprint Report เพื่อใช้ประกอบรายงานและ audit ก่อน export/preview
+- เพิ่ม frontend type และ helper กลางสำหรับ `InputUsageSummaryResponse`, `InputUsageSummaryRow`, `fertilizerKind`, `warnings`, `sourcePreparedCount` และการ summarize ตาม scope
+- ตั้ง guard ชัดเจนใน UI ว่าข้อมูลชุดนี้ยังไม่ใช้แทนค่า CO2e หลัก จนกว่าจะนำปริมาณทางกายภาพไปผ่าน `co2e-engine.service.ts`
+- ตรวจสอบแล้วด้วย `npm run build` ผ่านทั้ง frontend และ backend เหลือเฉพาะ Vite warning เรื่อง bundle chunk ใหญ่
+
+### Dynamic SOC และ Cane Types API - 16 มิถุนายน 2569
+
+- ปรับ Carbon Footprint แท็บ Sequestration ให้ `socIncrease` เปลี่ยนตาม `organicFertilizerKg` จริงจาก `resourceUsage.ts` แทนสูตรประมาณการณ์เดิมที่อิง emission reduction/area
+- เพิ่ม coefficient proxy `SOC_TCO2E_PER_ORGANIC_FERTILIZER_KG` ใน frontend เพื่อแสดง Dynamic SOC ชั่วคราว ก่อนย้ายสูตรอย่างเป็นทางการเข้า `co2e-engine.service.ts`
+- เพิ่ม Backend Cane Types API ใน `analytics.service.ts` ให้ `/analytics/cf-cane-types` aggregate ข้อมูลจริงจาก `activities_header_typeSugarCane`
+- Cane Types API ส่ง `name`, `areaRai`, `percent`, `co2eTotal` ตาม current year และรองรับ filter เดิมของ analytics
+- ตรวจ mapping กับ Phase 2A แล้ว: cane type ใช้ source ถูกต้องจาก `activities_header_typeSugarCane`, SOC proxy ใช้ organic fertilizer จาก `/activities/input-usage-summary`, และ CO2e หลักยังไม่ถูกแทนด้วยข้อมูล resource usage
+- ตรวจสอบแล้วด้วย `npm run build` ผ่านทั้ง frontend และ backend
+
+### แก้ปัญหา Dashboard โหลดข้อมูลบางส่วนไม่ได้ - 16 มิถุนายน 2569
+
+- พบปัญหาในหน้า Carbon Credit Premium T-VER, Carbon Footprint และ Footprint Report แสดงข้อความ `ไม่สามารถโหลดข้อมูลจริงบางส่วนได้` หรือ `เกิดข้อผิดพลาด`
+- สาเหตุหลักคือ endpoint ใหม่ `/activities/input-usage-summary` ที่เพิ่งนำมาใช้สำหรับ Resource Consumption/Data Quality ยังไม่มี fallback เหมือน endpoint analytics เดิม
+- endpoint `/analytics/cf-*` เดิมมีระบบ `apiOrMock()` อยู่แล้ว ถ้า API จริงล้ม frontend ยังใช้ fallback/mock ได้ แต่ `/activities/input-usage-summary` เคยเรียก API ตรง ๆ ทำให้ถ้า backend/DB/production deploy ยังไม่พร้อม endpoint เดียวสามารถทำให้หน้าหลักขึ้น error ได้
+- แก้ไขโดยเพิ่ม fallback ให้ `getInputUsageSummary()` ใน `dashboardApi.ts`: ระบบจะลองเรียก API จริง `/activities/input-usage-summary` ก่อน ถ้า error จึง fallback เป็น mock/empty summary
+- ไม่ได้ลบเส้น API จริง และไม่ได้ตัดการเชื่อม `/activities/input-usage-summary` ออกจากระบบ เก็บไว้ให้ใช้งานต่อเมื่อ backend พร้อม ขณะนี้เพียงทำ fallback ครอบไว้เพื่อไม่ให้หน้า dashboard/report ล้ม
+- ผลลัพธ์หลังแก้: ตัวเลข CO2e หลักจาก analytics pipeline ยังแสดงได้ตามเดิม ส่วนบล็อก Resource Consumption/Data Quality จะแสดงเป็น fallback/ค่าว่างถ้า endpoint ใหม่ยังล้ม
+- แนวทางตรวจต่อ: เช็ก production backend ว่า `/activities/input-usage-summary` ล้มจาก schema/Prisma Client/ฐานข้อมูล relation/deploy ยังไม่ตรงกับ branch ล่าสุดหรือไม่
+- ตรวจสอบแล้วด้วย `npm run build` ผ่านทั้ง frontend และ backend และ push commit `6d9ce36 Fallback input usage summary on dashboard load` ขึ้น `origin/idea` แล้ว

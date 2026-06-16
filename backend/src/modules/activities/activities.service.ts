@@ -1081,6 +1081,31 @@ export class ActivitiesService {
       .replace(/³/g, '3')
   }
 
+  private isInputUsagePackageUnit(unitLabel: string) {
+    const unit = this.normalizeInputUsageUnitText(unitLabel)
+    return /^(sck|sack|sacks|bag|bags)$|กระสอบ|ถุง/.test(unit)
+  }
+
+  private isInputUsageLiterUnit(unitLabel: string) {
+    const unit = this.normalizeInputUsageUnitText(unitLabel)
+    const plain = unitLabel.trim().toLowerCase()
+    const lettersOnly = plain.replace(/[^a-z]/g, '')
+    return /^(l|lt|ltr|liter|litre|liters|litres)$|ลิตร/.test(unit)
+      || /^(l|lt|ltr|liter|litre|liters|litres)$/.test(plain)
+      || /^(l|lt|ltr|liter|litre|liters|litres)$/.test(lettersOnly)
+  }
+
+  private parseInputUsagePackageKg(text: string) {
+    const normalized = text.toLowerCase()
+    const direct = normalized.match(/(\d+(?:\.\d+)?)\s*(?:kg|kgs|kilogram|kilograms|กก|กิโลกรัม|กิโล)\s*(?:\/|per)?\s*(?:bag|sack|bags|sacks|ถุง|กระสอบ)/)
+      ?? normalized.match(/(?:bag|sack|bags|sacks|ถุง|กระสอบ)\s*(?:ละ|per)?\s*(\d+(?:\.\d+)?)\s*(?:kg|kgs|kilogram|kilograms|กก|กิโลกรัม|กิโล)/)
+    const parsed = direct ? Number(direct[1]) : null
+    if (parsed != null && Number.isFinite(parsed) && parsed > 0) return parsed
+
+    if (/sck|sack|sacks|bag|bags|กระสอบ|ถุง/.test(normalized)) return 50
+    return null
+  }
+
   private unitLabel(unit?: InputUsageUnitRef | null, prefix?: InputUsagePrefixRef | null) {
     const prefixLabel = this.compactText(prefix?.unit_prefix_initial) || this.compactText(prefix?.unit_prefix_name)
     const unitText = this.compactText(unit?.unit_initial) || this.compactText(unit?.unit_name)
@@ -1135,18 +1160,23 @@ export class ActivitiesService {
     return { kind: 'unknown', formula: null }
   }
 
-  private normalizeInputUsageAmount(bucket: InputUsageBucket, amount: number, unitLabel: string) {
+  private normalizeInputUsageAmount(bucket: InputUsageBucket, amount: number, unitLabel: string, contextText = '') {
     const unit = this.normalizeInputUsageUnitText(unitLabel)
 
     if (bucket === 'fertilizer') {
+      if (this.isInputUsagePackageUnit(unitLabel)) {
+        const packageKg = this.parseInputUsagePackageKg(`${contextText} ${unitLabel}`)
+        if (packageKg != null) return { amount: this.roundUsageValue(amount * packageKg), unit: 'kg', warning: null as string | null }
+      }
       if (/kg|กก|กิโลกรัม|กิโล/.test(unit)) return { amount: this.roundUsageValue(amount), unit: 'kg', warning: null as string | null }
       if (/ตัน|ton|tonne/.test(unit)) return { amount: this.roundUsageValue(amount * 1000), unit: 'kg', warning: null as string | null }
       if (/กรัม|gram|^g$/.test(unit)) return { amount: this.roundUsageValue(amount / 1000), unit: 'kg', warning: null as string | null }
+      if (this.isInputUsageLiterUnit(unitLabel)) return { amount: this.roundUsageValue(amount), unit: 'L', warning: null as string | null }
       return { amount: 0, unit: 'kg', warning: `ไม่สามารถแปลงหน่วย "${unitLabel}" เป็น kg` }
     }
 
     if (bucket === 'fuel') {
-      if (/^(l|liter|litre)$|ลิตร/.test(unit)) return { amount: this.roundUsageValue(amount), unit: 'L', warning: null as string | null }
+      if (this.isInputUsageLiterUnit(unitLabel)) return { amount: this.roundUsageValue(amount), unit: 'L', warning: null as string | null }
       if (/ml|มล|มิลลิลิตร|cc|ซีซี/.test(unit)) return { amount: this.roundUsageValue(amount / 1000), unit: 'L', warning: null as string | null }
       if (/m3|ลบ\.?ม|ลูกบาศก์เมตร/.test(unit)) return { amount: this.roundUsageValue(amount * 1000), unit: 'L', warning: null as string | null }
       return { amount: 0, unit: 'L', warning: `ไม่สามารถแปลงหน่วย "${unitLabel}" เป็น L` }
@@ -1162,12 +1192,15 @@ export class ActivitiesService {
   ): InputUsageResolvedAmount | null {
     const info = this.parseCarbonPreparationInfo(detail.carbon_process_queue?.carbon_process_queue_info)
     const preparedAmount = this.toFiniteNumberOrNull(info.preparedVolumeAll)
-    const sourceAmount = this.toFiniteNumberOrNull(detail.log_act_detail_volumeAll)
-      ?? (
-        this.toFiniteNumberOrNull(detail.log_act_detail_quatity) != null
-        && this.toFiniteNumberOrNull(detail.log_act_detail_volumePerUnit) != null
-          ? Number(detail.log_act_detail_quatity) * Number(detail.log_act_detail_volumePerUnit)
-          : null
+    const sourceVolumeAll = this.toFiniteNumberOrNull(detail.log_act_detail_volumeAll)
+    const sourceQuantity = this.toFiniteNumberOrNull(detail.log_act_detail_quatity)
+    const sourceVolumePerUnit = this.toFiniteNumberOrNull(detail.log_act_detail_volumePerUnit)
+    const sourceAmount = sourceVolumeAll != null && sourceVolumeAll > 0
+      ? sourceVolumeAll
+      : (
+        sourceQuantity != null && sourceVolumePerUnit != null && sourceVolumePerUnit > 0
+          ? sourceQuantity * sourceVolumePerUnit
+          : sourceQuantity
       )
 
     const sourceUnitLabel = this.unitLabel(detail.units, detail.units_prefixs)
@@ -1252,7 +1285,7 @@ export class ActivitiesService {
       landCount: landIds.size,
       recordCount: rows.reduce((sum, row) => sum + row.recordCount, 0),
       areaRai: this.roundUsageValue(Array.from(landAreas.values()).reduce((sum, area) => sum + area, 0), 2),
-      fertilizerKg: this.roundUsageValue(rows.filter((row) => row.bucket === 'fertilizer').reduce((sum, row) => sum + row.amount, 0)),
+      fertilizerKg: this.roundUsageValue(rows.filter((row) => row.bucket === 'fertilizer' && row.unit === 'kg').reduce((sum, row) => sum + row.amount, 0)),
       fuelLiter: this.roundUsageValue(rows.filter((row) => row.bucket === 'fuel').reduce((sum, row) => sum + row.amount, 0)),
       otherRecordCount: rows.filter((row) => row.bucket === 'other').reduce((sum, row) => sum + row.recordCount, 0),
       unknownUnitCount: rows.reduce((sum, row) => sum + row.warningCount, 0),
@@ -1310,7 +1343,7 @@ export class ActivitiesService {
         const areaKey = row.landId != null ? String(row.landId) : row.landLabel
         target.landAreas.set(areaKey, Math.max(target.landAreas.get(areaKey) ?? 0, row.areaRai))
 
-        if (row.bucket === 'fertilizer') {
+        if (row.bucket === 'fertilizer' && row.unit === 'kg') {
           target.fertilizerKg = this.roundUsageValue(target.fertilizerKg + row.amount)
           target.fertilizerItems.set(row.itemName, (target.fertilizerItems.get(row.itemName) ?? 0) + row.amount)
         } else if (row.bucket === 'fuel') {
@@ -1420,7 +1453,12 @@ export class ActivitiesService {
       const bucket = this.classifyInputUsageBucket(detail)
       const itemName = this.getDetailItemName(detail)
       const resourceTypeName = this.compactText(detail.resource_used_type?.resc_used_type_name) || 'ไม่ระบุประเภท'
-      const normalized = this.normalizeInputUsageAmount(bucket, amountInput.amount, amountInput.unitLabel)
+      const normalized = this.normalizeInputUsageAmount(
+        bucket,
+        amountInput.amount,
+        amountInput.unitLabel,
+        `${itemName} ${resourceTypeName}`,
+      )
       const fertilizerProfile = bucket === 'fertilizer'
         ? this.getFertilizerProfile(`${itemName} ${resourceTypeName}`)
         : null

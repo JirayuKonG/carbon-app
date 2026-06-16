@@ -4,15 +4,15 @@ import { Bar } from "react-chartjs-2";
 import { ActivityGroupedBar } from "../components/charts/ActivityGroupedBar";
 import { chartOptions, chartPalette, sortProcessLabels } from "../components/charts/ChartRegistry";
 import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
-import { CaneTypeSummaryPanel } from "../components/common/CaneTypeSummaryPanel";
 import { SourceBadge } from "../components/common/SourceBadge";
-import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCaneTypeSummaries, getCfProcessActivities, getCfSpatialNodes, getOverviewKpi, getProcessEmissions } from "../services/dashboardApi";
-import type { CampCarbonSummary, CampFieldCarbonDetail, CaneTypeSummary, DataResult, OverviewKpi, ProcessActivityBreakdown, ProcessEmission, ProcessInputComparison, SpatialSummaryNode } from "../types/dashboard";
+import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCaneTypeSummaries, getCfProcessActivities, getCfSpatialNodes, getInputUsageSummary, getOverviewKpi, getProcessEmissions } from "../services/dashboardApi";
+import type { CampCarbonSummary, CampFieldCarbonDetail, CaneTypeSummary, DataResult, InputUsageSummaryResponse, OverviewKpi, ProcessActivityBreakdown, ProcessEmission, ProcessInputComparison, SpatialSummaryNode } from "../types/dashboard";
+import { emptyInputUsageSummary, summarizeResourceUsage } from "../utils/resourceUsage";
 import "../cf-dashboard.css";
 
-type PeriodMode = "baseline_avg" | "project";
+type PeriodMode = string;
 type ScopeValue = "all" | `camp-${number}`;
-type ActivityChartMode = "both" | "baseline" | "current";
+type ActivityChartMode = "both" | "baseline" | "current" | "details";
 type CaneScope = "all" | "new" | "ratoon" | "fallow";
 type FootprintView = "emissions" | "sequestration" | "net";
 type ComparisonTab = "benchmark" | "pair";
@@ -20,6 +20,8 @@ type ComparisonTargetType = "camp" | "field";
 type SocMaterialView = "overview" | "area";
 
 const FOOTPRINT_UNIT = "kgCO2e";
+const TCO2E_UNIT = "tCO2e";
+const SOC_TCO2E_PER_ORGANIC_FERTILIZER_KG = 0.00018;
 const CHEMICAL_ACTIVITY_NAME = "สารเคมี/ยาป้องกันกำจัดศัตรูพืช";
 const PROCESS_ACTIVITY_FALLBACKS: Array<{
   match: RegExp;
@@ -74,10 +76,6 @@ interface ScopeComparisonRow {
   camp?: CampCarbonSummary;
 }
 
-function yearName(year: string) {
-  return year === "baseline_avg" ? "ค่าเฉลี่ยปีฐาน" : year;
-}
-
 function currentYearFrom(data: ProcessEmission[]) {
   const years = data.filter((item) => !item.isBaseline).map((item) => item.year).sort();
   return years[years.length - 1] ?? "";
@@ -93,29 +91,9 @@ function baselineYearRange(data: ProcessEmission[], fallback: string[] = []) {
 }
 
 function periodLabel(period: PeriodMode, currentYear: string) {
-  return period === "baseline_avg" ? "ปีฐาน" : `ปีดำเนินการ ${currentYear || "-"}`;
-}
-
-function ProcessSummary({ baseline, current }: { baseline: ProcessActivityBreakdown[]; current: ProcessActivityBreakdown[] }) {
-  const rows = sortProcessLabels(Array.from(new Set([...baseline, ...current].map((item) => item.process)))).map((process) => {
-    const base = baseline.find((item) => item.process === process)?.totalEmission ?? 0;
-    const cur = current.find((item) => item.process === process)?.totalEmission ?? 0;
-    return { process, diff: cur - base };
-  });
-
-  return (
-    <div className="summary-list">
-      {rows.map((row) => (
-        <div key={row.process}>
-          <span>{row.process}</span>
-          <strong className={row.diff <= 0 ? "green-text" : "red-text"}>
-            {row.diff <= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(row.diff).toLocaleString(undefined, { maximumFractionDigits: 2 })} {FOOTPRINT_UNIT}
-          </strong>
-        </div>
-      ))}
-      {!rows.length && <div className="empty-state">ไม่มีข้อมูลเปรียบเทียบ</div>}
-    </div>
-  );
+  if (period === "baseline_avg") return "ปีฐานเฉลี่ย";
+  if (period === "project") return `ปีดำเนินการ ${currentYear || "-"}`;
+  return period;
 }
 
 function sumEmission(rows: ProcessActivityBreakdown[]) {
@@ -224,6 +202,10 @@ function toKgProcessRows(rows: ProcessActivityBreakdown[]): ProcessActivityBreak
 
 function kgCo2e(value: number) {
   return value * 1000;
+}
+
+function formatTco2e(value: number, digits = 2) {
+  return value.toLocaleString(undefined, { maximumFractionDigits: digits });
 }
 
 function stablePercentSeed(key: string) {
@@ -425,7 +407,7 @@ function wrapChartLabel(label: string, maxChars = 12, maxRows = 3) {
   return [...splitRows.slice(0, maxRows - 1), `${splitRows.slice(maxRows - 1).join("").slice(0, maxChars - 1)}…`];
 }
 
-function CampBenchmarkBar({ rows }: { rows: ScopeComparisonRow[] }) {
+function CampBenchmarkBar({ rows, labelA, labelB }: { rows: ScopeComparisonRow[]; labelA: string; labelB: string }) {
   const labels = rows.map((row) => wrapChartLabel(row.name));
   const maxLabelRows = Math.max(...labels.map((label) => label.length), 1);
   const chartHeight = Math.max(430, 360 + maxLabelRows * 26);
@@ -466,14 +448,14 @@ function CampBenchmarkBar({ rows }: { rows: ScopeComparisonRow[] }) {
             labels,
             datasets: [
               {
-                label: `ปีฐาน (${FOOTPRINT_UNIT}/ไร่)`,
+                label: `${labelA} (${FOOTPRINT_UNIT}/ไร่)`,
                 data: rows.map((row) => campBenchmarkValue(row.baseline, row.areaRai)),
                 backgroundColor: chartPalette.baseline.bg,
                 borderColor: chartPalette.baseline.border,
                 borderWidth: 1,
               },
               {
-                label: `ปีดำเนินการ (${FOOTPRINT_UNIT}/ไร่)`,
+                label: `${labelB} (${FOOTPRINT_UNIT}/ไร่)`,
                 data: rows.map((row) => campBenchmarkValue(row.current, row.areaRai)),
                 backgroundColor: chartPalette.project.bg,
                 borderColor: chartPalette.project.border,
@@ -488,8 +470,31 @@ function CampBenchmarkBar({ rows }: { rows: ScopeComparisonRow[] }) {
   );
 }
 
-function campComparisonTarget(camp: CampCarbonSummary | undefined): FootprintComparisonTarget | undefined {
+function campComparisonTarget(
+  camp: CampCarbonSummary | undefined,
+  yearA: string,
+  yearB: string,
+  currentYear: string,
+  emissions: ProcessEmission[],
+  factor: number,
+): FootprintComparisonTarget | undefined {
   if (!camp) return undefined;
+  const baselineRows = withDetailedActivities(scaleProcessRows(rowsForComparisonYear({
+    year: yearA,
+    currentYear,
+    activities: [],
+    emissions,
+    baselineRows: camp.baselineProcessActivities,
+    currentRows: camp.currentProcessActivities,
+  }), factor));
+  const currentRows = withDetailedActivities(scaleProcessRows(rowsForComparisonYear({
+    year: yearB,
+    currentYear,
+    activities: [],
+    emissions,
+    baselineRows: camp.baselineProcessActivities,
+    currentRows: camp.currentProcessActivities,
+  }), factor));
   return {
     id: `camp-${camp.campId}`,
     name: camp.campName,
@@ -497,17 +502,40 @@ function campComparisonTarget(camp: CampCarbonSummary | undefined): FootprintCom
     areaRai: camp.areaRai,
     fieldCount: camp.fieldCount,
     soilType: "-",
-    baseline: camp.baselineCo2eTotal,
-    current: camp.currentCo2eTotal,
-    baselineRows: withDetailedActivities(camp.baselineProcessActivities),
-    currentRows: withDetailedActivities(camp.currentProcessActivities),
+    baseline: scopedTotalForYear(yearA, camp.baselineCo2eTotal, camp.currentCo2eTotal, currentYear, emissions) * factor,
+    current: scopedTotalForYear(yearB, camp.baselineCo2eTotal, camp.currentCo2eTotal, currentYear, emissions) * factor,
+    baselineRows,
+    currentRows,
   };
 }
 
-function fieldComparisonTarget(field: CampFieldCarbonDetail | undefined, currentYear: string, factor: number): FootprintComparisonTarget | undefined {
+function fieldComparisonTarget(
+  field: CampFieldCarbonDetail | undefined,
+  yearA: string,
+  yearB: string,
+  currentYear: string,
+  emissions: ProcessEmission[],
+  factor: number,
+): FootprintComparisonTarget | undefined {
   if (!field) return undefined;
-  const baselineRows = withDetailedActivities(scaleProcessRows(fieldProcessRows(field, "baseline_avg", field.baselineEmission), factor));
-  const currentRows = withDetailedActivities(scaleProcessRows(fieldProcessRows(field, currentYear || "project", field.currentEmission), factor));
+  const sourceBaselineRows = fieldProcessRows(field, "baseline_avg", field.baselineEmission);
+  const sourceCurrentRows = fieldProcessRows(field, currentYear || "project", field.currentEmission);
+  const baselineRows = withDetailedActivities(scaleProcessRows(rowsForComparisonYear({
+    year: yearA,
+    currentYear,
+    activities: [],
+    emissions,
+    baselineRows: sourceBaselineRows,
+    currentRows: sourceCurrentRows,
+  }), factor));
+  const currentRows = withDetailedActivities(scaleProcessRows(rowsForComparisonYear({
+    year: yearB,
+    currentYear,
+    activities: [],
+    emissions,
+    baselineRows: sourceBaselineRows,
+    currentRows: sourceCurrentRows,
+  }), factor));
   return {
     id: field.id,
     name: field.fieldName,
@@ -515,8 +543,8 @@ function fieldComparisonTarget(field: CampFieldCarbonDetail | undefined, current
     areaRai: field.areaRai,
     fieldCount: 1,
     soilType: field.soilType || "-",
-    baseline: field.baselineEmission * factor,
-    current: field.currentEmission * factor,
+    baseline: scopedTotalForYear(yearA, field.baselineEmission, field.currentEmission, currentYear, emissions) * factor,
+    current: scopedTotalForYear(yearB, field.baselineEmission, field.currentEmission, currentYear, emissions) * factor,
     baselineRows,
     currentRows,
   };
@@ -574,23 +602,129 @@ function aggregateCampActivities(camps: CampCarbonSummary[], key: "baselineProce
   return Array.from(grouped.values());
 }
 
-function PeriodSwitch({ value, currentYear, onChange }: { value: PeriodMode; currentYear: string; onChange: (next: PeriodMode) => void }) {
+function processEmissionTotalForYear(emissions: ProcessEmission[], year: string) {
+  return emissions
+    .filter((item) => item.year === year)
+    .reduce((sum, item) => sum + item.emission, 0);
+}
+
+function processRowsFromEmissions(emissions: ProcessEmission[], year: string): ProcessActivityBreakdown[] {
+  return emissions
+    .filter((item) => item.year === year)
+    .map((item) => ({
+      year,
+      process: item.process,
+      totalEmission: item.emission,
+      activities: [{ name: item.process, emission: item.emission }],
+    }));
+}
+
+function scaleRowsToTotal(rows: ProcessActivityBreakdown[], year: string, total: number): ProcessActivityBreakdown[] {
+  const sourceTotal = sumEmission(rows) || 1;
+  return rows.map((row) => {
+    const nextTotal = Number(((row.totalEmission / sourceTotal) * total).toFixed(2));
+    return {
+      ...row,
+      year,
+      totalEmission: nextTotal,
+      activities: row.activities.map((activity) => ({
+        ...activity,
+        emission: Number((activity.emission * (nextTotal / Math.max(row.totalEmission, 0.01))).toFixed(2)),
+      })),
+    };
+  });
+}
+
+function rowsForComparisonYear({
+  year,
+  currentYear,
+  activities,
+  emissions,
+  baselineRows,
+  currentRows,
+}: {
+  year: string;
+  currentYear: string;
+  activities: ProcessActivityBreakdown[];
+  emissions: ProcessEmission[];
+  baselineRows: ProcessActivityBreakdown[];
+  currentRows: ProcessActivityBreakdown[];
+}) {
+  if (year === "baseline_avg") return baselineRows;
+  if (year === "project" || year === currentYear) return currentRows;
+
+  const exactActivityRows = activities.filter((item) => item.year === year);
+  if (exactActivityRows.length) return exactActivityRows;
+
+  const exactEmissionRows = processRowsFromEmissions(emissions, year);
+  if (exactEmissionRows.length && !baselineRows.length && !currentRows.length) return exactEmissionRows;
+
+  const targetTotal = processEmissionTotalForYear(emissions, year);
+  if (targetTotal > 0) {
+    const baselineTotal = processEmissionTotalForYear(emissions, "baseline_avg");
+    const projectTotal = processEmissionTotalForYear(emissions, currentYear);
+    const sourceRows = Math.abs(targetTotal - baselineTotal) <= Math.abs(targetTotal - projectTotal) ? baselineRows : currentRows;
+    return scaleRowsToTotal(sourceRows.length ? sourceRows : exactEmissionRows, year, targetTotal);
+  }
+
+  return currentRows;
+}
+
+function scopedTotalForYear(year: string, baselineTotal: number, currentTotal: number, currentYear: string, emissions: ProcessEmission[]) {
+  if (year === "baseline_avg") return baselineTotal;
+  if (year === "project" || year === currentYear) return currentTotal;
+  const globalBaseline = processEmissionTotalForYear(emissions, "baseline_avg");
+  const globalProject = processEmissionTotalForYear(emissions, currentYear);
+  const targetTotal = processEmissionTotalForYear(emissions, year);
+  if (!targetTotal) return currentTotal;
+  const referenceTotal = Math.abs(targetTotal - globalBaseline) <= Math.abs(targetTotal - globalProject) ? globalBaseline : globalProject;
+  const scopedReference = referenceTotal === globalBaseline ? baselineTotal : currentTotal;
+  return Number((scopedReference * (targetTotal / Math.max(referenceTotal, 0.01))).toFixed(2));
+}
+
+function GraphComparisonFilter({
+  yearA,
+  yearB,
+  availableYears,
+  onChangeA,
+  onChangeB,
+}: {
+  yearA: string;
+  yearB: string;
+  availableYears: string[];
+  onChangeA: (value: string) => void;
+  onChangeB: (value: string) => void;
+}) {
   return (
-    <div className="period-switch" role="group" aria-label="เลือกช่วงข้อมูล">
-      <button type="button" className={value === "baseline_avg" ? "active" : ""} onClick={() => onChange("baseline_avg")}>
-        ปีฐาน
-      </button>
-      <button type="button" className={value === "project" ? "active" : ""} onClick={() => onChange("project")}>
-        ปีดำเนินการ {currentYear || "-"}
-      </button>
+    <div className="card graph-comparison-filter" style={{ padding: "1rem", marginBottom: "1.5rem", display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap" }}>
+      <strong>ตัวกรองกราฟเปรียบเทียบ:</strong>
+      <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        ปี A:
+        <select value={yearA} onChange={(event) => onChangeA(event.target.value)}>
+          <option value="baseline_avg">ปีฐานเฉลี่ย</option>
+          {availableYears.map((year) => <option key={`graph-a-${year}`} value={year}>{year}</option>)}
+        </select>
+      </label>
+      <span style={{ fontWeight: "bold" }}>VS</span>
+      <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        ปี B:
+        <select value={yearB} onChange={(event) => onChangeB(event.target.value)}>
+          <option value="project">ปีดำเนินการ</option>
+          <option value="baseline_avg">ปีฐานเฉลี่ย</option>
+          {availableYears.map((year) => <option key={`graph-b-${year}`} value={year}>{year}</option>)}
+        </select>
+      </label>
     </div>
   );
 }
 
 export function CfProcessPage() {
-  const [period, setPeriod] = useState<PeriodMode>("project");
+  const [period, setPeriod] = useState<string>("project");
   const [activeView, setActiveView] = useState<FootprintView>("emissions");
   const [activityChartMode, setActivityChartMode] = useState<ActivityChartMode>("both");
+  const [graphYearA, setGraphYearA] = useState<string>("baseline_avg");
+  const [graphYearB, setGraphYearB] = useState<string>("project");
+  const [graph2Mode, setGraph2Mode] = useState<"single" | "compare">("single");
   const [comparisonTab, setComparisonTab] = useState<ComparisonTab>("benchmark");
   const [compareAType, setCompareAType] = useState<ComparisonTargetType>("camp");
   const [compareBType, setCompareBType] = useState<ComparisonTargetType>("camp");
@@ -609,14 +743,15 @@ export function CfProcessPage() {
   const [campResult, setCampResult] = useState<DataResult<CampCarbonSummary[]>>({ data: [], source: "mock" });
   const [fieldResult, setFieldResult] = useState<DataResult<CampFieldCarbonDetail[]>>({ data: [], source: "mock" });
   const [caneTypeResult, setCaneTypeResult] = useState<DataResult<CaneTypeSummary[]>>({ data: [], source: "mock" });
+  const [inputUsageResult, setInputUsageResult] = useState<DataResult<InputUsageSummaryResponse>>({ data: emptyInputUsageSummary, source: "api" });
   const [spatialNodes, setSpatialNodes] = useState<SpatialSummaryNode[]>([]);
   const [overviewKpi, setOverviewKpi] = useState<OverviewKpi | null>(null);
   const [selectedFieldId, setSelectedFieldId] = useState("all");
   const [error, setError] = useState("");
 
   useEffect(() => {
-    Promise.all([getCfProcessActivities("process"), getProcessEmissions(), getCampCarbonSummaries(), getCampFieldCarbonDetails(), getCaneTypeSummaries(), getOverviewKpi(), getCfSpatialNodes()])
-      .then(([activityResult, emissionResult, campSummaryResult, fieldDetailResult, caneSummaryResult, kpiResult, spatialResult]) => {
+    Promise.all([getCfProcessActivities("process"), getProcessEmissions(), getCampCarbonSummaries(), getCampFieldCarbonDetails(), getCaneTypeSummaries(), getOverviewKpi(), getCfSpatialNodes(), getInputUsageSummary()])
+      .then(([activityResult, emissionResult, campSummaryResult, fieldDetailResult, caneSummaryResult, kpiResult, spatialResult, inputUsageResult]) => {
         setActivities(activityResult.data);
         setEmissions(emissionResult.data);
         setActivityResult(activityResult);
@@ -626,11 +761,20 @@ export function CfProcessPage() {
         setCaneTypeResult(caneSummaryResult);
         setOverviewKpi(kpiResult.data);
         setSpatialNodes(spatialResult.data);
+        setInputUsageResult(inputUsageResult);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "โหลดข้อมูลไม่สำเร็จ"));
   }, []);
 
   const currentYear = currentYearFrom(emissions);
+  const availableYears = Array.from(new Set([
+    ...(overviewKpi?.years ?? []),
+    ...emissions.map((item) => item.year),
+    ...activities.map((item) => item.year),
+  ].filter((year) => year && year !== "baseline_avg"))).sort();
+  const actualPeriod = period === "project" ? currentYear : period;
+  const actualGraphYearA = graphYearA === "project" ? currentYear : graphYearA;
+  const actualGraphYearB = graphYearB === "project" ? currentYear : graphYearB;
   const selectedCampId = scope === "all" ? undefined : Number(scope.replace("camp-", ""));
   const fieldsInRegion = regionId === "all"
     ? fieldResult.data
@@ -641,30 +785,37 @@ export function CfProcessPage() {
   const selectedField = selectedFieldId === "all" ? undefined : fieldsInRegion.find((field) => field.id === selectedFieldId);
   const fieldsInCamp = selectedCampId ? fieldsInRegion.filter((field) => field.campId === selectedCampId) : [];
   const baseline = activities.filter((item) => item.year === "baseline_avg");
-  const current = activities.filter((item) => item.year === currentYear);
-  const selectedYear = period === "baseline_avg" ? "baseline_avg" : currentYear;
+  const currentYearNumber = /^\d+$/.test(currentYear) ? Number(currentYear) : undefined;
   const fieldBaseline = selectedField ? fieldProcessRows(selectedField, "baseline_avg", selectedField.baselineEmission) : [];
   const fieldCurrent = selectedField ? fieldProcessRows(selectedField, currentYear, selectedField.currentEmission) : [];
   const scopedCamps = selectedCamp ? [selectedCamp] : campsInRegion;
-  const selected = selectedField
-    ? (period === "baseline_avg" ? fieldBaseline : fieldCurrent)
-    : selectedCamp
-    ? (period === "baseline_avg" ? selectedCamp.baselineProcessActivities : selectedCamp.currentProcessActivities)
-    : scopedCamps.length
-    ? aggregateCampActivities(scopedCamps, period === "baseline_avg" ? "baselineProcessActivities" : "currentProcessActivities")
-    : activities.filter((item) => item.year === selectedYear);
   const chartBaselineRaw = selectedField ? fieldBaseline : selectedCamp ? selectedCamp.baselineProcessActivities : scopedCamps.length ? aggregateCampActivities(scopedCamps, "baselineProcessActivities") : baseline;
-  const chartCurrentRaw = selectedField ? fieldCurrent : selectedCamp ? selectedCamp.currentProcessActivities : scopedCamps.length ? aggregateCampActivities(scopedCamps, "currentProcessActivities") : current;
+  const chartCurrentRaw = selectedField ? fieldCurrent : selectedCamp ? selectedCamp.currentProcessActivities : scopedCamps.length ? aggregateCampActivities(scopedCamps, "currentProcessActivities") : activities.filter((item) => item.year === currentYear);
   const caneMeta = caneScopeInfo(caneTypeResult.data, caneScope);
-  const selectedByCane = withDetailedActivities(scaleProcessRows(selected, caneMeta.factor));
-  const chartBaseline = withDetailedActivities(scaleProcessRows(chartBaselineRaw, caneMeta.factor));
-  const chartCurrent = withDetailedActivities(scaleProcessRows(chartCurrentRaw, caneMeta.factor));
+  const chartBaseline = withDetailedActivities(scaleProcessRows(rowsForComparisonYear({
+    year: actualGraphYearA,
+    currentYear,
+    activities,
+    emissions,
+    baselineRows: chartBaselineRaw,
+    currentRows: chartCurrentRaw,
+  }), caneMeta.factor));
+  const chartCurrent = withDetailedActivities(scaleProcessRows(rowsForComparisonYear({
+    year: actualGraphYearB,
+    currentYear,
+    activities,
+    emissions,
+    baselineRows: chartBaselineRaw,
+    currentRows: chartCurrentRaw,
+  }), caneMeta.factor));
+  const selectedByCane = chartCurrent;
   const selectedByCaneKg = toKgProcessRows(selectedByCane);
   const chartBaselineKg = toKgProcessRows(chartBaseline);
   const chartCurrentKg = toKgProcessRows(chartCurrent);
   const campRows = scaleCampRows(scopedCamps, caneMeta.factor);
   const baselineTotal = (selectedField ? selectedField.baselineEmission : selectedCamp ? selectedCamp.baselineCo2eTotal : scopedCamps.length ? scopedCamps.reduce((sum, camp) => sum + camp.baselineCo2eTotal, 0) : sumEmission(baseline)) * caneMeta.factor;
-  const currentTotal = (selectedField ? selectedField.currentEmission : selectedCamp ? selectedCamp.currentCo2eTotal : scopedCamps.length ? scopedCamps.reduce((sum, camp) => sum + camp.currentCo2eTotal, 0) : sumEmission(current)) * caneMeta.factor;
+  const projectTotal = (selectedField ? selectedField.currentEmission : selectedCamp ? selectedCamp.currentCo2eTotal : scopedCamps.length ? scopedCamps.reduce((sum, camp) => sum + camp.currentCo2eTotal, 0) : sumEmission(activities.filter((item) => item.year === currentYear))) * caneMeta.factor;
+  const currentTotal = scopedTotalForYear(actualPeriod, baselineTotal, projectTotal, currentYear, emissions);
   const baselineTotalKg = baselineTotal * 1000;
   const currentTotalKg = currentTotal * 1000;
   const summaryAreaRai = selectedField ? selectedField.areaRai : selectedCamp ? selectedCamp.areaRai : scopedCamps.length ? scopedCamps.reduce((sum, camp) => sum + camp.areaRai, 0) : overviewKpi?.areaRai ?? campResult.data.reduce((sum, camp) => sum + camp.areaRai, 0);
@@ -673,20 +824,28 @@ export function CfProcessPage() {
   const totalDiff = baselineTotal - currentTotal;
   const totalDiffKg = totalDiff * 1000;
   const totalDiffPct = baselineTotal ? (totalDiff / baselineTotal) * 100 : 0;
-  const topCurrentProcess = [...chartCurrent]
-    .sort((a, b) => b.totalEmission - a.totalEmission)[0];
   const chartBaselineTotal = sumEmission(chartBaseline);
   const chartCurrentTotal = sumEmission(chartCurrent);
   const chartDiff = chartBaselineTotal - chartCurrentTotal;
-  const chartBaselineTotalKg = chartBaselineTotal * 1000;
-  const chartCurrentTotalKg = chartCurrentTotal * 1000;
-  const chartDiffKg = chartDiff * 1000;
+  const graphLabelA = periodLabel(graphYearA, currentYear);
+  const graphLabelB = periodLabel(graphYearB, currentYear);
+  const processDetailRows = sortProcessLabels(Array.from(new Set([...chartBaseline, ...chartCurrent].map((item) => item.process)))).map((process) => {
+    const valueA = chartBaseline.find((item) => item.process === process)?.totalEmission ?? 0;
+    const valueB = chartCurrent.find((item) => item.process === process)?.totalEmission ?? 0;
+    return {
+      process,
+      valueA,
+      valueB,
+      diff: valueA - valueB,
+      pct: valueA ? ((valueA - valueB) / valueA) * 100 : 0,
+    };
+  });
   const selectedRegion = farmGroupFilterOptions.find((option) => option.id === regionId);
   const campComparisonRows: ScopeComparisonRow[] = campRows.map((camp) => ({
     id: `camp-${camp.campId}`,
     name: camp.campName,
-    baseline: camp.baselineCo2eTotal,
-    current: camp.currentCo2eTotal,
+    baseline: scopedTotalForYear(actualGraphYearA, camp.baselineCo2eTotal, camp.currentCo2eTotal, currentYear, emissions),
+    current: scopedTotalForYear(actualGraphYearB, camp.baselineCo2eTotal, camp.currentCo2eTotal, currentYear, emissions),
     areaRai: camp.areaRai,
     fieldCount: camp.fieldCount,
     camp,
@@ -705,20 +864,25 @@ export function CfProcessPage() {
   const compareAField = compareAFieldOptions.find((field) => field.id === effectiveCompareAFieldId);
   const compareBField = compareBFieldOptions.find((field) => field.id === effectiveCompareBFieldId);
   const compareATarget = compareAType === "field"
-    ? fieldComparisonTarget(compareAField, currentYear, caneMeta.factor)
-    : campComparisonTarget(compareACamp);
+    ? fieldComparisonTarget(compareAField, actualGraphYearA, actualGraphYearB, currentYear, emissions, caneMeta.factor)
+    : campComparisonTarget(compareACamp, actualGraphYearA, actualGraphYearB, currentYear, emissions, caneMeta.factor);
   const compareBTarget = compareBType === "field"
-    ? fieldComparisonTarget(compareBField, currentYear, caneMeta.factor)
-    : campComparisonTarget(compareBCamp);
+    ? fieldComparisonTarget(compareBField, actualGraphYearA, actualGraphYearB, currentYear, emissions, caneMeta.factor)
+    : campComparisonTarget(compareBCamp, actualGraphYearA, actualGraphYearB, currentYear, emissions, caneMeta.factor);
   const sequestrationRows = campComparisonRows.map((row) => {
     const reduction = Math.max(row.baseline - row.current, 0);
-    const fertilizerKg = row.camp?.processInputComparisons.reduce((sum, item) => sum + item.currentFertilizerKg, 0) ?? 0;
-    const socIncrease = Number((reduction * 0.35 + row.areaRai * 0.012).toFixed(2));
+    const campResourceUsage = summarizeResourceUsage(inputUsageResult.data, {
+      campId: row.camp?.campId,
+      year: currentYearNumber,
+    });
+    const fertilizerKg = campResourceUsage.fertilizerKg;
+    const socIncrease = Number((campResourceUsage.organicFertilizerKg * SOC_TCO2E_PER_ORGANIC_FERTILIZER_KG).toFixed(2));
     const credits = Number((reduction * 0.6 + socIncrease).toFixed(2));
     return {
       ...row,
       reduction,
       fertilizerKg,
+      organicFertilizerKg: campResourceUsage.organicFertilizerKg,
       socIncrease,
       socIndex: row.areaRai ? Number(((socIncrease / row.areaRai) * 100).toFixed(2)) : 0,
       credits,
@@ -769,7 +933,7 @@ export function CfProcessPage() {
       <div className="page active">
         <div className="page-title">
           <div>
-            <h1>Carbon Footprint ไร่บริษัทกลุ่มมิตรผล</h1>
+            <h1>GHG ตามประเภทอ้อย ไร่บริษัทกลุ่มมิตรผล</h1>
           </div>
         </div>
 
@@ -818,9 +982,12 @@ export function CfProcessPage() {
           </div>
           <label>
             ปีดำเนินการ
-            <select value={period} onChange={(event) => setPeriod(event.target.value as PeriodMode)}>
+            <select value={period} onChange={(event) => setPeriod(event.target.value)}>
               <option value="project">ปีดำเนินการ {currentYear || overviewKpi?.currentYear || "-"}</option>
               <option value="baseline_avg">ปีฐานเฉลี่ย</option>
+              {availableYears.map(y => (
+                <option key={y} value={y}>ปี {y}</option>
+              ))}
             </select>
           </label>
           <label>
@@ -879,26 +1046,26 @@ export function CfProcessPage() {
             <>
               <article>
                 <span>Total Emission</span>
-                <strong>{currentTotalKg.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
-                <small>{FOOTPRINT_UNIT}</small>
+                <strong style={{ fontSize: "1.5em" }}>{(currentTotalKg / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong>
+                <small>{currentTotalKg.toLocaleString(undefined, { maximumFractionDigits: 0 })} {FOOTPRINT_UNIT}</small>
                 <em>{summaryFieldCount.toLocaleString(undefined, { maximumFractionDigits: 0 })} แปลง · {summaryAreaRai.toLocaleString(undefined, { maximumFractionDigits: 0 })} ไร่</em>
               </article>
               <article>
                 <span>Baseline</span>
-                <strong>{baselineTotalKg.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
-                <small>{FOOTPRINT_UNIT}</small>
+                <strong style={{ fontSize: "1.5em" }}>{(baselineTotalKg / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong>
+                <small>{baselineTotalKg.toLocaleString(undefined, { maximumFractionDigits: 0 })} {FOOTPRINT_UNIT}</small>
                 <em>{summaryBaselineYears}</em>
               </article>
               <article>
                 <span>Project</span>
-                <strong>{currentTotalKg.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
-                <small>{FOOTPRINT_UNIT}</small>
+                <strong style={{ fontSize: "1.5em" }}>{(currentTotalKg / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e</strong>
+                <small>{currentTotalKg.toLocaleString(undefined, { maximumFractionDigits: 0 })} {FOOTPRINT_UNIT}</small>
                 <em>{currentYear || overviewKpi?.currentYear || "-"}</em>
               </article>
               <article>
                 <span>Reduction %</span>
-                <strong className={totalDiff >= 0 ? "green-text" : "red-text"}>{totalDiffPct.toFixed(1)}%</strong>
-                <small>{Math.abs(totalDiffKg).toLocaleString(undefined, { maximumFractionDigits: 0 })} {FOOTPRINT_UNIT}</small>
+                <strong className={totalDiff >= 0 ? "green-text" : "red-text"} style={{ fontSize: "1.5em" }}>{totalDiffPct.toFixed(1)}%</strong>
+                <small>{(Math.abs(totalDiffKg) / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e | {Math.abs(totalDiffKg).toLocaleString(undefined, { maximumFractionDigits: 0 })} {FOOTPRINT_UNIT}</small>
                 <em>{totalDiff >= 0 ? "ลดลงจากปีฐาน" : "เพิ่มขึ้นจากปีฐาน"}</em>
               </article>
             </>
@@ -992,102 +1159,11 @@ export function CfProcessPage() {
           <div className="section-head">
             <div>
               <span className="section-kicker">Carbon Emissions</span>
-              <h2>การปล่อยคาร์บอน</h2>
+              <h2>GHG ตามประเภทอ้อย</h2>
             </div>
           </div>
         </section>
 
-        <CaneTypeSummaryPanel result={caneTypeResult} mode="footprint" />
-
-        <section className="process-summary-grid">
-          <article>
-            <span>ปีฐานรวมทั้งหมด</span>
-            <strong>{baselineTotalKg.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
-            <small>{FOOTPRINT_UNIT}</small>
-          </article>
-          <article>
-            <span>ปีดำเนินการ</span>
-            <strong>{currentTotalKg.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
-            <small>{FOOTPRINT_UNIT}</small>
-          </article>
-          <article>
-            <span>{totalDiff >= 0 ? "ลดลงจากปีฐาน" : "เพิ่มขึ้นจากปีฐาน"}</span>
-            <strong className={totalDiff >= 0 ? "green-text" : "red-text"}>
-              {Math.abs(totalDiffKg).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-            </strong>
-            <small>{Math.abs(totalDiffPct).toFixed(1)}% · {FOOTPRINT_UNIT}</small>
-          </article>
-          <article>
-            <span>กระบวนการที่ปล่อยสูงสุด</span>
-            <strong>{topCurrentProcess?.process ?? "-"}</strong>
-            <small>{topCurrentProcess ? `${(topCurrentProcess.totalEmission * 1000).toLocaleString(undefined, { maximumFractionDigits: 0 })} ${FOOTPRINT_UNIT}` : "-"}</small>
-          </article>
-        </section>
-
-        <section className="card full-span">
-          <div className="card-title-row">
-            <div>
-              <div className="card-title">การปล่อยคาร์บอนรายกระบวนการ · {selectedField?.fieldName ?? selectedCamp?.campName ?? `ปีดำเนินการ ${currentYear || "-"}`}</div>
-              <SourceBadge source={emissionResult.source} meta={emissionResult.meta} />
-            </div>
-            <div className="group-mode-switch" role="group" aria-label="เลือกช่วงเปรียบเทียบรายกระบวนการ">
-              {[
-                ["both", "ปีฐาน VS ปีดำเนินการ"],
-                ["baseline", "ปีฐาน"],
-                ["current", "ปีดำเนินการ"],
-              ].map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={activityChartMode === value ? "active" : ""}
-                  onClick={() => setActivityChartMode(value as ActivityChartMode)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <ActivityGroupedBar baseline={chartBaselineKg} current={chartCurrentKg} mode={activityChartMode} unit={FOOTPRINT_UNIT} />
-          <div className="summary-list">
-            {activityChartMode !== "current" && <div><span>ปีฐาน</span><strong>{chartBaselineTotalKg.toLocaleString(undefined, { maximumFractionDigits: 0 })} {FOOTPRINT_UNIT}</strong></div>}
-            {activityChartMode !== "baseline" && <div><span>ปีดำเนินการ</span><strong>{chartCurrentTotalKg.toLocaleString(undefined, { maximumFractionDigits: 0 })} {FOOTPRINT_UNIT}</strong></div>}
-            {activityChartMode === "both" && (
-              <div>
-                <span>ผลต่าง</span>
-                <strong className={chartDiff >= 0 ? "green-text" : "red-text"}>
-                  {Math.abs(chartDiffKg).toLocaleString(undefined, { maximumFractionDigits: 0 })} {FOOTPRINT_UNIT}
-                </strong>
-              </div>
-            )}
-          </div>
-          {activityChartMode === "both" && <ProcessSummary baseline={chartBaselineKg} current={chartCurrentKg} />}
-        </section>
-
-        <section className="card full-span">
-          <div className="card-title-row">
-            <div>
-              <div className="card-title">รายการกิจกรรมย่อยในแต่ละขั้นตอน · {periodLabel(period, currentYear)}</div>
-              <SourceBadge source={activityResult.source} meta={activityResult.meta} />
-            </div>
-            <PeriodSwitch value={period} currentYear={currentYear} onChange={setPeriod} />
-          </div>
-          <div className="sub-pie-grid">
-            {selectedByCaneKg.map((item) => {
-              const comparisonActivities = (period === "baseline_avg" ? chartCurrentKg : chartBaselineKg).find((row) => row.process === item.process)?.activities;
-              return (
-                <article className="card sub-card" key={`${item.year}-${item.process}`}>
-                  <ProcessDoughnut
-                    title={selectedField ? `${item.process} · ${selectedField.fieldCode}` : selectedCamp ? `${item.process} · ${periodLabel(period, currentYear)}` : `${item.process} · ${yearName(item.year)}`}
-                    data={item.activities}
-                    comparisonData={comparisonActivities}
-                    unit={FOOTPRINT_UNIT}
-                  />
-                </article>
-              );
-            })}
-            {!selectedByCane.length && <div className="empty-state">ไม่มีข้อมูลกระบวนการเพาะปลูกสำหรับช่วงที่เลือก</div>}
-          </div>
-        </section>
 
         <section className="card full-span">
           <div className="card-title-row">
@@ -1109,22 +1185,34 @@ export function CfProcessPage() {
                 </tr>
               </thead>
               <tbody>
-                {campRows.map((camp) => (
-                  <tr key={camp.campId}>
-                    <td>{camp.campName}</td>
-                    <td>{camp.fieldCount.toLocaleString()}</td>
-                    <td>{camp.areaRai.toLocaleString()} ไร่</td>
-                    <td>{(camp.baselineCo2eTotal * 1000).toLocaleString(undefined, { maximumFractionDigits: 0 })} {FOOTPRINT_UNIT}</td>
-                    <td>{(camp.currentCo2eTotal * 1000).toLocaleString(undefined, { maximumFractionDigits: 0 })} {FOOTPRINT_UNIT}</td>
-                    <td>{(camp.co2ePerRai * 1000).toFixed(1)} {FOOTPRINT_UNIT}/ไร่</td>
-                    <td>{camp.topActivity}</td>
-                    <td><Link className="run-btn drilldown-link" to={`/footprint-report?campId=${camp.campId}`}>ดูรายงานละเอียด</Link></td>
-                  </tr>
-                ))}
+                {campRows.map((camp) => {
+                  const periodCo2eTotal = scopedTotalForYear(actualPeriod, camp.baselineCo2eTotal, camp.currentCo2eTotal, currentYear, emissions);
+                  const periodPerRai = camp.areaRai ? periodCo2eTotal / camp.areaRai : 0;
+                  return (
+                    <tr key={camp.campId}>
+                      <td>{camp.campName}</td>
+                      <td>{camp.fieldCount.toLocaleString()}</td>
+                      <td>{camp.areaRai.toLocaleString()} ไร่</td>
+                      <td>{(camp.baselineCo2eTotal * 1000).toLocaleString(undefined, { maximumFractionDigits: 0 })} {FOOTPRINT_UNIT}</td>
+                      <td>{(periodCo2eTotal * 1000).toLocaleString(undefined, { maximumFractionDigits: 0 })} {FOOTPRINT_UNIT}</td>
+                      <td>{(periodPerRai * 1000).toFixed(1)} {FOOTPRINT_UNIT}/ไร่</td>
+                      <td>{camp.topActivity}</td>
+                      <td><Link className="run-btn drilldown-link" to={`/footprint-report?campId=${camp.campId}`}>ดูรายงานละเอียด</Link></td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </section>
+
+        <GraphComparisonFilter
+          yearA={graphYearA}
+          yearB={graphYearB}
+          availableYears={availableYears}
+          onChangeA={setGraphYearA}
+          onChangeB={setGraphYearB}
+        />
 
         <section className="card full-span camp-comparison-module">
           <div className="card-title-row">
@@ -1153,7 +1241,7 @@ export function CfProcessPage() {
           {comparisonTab === "benchmark" ? (
             <>
               {campComparisonRows.length > 1 ? (
-                <CampBenchmarkBar rows={campComparisonRows} />
+                <CampBenchmarkBar rows={campComparisonRows} labelA={graphLabelA} labelB={graphLabelB} />
               ) : (
                 <div className="empty-state">ต้องมีอย่างน้อย 2 แคมป์เพื่อเปรียบเทียบ</div>
               )}
@@ -1168,7 +1256,7 @@ export function CfProcessPage() {
                       <span>{row.fieldCount.toLocaleString()} แปลง · {row.areaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })} ไร่</span>
                       <b>{currentPerRai.toLocaleString(undefined, { maximumFractionDigits: 1 })} {FOOTPRINT_UNIT}/ไร่</b>
                       <small className={diff >= 0 ? "green-text" : "red-text"}>
-                        {diff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(diff).toLocaleString(undefined, { maximumFractionDigits: 1 })} {FOOTPRINT_UNIT}/ไร่ จากปีฐาน {baselinePerRai.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                        {diff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(diff).toLocaleString(undefined, { maximumFractionDigits: 1 })} {FOOTPRINT_UNIT}/ไร่ จาก {graphLabelA} {baselinePerRai.toLocaleString(undefined, { maximumFractionDigits: 1 })}
                       </small>
                     </div>
                   );
@@ -1254,6 +1342,8 @@ export function CfProcessPage() {
                         baseline={toKgProcessRows(compareATarget?.baselineRows ?? [])}
                         current={toKgProcessRows(compareATarget?.currentRows ?? [])}
                         unit={FOOTPRINT_UNIT}
+                        baselineLabel={graphLabelA}
+                        currentLabel={graphLabelB}
                       />
                     </article>
                     <article className="comparison-process-panel">
@@ -1262,6 +1352,8 @@ export function CfProcessPage() {
                         baseline={toKgProcessRows(compareBTarget?.baselineRows ?? [])}
                         current={toKgProcessRows(compareBTarget?.currentRows ?? [])}
                         unit={FOOTPRINT_UNIT}
+                        baselineLabel={graphLabelA}
+                        currentLabel={graphLabelB}
                       />
                     </article>
                   </div>
@@ -1271,6 +1363,96 @@ export function CfProcessPage() {
               )}
             </>
           )}
+        </section>
+
+        
+
+        <section className="card full-span">
+          <div className="card-title-row">
+            <div>
+              <div className="card-title">กราฟเปรียบเทียบ GHG รายกระบวนการ · {selectedField?.fieldName ?? selectedCamp?.campName ?? "รวม"}</div>
+              <SourceBadge source={emissionResult.source} meta={emissionResult.meta} />
+            </div>
+            <div className="group-mode-switch" role="group" aria-label="เลือกช่วงเปรียบเทียบรายกระบวนการ">
+              {[
+                ["both", "ผลต่าง (Reduction)"],
+                ["details", "ดูเพิ่มเติม (แยกปี)"],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={(activityChartMode === value || (value === "both" && activityChartMode !== "details")) ? "active" : ""}
+                  onClick={() => setActivityChartMode(value as ActivityChartMode)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <ActivityGroupedBar
+            baseline={chartBaselineKg}
+            current={chartCurrentKg}
+            mode={activityChartMode === "details" ? "both" : activityChartMode}
+            unit={FOOTPRINT_UNIT}
+            baselineLabel={graphLabelA}
+            currentLabel={graphLabelB}
+          />
+          <div className="summary-list">
+            {activityChartMode !== "current" && <div><span>{graphLabelA}</span><strong>{formatTco2e(chartBaselineTotal)} {TCO2E_UNIT}</strong></div>}
+            {activityChartMode !== "baseline" && <div><span>{graphLabelB}</span><strong>{formatTco2e(chartCurrentTotal)} {TCO2E_UNIT}</strong></div>}
+            {activityChartMode !== "details" && (
+              <div>
+                <span>ผลต่าง (Reduction)</span>
+                <strong className={chartDiff >= 0 ? "green-text" : "red-text"}>
+                  {formatTco2e(Math.abs(chartDiff))} {TCO2E_UNIT}
+                </strong>
+              </div>
+            )}
+          </div>
+          <details className="summary-list" style={{ marginTop: "12px" }} open={activityChartMode === "details"}>
+            <summary>ดูรายละเอียดรายกระบวนการ</summary>
+            {processDetailRows.map((row) => (
+              <div key={`process-detail-${row.process}`}>
+                <span>{row.process}</span>
+                <strong className={row.diff >= 0 ? "green-text" : "red-text"}>
+                  {graphLabelA} {formatTco2e(row.valueA)} / {graphLabelB} {formatTco2e(row.valueB)} {TCO2E_UNIT} · {row.diff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} {formatTco2e(Math.abs(row.diff))} ({Math.abs(row.pct).toFixed(1)}%)
+                </strong>
+              </div>
+            ))}
+          </details>
+        </section>
+
+        <section className="card full-span">
+          <div className="card-title-row">
+            <div>
+              <div className="card-title">รายการกิจกรรมย่อยในแต่ละขั้นตอน</div>
+              <SourceBadge source={activityResult.source} meta={activityResult.meta} />
+            </div>
+            <div className="group-mode-switch" role="group">
+                <button type="button" className={graph2Mode === "single" ? "active" : ""} onClick={() => setGraph2Mode("single")}>ดูรายปี (ปี B)</button>
+                <button type="button" className={graph2Mode === "compare" ? "active" : ""} onClick={() => setGraph2Mode("compare")}>เปรียบเทียบ (A/B)</button>
+              </div>
+          </div>
+          <div className="sub-pie-grid">
+            {selectedByCaneKg.map((item) => {
+              const comparisonActivities = graph2Mode === "compare" ? chartBaselineKg.find((row) => row.process === item.process)?.activities : undefined;
+              const dataToDisplay = graph2Mode === "single" ? (chartCurrentKg.find(row => row.process === item.process)?.activities ?? []) : item.activities;
+              
+              if (dataToDisplay.length === 0 && (!comparisonActivities || comparisonActivities.length === 0)) return null;
+
+              return (
+                <article className="card sub-card" key={`${item.year}-${item.process}`}>
+                  <ProcessDoughnut
+                    title={selectedField ? `${item.process} · ${selectedField.fieldCode}` : selectedCamp ? `${item.process} · ${graph2Mode === "single" ? actualGraphYearB : actualGraphYearB + " vs " + actualGraphYearA}` : `${item.process}`}
+                    data={dataToDisplay}
+                    comparisonData={comparisonActivities}
+                    unit={FOOTPRINT_UNIT}
+                  />
+                </article>
+              );
+            })}
+            {!selectedByCane.length && <div className="empty-state">ไม่มีข้อมูลกระบวนการเพาะปลูกสำหรับช่วงที่เลือก</div>}
+          </div>
         </section>
           </>
         )}

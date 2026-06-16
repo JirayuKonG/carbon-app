@@ -455,7 +455,8 @@ function summarizeVisibleRows(rows: InputUsageSummaryRow[]) {
     landCount: landIds.size,
     areaRai: Array.from(areaByLand.values()).reduce((sum, value) => sum + value, 0),
     recordCount: rows.reduce((sum, row) => sum + row.recordCount, 0),
-    fertilizerKg: rows.filter((row) => row.bucket === 'fertilizer').reduce((sum, row) => sum + row.amount, 0),
+    fertilizerKg: rows.filter((row) => row.bucket === 'fertilizer' && row.unit === 'kg').reduce((sum, row) => sum + row.amount, 0),
+    liquidFertilizerLiter: rows.filter((row) => row.bucket === 'fertilizer' && row.unit === 'L').reduce((sum, row) => sum + row.amount, 0),
     fuelLiter: rows.filter((row) => row.bucket === 'fuel').reduce((sum, row) => sum + row.amount, 0),
     warningCount: rows.reduce((sum, row) => sum + row.warningCount, 0),
   }
@@ -975,6 +976,12 @@ export function InputUsageSummaryPage() {
               value: formatAmount(visibleTotals.fuelLiter, 'L', 2),
               icon: <Droplets size={15} className="text-sky-700" />,
               className: 'border-sky-200 bg-[linear-gradient(180deg,rgba(247,252,255,0.98),rgba(236,246,254,0.98))]',
+            },
+            {
+              label: 'Liquid fertilizer',
+              value: formatAmount(visibleTotals.liquidFertilizerLiter, 'L', 2),
+              icon: <FlaskConical size={15} className="text-teal-700" />,
+              className: 'border-teal-200 bg-[linear-gradient(180deg,rgba(244,253,250,0.98),rgba(229,247,241,0.98))]',
             },
             {
               label: 'แปลงที่เกี่ยวข้อง',
