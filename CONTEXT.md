@@ -108,7 +108,7 @@ Verified from `frontend/src/App.tsx` on 2026-06-11:
 - `/dashboard`: older GHG dashboard
 - `/geo`, `/infra`, `/users`, `/farmers`, `/lands`, `/lands/weather`
 - `/emission-factors`
-- `/activities/logs`, `/activities/resources`, `/activities/manage`
+- `/activities/logs`, `/activities/resources`, `/activities/types`, `/activities/manage`
 
 Important route notes:
 
@@ -147,6 +147,7 @@ Verified from `frontend/src/components/layout/Sidebar.tsx` on 2026-06-11:
   - `/infra`
   - `/users`
   - `/emission-factors`
+  - `/activities/types`
   - `/activities/resources`
 
 ## Carbon Analytics Data Source Reality
@@ -425,6 +426,53 @@ Recent long-text table readability update from user prompt on 2026-06-13:
 - Source of truth: `frontend/src/components/ui/DataTable.tsx` for the shared interaction, plus the page-level column configs in the feature files above.
 - Verification: `npm run build --workspace=frontend`.
 - Related docs updated: `CONTEXT.md` updated for project memory. `COMPONENT_PJ.md`, `README.md`, `GUIDE.md`, and `BUG_LOG.md` were not changed in this task.
+
+Recent emission-factors favorites update from user prompt on 2026-06-16:
+
+- Prompt summary: on `EF / GWP / หน่วย`, the user wanted a way to mark frequently used rows as favorites without changing the database, and wanted a dedicated page/view that shows the favorited rows together.
+- Result: `frontend/src/features/emission-factors/EmissionFactorsPage.tsx` now adds a heart/favorite toggle on every `Emission Factors`, `GWP`, and `units` row, plus quick filters to show only favorited rows inside those tabs.
+- Favorites view behavior: the same page now includes a `รายการโปรด` tab that aggregates only the favorited `EF`, `GWP`, and `Unit` rows into separate searchable tables so users can reopen common rows quickly.
+- Storage behavior: favorites are stored in browser `localStorage` under the emission-factors page only, so no database schema, Prisma schema, API contract, or backend behavior changed.
+- Limitation: favorites are browser-specific for that machine/profile and currently do not include `CF Type`, `กลุ่ม EF`, or `units_prefixs`.
+- Source of truth: `frontend/src/features/emission-factors/EmissionFactorsPage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+- Related docs updated: `CONTEXT.md` and `COMPONENT_PJ.md` updated. `README.md`, `GUIDE.md`, and `BUG_LOG.md` were not changed in this task.
+
+Recent activity type management page update from user prompt on 2026-06-16:
+
+- Prompt summary: create a system-settings page for `activities_header_type` and `activities_header_detail_type`, including management of which activity detail type belongs under which activity header type, with careful loading/update behavior and no schema changes.
+- Result: `/activities/types` now renders `frontend/src/features/activities/ActivityTypesPage.tsx` and is listed under `ตั้งค่าระบบ` as `กิจกรรมหลัก / กิจกรรมย่อย`.
+- Backend behavior: `backend/src/modules/activities/activities.controller.ts` and `backend/src/modules/activities/activities.service.ts` now expose CRUD for `/api/activities/header-types` and `/api/activities/detail-types`. List responses include usage counts, and deletes are guarded with readable `BadRequestException` messages when rows are still referenced.
+- Relationship behavior: this uses the existing one-parent relationship `activities_header_detail_type.act_header_type_id -> activities_header_type.act_header_type_id`. Updating a detail type changes only the master row and does not rewrite old `log_activities_detail` records.
+- Safety behavior: create/update trims names, validates parent header types, prevents new duplicate header/detail master names using canonical comparison, invalidates the shared frontend query keys used by existing activity dropdowns, and disables pending mutations in the UI.
+- Source of truth: `frontend/src/features/activities/ActivityTypesPage.tsx`, `frontend/src/App.tsx`, `frontend/src/components/layout/Sidebar.tsx`, `backend/src/modules/activities/activities.controller.ts`, and `backend/src/modules/activities/activities.service.ts`.
+- Verification: `npm run build --workspace=backend` and `npm run build --workspace=frontend`.
+- Related docs updated: `CONTEXT.md` and `COMPONENT_PJ.md` updated. No Prisma schema, SQL snapshot, or migration files were changed.
+
+Recent input-usage density filter update from user prompt on 2026-06-16:
+
+- Prompt summary: on `สรุปการใช้ปัจจัย`, remove the shared filter control named `ความหนาแน่น` and make the page use the expanded layout by default.
+- Result: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now locks the density mode to `expanded`, removes the visible density selector from `ตัวกรองร่วมของทั้งหน้า`, and keeps the remaining shared filters aligned in a 5-column desktop grid.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+- Related docs updated: `CONTEXT.md` updated. No route, backend, schema, or API changes were made.
+
+Recent input-usage year-label clarification from user prompt on 2026-06-16:
+
+- Prompt summary: the user asked what the shared `ปี` filter on `สรุปการใช้ปัจจัย` means and requested a clearer name.
+- Clarification: backend input-usage aggregation resolves `year` from `activities_productYear.act_productYear_name` first, and only falls back to activity/log dates when no production-year master value is available.
+- Result: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now labels the shared year filter, table columns, workbook labels, empty labels, and search placeholders as `ปีการผลิต` instead of the ambiguous `ปี`.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` for UI wording and `backend/src/modules/activities/activities.service.ts` for year resolution behavior.
+- Verification: `npm run build --workspace=frontend`.
+
+Recent fertilizer input-usage table/export update from user prompt on 2026-06-16:
+
+- Prompt summary: on `สรุปการใช้ปัจจัย -> ส่วนที่ 1: ปุ๋ย`, let users choose which production years appear, make the fertilizer table switch rows between camp and land views, shorten land-view labels to plot codes only, and export the visible fertilizer table to Excel.
+- Result: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now uses multi-select production-year chips in the shared filters, and the fertilizer workbook/table rows follow `มุมมองตาราง` (`รายไร่` aggregates by camp/year; `รายแปลง` aggregates by land/year).
+- Display behavior: land-view fertilizer rows show `landCode`/plot number as the main label to keep cells compact, while the full land label remains available in table search/title and in the exported summary sheet.
+- Export behavior: Section 1 now has an `Export Excel` action that writes the currently filtered fertilizer workbook sheet plus the fertilizer summary sheet for the active camp/land view and selected production years.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
 
 Recent fertilizer factor-selection update from user prompt on 2026-06-13:
 

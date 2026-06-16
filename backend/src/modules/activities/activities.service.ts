@@ -82,6 +82,18 @@ type ResourceTypePayload = {
   resc_used_type_info?: string | null
 }
 
+type HeaderTypePayload = {
+  act_header_type_idCode?: string | null
+  act_header_type_name_th?: string | null
+  act_header_type_name_en?: string | null
+  act_header_type_update_uid?: number | string | null
+}
+
+type DetailTypePayload = {
+  act_header_type_id?: number | string | null
+  act_header_detail_type_name_th?: string | null
+}
+
 type ImportFilePayload = {
   activities_fileNameUse_name?: string | null
   activities_fileNameUse_rowCount?: number | string | null
@@ -303,6 +315,14 @@ export class ActivitiesService {
     return num
   }
 
+  private toNullableNumber(value: unknown) {
+    if (value === undefined) return undefined
+    if (value === null || value === '') return null
+    const num = Number(value)
+    if (Number.isNaN(num)) throw new BadRequestException(`Invalid number: ${String(value)}`)
+    return num
+  }
+
   private toOptionalDate(value: unknown) {
     if (value === undefined || value === null || value === '') return undefined
     const date = value instanceof Date ? value : new Date(String(value))
@@ -320,6 +340,25 @@ export class ActivitiesService {
     const text = this.toOptionalText(value)
     if (!text) throw new BadRequestException(`${fieldName} is required`)
     return text
+  }
+
+  private normalizeTextKey(value?: string | null) {
+    return value?.trim().replace(/\s+/g, ' ').toLowerCase() ?? ''
+  }
+
+  private sanitizeDetailTypeName(value?: string | null) {
+    return (value ?? '')
+      .replace(/^\uFEFF/, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^\d+\s*[-–—:]\s*/, '')
+      .replace(/\s*[-–—:]\s*(?:น้ำ|นํ้า|water)\s*\d+\s*$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
+  private normalizeDetailTypeKey(value?: string | null) {
+    return this.sanitizeDetailTypeName(value).toLowerCase()
   }
 
   private normalizeHeaderPayload(data: ActivityHeaderPayload, withCreateAt = false) {
@@ -387,6 +426,30 @@ export class ActivitiesService {
       act_productYear_name: this.toRequiredText(data.act_productYear_name, 'act_productYear_name'),
       act_productYear_info: this.toOptionalText(data.act_productYear_info),
       act_productYear_update_uid: this.toOptionalNumber(data.act_productYear_update_uid),
+    }
+  }
+
+  private normalizeHeaderTypePayload(data: HeaderTypePayload) {
+    return {
+      act_header_type_idCode: this.toOptionalText(data.act_header_type_idCode),
+      act_header_type_name_th: this.toRequiredText(data.act_header_type_name_th, 'act_header_type_name_th'),
+      act_header_type_name_en: this.toOptionalText(data.act_header_type_name_en),
+      act_header_type_update_uid: this.toOptionalNumber(data.act_header_type_update_uid),
+    }
+  }
+
+  private normalizeDetailTypePayload(data: DetailTypePayload) {
+    const sanitizedName = this.sanitizeDetailTypeName(
+      this.toRequiredText(data.act_header_detail_type_name_th, 'act_header_detail_type_name_th'),
+    )
+
+    if (!sanitizedName) {
+      throw new BadRequestException('act_header_detail_type_name_th is required')
+    }
+
+    return {
+      act_header_type_id: this.toNullableNumber(data.act_header_type_id),
+      act_header_detail_type_name_th: sanitizedName,
     }
   }
 
@@ -2779,13 +2842,257 @@ export class ActivitiesService {
   }
 
   // ── Reference lists ────────────────────────────────────────
-  getHeaderTypes() { 
-    return this.prisma.activities_header_type.findMany({ 
-      orderBy: { act_header_type_id: 'asc' } }) 
+  async getHeaderTypes() {
+    const rows = await this.prisma.activities_header_type.findMany({
+      orderBy: { act_header_type_id: 'asc' },
+      include: {
+        _count: {
+          select: {
+            activities_header_detail_type: true,
+            activities_header: true,
+            log_activities_detail: true,
+          },
+        },
+      },
+    })
+
+    return rows.map(({ _count, ...row }) => ({
+      ...row,
+      detailTypeCount: _count.activities_header_detail_type,
+      activityHeaderCount: _count.activities_header,
+      logDetailCount: _count.log_activities_detail,
+    }))
   }
+
   getDetailTypes(headerTypeId?: number) {
     return this.prisma.activities_header_detail_type.findMany({
       where: headerTypeId ? { act_header_type_id: headerTypeId } : undefined,
+      orderBy: { act_header_detail_type_id: 'asc' },
+      include: {
+        activities_header_type: {
+          select: {
+            act_header_type_id: true,
+            act_header_type_name_th: true,
+            act_header_type_name_en: true,
+          },
+        },
+        _count: {
+          select: {
+            log_activities_detail: true,
+          },
+        },
+      },
+    }).then((rows) => rows.map(({ _count, ...row }) => ({
+      ...row,
+      logDetailCount: _count.log_activities_detail,
+    })))
+  }
+
+  async createHeaderType(data: HeaderTypePayload) {
+    const normalized = this.normalizeHeaderTypePayload(data)
+    const nameKey = this.normalizeTextKey(normalized.act_header_type_name_th)
+    const now = new Date()
+
+    return this.prisma.$transaction(async (tx) => {
+      const [existingRows, last] = await Promise.all([
+        tx.activities_header_type.findMany({
+          select: { act_header_type_id: true, act_header_type_name_th: true },
+        }),
+        tx.activities_header_type.aggregate({ _max: { act_header_type_id: true } }),
+      ])
+
+      const duplicate = existingRows.find((row) => this.normalizeTextKey(row.act_header_type_name_th) === nameKey)
+      if (duplicate) {
+        throw new BadRequestException(`กิจกรรมหลัก "${normalized.act_header_type_name_th}" มีอยู่แล้ว`)
+      }
+
+      return tx.activities_header_type.create({
+        data: {
+          act_header_type_id: (last._max.act_header_type_id ?? 0) + 1,
+          ...this.cleanData(normalized),
+          act_header_type_create_at: now,
+        },
+      })
+    })
+  }
+
+  async updateHeaderType(id: number, data: HeaderTypePayload) {
+    const normalized = this.normalizeHeaderTypePayload(data)
+    const nameKey = this.normalizeTextKey(normalized.act_header_type_name_th)
+
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.activities_header_type.findUnique({
+        where: { act_header_type_id: id },
+        select: { act_header_type_id: true },
+      })
+      if (!existing) {
+        throw new BadRequestException(`ไม่พบกิจกรรมหลัก #${id}`)
+      }
+
+      const existingRows = await tx.activities_header_type.findMany({
+        select: { act_header_type_id: true, act_header_type_name_th: true },
+      })
+      const duplicate = existingRows.find((row) => (
+        row.act_header_type_id !== id
+        && this.normalizeTextKey(row.act_header_type_name_th) === nameKey
+      ))
+      if (duplicate) {
+        throw new BadRequestException(`กิจกรรมหลัก "${normalized.act_header_type_name_th}" มีอยู่แล้ว`)
+      }
+
+      return tx.activities_header_type.update({
+        where: { act_header_type_id: id },
+        data: this.cleanData(normalized),
+      })
+    })
+  }
+
+  async deleteHeaderType(id: number) {
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.activities_header_type.findUnique({
+        where: { act_header_type_id: id },
+        select: { act_header_type_id: true },
+      })
+      if (!existing) {
+        throw new BadRequestException(`ไม่พบกิจกรรมหลัก #${id}`)
+      }
+
+      const [activityHeaderCount, detailTypeCount, logDetailCount] = await Promise.all([
+        tx.activities_header.count({ where: { act_header_type_id: id } }),
+        tx.activities_header_detail_type.count({ where: { act_header_type_id: id } }),
+        tx.log_activities_detail.count({ where: { act_header_type_id: id } }),
+      ])
+
+      if (activityHeaderCount > 0 || detailTypeCount > 0 || logDetailCount > 0) {
+        throw new BadRequestException(
+          `ลบกิจกรรมหลักไม่ได้ เพราะยังถูกใช้อยู่: header ${activityHeaderCount} รายการ, กิจกรรมย่อย ${detailTypeCount} รายการ, log ${logDetailCount} รายการ`,
+        )
+      }
+
+      return tx.activities_header_type.delete({
+        where: { act_header_type_id: id },
+      })
+    })
+  }
+
+  async createDetailType(data: DetailTypePayload) {
+    const normalized = this.normalizeDetailTypePayload(data)
+    const nameKey = this.normalizeDetailTypeKey(normalized.act_header_detail_type_name_th)
+
+    return this.prisma.$transaction(async (tx) => {
+      if (normalized.act_header_type_id != null) {
+        const parent = await tx.activities_header_type.findUnique({
+          where: { act_header_type_id: normalized.act_header_type_id },
+          select: { act_header_type_id: true },
+        })
+        if (!parent) {
+          throw new BadRequestException(`ไม่พบกิจกรรมหลัก #${normalized.act_header_type_id}`)
+        }
+      }
+
+      const [existingRows, last] = await Promise.all([
+        tx.activities_header_detail_type.findMany({
+          select: { act_header_detail_type_id: true, act_header_detail_type_name_th: true },
+        }),
+        tx.activities_header_detail_type.aggregate({ _max: { act_header_detail_type_id: true } }),
+      ])
+
+      const duplicate = existingRows.find((row) => (
+        this.normalizeDetailTypeKey(row.act_header_detail_type_name_th) === nameKey
+      ))
+      if (duplicate) {
+        throw new BadRequestException(`กิจกรรมย่อย "${normalized.act_header_detail_type_name_th}" มีอยู่แล้ว`)
+      }
+
+      return tx.activities_header_detail_type.create({
+        data: {
+          act_header_detail_type_id: (last._max.act_header_detail_type_id ?? 0) + 1,
+          ...this.cleanData(normalized),
+        },
+        include: {
+          activities_header_type: {
+            select: {
+              act_header_type_id: true,
+              act_header_type_name_th: true,
+              act_header_type_name_en: true,
+            },
+          },
+        },
+      })
+    })
+  }
+
+  async updateDetailType(id: number, data: DetailTypePayload) {
+    const normalized = this.normalizeDetailTypePayload(data)
+    const nameKey = this.normalizeDetailTypeKey(normalized.act_header_detail_type_name_th)
+
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.activities_header_detail_type.findUnique({
+        where: { act_header_detail_type_id: id },
+        select: { act_header_detail_type_id: true },
+      })
+      if (!existing) {
+        throw new BadRequestException(`ไม่พบกิจกรรมย่อย #${id}`)
+      }
+
+      if (normalized.act_header_type_id != null) {
+        const parent = await tx.activities_header_type.findUnique({
+          where: { act_header_type_id: normalized.act_header_type_id },
+          select: { act_header_type_id: true },
+        })
+        if (!parent) {
+          throw new BadRequestException(`ไม่พบกิจกรรมหลัก #${normalized.act_header_type_id}`)
+        }
+      }
+
+      const existingRows = await tx.activities_header_detail_type.findMany({
+        select: { act_header_detail_type_id: true, act_header_detail_type_name_th: true },
+      })
+      const duplicate = existingRows.find((row) => (
+        row.act_header_detail_type_id !== id
+        && this.normalizeDetailTypeKey(row.act_header_detail_type_name_th) === nameKey
+      ))
+      if (duplicate) {
+        throw new BadRequestException(`กิจกรรมย่อย "${normalized.act_header_detail_type_name_th}" มีอยู่แล้ว`)
+      }
+
+      return tx.activities_header_detail_type.update({
+        where: { act_header_detail_type_id: id },
+        data: this.cleanData(normalized),
+        include: {
+          activities_header_type: {
+            select: {
+              act_header_type_id: true,
+              act_header_type_name_th: true,
+              act_header_type_name_en: true,
+            },
+          },
+        },
+      })
+    })
+  }
+
+  async deleteDetailType(id: number) {
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.activities_header_detail_type.findUnique({
+        where: { act_header_detail_type_id: id },
+        select: { act_header_detail_type_id: true },
+      })
+      if (!existing) {
+        throw new BadRequestException(`ไม่พบกิจกรรมย่อย #${id}`)
+      }
+
+      const logDetailCount = await tx.log_activities_detail.count({
+        where: { act_header_detail_type_id: id },
+      })
+
+      if (logDetailCount > 0) {
+        throw new BadRequestException(`ลบกิจกรรมย่อยไม่ได้ เพราะยังถูกใช้ใน log ${logDetailCount} รายการ`)
+      }
+
+      return tx.activities_header_detail_type.delete({
+        where: { act_header_detail_type_id: id },
+      })
     })
   }
 
