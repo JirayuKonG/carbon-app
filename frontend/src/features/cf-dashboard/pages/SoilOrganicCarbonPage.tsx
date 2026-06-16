@@ -331,7 +331,7 @@ export function SoilOrganicCarbonPage() {
     onError: (error) => toast.error('คำนวณ Fnfix ไม่สำเร็จ', error instanceof Error ? error.message : undefined),
   })
 
-  const deleteMut = useMutation({
+  const deleteMut = useMutation<SocMeasurement | SoilImprovementPlant, Error, DeleteTarget>({
     mutationFn: (target: DeleteTarget) =>
       target.type === 'soc'
         ? del<SocMeasurement>(`/carbon-soc/soc-measurements/${target.id}`)
