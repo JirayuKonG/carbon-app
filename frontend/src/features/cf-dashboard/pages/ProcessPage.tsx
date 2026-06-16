@@ -1367,14 +1367,6 @@ export function CfProcessPage() {
 
         
 
-        <GraphComparisonFilter
-          yearA={graphYearA}
-          yearB={graphYearB}
-          availableYears={availableYears}
-          onChangeA={setGraphYearA}
-          onChangeB={setGraphYearB}
-        />
-
         <section className="card full-span">
           <div className="card-title-row">
             <div>
