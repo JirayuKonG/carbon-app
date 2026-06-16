@@ -5,8 +5,13 @@ import { chartColors, chartOptions, chartPalette } from "./ChartRegistry";
 import "./ChartRegistry";
 
 const exactActivityColorMap: Record<string, string> = {
+  // 4 หมวดหมู่หลัก (จัดกลุ่มใหม่)
+  "น้ำมัน": "#3B82F6", // Blue
+  "ปุ๋ย": "#22C55E", // Green
+  "สารเคมี": "#EF4444", // Red
+  "ไฟฟ้า": "#F59E0B", // Yellow
+
   // 1. การเตรียมดินและปลูก
-  "น้ำมัน": "#60A5FA", // Pastel Blue
   "ปุ๋ย/ปูนปรับปรุงดิน": "#86EFAC", // Soft Mint Green
   "เครื่องจักร": "#FDE68A", // Warm Pastel Yellow
   // 2. การใช้ปุ๋ย

@@ -718,13 +718,41 @@ function GraphComparisonFilter({
   );
 }
 
+function simplifyActivities(activities: { name: string; emission: number }[]) {
+  let fuel = 0;
+  let fertilizer = 0;
+  let chemical = 0;
+  let electricity = 0;
+
+  for (const a of activities) {
+    const actName = a.name;
+    if (actName.includes('ปุ๋ย') || actName.includes('ปูน')) {
+      fertilizer += a.emission;
+    } else if (actName.includes('สารเคมี') || actName.includes('ยา')) {
+      chemical += a.emission;
+    } else if (actName.includes('ไฟฟ้า') || actName.includes('น้ำ/')) {
+      electricity += a.emission;
+    } else if (actName.includes('น้ำมัน') || actName.includes('เครื่องจักร') || actName.includes('รถตัด') || actName.includes('รวบรวมผลผลิต') || actName.includes('แรงงาน/เครื่องมือ')) {
+      fuel += a.emission;
+    }
+  }
+
+  const result = [];
+  if (fuel > 0) result.push({ name: 'น้ำมัน', emission: fuel });
+  if (fertilizer > 0) result.push({ name: 'ปุ๋ย', emission: fertilizer });
+  if (chemical > 0) result.push({ name: 'สารเคมี', emission: chemical });
+  if (electricity > 0) result.push({ name: 'ไฟฟ้า', emission: electricity });
+
+  return result;
+}
+
 export function CfProcessPage() {
   const [period, setPeriod] = useState<string>("project");
   const [activeView, setActiveView] = useState<FootprintView>("emissions");
   const [activityChartMode, setActivityChartMode] = useState<ActivityChartMode>("both");
   const [graphYearA, setGraphYearA] = useState<string>("baseline_avg");
   const [graphYearB, setGraphYearB] = useState<string>("project");
-  const [graph2Mode, setGraph2Mode] = useState<"single" | "compare">("single");
+  const [graph2Mode, setGraph2Mode] = useState<"baseline" | "current">("current");
   const [comparisonTab, setComparisonTab] = useState<ComparisonTab>("benchmark");
   const [compareAType, setCompareAType] = useState<ComparisonTargetType>("camp");
   const [compareBType, setCompareBType] = useState<ComparisonTargetType>("camp");
@@ -933,7 +961,7 @@ export function CfProcessPage() {
       <div className="page active">
         <div className="page-title">
           <div>
-            <h1>GHG ตามประเภทอ้อย ไร่บริษัทกลุ่มมิตรผล</h1>
+            <h1>Carbon Footprint ไร่บริษัทกลุ่มมิตรผล</h1>
           </div>
         </div>
 
@@ -1159,7 +1187,7 @@ export function CfProcessPage() {
           <div className="section-head">
             <div>
               <span className="section-kicker">Carbon Emissions</span>
-              <h2>GHG ตามประเภทอ้อย</h2>
+              <h2>การปล่อยคาร์บอน</h2>
             </div>
           </div>
         </section>
@@ -1375,13 +1403,14 @@ export function CfProcessPage() {
             </div>
             <div className="group-mode-switch" role="group" aria-label="เลือกช่วงเปรียบเทียบรายกระบวนการ">
               {[
-                ["both", "ผลต่าง (Reduction)"],
-                ["details", "ดูเพิ่มเติม (แยกปี)"],
+                ["baseline", graphLabelA],
+                ["current", graphLabelB],
+                ["both", "เปรียบเทียบ (A/B)"],
               ].map(([value, label]) => (
                 <button
                   key={value}
                   type="button"
-                  className={(activityChartMode === value || (value === "both" && activityChartMode !== "details")) ? "active" : ""}
+                  className={activityChartMode === value ? "active" : ""}
                   onClick={() => setActivityChartMode(value as ActivityChartMode)}
                 >
                   {label}
@@ -1392,7 +1421,7 @@ export function CfProcessPage() {
           <ActivityGroupedBar
             baseline={chartBaselineKg}
             current={chartCurrentKg}
-            mode={activityChartMode === "details" ? "both" : activityChartMode}
+            mode={activityChartMode}
             unit={FOOTPRINT_UNIT}
             baselineLabel={graphLabelA}
             currentLabel={graphLabelB}
@@ -1400,7 +1429,7 @@ export function CfProcessPage() {
           <div className="summary-list">
             {activityChartMode !== "current" && <div><span>{graphLabelA}</span><strong>{formatTco2e(chartBaselineTotal)} {TCO2E_UNIT}</strong></div>}
             {activityChartMode !== "baseline" && <div><span>{graphLabelB}</span><strong>{formatTco2e(chartCurrentTotal)} {TCO2E_UNIT}</strong></div>}
-            {activityChartMode !== "details" && (
+            {activityChartMode === "both" && (
               <div>
                 <span>ผลต่าง (Reduction)</span>
                 <strong className={chartDiff >= 0 ? "green-text" : "red-text"}>
@@ -1429,29 +1458,27 @@ export function CfProcessPage() {
               <SourceBadge source={activityResult.source} meta={activityResult.meta} />
             </div>
             <div className="group-mode-switch" role="group">
-                <button type="button" className={graph2Mode === "single" ? "active" : ""} onClick={() => setGraph2Mode("single")}>ดูรายปี (ปี B)</button>
-                <button type="button" className={graph2Mode === "compare" ? "active" : ""} onClick={() => setGraph2Mode("compare")}>เปรียบเทียบ (A/B)</button>
+                <button type="button" className={graph2Mode === "baseline" ? "active" : ""} onClick={() => setGraph2Mode("baseline")}>{graphLabelA}</button>
+                <button type="button" className={graph2Mode === "current" ? "active" : ""} onClick={() => setGraph2Mode("current")}>{graphLabelB}</button>
               </div>
           </div>
           <div className="sub-pie-grid">
-            {selectedByCaneKg.map((item) => {
-              const comparisonActivities = graph2Mode === "compare" ? chartBaselineKg.find((row) => row.process === item.process)?.activities : undefined;
-              const dataToDisplay = graph2Mode === "single" ? (chartCurrentKg.find(row => row.process === item.process)?.activities ?? []) : item.activities;
+            {(graph2Mode === "baseline" ? chartBaselineKg : chartCurrentKg).map((item) => {
+              const dataToDisplay = simplifyActivities(item.activities);
               
-              if (dataToDisplay.length === 0 && (!comparisonActivities || comparisonActivities.length === 0)) return null;
+              if (!dataToDisplay || dataToDisplay.length === 0) return null;
 
               return (
                 <article className="card sub-card" key={`${item.year}-${item.process}`}>
                   <ProcessDoughnut
-                    title={selectedField ? `${item.process} · ${selectedField.fieldCode}` : selectedCamp ? `${item.process} · ${graph2Mode === "single" ? actualGraphYearB : actualGraphYearB + " vs " + actualGraphYearA}` : `${item.process}`}
+                    title={selectedField ? `${item.process} · ${selectedField.fieldCode}` : selectedCamp ? `${item.process} · ${graph2Mode === "baseline" ? graphLabelA : graphLabelB}` : `${item.process}`}
                     data={dataToDisplay}
-                    comparisonData={comparisonActivities}
                     unit={FOOTPRINT_UNIT}
                   />
                 </article>
               );
             })}
-            {!selectedByCane.length && <div className="empty-state">ไม่มีข้อมูลกระบวนการเพาะปลูกสำหรับช่วงที่เลือก</div>}
+            {(graph2Mode === "baseline" ? chartBaselineKg : chartCurrentKg).length === 0 && <div className="empty-state">ไม่มีข้อมูลกระบวนการเพาะปลูกสำหรับช่วงที่เลือก</div>}
           </div>
         </section>
           </>
