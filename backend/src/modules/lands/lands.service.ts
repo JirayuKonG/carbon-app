@@ -48,7 +48,19 @@ export class LandsService {
       },
       include: {
         farmers:     { select: { first_name: true, last_name: true } },
-        lands_camps: { select: { land_camp_name: true } },
+        lands_camps: {
+          select: {
+            land_camp_name: true,
+            land_camp_group_id: true,
+            lands_camps_groups: {
+              select: {
+                land_camp_group_id: true,
+                land_camp_group_idCode: true,
+                land_camp_group_name: true,
+              },
+            },
+          },
+        },
         subdistricts: { select: { name_th: true, zip_code: true } },
         units_prefixs: { select: { unit_prefix_name: true } },
         units: { select: { unit_name: true, unit_initial: true } },

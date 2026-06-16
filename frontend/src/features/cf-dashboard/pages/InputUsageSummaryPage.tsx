@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type WheelEvent as ReactWheelEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeftRight, BarChart3, Droplets, FlaskConical, GitCompare, Layers, Leaf, Maximize2, Minimize2, Plus, SlidersHorizontal, TriangleAlert, X } from 'lucide-react'
+import { ArrowLeftRight, BarChart3, Droplets, FileSpreadsheet, FlaskConical, GitCompare, Layers, Leaf, Maximize2, Minimize2, Plus, SlidersHorizontal, TriangleAlert, X } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { get } from '@/lib/api'
@@ -90,6 +91,7 @@ interface InputUsageSummaryResponse {
 interface UsageTableRow {
   key: string
   targetLabel: string
+  targetFullLabel: string
   yearLabel: string
   amountLabel: string
   perRaiLabel: string
@@ -123,8 +125,9 @@ type FertilizerWorkbookCell = {
 
 type FertilizerWorkbookRow = {
   key: string
-  campName: string
-  landLabel: string
+  targetLabel: string
+  targetSubLabel: string
+  landCount: number
   yearCells: Record<string, FertilizerWorkbookCell>
 }
 
@@ -163,7 +166,13 @@ function densityPadding(mode: DensityMode) {
 const DEFAULT_USAGE_TABLE_PAGE_SIZE = 5
 
 function yearLabel(year: number | null) {
-  return year == null ? 'ไม่ระบุปี' : String(year)
+  return year == null ? 'ไม่ระบุปีการผลิต' : String(year)
+}
+
+function getCompactLandLabel(row: InputUsageSummaryRow) {
+  const code = row.landCode?.trim()
+  if (code) return code
+  return row.landLabel || 'ไม่ระบุแปลง'
 }
 
 function getRowTargetId(row: InputUsageSummaryRow, mode: ViewMode) {
@@ -173,6 +182,10 @@ function getRowTargetId(row: InputUsageSummaryRow, mode: ViewMode) {
 
 function getRowTargetLabel(row: InputUsageSummaryRow, mode: ViewMode) {
   return mode === 'camp' ? row.campName : row.landLabel
+}
+
+function getUsageTargetLabel(row: InputUsageSummaryRow, mode: ViewMode) {
+  return mode === 'camp' ? row.campName : getCompactLandLabel(row)
 }
 
 function buildChartItems(rows: InputUsageSummaryRow[], limit = 8): ChartItem[] {
@@ -198,14 +211,30 @@ function sortWorkbookItemNames(left: string, right: string) {
   return left.localeCompare(right, 'th')
 }
 
-function buildFertilizerWorkbook(rows: InputUsageSummaryRow[]) {
+function buildFertilizerWorkbook(rows: InputUsageSummaryRow[], mode: ViewMode) {
+  type InternalWorkbookCell = FertilizerWorkbookCell & {
+    areaByLand: Map<string, number>
+    caneTypeNames: Set<string>
+  }
+
+  type InternalWorkbookRow = {
+    key: string
+    targetLabel: string
+    targetSubLabel: string
+    landKeys: Set<string>
+    yearCells: Record<string, InternalWorkbookCell>
+  }
+
   const yearItems = new Map<string, Set<string>>()
-  const workbookRows = new Map<string, FertilizerWorkbookRow>()
+  const workbookRows = new Map<string, InternalWorkbookRow>()
   const yearOrder = new Map<string, number>()
 
   rows.forEach((row) => {
     const yearKey = row.year == null ? 'unknown-year' : String(row.year)
-    const rowKey = row.landId != null ? `land:${row.landId}` : `${row.campName}|${row.landLabel}`
+    const rowKey = mode === 'camp'
+      ? (row.campId != null ? `camp:${row.campId}` : `camp:${row.campName}`)
+      : (row.landId != null ? `land:${row.landId}` : `${row.campName}|${getCompactLandLabel(row)}`)
+    const landKey = row.landId != null ? `land:${row.landId}` : `${row.campName}|${getCompactLandLabel(row)}`
     const itemSet = yearItems.get(yearKey) ?? new Set<string>()
     itemSet.add(row.itemName)
     yearItems.set(yearKey, itemSet)
@@ -213,24 +242,31 @@ function buildFertilizerWorkbook(rows: InputUsageSummaryRow[]) {
 
     const workbookRow = workbookRows.get(rowKey) ?? {
       key: rowKey,
-      campName: row.campName,
-      landLabel: row.landLabel,
+      targetLabel: mode === 'camp' ? row.campName : getCompactLandLabel(row),
+      targetSubLabel: mode === 'camp' ? 'รวมหลายแปลง' : row.campName,
+      landKeys: new Set<string>(),
       yearCells: {},
     }
 
     const cell = workbookRow.yearCells[yearKey] ?? {
-      caneTypeName: row.caneTypeName || '—',
+      caneTypeName: '—',
       itemAmounts: {},
       totalAmount: 0,
       areaRai: 0,
       warningCount: 0,
+      areaByLand: new Map<string, number>(),
+      caneTypeNames: new Set<string>(),
     }
 
-    cell.caneTypeName = cell.caneTypeName === '—' ? (row.caneTypeName || '—') : cell.caneTypeName
+    const caneTypeName = row.caneTypeName?.trim()
+    if (caneTypeName) cell.caneTypeNames.add(caneTypeName)
     cell.itemAmounts[row.itemName] = (cell.itemAmounts[row.itemName] ?? 0) + row.amount
     cell.totalAmount += row.amount
-    cell.areaRai = Math.max(cell.areaRai, row.areaRai)
+    cell.areaByLand.set(landKey, Math.max(cell.areaByLand.get(landKey) ?? 0, row.areaRai))
+    cell.areaRai = Array.from(cell.areaByLand.values()).reduce((sum, value) => sum + value, 0)
     cell.warningCount += row.warningCount
+    cell.caneTypeName = cell.caneTypeNames.size ? Array.from(cell.caneTypeNames).join(', ') : '—'
+    workbookRow.landKeys.add(landKey)
     workbookRow.yearCells[yearKey] = cell
     workbookRows.set(rowKey, workbookRow)
   })
@@ -238,7 +274,7 @@ function buildFertilizerWorkbook(rows: InputUsageSummaryRow[]) {
   const years: FertilizerWorkbookYearGroup[] = Array.from(yearItems.entries())
     .map(([key, itemNames]) => ({
       key,
-      label: key === 'unknown-year' ? 'ไม่ระบุปี' : key,
+      label: key === 'unknown-year' ? 'ไม่ระบุปีการผลิต' : key,
       year: key === 'unknown-year' ? null : Number(key),
       itemNames: Array.from(itemNames).sort(sortWorkbookItemNames),
     }))
@@ -248,9 +284,21 @@ function buildFertilizerWorkbook(rows: InputUsageSummaryRow[]) {
       return leftYear - rightYear
     })
 
-  const workbookRowList = Array.from(workbookRows.values()).sort((left, right) => (
-    left.campName.localeCompare(right.campName, 'th') || left.landLabel.localeCompare(right.landLabel, 'th')
-  ))
+  const workbookRowList: FertilizerWorkbookRow[] = Array.from(workbookRows.values())
+    .map((row) => ({
+      key: row.key,
+      targetLabel: row.targetLabel,
+      targetSubLabel: mode === 'camp' ? `${row.landKeys.size.toLocaleString('th-TH')} แปลง` : row.targetSubLabel,
+      landCount: row.landKeys.size,
+      yearCells: Object.fromEntries(Object.entries(row.yearCells).map(([key, cell]) => [key, {
+        caneTypeName: cell.caneTypeName,
+        itemAmounts: cell.itemAmounts,
+        totalAmount: cell.totalAmount,
+        areaRai: cell.areaRai,
+        warningCount: cell.warningCount,
+      } satisfies FertilizerWorkbookCell])),
+    }))
+    .sort((left, right) => left.targetLabel.localeCompare(right.targetLabel, 'th', { numeric: true }))
 
   return {
     years,
@@ -272,7 +320,8 @@ function buildUsageTableRows(rows: InputUsageSummaryRow[], mode: ViewMode, unit:
     const key = `${targetId}|${row.year ?? 'unknown'}`
     const existing = map.get(key) ?? {
       key,
-      targetLabel: getRowTargetLabel(row, mode),
+      targetLabel: getUsageTargetLabel(row, mode),
+      targetFullLabel: getRowTargetLabel(row, mode),
       yearLabel: yearLabel(row.year),
       amountLabel: '',
       perRaiLabel: '',
@@ -303,6 +352,7 @@ function buildUsageTableRows(rows: InputUsageSummaryRow[], mode: ViewMode, unit:
       return {
         key: row.key,
         targetLabel: row.targetLabel,
+        targetFullLabel: row.targetFullLabel,
         yearLabel: row.yearLabel,
         amountLabel: formatAmount(row.amount, unit, unit === 'kg' ? 1 : 2),
         perRaiLabel: area > 0 ? formatAmount(row.amount / area, `${unit}/ไร่`, 2) : '—',
@@ -412,6 +462,55 @@ function summarizeVisibleRows(rows: InputUsageSummaryRow[]) {
   }
 }
 
+function buildFertilizerWorkbookSheetRows(
+  workbook: { years: FertilizerWorkbookYearGroup[]; rows: FertilizerWorkbookRow[] },
+  mode: ViewMode,
+) {
+  const targetHeader = mode === 'camp' ? 'ไร่ / Camp' : 'เลขแปลง'
+  const subHeader = mode === 'camp' ? 'จำนวนแปลง' : 'ไร่ / Camp'
+  const firstHeader: Array<string | number> = [targetHeader, subHeader]
+  const secondHeader: Array<string | number> = ['', '']
+
+  workbook.years.forEach((year) => {
+    const colSpan = year.itemNames.length + 4
+    firstHeader.push(`ปีการผลิต ${year.label}`, ...Array(Math.max(colSpan - 1, 0)).fill(''))
+    secondHeader.push('ประเภทอ้อย', ...year.itemNames, 'รวม(กก.)', 'พื้นที่ (ไร่)', 'Warning')
+  })
+
+  const bodyRows = workbook.rows.map((row) => {
+    const cells: Array<string | number> = [row.targetLabel, row.targetSubLabel]
+    workbook.years.forEach((year) => {
+      const cell = row.yearCells[year.key]
+      cells.push(
+        cell?.caneTypeName || '',
+        ...year.itemNames.map((itemName) => cell?.itemAmounts[itemName] ?? ''),
+        cell?.totalAmount ?? '',
+        cell?.areaRai ?? '',
+        cell?.warningCount ?? '',
+      )
+    })
+    return cells
+  })
+
+  return [firstHeader, secondHeader, ...bodyRows]
+}
+
+function buildFertilizerSummarySheetRows(rows: UsageTableRow[], mode: ViewMode) {
+  const targetHeader = mode === 'camp' ? 'ไร่ / Camp' : 'เลขแปลง'
+  return rows.map((row) => ({
+    [targetHeader]: row.targetLabel,
+    ...(mode === 'land' ? { 'ชื่อแปลงเดิม': row.targetFullLabel } : {}),
+    'ปีการผลิต': row.yearLabel,
+    'ปริมาณรวม': row.amountLabel,
+    'ต่อไร่': row.perRaiLabel,
+    'พื้นที่': row.areaLabel,
+    Record: row.recordCount,
+    'จำนวนรายการ': row.itemCount,
+    'รายการหลัก': row.topItem,
+    Warning: row.warningCount,
+  }))
+}
+
 function UsageBars({ rows, unit, emptyLabel }: { rows: ChartItem[]; unit: string; emptyLabel: string }) {
   const max = Math.max(...rows.map((row) => row.amount), 0)
 
@@ -444,9 +543,11 @@ function UsageBars({ rows, unit, emptyLabel }: { rows: ChartItem[]; unit: string
 function FertilizerWorkbookTable({
   years,
   rows,
+  mode,
 }: {
   years: FertilizerWorkbookYearGroup[]
   rows: FertilizerWorkbookRow[]
+  mode: ViewMode
 }) {
   const [isExpanded, setIsExpanded] = useState(false)
 
@@ -470,7 +571,9 @@ function FertilizerWorkbookTable({
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h3 className="text-sm font-semibold text-surface-900">ตารางปุ๋ยแบบอ้างอิงไฟล์ตัวอย่าง</h3>
-            <p className="mt-1 text-xs text-surface-500">จัดคอลัมน์ตามปีและรายการปุ๋ย เพื่อให้มองภาพรวมคล้าย workbook รายแปลง</p>
+            <p className="mt-1 text-xs text-surface-500">
+              จัดคอลัมน์ตามปีการผลิตและรายการปุ๋ย โดยแถวจะเปลี่ยนตามมุมมอง{mode === 'camp' ? 'รายไร่' : 'รายแปลง'}
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[11px] font-medium text-sky-800">
@@ -494,7 +597,9 @@ function FertilizerWorkbookTable({
         <table className="min-w-[1400px] border-separate border-spacing-0 text-xs">
           <thead>
             <tr>
-              <th rowSpan={2} className="sticky left-0 top-0 z-30 border-b border-r border-[#d6e6ef] bg-[#eef5fb] px-4 py-3 text-left font-semibold text-surface-700">แปลง</th>
+              <th rowSpan={2} className="sticky left-0 top-0 z-30 border-b border-r border-[#d6e6ef] bg-[#eef5fb] px-4 py-3 text-left font-semibold text-surface-700">
+                {mode === 'camp' ? 'ไร่ / Camp' : 'เลขแปลง'}
+              </th>
               {years.map((year) => (
                 <th
                   key={year.key}
@@ -526,9 +631,9 @@ function FertilizerWorkbookTable({
           <tbody>
             {rows.map((row, rowIndex) => (
               <tr key={row.key} className={rowIndex % 2 === 0 ? 'bg-white' : 'bg-[#fbfdfb]'}>
-                <td className="sticky left-0 z-20 min-w-[220px] max-w-[320px] border-b border-r border-[#e0ebf2] bg-inherit px-4 py-3 text-surface-700 whitespace-normal break-words">
-                  <div className="font-medium text-surface-800">{row.landLabel}</div>
-                  <div className="mt-1 text-[11px] text-surface-500">{row.campName}</div>
+                <td className={`sticky left-0 z-20 border-b border-r border-[#e0ebf2] bg-inherit px-4 py-3 text-surface-700 whitespace-normal break-words ${mode === 'camp' ? 'min-w-[220px] max-w-[320px]' : 'min-w-[140px] max-w-[180px]'}`}>
+                  <div className="font-medium text-surface-800">{row.targetLabel}</div>
+                  <div className="mt-1 text-[11px] text-surface-500">{row.targetSubLabel}</div>
                 </td>
                 {years.flatMap((year) => {
                   const cell = row.yearCells[year.key]
@@ -563,11 +668,11 @@ function FertilizerWorkbookTable({
 
 export function InputUsageSummaryPage() {
   const qc = useQueryClient()
-  const [yearFilter, setYearFilter] = useState('')
+  const [yearFilters, setYearFilters] = useState<string[]>([])
   const [campFilter, setCampFilter] = useState('')
   const [landFilter, setLandFilter] = useState('')
   const [viewMode, setViewMode] = useState<ViewMode>('camp')
-  const [density, setDensity] = useState<DensityMode>('normal')
+  const density: DensityMode = 'expanded'
   const [fertilizerKindFilter, setFertilizerKindFilter] = useState<'' | FertilizerKind>('')
   const [comparisonType, setComparisonType] = useState<ViewMode>('camp')
   const [comparisonIds, setComparisonIds] = useState<string[]>(['', ''])
@@ -580,6 +685,12 @@ export function InputUsageSummaryPage() {
   const pageQueryItems = [
     { label: 'สรุปการใช้ปัจจัย', error },
   ]
+
+  const availableYears = data?.filters.years ?? []
+  const selectedYearNumbers = useMemo(() => yearFilters.map((year) => Number(year)), [yearFilters])
+  const selectedYearSummary = yearFilters.length
+    ? `เลือก ${yearFilters.length.toLocaleString('th-TH')} ปี: ${yearFilters.join(', ')}`
+    : 'แสดงทุกปีการผลิต'
 
   const visibleLands = useMemo(() => {
     const lands = data?.filters.lands ?? []
@@ -594,22 +705,22 @@ export function InputUsageSummaryPage() {
   }, [landFilter, visibleLands])
 
   const matchesBaseFilters = (row: InputUsageSummaryRow) => (
-    (!yearFilter || row.year === Number(yearFilter))
+    (!selectedYearNumbers.length || (row.year != null && selectedYearNumbers.includes(row.year)))
     && (!campFilter || row.campId === Number(campFilter))
     && (!landFilter || row.landId === Number(landFilter))
   )
 
   const visibleFertilizerRows = useMemo(() => (
     (data?.fertilizer ?? []).filter((row) => matchesBaseFilters(row) && (!fertilizerKindFilter || row.fertilizerKind === fertilizerKindFilter))
-  ), [campFilter, data?.fertilizer, fertilizerKindFilter, landFilter, yearFilter])
+  ), [campFilter, data?.fertilizer, fertilizerKindFilter, landFilter, selectedYearNumbers])
 
   const visibleFuelRows = useMemo(() => (
     (data?.fuel ?? []).filter(matchesBaseFilters)
-  ), [campFilter, data?.fuel, landFilter, yearFilter])
+  ), [campFilter, data?.fuel, landFilter, selectedYearNumbers])
 
   const visibleOtherRows = useMemo(() => (
     (data?.other ?? []).filter(matchesBaseFilters)
-  ), [campFilter, data?.other, landFilter, yearFilter])
+  ), [campFilter, data?.other, landFilter, selectedYearNumbers])
 
   const allVisibleRows = useMemo(() => [
     ...visibleFertilizerRows,
@@ -618,11 +729,11 @@ export function InputUsageSummaryPage() {
   ], [visibleFertilizerRows, visibleFuelRows, visibleOtherRows])
 
   const visibleTotals = useMemo(() => summarizeVisibleRows(allVisibleRows), [allVisibleRows])
-  const fertilizerChartRows = useMemo(() => buildChartItems(visibleFertilizerRows, density === 'compact' ? 10 : 8), [density, visibleFertilizerRows])
-  const fuelChartRows = useMemo(() => buildChartItems(visibleFuelRows, density === 'compact' ? 10 : 8), [density, visibleFuelRows])
+  const fertilizerChartRows = useMemo(() => buildChartItems(visibleFertilizerRows, 8), [visibleFertilizerRows])
+  const fuelChartRows = useMemo(() => buildChartItems(visibleFuelRows, 8), [visibleFuelRows])
   const fertilizerTableRows = useMemo(() => buildUsageTableRows(visibleFertilizerRows, viewMode, 'kg'), [viewMode, visibleFertilizerRows])
   const fuelTableRows = useMemo(() => buildUsageTableRows(visibleFuelRows, viewMode, 'L'), [viewMode, visibleFuelRows])
-  const fertilizerWorkbook = useMemo(() => buildFertilizerWorkbook(visibleFertilizerRows), [visibleFertilizerRows])
+  const fertilizerWorkbook = useMemo(() => buildFertilizerWorkbook(visibleFertilizerRows, viewMode), [viewMode, visibleFertilizerRows])
   const comparisonOptions = useMemo(() => buildComparisonTargets(allVisibleRows, comparisonType), [allVisibleRows, comparisonType])
 
   useEffect(() => {
@@ -644,8 +755,14 @@ export function InputUsageSummaryPage() {
   const comparisonBase = comparisonTargets[0]
 
   const usageColumns: Column<UsageTableRow>[] = [
-    { key: 'targetLabel', header: viewMode === 'camp' ? 'ไร่ / Camp' : 'แปลง', sortable: true, minWidth: '180px' },
-    { key: 'yearLabel', header: 'ปี', sortable: true, width: '90px' },
+    {
+      key: 'targetLabel',
+      header: viewMode === 'camp' ? 'ไร่ / Camp' : 'เลขแปลง',
+      sortable: true,
+      minWidth: viewMode === 'camp' ? '180px' : '120px',
+      render: (row) => <span title={row.targetFullLabel}>{row.targetLabel}</span>,
+    },
+    { key: 'yearLabel', header: 'ปีการผลิต', sortable: true, width: '110px' },
     { key: 'amountLabel', header: 'ปริมาณรวม', sortable: true, sortValue: (row) => Number(row.amountLabel.replace(/[^\d.-]/g, '')), width: '140px' },
     { key: 'perRaiLabel', header: 'ต่อไร่', sortable: true, width: '130px' },
     { key: 'areaLabel', header: 'พื้นที่', sortable: true, width: '120px' },
@@ -663,7 +780,7 @@ export function InputUsageSummaryPage() {
 
   const otherColumns: Column<InputUsageSummaryRow>[] = [
     { key: viewMode === 'camp' ? 'campName' : 'landLabel', header: viewMode === 'camp' ? 'ไร่ / Camp' : 'แปลง', sortable: true, minWidth: '180px', render: (row) => viewMode === 'camp' ? row.campName : row.landLabel },
-    { key: 'year', header: 'ปี', sortable: true, width: '90px', render: (row) => yearLabel(row.year) },
+    { key: 'year', header: 'ปีการผลิต', sortable: true, width: '110px', render: (row) => yearLabel(row.year) },
     { key: 'resourceTypeName', header: 'ประเภท', sortable: true, minWidth: '140px' },
     { key: 'itemName', header: 'รายการ', sortable: true, minWidth: '180px' },
     { key: 'amount', header: 'ปริมาณ', sortable: true, width: '130px', render: (row) => formatAmount(row.amount, row.unit, 2) },
@@ -685,6 +802,45 @@ export function InputUsageSummaryPage() {
     setComparisonIds((prev) => prev.map((item, itemIndex) => itemIndex === index ? value : item))
   }
 
+  const toggleYearFilter = (year: number) => {
+    const value = String(year)
+    setYearFilters((prev) => (
+      prev.includes(value)
+        ? prev.filter((item) => item !== value)
+        : [...prev, value].sort((left, right) => Number(left) - Number(right))
+    ))
+  }
+
+  const exportFertilizerExcel = () => {
+    const wb = XLSX.utils.book_new()
+
+    if (fertilizerWorkbook.rows.length && fertilizerWorkbook.years.length) {
+      const workbookSheet = XLSX.utils.aoa_to_sheet(buildFertilizerWorkbookSheetRows(fertilizerWorkbook, viewMode))
+      workbookSheet['!cols'] = [
+        { wch: viewMode === 'camp' ? 28 : 16 },
+        { wch: viewMode === 'camp' ? 14 : 24 },
+        ...fertilizerWorkbook.years.flatMap((year) => [
+          { wch: 18 },
+          ...year.itemNames.map(() => ({ wch: 22 })),
+          { wch: 14 },
+          { wch: 14 },
+          { wch: 10 },
+        ]),
+      ]
+      XLSX.utils.book_append_sheet(wb, workbookSheet, 'Fertilizer Workbook')
+    }
+
+    if (fertilizerTableRows.length) {
+      const summarySheet = XLSX.utils.json_to_sheet(buildFertilizerSummarySheetRows(fertilizerTableRows, viewMode))
+      XLSX.utils.book_append_sheet(wb, summarySheet, 'Fertilizer Summary')
+    }
+
+    if (!wb.SheetNames.length) return
+    const viewLabel = viewMode === 'camp' ? 'camp' : 'land'
+    const dateLabel = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `input-usage-fertilizer-${viewLabel}-${dateLabel}.xlsx`)
+  }
+
   return (
     <div className="cf-dash">
       <div className="page active">
@@ -699,7 +855,7 @@ export function InputUsageSummaryPage() {
                   <span className="block">สรุปการใช้ปัจจัย</span>
                 </h1>
                 <p className="page-subtitle max-w-3xl text-left text-sm leading-6">
-                  ภาพรวมการใช้ปุ๋ย น้ำมัน และปัจจัยอื่น ๆ ตามไร่ แปลง และปีของกิจกรรม ก่อนเข้าสู่ Carbon Footprint
+                  ภาพรวมการใช้ปุ๋ย น้ำมัน และปัจจัยอื่น ๆ ตามไร่ แปลง และปีการผลิต ก่อนเข้าสู่ Carbon Footprint
                   โดยส่วนปุ๋ยจะมีมุมมองแบบ workbook เพื่อให้อ่านใกล้เคียงไฟล์ตัวอย่างมากขึ้น
                 </p>
               </div>
@@ -725,19 +881,41 @@ export function InputUsageSummaryPage() {
           <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <div className="text-sm font-semibold text-surface-900">ตัวกรองร่วมของทั้งหน้า</div>
-              <p className="text-xs text-surface-500">ทุกส่วนจะใช้ปี ไร่ แปลง และมุมมองเดียวกัน เพื่อให้เทียบข้อมูลระหว่างปุ๋ย น้ำมัน และปัจจัยอื่นได้ตรงกัน</p>
+              <p className="text-xs text-surface-500">ทุกส่วนจะใช้ปีการผลิต ไร่ แปลง และมุมมองเดียวกัน เพื่อให้เทียบข้อมูลระหว่างปุ๋ย น้ำมัน และปัจจัยอื่นได้ตรงกัน</p>
             </div>
             <div className="inline-flex items-center gap-2 rounded-full border border-[#cfe0ef] bg-white/80 px-3 py-1 text-[11px] font-medium text-surface-600">
               <SlidersHorizontal size={13} className="text-primary-600" /> Shared Filter Workspace
             </div>
           </div>
-          <div className={`grid grid-cols-1 ${densityGap(density)} md:grid-cols-2 xl:grid-cols-6`}>
+          <div className={`grid grid-cols-1 ${densityGap(density)} md:grid-cols-2 xl:grid-cols-5`}>
             <div>
-              <label className="label">ปี</label>
-              <select className="select" value={yearFilter} onChange={(event) => setYearFilter(event.target.value)}>
-                <option value="">ทุกปี</option>
-                {(data?.filters.years ?? []).map((year) => <option key={year} value={year}>{year}</option>)}
-              </select>
+              <label className="label">ปีการผลิต</label>
+              <div className="rounded-xl border border-surface-200 bg-white/90 p-2 shadow-inner">
+                <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto pr-1">
+                  <button
+                    type="button"
+                    className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${yearFilters.length === 0 ? 'border-primary-500 bg-primary-600 text-white' : 'border-surface-200 bg-surface-50 text-surface-600 hover:border-primary-200'}`}
+                    onClick={() => setYearFilters([])}
+                  >
+                    ทุกปี
+                  </button>
+                  {availableYears.map((year) => {
+                    const value = String(year)
+                    const selected = yearFilters.includes(value)
+                    return (
+                      <button
+                        key={year}
+                        type="button"
+                        className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${selected ? 'border-primary-500 bg-primary-600 text-white' : 'border-surface-200 bg-white text-surface-600 hover:border-primary-200 hover:bg-primary-50'}`}
+                        onClick={() => toggleYearFilter(year)}
+                      >
+                        {year}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+              <p className="mt-1 text-[11px] text-surface-500">{selectedYearSummary}</p>
             </div>
             <div>
               <label className="label">ไร่ / Camp</label>
@@ -768,31 +946,12 @@ export function InputUsageSummaryPage() {
                 ))}
               </div>
             </div>
-            <div>
-              <label className="label">ความหนาแน่น</label>
-              <div className="grid grid-cols-3 rounded-xl border border-surface-200 bg-surface-50 p-1">
-                {([
-                  ['compact', 'กะทัดรัด'],
-                  ['normal', 'ปกติ'],
-                  ['expanded', 'ขยาย'],
-                ] as [DensityMode, string][]).map(([mode, label]) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    className={`rounded-lg px-2 py-1.5 text-[11px] font-semibold transition ${density === mode ? 'bg-white text-primary-700 shadow-sm' : 'text-surface-500'}`}
-                    onClick={() => setDensity(mode)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
             <div className="flex items-end">
               <button
                 type="button"
                 className="btn-ghost w-full justify-center"
                 onClick={() => {
-                  setYearFilter('')
+                  setYearFilters([])
                   setCampFilter('')
                   setLandFilter('')
                   setFertilizerKindFilter('')
@@ -879,19 +1038,27 @@ export function InputUsageSummaryPage() {
                   {option.label}
                 </button>
               ))}
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 rounded-full border border-emerald-600 bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:border-surface-200 disabled:bg-surface-200 disabled:text-surface-500"
+                onClick={exportFertilizerExcel}
+                disabled={!fertilizerWorkbook.rows.length && !fertilizerTableRows.length}
+              >
+                <FileSpreadsheet size={14} /> Export Excel
+              </button>
             </div>
           </div>
 
           <div className={`mb-4 grid grid-cols-1 ${densityGap(density)} xl:grid-cols-3`}>
             <div className="rounded-[20px] border border-emerald-200 bg-white/90 p-4">
               <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-emerald-700">Workbook View</div>
-              <div className="mt-2 text-lg font-semibold text-surface-900">{fertilizerWorkbook.rows.length.toLocaleString('th-TH')} แปลงในตาราง</div>
-              <div className="mt-1 text-xs text-surface-500">แสดงแยกตามปี, ประเภทอ้อย, รายการปุ๋ย, รวมกิโลกรัม และ warning ของแต่ละแปลง</div>
+              <div className="mt-2 text-lg font-semibold text-surface-900">{fertilizerWorkbook.rows.length.toLocaleString('th-TH')} {viewMode === 'camp' ? 'ไร่ในตาราง' : 'แปลงในตาราง'}</div>
+              <div className="mt-1 text-xs text-surface-500">แสดงแยกตามปีการผลิตที่เลือก, ประเภทอ้อย, รายการปุ๋ย, รวมกิโลกรัม และ warning ของแต่ละ{viewMode === 'camp' ? 'ไร่' : 'แปลง'}</div>
             </div>
             <div className="rounded-[20px] border border-emerald-200 bg-white/90 p-4">
               <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-emerald-700">Year Groups</div>
-              <div className="mt-2 text-lg font-semibold text-surface-900">{fertilizerWorkbook.years.length.toLocaleString('th-TH')} ปีที่พบข้อมูล</div>
-              <div className="mt-1 text-xs text-surface-500">คอลัมน์จะถูกจัดเป็นกลุ่มปีเหมือนหัวตารางใน workbook อ้างอิง</div>
+              <div className="mt-2 text-lg font-semibold text-surface-900">{fertilizerWorkbook.years.length.toLocaleString('th-TH')} ปีการผลิตที่พบข้อมูล</div>
+              <div className="mt-1 text-xs text-surface-500">คอลัมน์จะถูกจัดเป็นกลุ่มปีการผลิตตามปีที่เลือกจากตัวกรองร่วม</div>
             </div>
             <div className="rounded-[20px] border border-amber-200 bg-[linear-gradient(180deg,rgba(255,252,245,0.98),rgba(255,247,229,0.98))] p-4">
               <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-700">Display Note</div>
@@ -900,7 +1067,7 @@ export function InputUsageSummaryPage() {
             </div>
           </div>
 
-          <FertilizerWorkbookTable years={fertilizerWorkbook.years} rows={fertilizerWorkbook.rows} />
+          <FertilizerWorkbookTable years={fertilizerWorkbook.years} rows={fertilizerWorkbook.rows} mode={viewMode} />
 
           <div className={`mt-4 grid grid-cols-1 ${densityGap(density)} xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)]`}>
             <div className="rounded-[20px] border border-emerald-200 bg-white/92 p-4 shadow-sm">
@@ -915,7 +1082,7 @@ export function InputUsageSummaryPage() {
                 isLoading={isLoading}
                 rowKey={(row) => row.key}
                 defaultPageSize={DEFAULT_USAGE_TABLE_PAGE_SIZE}
-                searchPlaceholder="ค้นหาไร่ แปลง ปี หรือรายการปุ๋ย..."
+                searchPlaceholder="ค้นหาไร่ แปลง ปีการผลิต หรือรายการปุ๋ย..."
                 emptyMessage="ยังไม่มีข้อมูลปุ๋ยในตัวกรองนี้"
               />
             </div>
@@ -944,7 +1111,7 @@ export function InputUsageSummaryPage() {
                 isLoading={isLoading}
                 rowKey={(row) => row.key}
                 defaultPageSize={DEFAULT_USAGE_TABLE_PAGE_SIZE}
-                searchPlaceholder="ค้นหาไร่ แปลง ปี หรือรายการน้ำมัน..."
+                searchPlaceholder="ค้นหาไร่ แปลง ปีการผลิต หรือรายการน้ำมัน..."
                 emptyMessage="ยังไม่มีข้อมูลน้ำมันในตัวกรองนี้"
               />
             </div>

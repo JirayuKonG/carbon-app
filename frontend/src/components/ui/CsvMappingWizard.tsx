@@ -60,6 +60,11 @@ type DetailTypeResolution = {
   newName: string
 }
 
+type DetailTypeGroup = {
+  name: string
+  rawValues: string[]
+}
+
 interface ExistingDetailType {
   act_header_detail_type_id: number
   act_header_type_id?: number | null
@@ -189,6 +194,21 @@ function getImportEstimate(rowCount: number): ImportEstimate {
 
 function normalizeLookupKey(value: string | undefined | null) {
   return (value ?? '').trim().toLowerCase()
+}
+
+function sanitizeDetailTypeName(value: string | undefined | null) {
+  return (value ?? '')
+    .replace(/^\uFEFF/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^\d+\s*[-–—:]\s*/, '')
+    .replace(/\s*[-–—:]\s*(?:น้ำ|นํ้า|water)\s*\d+\s*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function normalizeDetailTypeName(value: string | undefined | null) {
+  return sanitizeDetailTypeName(value).toLowerCase()
 }
 
 function classifyImportError(message: string) {
@@ -377,10 +397,6 @@ export function CsvMappingWizard({
     return null
   }
 
-  function normalizeDetailTypeName(value: string | undefined) {
-    return (value ?? '').trim().toLowerCase().replace(/^0.{1,3}-(?=.+)/, '')
-  }
-
   function getMatchingDetailTypes(detailType: string) {
     const normalized = normalizeDetailTypeName(detailType)
     if (!normalized) return []
@@ -455,9 +471,25 @@ export function CsvMappingWizard({
   const uniqueResourceItems = resourceItemNameKey
     ? Array.from(new Set(allRows.map((row) => row[resourceItemNameKey]?.trim() ?? '').filter(Boolean)))
     : []
-  const uniqueDetailTypes = detailTypeKey
-    ? Array.from(new Set(allRows.map((row) => row[detailTypeKey]?.trim() ?? '').filter(Boolean)))
+  const detailTypeGroups = detailTypeKey
+    ? Array.from(
+        allRows.reduce((map, row) => {
+          const rawValue = row[detailTypeKey]?.trim() ?? ''
+          const canonicalName = sanitizeDetailTypeName(rawValue)
+          const key = normalizeDetailTypeName(canonicalName)
+          if (!key || !canonicalName) return map
+
+          const group = map.get(key) ?? { name: canonicalName, rawValues: [] }
+          if (rawValue && !group.rawValues.includes(rawValue)) group.rawValues.push(rawValue)
+          map.set(key, group)
+          return map
+        }, new Map<string, DetailTypeGroup>()).values(),
+      )
     : []
+  const uniqueDetailTypes = detailTypeGroups.map((group) => group.name)
+  const detailTypeRawValuesByName = Object.fromEntries(
+    detailTypeGroups.map((group) => [group.name, group.rawValues]),
+  ) as Record<string, string[]>
   const resourceTypeNameToId = Object.fromEntries(
     existingResourceTypes
       .map((item) => [normalizeLookupKey(item.resc_used_type_name), item.resource_used_type_id] as const)
@@ -796,7 +828,8 @@ export function CsvMappingWizard({
 
         if (detailTypeKey) {
           const originalDetailType = row[detailTypeKey]?.trim() ?? ''
-          const selection = detailTypeSelections[originalDetailType]
+          const canonicalDetailType = sanitizeDetailTypeName(originalDetailType)
+          const selection = detailTypeSelections[canonicalDetailType]
           const selectedValue = selection?.newName?.trim()
 
           if (selection?.mode === 'existing' && selection.selectedId) {
@@ -1198,13 +1231,21 @@ export function CsvMappingWizard({
                     {uniqueDetailTypes.map((detailType) => {
                       const matches = getMatchingDetailTypes(detailType)
                       const resolution = detailTypeSelections[detailType]
+                      const rawValues = detailTypeRawValuesByName[detailType] ?? []
                       const hasExistingSelection = resolution?.mode !== 'new' && Boolean(resolution?.selectedId)
                       const hasNewSelection = resolution?.mode === 'new' && Boolean(resolution?.newName?.trim())
                       const hasResolvedSelection = hasExistingSelection || hasNewSelection
 
                       return (
                         <div key={detailType} className="flex flex-wrap items-start gap-3">
-                          <div className="min-w-0 flex-1 text-xs text-surface-700 truncate">{detailType}</div>
+                          <div className="min-w-0 flex-1 text-xs text-surface-700">
+                            <div className="truncate font-medium">{detailType}</div>
+                            {rawValues.length > 1 && (
+                              <p className="mt-1 text-[11px] text-surface-500">
+                                รวม {rawValues.length} รูปแบบจาก CSV
+                              </p>
+                            )}
+                          </div>
                           <div className="w-full sm:w-80 space-y-2">
                             <span className={hasResolvedSelection ? 'badge-green' : 'badge-gray'}>
                               {hasResolvedSelection ? 'เลือกแล้ว' : 'ยังไม่เลือก'}
