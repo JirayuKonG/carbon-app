@@ -78,7 +78,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | `/emission-factors` | `frontend/src/features/emission-factors/EmissionFactorsPage.tsx` | Emission factors, GWP, units, and reference data. |
 | `/activities` | `frontend/src/App.tsx` | Redirects to `/activities/logs`. |
 | `/activities/logs` | `frontend/src/features/activities/ActivityLogListPage.tsx` | Daily-use list for `log_activities_detail` with production-year filters and add/edit/delete. |
-| `/activities/resources` | `frontend/src/features/activities/ActivityResourcesPage.tsx` | Read-only activity resource reference lists for fertilizers, chemicals, and equipments. |
+| `/activities/resources` | `frontend/src/features/activities/ActivityResourcesPage.tsx` | Activity resource master-data page for fertilizers, fuels/equipments, chemicals, and other resource items, with type filters, add/edit/delete modals, and explicit destination selection when creating new items. |
 | `/activities/manage` | `frontend/src/features/activities/ActivitiesPage.tsx` | Advanced activity management page with headers, activity CSV import including production year, workflow tools, and imported-file history. |
 | `/activities/logs/new` | `frontend/src/App.tsx` | Redirect helper that preserves the query string and sends users to `/activities/manage`. |
 

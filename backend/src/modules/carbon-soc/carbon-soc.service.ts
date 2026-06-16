@@ -31,8 +31,63 @@ type SoilImprovementPayload = {
   carbon_soilImprovementPlant_update_uid?: unknown
 }
 
+type StandardUnitKey =
+  | 'percent'
+  | 'bulkDensity'
+  | 'centimeter'
+  | 'tco2ePerYear'
+  | 'kgPerRai'
+  | 'percentNitrogen'
+  | 'tonNitrogen'
+
+type UnitOption = {
+  unit_id: number
+  unit_name?: string | null
+  unit_initial?: string | null
+}
+
+const STANDARD_UNITS: Record<StandardUnitKey, { unitName: string; unitInitial: string; aliases: string[] }> = {
+  percent: {
+    unitName: 'เปอร์เซ็นต์',
+    unitInitial: '%',
+    aliases: ['percent', 'ร้อยละ', 'เปอร์เซ็นต์'],
+  },
+  bulkDensity: {
+    unitName: 'กรัมต่อลูกบาศก์เซนติเมตร',
+    unitInitial: 'g/cm3',
+    aliases: ['g/cm3', 'g/cm³', 'g cm-3', 'gram per cubic centimeter', 'กรัมต่อลูกบาศก์เซนติเมตร'],
+  },
+  centimeter: {
+    unitName: 'เซนติเมตร',
+    unitInitial: 'cm',
+    aliases: ['cm', 'centimeter', 'centimetre', 'เซนติเมตร'],
+  },
+  tco2ePerYear: {
+    unitName: 'ตันคาร์บอนไดออกไซด์เทียบเท่าต่อปี',
+    unitInitial: 'tCO2e/ปี',
+    aliases: ['tCO2e/ปี', 'tCO2e/year', 'tCO2e per year', 'ton CO2e per year', 'ตัน CO2e ต่อปี'],
+  },
+  kgPerRai: {
+    unitName: 'กิโลกรัมต่อไร่',
+    unitInitial: 'kg/ไร่',
+    aliases: ['kg/ไร่', 'kg/rai', 'kg per rai', 'กิโลกรัมต่อไร่'],
+  },
+  percentNitrogen: {
+    unitName: 'เปอร์เซ็นต์ไนโตรเจน',
+    unitInitial: '%N',
+    aliases: ['%N', '% N', 'percent N', 'ร้อยละไนโตรเจน', 'เปอร์เซ็นต์ไนโตรเจน'],
+  },
+  tonNitrogen: {
+    unitName: 'ตันไนโตรเจน',
+    unitInitial: 'tN',
+    aliases: ['tN', 'ton N', 'tonne N', 'ตัน N', 'ตันไนโตรเจน'],
+  },
+}
+
 @Injectable()
 export class CarbonSocService {
+  private readonly socAnnualizationYears = 20
+
   constructor(private prisma: PrismaService) {}
 
   private socInclude = {
@@ -112,9 +167,63 @@ export class CarbonSocService {
   private normalizeUnitText(value?: string | null) {
     return String(value ?? '')
       .toLowerCase()
+      .replace(/%/g, 'percent')
       .replace(/co₂/g, 'co2')
+      .replace(/³/g, '3')
       .replace(/[^a-z0-9ก-๙]+/g, '')
       .trim()
+  }
+
+  private async ensureStandardUnitId(kind: StandardUnitKey, tx: any = this.prisma) {
+    const spec = STANDARD_UNITS[kind]
+    const aliases = [spec.unitName, spec.unitInitial, ...spec.aliases]
+      .map((value) => this.normalizeUnitText(value))
+      .filter(Boolean)
+
+    const units = await tx.units.findMany({
+      select: { unit_id: true, unit_name: true, unit_initial: true },
+      orderBy: { unit_id: 'asc' },
+    })
+
+    const matched = units.find((unit: UnitOption) => {
+      const tokens = [
+        this.normalizeUnitText(unit.unit_name),
+        this.normalizeUnitText(unit.unit_initial),
+      ]
+      return tokens.some((token) => aliases.includes(token))
+    })
+
+    if (matched) return matched.unit_id
+
+    const current = await tx.units.aggregate({ _max: { unit_id: true } })
+    const created = await tx.units.create({
+      data: {
+        unit_id: (current._max.unit_id ?? 0) + 1,
+        unit_name: spec.unitName,
+        unit_initial: spec.unitInitial,
+        unit_updated_at: new Date(),
+      },
+      select: { unit_id: true },
+    })
+
+    return created.unit_id
+  }
+
+  private async standardSocUnitFields() {
+    const unit_socSampleIT = await this.ensureStandardUnitId('percent')
+    const unit_socbdSampleIT = await this.ensureStandardUnitId('bulkDensity')
+    const unit_depSampleIT = await this.ensureStandardUnitId('centimeter')
+    const unit_socIT = await this.ensureStandardUnitId('tco2ePerYear')
+
+    return { unit_socSampleIT, unit_socbdSampleIT, unit_depSampleIT, unit_socIT }
+  }
+
+  private async standardSoilImprovementUnitFields() {
+    const unit_mc = await this.ensureStandardUnitId('kgPerRai')
+    const unit_nc = await this.ensureStandardUnitId('percentNitrogen')
+    const unit_fnFix = await this.ensureStandardUnitId('tonNitrogen')
+
+    return { unit_mc, unit_nc, unit_fnFix }
   }
 
   private async nextSocId(tx: any) {
@@ -181,31 +290,6 @@ export class CarbonSocService {
     return num
   }
 
-  private async resolveResultUnitId(kind: 'tCO2e' | 'tN') {
-    const units = await this.prisma.units.findMany({
-      select: { unit_id: true, unit_name: true, unit_initial: true },
-      orderBy: { unit_id: 'asc' },
-    })
-
-    const candidates = kind === 'tCO2e'
-      ? ['tco2e', 'tonco2e', 'tonneco2e', 'ตันco2e']
-      : ['tn', 'tonn', 'tonnen', 'ตันn']
-
-    const matched = units.find((unit) => {
-      const tokens = [
-        this.normalizeUnitText(unit.unit_initial),
-        this.normalizeUnitText(unit.unit_name),
-      ]
-      return tokens.some((token) => candidates.includes(token))
-    })
-
-    if (!matched) {
-      throw new BadRequestException(`ไม่พบหน่วยผลลัพธ์ ${kind} ในตาราง units กรุณาเลือกหน่วยผลลัพธ์ก่อนคำนวณ`)
-    }
-
-    return matched.unit_id
-  }
-
   private withSocDerived(row: any) {
     const areaRai = this.landAreaRai(row.lands)
     const socTco2eTotal = this.toFiniteNumber(row.carbon_soc_socIT)
@@ -265,12 +349,14 @@ export class CarbonSocService {
 
   async createSocMeasurement(data: SocPayload) {
     const normalized = this.normalizeSocPayload(data)
+    const standardUnits = await this.standardSocUnitFields()
     const now = new Date()
 
     const row = await this.prisma.$transaction(async (tx) => tx.carbon_soc.create({
       data: {
         carbon_soc_id: await this.nextSocId(tx),
         ...normalized,
+        ...standardUnits,
         carbon_soc_create_at: now,
         carbon_soc_update_at: now,
       },
@@ -282,11 +368,13 @@ export class CarbonSocService {
 
   async updateSocMeasurement(id: number, data: SocPayload) {
     const normalized = this.normalizeSocPayload(data)
+    const standardUnits = await this.standardSocUnitFields()
 
     const row = await this.prisma.carbon_soc.update({
       where: { carbon_soc_id: id },
       data: {
         ...normalized,
+        ...standardUnits,
         carbon_soc_update_at: new Date(),
       },
       include: this.socInclude,
@@ -314,17 +402,17 @@ export class CarbonSocService {
     const socPercent = this.assertPositive(row.carbon_soc_socSampleIT, 'ค่า SOC sample')
     const bulkDensity = this.assertPositive(row.carbon_soc_bdSampleIt, 'ค่า bulk density')
     const depthCm = this.assertPositive(row.carbon_soc_depSampleIT, 'ค่าความลึกดิน')
-    const resultUnitId = row.unit_socIT ?? await this.resolveResultUnitId('tCO2e')
+    const standardUnits = await this.standardSocUnitFields()
 
     const socTcPerRai = socPercent * bulkDensity * depthCm * 0.16
-    const socTco2ePerRai = socTcPerRai * (44 / 12)
+    const socTco2ePerRai = (socTcPerRai * (44 / 12)) / this.socAnnualizationYears
     const socTco2eTotal = socTco2ePerRai * areaRai
 
     const updated = await this.prisma.carbon_soc.update({
       where: { carbon_soc_id: id },
       data: {
+        ...standardUnits,
         carbon_soc_socIT: this.round(socTco2eTotal, 4),
-        unit_socIT: resultUnitId,
         carbon_soc_update_at: new Date(),
       },
       include: this.socInclude,
@@ -347,12 +435,14 @@ export class CarbonSocService {
 
   async createSoilImprovementPlant(data: SoilImprovementPayload) {
     const normalized = this.normalizeSoilImprovementPayload(data)
+    const standardUnits = await this.standardSoilImprovementUnitFields()
     const now = new Date()
 
     const row = await this.prisma.$transaction(async (tx) => tx.carbon_soilImprovementPlants.create({
       data: {
         carbon_soilImprovementPlant_id: await this.nextSoilImprovementPlantId(tx),
         ...normalized,
+        ...standardUnits,
         carbon_soilImprovementPlant_create_at: now,
         carbon_soilImprovementPlant_update_at: now,
       },
@@ -364,11 +454,13 @@ export class CarbonSocService {
 
   async updateSoilImprovementPlant(id: number, data: SoilImprovementPayload) {
     const normalized = this.normalizeSoilImprovementPayload(data)
+    const standardUnits = await this.standardSoilImprovementUnitFields()
 
     const row = await this.prisma.carbon_soilImprovementPlants.update({
       where: { carbon_soilImprovementPlant_id: id },
       data: {
         ...normalized,
+        ...standardUnits,
         carbon_soilImprovementPlant_update_at: new Date(),
       },
       include: this.soilImprovementInclude,
@@ -397,14 +489,14 @@ export class CarbonSocService {
 
     const dryMatterKgPerRai = this.assertPositive(row.carbon_soilImprovementPlant_mc, 'ค่า dry matter / mc')
     const nitrogenPercent = this.assertPositive(row.carbon_soilImprovementPlant_nc, 'ค่า N content / nc')
-    const resultUnitId = row.unit_fnFix ?? await this.resolveResultUnitId('tN')
+    const standardUnits = await this.standardSoilImprovementUnitFields()
     const fnfixTn = areaRai * (dryMatterKgPerRai / 1000) * (nitrogenPercent / 100)
 
     const updated = await this.prisma.carbon_soilImprovementPlants.update({
       where: { carbon_soilImprovementPlant_id: id },
       data: {
+        ...standardUnits,
         carbon_soilImprovementPlant_fnFix: this.round(fnfixTn, 4),
-        unit_fnFix: resultUnitId,
         carbon_soilImprovementPlant_update_at: new Date(),
       },
       include: this.soilImprovementInclude,

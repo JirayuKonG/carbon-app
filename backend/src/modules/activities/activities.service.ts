@@ -63,6 +63,13 @@ type EquipmentPayload = {
   resource_used_type_id?: number | string | null
 }
 
+type ChemicalPayload = {
+  act_chemiscal_name?: string | null
+  act_chemiscal_info?: string | null
+  resource_used_type_id?: number | string | null
+  act_chemiscal_update_uid?: number | string | null
+}
+
 type ResourceOtherPayload = {
   act_resourceOther_name?: string | null
   act_resourceOther_info?: string | null
@@ -1798,9 +1805,36 @@ export class ActivitiesService {
     return this.normalizeSearchText(this.getCarbonQueueResourceNames(queue).join(' '))
   }
 
+  private isLiquidUnitText(value?: string | null) {
+    const normalized = this.normalizeInputUsageUnitText(value ?? '')
+    if (!normalized) return false
+    return /^(l|lit|liter|litre|litter|ลิตร)$/.test(normalized)
+      || /^(ml|milliliter|millilitre|มิลลิลิตร|cc|ซีซี)$/.test(normalized)
+      || /^(m3|cubicmeter|cubicmetre|ลูกบาศก์เมตร)$/.test(normalized)
+  }
+
+  private isLiquidFertilizerQueue(queue: any) {
+    const detail = queue?.log_activities_detail
+    const resourceText = this.getCarbonQueueResourceText(queue)
+    const info = this.parseCarbonPreparationInfo(queue?.carbon_process_queue_info)
+    const preparationType = String(info.fertilizerPrepareType ?? '').trim().toLowerCase()
+    const unitText = this.unitLabel(detail?.units, detail?.units_prefixs)
+    const normalizedUnitText = this.normalizeInputUsageUnitText(unitText)
+    const isFertilizerResource = detail?.act_fertilizer_id != null || /ปุ๋ย|fertilizer/.test(resourceText)
+
+    if (!isFertilizerResource) return false
+    if (preparationType === 'liquid_fertilizer') return true
+    if (!normalizedUnitText || /sck|sack|bag|กระสอบ/.test(normalizedUnitText)) return false
+    return this.isLiquidUnitText(unitText)
+  }
+
   private resolveCarbonFormulaMode(queue: any): CarbonFormulaMode {
     const detail = queue?.log_activities_detail
     const resourceText = this.getCarbonQueueResourceText(queue)
+
+    if (this.isLiquidFertilizerQueue(queue)) {
+      return 'generic_ef'
+    }
 
     if (
       detail?.act_fertilizer_id != null
@@ -2781,7 +2815,14 @@ export class ActivitiesService {
       orderBy: { act_equipment_id: 'asc' },
     })
   }
-  getChemicals()     { return this.prisma.activities_chemiscals.findMany({ orderBy: { act_chemiscal_id: 'asc' } }) }
+  getChemicals()     {
+    return this.prisma.activities_chemiscals.findMany({
+      include: {
+        resource_used_type: { select: { resc_used_type_name: true } },
+      },
+      orderBy: { act_chemiscal_id: 'asc' },
+    })
+  }
   getResourceOthers() {
     return this.prisma.activities_resourceOther.findMany({
       include: {
@@ -3003,6 +3044,63 @@ export class ActivitiesService {
     })
   }
 
+  createChemical(data: ChemicalPayload) {
+    const act_chemiscal_name = this.toRequiredText(data.act_chemiscal_name, 'act_chemiscal_name')
+    const act_chemiscal_info = this.toOptionalText(data.act_chemiscal_info)
+    const resource_used_type_id = this.toOptionalNumber(data.resource_used_type_id)
+    const act_chemiscal_update_uid = this.toOptionalNumber(data.act_chemiscal_update_uid)
+    const now = new Date()
+
+    return this.prisma.$transaction(async (tx) => {
+      const last = await tx.activities_chemiscals.aggregate({ _max: { act_chemiscal_id: true } })
+      const actChemiscalId = (last._max.act_chemiscal_id ?? 0) + 1
+
+      return tx.activities_chemiscals.create({
+        data: {
+          act_chemiscal_id: actChemiscalId,
+          act_chemiscal_name,
+          act_chemiscal_info,
+          resource_used_type_id,
+          act_chemiscal_update_uid,
+          act_chemiscal_date_add: now,
+          act_chemiscal_update_at: now,
+        },
+        include: {
+          resource_used_type: { select: { resc_used_type_name: true } },
+        },
+      })
+    })
+  }
+
+  updateChemical(id: number, data: ChemicalPayload) {
+    return this.prisma.activities_chemiscals.update({
+      where: { act_chemiscal_id: id },
+      data: {
+        act_chemiscal_name: this.toRequiredText(data.act_chemiscal_name, 'act_chemiscal_name'),
+        act_chemiscal_info: this.toOptionalText(data.act_chemiscal_info),
+        resource_used_type_id: this.toOptionalNumber(data.resource_used_type_id),
+        act_chemiscal_update_uid: this.toOptionalNumber(data.act_chemiscal_update_uid),
+        act_chemiscal_update_at: new Date(),
+      },
+      include: {
+        resource_used_type: { select: { resc_used_type_name: true } },
+      },
+    })
+  }
+
+  deleteChemical(id: number) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.log_activities_detail.updateMany({
+        where: { act_chemiscal_id: id },
+        data: { act_chemiscal_id: null },
+      })
+
+      return tx.activities_chemiscals.delete({
+        where: { act_chemiscal_id: id },
+      })
+    })
+  }
+
   createResourceOther(data: ResourceOtherPayload) {
     const act_resourceOther_name = this.toRequiredText(data.act_resourceOther_name, 'act_resourceOther_name')
     const act_resourceOther_info = this.toOptionalText(data.act_resourceOther_info)
@@ -3179,7 +3277,15 @@ export class ActivitiesService {
     ])
 
     const normalizeKey = (value?: string) => value?.trim().toLowerCase() ?? ''
-    const normalizeDetailTypeKey = (value?: string) => normalizeKey(value).replace(/^0.{1,3}-(?=.+)/, '')
+    const sanitizeDetailTypeName = (value?: string) => (value ?? '')
+      .replace(/^\uFEFF/, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^\d+\s*[-–—:]\s*/, '')
+      .replace(/\s*[-–—:]\s*(?:น้ำ|นํ้า|water)\s*\d+\s*$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    const normalizeDetailTypeKey = (value?: string) => sanitizeDetailTypeName(value).toLowerCase()
 
     const byName = {
       camp:         Object.fromEntries(camps.map(c => [c.land_camp_name?.toLowerCase() ?? '', c.land_camp_id])),
@@ -3295,8 +3401,8 @@ export class ActivitiesService {
     }
 
     const ensureDetailTypeId = async (name?: string, headerTypeId?: number) => {
-      const trimmedName = name?.trim()
-      const key = normalizeDetailTypeKey(trimmedName)
+      const canonicalName = sanitizeDetailTypeName(name)
+      const key = normalizeDetailTypeKey(canonicalName)
       if (!key) return undefined
       if (byName.detailType[key]) return byName.detailType[key]
 
@@ -3304,11 +3410,11 @@ export class ActivitiesService {
         data: {
           act_header_detail_type_id: await nextDetailTypeId(),
           ...(headerTypeId ? { act_header_type_id: headerTypeId } : {}),
-          act_header_detail_type_name_th: trimmedName,
+          act_header_detail_type_name_th: canonicalName,
         },
       })
 
-      byName.detailType[normalizeKey(trimmedName)] = created.act_header_detail_type_id
+      byName.detailType[normalizeKey(canonicalName)] = created.act_header_detail_type_id
       byName.detailType[key] = created.act_header_detail_type_id
       return created.act_header_detail_type_id
     }

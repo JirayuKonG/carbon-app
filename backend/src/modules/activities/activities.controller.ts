@@ -130,6 +130,9 @@ export class ActivitiesController {
   @Put('equipments/:id')  updateEquipment(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateEquipment(id, b) }
   @Delete('equipments/:id') deleteEquipment(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteEquipment(id) }
   @Get('chemicals')       getChemicals()     { return this.svc.getChemicals() }
+  @Post('chemicals')      createChemical(@Body() b: any) { return this.svc.createChemical(b) }
+  @Put('chemicals/:id')   updateChemical(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateChemical(id, b) }
+  @Delete('chemicals/:id') deleteChemical(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteChemical(id) }
   @Get('resource-others') getResourceOthers(){ return this.svc.getResourceOthers() }
   @Post('resource-others') createResourceOther(@Body() b: any) { return this.svc.createResourceOther(b) }
   @Put('resource-others/:id') updateResourceOther(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateResourceOther(id, b) }
