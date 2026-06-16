@@ -12,6 +12,7 @@ type EmissionRow = {
   area_work: number | null
   process: string | null
   activity: string | null
+  cane_type_name: string | null
   land_id: number | null
   land_code: string | null
   land_name: string | null
@@ -451,9 +452,32 @@ export class AnalyticsService {
     return this.buildProcessInputs(rows)
   }
 
-  async getCfCaneTypes(_filter: ReportFilter = {}) {
-    // API contract is ready; cane type needs a reliable source column before the frontend flag is enabled.
-    return []
+  async getCfCaneTypes(filter: ReportFilter = {}) {
+    const rows = this.applyFilter(await this.getEmissionRows(), filter).filter((row) => !isTransport(row))
+    const meta = this.getYearMeta(rows)
+    const selectedRows = meta.currentYear ? rows.filter((row) => row.year === meta.currentYear) : rows
+    const totalArea = this.uniqueArea(selectedRows)
+    const byCaneType = new Map<string, { areaByLand: Map<number, number>; co2eTotal: number }>()
+
+    selectedRows.forEach((row) => {
+      const name = labelOr(row.cane_type_name, 'ไม่ระบุประเภทอ้อย')
+      const bucket = byCaneType.get(name) ?? { areaByLand: new Map<number, number>(), co2eTotal: 0 }
+      if (row.land_id) bucket.areaByLand.set(row.land_id, Math.max(bucket.areaByLand.get(row.land_id) ?? 0, n(row.land_area)))
+      bucket.co2eTotal += n(row.co2e)
+      byCaneType.set(name, bucket)
+    })
+
+    return Array.from(byCaneType.entries())
+      .map(([name, value]) => {
+        const areaRai = Array.from(value.areaByLand.values()).reduce((sum, area) => sum + area, 0)
+        return {
+          name,
+          areaRai: round(areaRai, 1),
+          percent: totalArea ? round((areaRai / totalArea) * 100, 1) : 0,
+          co2eTotal: round(value.co2eTotal),
+        }
+      })
+      .sort((a, b) => b.areaRai - a.areaRai)
   }
 
   async getCfCamps() {
@@ -634,6 +658,7 @@ export class AnalyticsService {
         COALESCE(ld."log_act_detail_areawork", 0) AS area_work,
         COALESCE(ht."act_header_type_name_th", ht."act_header_type_name_en", 'ไม่ระบุกระบวนการ') AS process,
         COALESCE(hdt."act_header_detail_type_name_th", 'อื่นๆ') AS activity,
+        htsc."act_header_typeSugarCane_name" AS cane_type_name,
         l.land_id,
         l.land_code,
         l.name AS land_name,
@@ -665,6 +690,7 @@ export class AnalyticsService {
       LEFT JOIN units ru ON ru.unit_id = cpq."unit_id_resultValue"
       LEFT JOIN activities_header_type ht ON ht.act_header_type_id = COALESCE(ld.act_header_type_id, ah.act_header_type_id)
       LEFT JOIN activities_header_detail_type hdt ON hdt.act_header_detail_type_id = ld.act_header_detail_type_id
+      LEFT JOIN "activities_header_typeSugarCane" htsc ON htsc."act_header_typeSugarCane_id" = ah."act_header_typeSugarCane_id"
       LEFT JOIN lands l ON l.land_id = ah.land_id
       LEFT JOIN lands_camps lc ON lc.land_camp_id = l.land_camp_id
       LEFT JOIN farmers f ON f.farmer_id = COALESCE(ah.farmer_id, l.farmer_id)

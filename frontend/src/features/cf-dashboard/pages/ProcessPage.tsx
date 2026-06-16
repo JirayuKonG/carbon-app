@@ -21,6 +21,7 @@ type ComparisonTargetType = "camp" | "field";
 type SocMaterialView = "overview" | "area";
 
 const FOOTPRINT_UNIT = "kgCO2e";
+const SOC_TCO2E_PER_ORGANIC_FERTILIZER_KG = 0.00018;
 const CHEMICAL_ACTIVITY_NAME = "สารเคมี/ยาป้องกันกำจัดศัตรูพืช";
 const PROCESS_ACTIVITY_FALLBACKS: Array<{
   match: RegExp;
@@ -647,6 +648,7 @@ export function CfProcessPage() {
   const current = activities.filter((item) => item.year === currentYear);
   const selectedYear = period === "baseline_avg" ? "baseline_avg" : currentYear;
   const selectedYearNumber = /^\d+$/.test(selectedYear) ? Number(selectedYear) : undefined;
+  const currentYearNumber = /^\d+$/.test(currentYear) ? Number(currentYear) : undefined;
   const selectedFieldLandId = selectedField?.id.match(/^field-(\d+)$/)?.[1];
   const resourceUsage = summarizeResourceUsage(inputUsageResult.data, {
     campId: selectedField?.campId ?? selectedCamp?.campId,
@@ -722,13 +724,18 @@ export function CfProcessPage() {
     : campComparisonTarget(compareBCamp);
   const sequestrationRows = campComparisonRows.map((row) => {
     const reduction = Math.max(row.baseline - row.current, 0);
-    const fertilizerKg = row.camp?.processInputComparisons.reduce((sum, item) => sum + item.currentFertilizerKg, 0) ?? 0;
-    const socIncrease = Number((reduction * 0.35 + row.areaRai * 0.012).toFixed(2));
+    const campResourceUsage = summarizeResourceUsage(inputUsageResult.data, {
+      campId: row.camp?.campId,
+      year: currentYearNumber,
+    });
+    const fertilizerKg = campResourceUsage.fertilizerKg;
+    const socIncrease = Number((campResourceUsage.organicFertilizerKg * SOC_TCO2E_PER_ORGANIC_FERTILIZER_KG).toFixed(2));
     const credits = Number((reduction * 0.6 + socIncrease).toFixed(2));
     return {
       ...row,
       reduction,
       fertilizerKg,
+      organicFertilizerKg: campResourceUsage.organicFertilizerKg,
       socIncrease,
       socIndex: row.areaRai ? Number(((socIncrease / row.areaRai) * 100).toFixed(2)) : 0,
       credits,

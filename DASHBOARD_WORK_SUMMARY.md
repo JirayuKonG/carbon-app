@@ -1387,3 +1387,12 @@ Backend API:
 - เพิ่ม frontend type และ helper กลางสำหรับ `InputUsageSummaryResponse`, `InputUsageSummaryRow`, `fertilizerKind`, `warnings`, `sourcePreparedCount` และการ summarize ตาม scope
 - ตั้ง guard ชัดเจนใน UI ว่าข้อมูลชุดนี้ยังไม่ใช้แทนค่า CO2e หลัก จนกว่าจะนำปริมาณทางกายภาพไปผ่าน `co2e-engine.service.ts`
 - ตรวจสอบแล้วด้วย `npm run build` ผ่านทั้ง frontend และ backend เหลือเฉพาะ Vite warning เรื่อง bundle chunk ใหญ่
+
+### Dynamic SOC และ Cane Types API - 16 มิถุนายน 2569
+
+- ปรับ Carbon Footprint แท็บ Sequestration ให้ `socIncrease` เปลี่ยนตาม `organicFertilizerKg` จริงจาก `resourceUsage.ts` แทนสูตรประมาณการณ์เดิมที่อิง emission reduction/area
+- เพิ่ม coefficient proxy `SOC_TCO2E_PER_ORGANIC_FERTILIZER_KG` ใน frontend เพื่อแสดง Dynamic SOC ชั่วคราว ก่อนย้ายสูตรอย่างเป็นทางการเข้า `co2e-engine.service.ts`
+- เพิ่ม Backend Cane Types API ใน `analytics.service.ts` ให้ `/analytics/cf-cane-types` aggregate ข้อมูลจริงจาก `activities_header_typeSugarCane`
+- Cane Types API ส่ง `name`, `areaRai`, `percent`, `co2eTotal` ตาม current year และรองรับ filter เดิมของ analytics
+- ตรวจ mapping กับ Phase 2A แล้ว: cane type ใช้ source ถูกต้องจาก `activities_header_typeSugarCane`, SOC proxy ใช้ organic fertilizer จาก `/activities/input-usage-summary`, และ CO2e หลักยังไม่ถูกแทนด้วยข้อมูล resource usage
+- ตรวจสอบแล้วด้วย `npm run build` ผ่านทั้ง frontend และ backend
