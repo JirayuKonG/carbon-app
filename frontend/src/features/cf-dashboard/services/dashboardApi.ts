@@ -4,6 +4,7 @@ import type {
   CampCarbonSummary,
   CampFieldCarbonDetail,
   DataResult,
+  InputUsageSummaryResponse,
   OverviewKpi,
   ProcessInputComparison,
   ProcessActivityBreakdown,
@@ -93,6 +94,12 @@ export async function getCfSpatialNodes(filter?: Partial<ReportFilter>): Promise
 export async function getProcessInputComparisons(filter?: Partial<ReportFilter>): Promise<DataResult<ProcessInputComparison[]>> {
   const route = "/analytics/cf-process-inputs";
   return apiOrMock(route, () => get<ProcessInputComparison[]>(route, cleanParams(filter)), projectDashboardDataset.processInputComparisons, hasInputRows);
+}
+
+export async function getInputUsageSummary(): Promise<DataResult<InputUsageSummaryResponse>> {
+  const route = "/activities/input-usage-summary";
+  const data = await get<InputUsageSummaryResponse>(route);
+  return apiResult(route, data);
 }
 
 export async function getCaneTypeSummaries(filter?: Partial<ReportFilter>): Promise<DataResult<CaneTypeSummary[]>> {

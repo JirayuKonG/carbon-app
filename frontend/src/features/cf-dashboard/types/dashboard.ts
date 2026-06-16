@@ -70,6 +70,73 @@ export interface ProcessInputComparison {
   currentFuelLiter: number;
 }
 
+export type InputUsageBucket = "fertilizer" | "fuel" | "other";
+export type FertilizerKind = "chemical" | "organic" | "unknown";
+
+export interface InputUsageSummaryRow {
+  id: string;
+  bucket: InputUsageBucket;
+  year: number | null;
+  caneTypeName?: string;
+  campId: number | null;
+  campName: string;
+  landId: number | null;
+  landCode: string;
+  landName: string;
+  landLabel: string;
+  itemName: string;
+  resourceTypeName: string;
+  fertilizerKind?: FertilizerKind;
+  fertilizerFormula?: string | null;
+  amount: number;
+  unit: string;
+  areaRai: number;
+  recordCount: number;
+  sourcePreparedCount: number;
+  warningCount: number;
+  warnings: string[];
+}
+
+export interface InputUsageComparisonTarget {
+  id: string;
+  type: "camp" | "land";
+  label: string;
+  campId: number | null;
+  campName: string;
+  landId?: number | null;
+  landLabel?: string;
+  areaRai: number;
+  recordCount: number;
+  fertilizerKg: number;
+  fuelLiter: number;
+  otherRecordCount: number;
+  topFertilizer: string;
+  topFuel: string;
+  warningCount: number;
+}
+
+export interface InputUsageSummaryResponse {
+  filters: {
+    years: number[];
+    camps: Array<{ id: number; label: string }>;
+    lands: Array<{ id: number; label: string; campId: number | null; campLabel: string }>;
+  };
+  totals: {
+    campCount: number;
+    landCount: number;
+    recordCount: number;
+    areaRai: number;
+    fertilizerKg: number;
+    fuelLiter: number;
+    otherRecordCount: number;
+    unknownUnitCount: number;
+  };
+  fertilizer: InputUsageSummaryRow[];
+  fuel: InputUsageSummaryRow[];
+  other: InputUsageSummaryRow[];
+  comparisonTargets: InputUsageComparisonTarget[];
+}
+
 export type CalculationBreakdown = Record<string, unknown>;
 
 export interface CaneTypeSummary {

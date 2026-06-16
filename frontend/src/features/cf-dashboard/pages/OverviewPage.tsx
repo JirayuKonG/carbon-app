@@ -5,8 +5,9 @@ import { SourceBadge } from "../components/common/SourceBadge";
 import { TrendLineChart } from "../components/charts/TrendLineChart";
 import { spatialProjectPlots, type SpatialProjectPlot } from "../data/spatialProjectPlots";
 import { useAsyncData } from "../hooks/useAsyncData";
-import { getCaneTypeSummaries, getOverviewKpi, getProcessInputComparisons, getTrend } from "../services/dashboardApi";
-import type { CaneTypeSummary, DataResult, OverviewKpi, ProcessInputComparison, TrendPoint } from "../types/dashboard";
+import { getCaneTypeSummaries, getInputUsageSummary, getOverviewKpi, getProcessInputComparisons, getTrend } from "../services/dashboardApi";
+import type { CaneTypeSummary, DataResult, InputUsageSummaryResponse, OverviewKpi, ProcessInputComparison, TrendPoint } from "../types/dashboard";
+import { emptyInputUsageSummary, summarizeResourceUsage } from "../utils/resourceUsage";
 import "../cf-dashboard.css";
 
 type OverviewFarmGroup = "all" | "dan-chang" | "isan";
@@ -177,6 +178,7 @@ export function CfOverviewPage() {
   const trend = useAsyncData<TrendPoint[]>(getTrend, []);
   const inputs = useAsyncData<ProcessInputComparison[]>(getProcessInputComparisons, []);
   const caneTypes = useAsyncData<CaneTypeSummary[]>(getCaneTypeSummaries, []);
+  const inputUsage = useAsyncData<InputUsageSummaryResponse>(getInputUsageSummary, emptyInputUsageSummary);
   const groupedOverview = useMemo(
     () => selectedFarmGroup === "all" ? null : buildGroupedOverview(selectedFarmGroup, kpi.data, trend.data),
     [kpi.data, selectedFarmGroup, trend.data],
@@ -239,6 +241,7 @@ export function CfOverviewPage() {
     : inputs;
 
   const inputTotals = sumInputs(overviewInputs);
+  const physicalResourceUsage = summarizeResourceUsage(inputUsage.data);
   const fertilizerDiff = inputTotals.baselineFertilizerKg - inputTotals.currentFertilizerKg;
   const fuelDiff = inputTotals.baselineFuelLiter - inputTotals.currentFuelLiter;
   const fertilizerRatio = inputTotals.currentFertilizerKg ? inputTotals.baselineFertilizerKg / inputTotals.currentFertilizerKg : 1;
@@ -320,9 +323,9 @@ export function CfOverviewPage() {
           </div>
         </section>
 
-        {(kpi.error || trend.error || inputs.error || caneTypes.error) && (
+        {(kpi.error || trend.error || inputs.error || caneTypes.error || inputUsage.error) && (
           <div className="error-panel">
-            ไม่สามารถโหลดข้อมูลจริงบางส่วนได้: {kpi.error ?? trend.error ?? inputs.error ?? caneTypes.error}
+            ไม่สามารถโหลดข้อมูลจริงบางส่วนได้: {kpi.error ?? trend.error ?? inputs.error ?? caneTypes.error ?? inputUsage.error}
           </div>
         )}
 
@@ -505,6 +508,26 @@ export function CfOverviewPage() {
                 )}
               </strong>
             </div>
+          </div>
+          <div className="mini-stat-grid resource-reduction-grid" style={{ marginTop: 14 }}>
+            <div>
+              <strong>{physicalResourceUsage.fertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong>
+              <span>kg ปุ๋ยจากกิจกรรมจริง</span>
+            </div>
+            <div>
+              <strong>{physicalResourceUsage.fuelLiter.toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong>
+              <span>L น้ำมันจากกิจกรรมจริง</span>
+            </div>
+            <div>
+              <strong className={physicalResourceUsage.warningCount ? "red-text" : "green-text"}>{physicalResourceUsage.warningCount.toLocaleString()}</strong>
+              <span>Data Quality warnings</span>
+            </div>
+          </div>
+          <div className="summary-list resource-raw-list">
+            <div><span>Resource Consumption source</span><strong><SourceBadge source={inputUsage.source} meta={inputUsage.meta} loading={inputUsage.loading} /></strong></div>
+            <div><span>Prepared quantity rows</span><strong>{physicalResourceUsage.sourcePreparedCount.toLocaleString()} / {physicalResourceUsage.recordCount.toLocaleString()}</strong></div>
+            <div><span>ปุ๋ยเคมี</span><strong>{physicalResourceUsage.chemicalFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg</strong></div>
+            <div><span>ปุ๋ยอินทรีย์</span><strong>{physicalResourceUsage.organicFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg</strong></div>
           </div>
         </section>
 

@@ -6,8 +6,9 @@ import { chartOptions, chartPalette, sortProcessLabels } from "../components/cha
 import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
 import { CaneTypeSummaryPanel } from "../components/common/CaneTypeSummaryPanel";
 import { SourceBadge } from "../components/common/SourceBadge";
-import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCaneTypeSummaries, getCfProcessActivities, getCfSpatialNodes, getOverviewKpi, getProcessEmissions } from "../services/dashboardApi";
-import type { CampCarbonSummary, CampFieldCarbonDetail, CaneTypeSummary, DataResult, OverviewKpi, ProcessActivityBreakdown, ProcessEmission, ProcessInputComparison, SpatialSummaryNode } from "../types/dashboard";
+import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCaneTypeSummaries, getCfProcessActivities, getCfSpatialNodes, getInputUsageSummary, getOverviewKpi, getProcessEmissions } from "../services/dashboardApi";
+import type { CampCarbonSummary, CampFieldCarbonDetail, CaneTypeSummary, DataResult, InputUsageSummaryResponse, OverviewKpi, ProcessActivityBreakdown, ProcessEmission, ProcessInputComparison, SpatialSummaryNode } from "../types/dashboard";
+import { emptyInputUsageSummary, summarizeResourceUsage } from "../utils/resourceUsage";
 import "../cf-dashboard.css";
 
 type PeriodMode = "baseline_avg" | "project";
@@ -609,14 +610,15 @@ export function CfProcessPage() {
   const [campResult, setCampResult] = useState<DataResult<CampCarbonSummary[]>>({ data: [], source: "mock" });
   const [fieldResult, setFieldResult] = useState<DataResult<CampFieldCarbonDetail[]>>({ data: [], source: "mock" });
   const [caneTypeResult, setCaneTypeResult] = useState<DataResult<CaneTypeSummary[]>>({ data: [], source: "mock" });
+  const [inputUsageResult, setInputUsageResult] = useState<DataResult<InputUsageSummaryResponse>>({ data: emptyInputUsageSummary, source: "api" });
   const [spatialNodes, setSpatialNodes] = useState<SpatialSummaryNode[]>([]);
   const [overviewKpi, setOverviewKpi] = useState<OverviewKpi | null>(null);
   const [selectedFieldId, setSelectedFieldId] = useState("all");
   const [error, setError] = useState("");
 
   useEffect(() => {
-    Promise.all([getCfProcessActivities("process"), getProcessEmissions(), getCampCarbonSummaries(), getCampFieldCarbonDetails(), getCaneTypeSummaries(), getOverviewKpi(), getCfSpatialNodes()])
-      .then(([activityResult, emissionResult, campSummaryResult, fieldDetailResult, caneSummaryResult, kpiResult, spatialResult]) => {
+    Promise.all([getCfProcessActivities("process"), getProcessEmissions(), getCampCarbonSummaries(), getCampFieldCarbonDetails(), getCaneTypeSummaries(), getOverviewKpi(), getCfSpatialNodes(), getInputUsageSummary()])
+      .then(([activityResult, emissionResult, campSummaryResult, fieldDetailResult, caneSummaryResult, kpiResult, spatialResult, inputUsageResult]) => {
         setActivities(activityResult.data);
         setEmissions(emissionResult.data);
         setActivityResult(activityResult);
@@ -626,6 +628,7 @@ export function CfProcessPage() {
         setCaneTypeResult(caneSummaryResult);
         setOverviewKpi(kpiResult.data);
         setSpatialNodes(spatialResult.data);
+        setInputUsageResult(inputUsageResult);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "โหลดข้อมูลไม่สำเร็จ"));
   }, []);
@@ -643,6 +646,13 @@ export function CfProcessPage() {
   const baseline = activities.filter((item) => item.year === "baseline_avg");
   const current = activities.filter((item) => item.year === currentYear);
   const selectedYear = period === "baseline_avg" ? "baseline_avg" : currentYear;
+  const selectedYearNumber = /^\d+$/.test(selectedYear) ? Number(selectedYear) : undefined;
+  const selectedFieldLandId = selectedField?.id.match(/^field-(\d+)$/)?.[1];
+  const resourceUsage = summarizeResourceUsage(inputUsageResult.data, {
+    campId: selectedField?.campId ?? selectedCamp?.campId,
+    landId: selectedFieldLandId ? Number(selectedFieldLandId) : undefined,
+    year: selectedYearNumber,
+  });
   const fieldBaseline = selectedField ? fieldProcessRows(selectedField, "baseline_avg", selectedField.baselineEmission) : [];
   const fieldCurrent = selectedField ? fieldProcessRows(selectedField, currentYear, selectedField.currentEmission) : [];
   const scopedCamps = selectedCamp ? [selectedCamp] : campsInRegion;
@@ -1087,6 +1097,47 @@ export function CfProcessPage() {
             })}
             {!selectedByCane.length && <div className="empty-state">ไม่มีข้อมูลกระบวนการเพาะปลูกสำหรับช่วงที่เลือก</div>}
           </div>
+        </section>
+
+        <section className="card full-span">
+          <div className="card-title-row">
+            <div>
+              <div className="card-title">Resource Consumption & Data Quality</div>
+              <p className="muted">ปริมาณปัจจัยการผลิตจริงจากกิจกรรม ใช้เพื่อรายงานและตรวจคุณภาพข้อมูลเท่านั้น ยังไม่แทนตัวเลข CO2e หลักจนกว่าจะผ่าน co2e-engine.service.ts</p>
+            </div>
+            <SourceBadge source={inputUsageResult.source} meta={inputUsageResult.meta} />
+          </div>
+          <div className="mini-stat-grid resource-reduction-grid">
+            <div>
+              <strong>{resourceUsage.fertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong>
+              <span>kg ปุ๋ยรวม</span>
+            </div>
+            <div>
+              <strong>{resourceUsage.fuelLiter.toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong>
+              <span>L น้ำมันรวม</span>
+            </div>
+            <div>
+              <strong>{resourceUsage.areaRai.toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong>
+              <span>ไร่ที่มีข้อมูลกิจกรรม</span>
+            </div>
+            <div>
+              <strong className={resourceUsage.warningCount ? "red-text" : "green-text"}>{resourceUsage.warningCount.toLocaleString()}</strong>
+              <span>warning หน่วย/ข้อมูล</span>
+            </div>
+          </div>
+          <div className="summary-list resource-raw-list">
+            <div><span>Prepared rows</span><strong>{resourceUsage.sourcePreparedCount.toLocaleString()} / {resourceUsage.recordCount.toLocaleString()}</strong></div>
+            <div><span>Top fertilizer</span><strong>{resourceUsage.topFertilizer}</strong></div>
+            <div><span>Top fuel</span><strong>{resourceUsage.topFuel}</strong></div>
+            <div><span>Organic fertilizer</span><strong>{resourceUsage.organicFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg</strong></div>
+            <div><span>Chemical fertilizer</span><strong>{resourceUsage.chemicalFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg</strong></div>
+            <div><span>Other resource records</span><strong>{resourceUsage.otherRecordCount.toLocaleString()}</strong></div>
+          </div>
+          {resourceUsage.warnings.length > 0 && (
+            <div className="error-panel">
+              Data quality guard: {resourceUsage.warnings.join(" | ")}
+            </div>
+          )}
         </section>
 
         <section className="card full-span">

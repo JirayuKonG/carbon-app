@@ -1377,3 +1377,13 @@ Backend API:
 - ระบุ block ที่ยังเป็น frontend-derived เช่น filter กลุ่มไร่, SOC/Organic Material และ report compose เป็น `API partial` เพื่อกันผู้ใช้เข้าใจว่าเป็นข้อมูลคำนวณจริงครบทั้งหมด
 - เพิ่มปุ่ม `DS` ขนาดเล็กในหน้า Carbon Credit Premium T-VER มุมขวาบน เพื่อเปิด/ปิดการแสดง datasource status ทั้ง Carbon Analytics โดยค่าเริ่มต้นจะซ่อนไว้ไม่ให้ผู้ใช้ทั่วไปเห็นเด่นบนหน้าเว็บ
 - ตรวจสอบแล้วด้วย `npm run build --workspace=frontend` ผ่านเรียบร้อย
+
+### Phase 2D Resource Consumption/Data Quality Update - 16 มิถุนายน 2569
+
+- เชื่อม `/activities/input-usage-summary` เข้ากับ dashboard/report หลักสำหรับการแสดงปริมาณปัจจัยการผลิตทางกายภาพเท่านั้น
+- เพิ่มบล็อก Resource Consumption ในหน้า Overview เพื่อแสดง `fertilizerKg`, `fuelLiter`, ปุ๋ยเคมี, ปุ๋ยอินทรีย์, `sourcePreparedCount` และ `warningCount`
+- เพิ่มบล็อก Resource Consumption & Data Quality ในหน้า Carbon Footprint dashboard โดยกรองตาม camp/field/year ที่เลือกเท่าที่ key เชื่อมได้
+- เพิ่มบล็อก Resource Consumption & Data Quality ในหน้า Footprint Report เพื่อใช้ประกอบรายงานและ audit ก่อน export/preview
+- เพิ่ม frontend type และ helper กลางสำหรับ `InputUsageSummaryResponse`, `InputUsageSummaryRow`, `fertilizerKind`, `warnings`, `sourcePreparedCount` และการ summarize ตาม scope
+- ตั้ง guard ชัดเจนใน UI ว่าข้อมูลชุดนี้ยังไม่ใช้แทนค่า CO2e หลัก จนกว่าจะนำปริมาณทางกายภาพไปผ่าน `co2e-engine.service.ts`
+- ตรวจสอบแล้วด้วย `npm run build` ผ่านทั้ง frontend และ backend เหลือเฉพาะ Vite warning เรื่อง bundle chunk ใหญ่

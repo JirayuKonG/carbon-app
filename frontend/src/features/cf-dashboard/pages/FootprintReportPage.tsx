@@ -11,6 +11,7 @@ import {
   getCfSpatialNodes,
   getCfProcessActivities,
   getOverviewKpi,
+  getInputUsageSummary,
   getProcessInputComparisons,
 } from "../services/dashboardApi";
 import { sortProcessLabels } from "../components/charts/ChartRegistry";
@@ -20,12 +21,14 @@ import type {
   CampFieldCarbonDetail,
   CaneTypeSummary,
   DataResult,
+  InputUsageSummaryResponse,
   OverviewKpi,
   ProcessActivityBreakdown,
   ProcessInputComparison,
   SpatialLevel,
   SpatialSummaryNode,
 } from "../types/dashboard";
+import { emptyInputUsageSummary, summarizeResourceUsage } from "../utils/resourceUsage";
 import "../cf-dashboard.css";
 
 type ScopeValue = "all" | `camp-${number}`;
@@ -983,6 +986,7 @@ export function CfFootprintReportPage() {
   const [inputs, setInputs] = useState<ProcessInputComparison[]>([]);
   const [activityResult, setActivityResult] = useState<DataResult<ProcessActivityBreakdown[]>>({ data: [], source: "mock" });
   const [inputResult, setInputResult] = useState<DataResult<ProcessInputComparison[]>>({ data: [], source: "mock" });
+  const [inputUsageResult, setInputUsageResult] = useState<DataResult<InputUsageSummaryResponse>>({ data: emptyInputUsageSummary, source: "api" });
   const [campResult, setCampResult] = useState<DataResult<CampCarbonSummary[]>>({ data: [], source: "mock" });
   const [fieldResult, setFieldResult] = useState<DataResult<CampFieldCarbonDetail[]>>({ data: [], source: "mock" });
   const [caneTypeResult, setCaneTypeResult] = useState<DataResult<CaneTypeSummary[]>>({ data: [], source: "mock" });
@@ -1006,17 +1010,19 @@ export function CfFootprintReportPage() {
       getOverviewKpi(),
       getCfProcessActivities("process"),
       getProcessInputComparisons(),
+      getInputUsageSummary(),
       getCampCarbonSummaries(),
       getCampFieldCarbonDetails(),
       getCaneTypeSummaries(),
       getCfSpatialNodes(),
     ])
-      .then(([kpiResult, activityResult, inputResult, campSummaryResult, fieldDetailResult, caneSummaryResult, spatialResult]) => {
+      .then(([kpiResult, activityResult, inputResult, inputUsageResult, campSummaryResult, fieldDetailResult, caneSummaryResult, spatialResult]) => {
         setKpi(kpiResult);
         setActivities(activityResult.data);
         setInputs(inputResult.data);
         setActivityResult(activityResult);
         setInputResult(inputResult);
+        setInputUsageResult(inputUsageResult);
         setCampResult(campSummaryResult);
         setFieldResult(fieldDetailResult);
         setCaneTypeResult(caneSummaryResult);
@@ -1064,6 +1070,13 @@ export function CfFootprintReportPage() {
     ? aggregateActivityRows(aggregateCamps, "currentProcessActivities")
     : activities.filter((item) => item.year === currentYear);
   const processInputRows = selectedField ? scaleInputsForField(inputs, selectedField) : selectedCamp ? selectedCamp.processInputComparisons : aggregateCamps.length ? aggregateInputRows(aggregateCamps.map((camp) => camp.processInputComparisons)) : inputs;
+  const currentYearNumber = /^\d+$/.test(currentYear) ? Number(currentYear) : undefined;
+  const selectedFieldLandId = selectedField?.id.match(/^field-(\d+)$/)?.[1];
+  const resourceUsage = summarizeResourceUsage(inputUsageResult.data, {
+    campId: selectedField?.campId ?? selectedCamp?.campId,
+    landId: selectedFieldLandId ? Number(selectedFieldLandId) : undefined,
+    year: currentYearNumber,
+  });
   const baselineTotal = sumEmission(baselineRows);
   const currentTotal = sumEmission(currentRows);
   const reduction = diffLabel(baselineTotal, currentTotal);
@@ -1099,7 +1112,7 @@ export function CfFootprintReportPage() {
       };
   const selectedCaneTypes = caneTypeResult.data.filter((item) => caneFilter === "all" || item.name === caneFilter);
   const selectedCanePercent = selectedCaneTypes.reduce((sum, item) => sum + item.percent, 0);
-  const reportSources = [kpi, activityResult, inputResult, campResult, fieldResult, caneTypeResult, spatialResult];
+  const reportSources = [kpi, activityResult, inputResult, inputUsageResult, campResult, fieldResult, caneTypeResult, spatialResult];
   const hasFallbackReportSource = reportSources.some((result) => result.source === "mock" || result.meta?.datasourceStatus === "fallback");
   const reportDatasource = {
     source: hasFallbackReportSource ? "mock" as const : "api" as const,
@@ -1732,6 +1745,31 @@ export function CfFootprintReportPage() {
                 ดูเพิ่มเติมอีก {formatNumber(hiddenFootprintScopeRows, 0)} รายการ
               </button>
             </div>
+          )}
+        </section>
+
+        <section className="card full-span footprint-filtered-data-block">
+          <div className="section-head">
+            <div>
+              <div className="card-title">Resource Consumption & Data Quality</div>
+              <p className="muted">แสดงปริมาณปัจจัยการผลิตจริงจาก /activities/input-usage-summary เพื่อประกอบรายงาน ยังไม่ใช้แทนค่า CO2e หลักจนกว่าจะคำนวณผ่าน co2e-engine.service.ts</p>
+            </div>
+            <SourceBadge source={inputUsageResult.source} meta={inputUsageResult.meta} />
+          </div>
+          <div className="mini-stat-grid resource-reduction-grid">
+            <div><strong>{resourceUsage.fertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong><span>kg ปุ๋ยรวม</span></div>
+            <div><strong>{resourceUsage.fuelLiter.toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong><span>L น้ำมันรวม</span></div>
+            <div><strong>{resourceUsage.sourcePreparedCount.toLocaleString()} / {resourceUsage.recordCount.toLocaleString()}</strong><span>prepared rows</span></div>
+            <div><strong className={resourceUsage.warningCount ? "red-text" : "green-text"}>{resourceUsage.warningCount.toLocaleString()}</strong><span>Data Quality warnings</span></div>
+          </div>
+          <div className="summary-list resource-raw-list">
+            <div><span>Top fertilizer</span><strong>{resourceUsage.topFertilizer}</strong></div>
+            <div><span>Top fuel</span><strong>{resourceUsage.topFuel}</strong></div>
+            <div><span>Chemical fertilizer</span><strong>{resourceUsage.chemicalFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg</strong></div>
+            <div><span>Organic fertilizer</span><strong>{resourceUsage.organicFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg</strong></div>
+          </div>
+          {resourceUsage.warnings.length > 0 && (
+            <div className="error-panel">Data quality guard: {resourceUsage.warnings.join(" | ")}</div>
           )}
         </section>
 

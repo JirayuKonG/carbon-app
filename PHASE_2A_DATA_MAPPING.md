@@ -1,6 +1,6 @@
 # Phase 2A: Carbon Analytics Data Mapping
 
-วันที่อัปเดต: 15 มิถุนายน 2569
+วันที่อัปเดต: 16 มิถุนายน 2569
 
 เอกสารนี้สรุปการตรวจ field จริงของ database/queue และ mapping ระหว่างข้อมูลต้นทางกับ metric ที่ใช้ในหน้า Carbon Analytics, Carbon Footprint, Spatial, Report และ Premium T-VER เพื่อใช้เป็นฐานก่อนทำ Phase 2B/2C
 
@@ -82,7 +82,7 @@
 | `/api/analytics/cf-camps` | analytics service | camp summary, activity breakdown, calculationBreakdowns | ใช้ stable camp id สำหรับกลุ่มไร่บางกรณี ต้องระวัง match กับ lands จริง |
 | `/api/analytics/cf-camp-fields` | analytics service | field detail, spatial, process input, breakdown | soil/irrigation/chanot ยังว่าง |
 | `/api/analytics/cf-spatial` | analytics service | hierarchy ประเทศ/ภาค/จังหวัด/อำเภอ/ตำบล/แปลง | ต้อง sync กับ dropdown lands ที่เพื่อนทำล่าสุด |
-| `/api/activities/input-usage-summary` | activities service ใน branch เพื่อน | fertilizer/fuel usage summary จริง | ยังไม่ได้ merge เข้า branch งานเรา |
+| `/api/activities/input-usage-summary` | `backend/src/modules/activities/activities.service.ts` | fertilizer/fuel/resource usage summary จริง, `warningCount`, `warnings`, `sourcePreparedCount`, `fertilizerKind`, `areaRai`, `campName`, `landLabel`, `caneTypeName` | merge แล้ว และ frontend นำไปแสดงใน Overview, Carbon Footprint dashboard, Footprint Report และหน้า Input Usage; ยังไม่ใช้แทน CO2e หลัก |
 | `/api/lands/bulk/subdistrict` | lands service ใน branch เพื่อน | bulk update subdistrict สำหรับแปลง | ยังไม่ได้ merge เข้า branch งานเรา |
 
 ## 6. Data Readiness
@@ -140,3 +140,22 @@
 Phase 2A ยังทำต่อได้และไม่ชนงานเพื่อน โดยตอนนี้ข้อมูลพื้นที่/dropdown จากงานเพื่อนช่วยให้ mapping พื้นที่สมบูรณ์ขึ้น แต่ควร merge เฉพาะส่วน `lands` แบบ selective ก่อน ไม่ควร merge ทั้ง branch เพราะมีไฟล์ Carbon Dashboard หลายไฟล์ที่ชนกับงาน UI/PDF ล่าสุด
 
 สำหรับงาน Carbon Analytics ฝั่งเรา ตอนนี้ data pipeline หลัก “queue -> analytics -> dashboard” ใช้ข้อมูลจริงได้แล้วในส่วน emission/process/spatial/camp/field ส่วนที่ยังไม่จริงคือ cane type summary, SOC removal, organic material contribution, yield และ data quality flag
+
+## 10. อัปเดตหลัง merge งาน Phase 2B บางส่วน - 16 มิถุนายน 2569
+
+งานจาก `block_dev` ที่เกี่ยวกับ `/api/activities/input-usage-summary` ถูก merge เข้า `idea` แล้ว และรอบนี้นำมาใช้ใน frontend เพิ่มเติมเฉพาะส่วนรายงานปริมาณทางกายภาพและ Data Quality เท่านั้น
+
+ข้อมูลที่นำมาแสดงเพิ่ม:
+
+- `fertilizerKg` และ `fuelLiter` สำหรับ Resource Consumption ในหน้า Overview, Carbon Footprint dashboard และ Footprint Report
+- `areaRai`, `campName`, `landLabel`, `caneTypeName` เพื่อช่วยอธิบาย scope ของข้อมูลกิจกรรมและพื้นที่
+- `warningCount` และ `warnings` เพื่อแสดง Data Quality guard ว่ามีหน่วย/ข้อมูลที่ normalize ไม่ได้หรือไม่
+- `sourcePreparedCount` เพื่อบอกจำนวน record ที่ใช้ปริมาณหลัง prepare แล้ว เทียบกับจำนวน record ทั้งหมด
+- `fertilizerKind` เพื่อแยกปุ๋ยเคมี/ปุ๋ยอินทรีย์ และใช้เป็นฐานข้อมูลประกอบ SOC/organic material summary ในอนาคต
+
+ข้อจำกัดที่ยังตั้งใจคงไว้:
+
+- ยังไม่ใช้ข้อมูลปริมาณจาก `/api/activities/input-usage-summary` แทนตัวเลข CO2e หลัก
+- ตัวเลข CO2e หลักยังต้องอิง pipeline เดิมจาก queue/analytics จนกว่าจะนำปริมาณทางกายภาพชุดนี้เข้า `co2e-engine.service.ts`
+- การ filter ตาม field จะพยายาม map จาก `field-{land_id}`; ถ้า map ไม่ได้จะใช้ระดับ camp เป็น fallback
+- Phase 2E ควรทดสอบทั้ง endpoint analytics เดิมและ endpoint resource usage ใหม่ โดยเช็กว่า source badge/data quality ไม่ทำให้ผู้ใช้เข้าใจผิดว่าเป็น CO2e ที่คำนวณสมบูรณ์แล้ว
