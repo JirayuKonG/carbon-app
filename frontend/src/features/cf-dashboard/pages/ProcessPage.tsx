@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Bar } from "react-chartjs-2";
 import { ActivityGroupedBar } from "../components/charts/ActivityGroupedBar";
-import { chartOptions, chartPalette, sortProcessLabels } from "../components/charts/ChartRegistry";
+import { chartOptions, chartPalette } from "../components/charts/ChartRegistry";
 import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
 import { SourceBadge } from "../components/common/SourceBadge";
 import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCaneTypeSummaries, getCfProcessActivities, getCfSpatialNodes, getInputUsageSummary, getOverviewKpi, getProcessEmissions } from "../services/dashboardApi";
@@ -12,7 +12,7 @@ import "../cf-dashboard.css";
 
 type PeriodMode = string;
 type ScopeValue = "all" | `camp-${number}`;
-type ActivityChartMode = "both" | "baseline" | "current" | "details";
+type ActivityChartMode = "both" | "baseline" | "current";
 type CaneScope = "all" | "new" | "ratoon" | "fallow";
 type FootprintView = "emissions" | "sequestration" | "net";
 type ComparisonTab = "benchmark" | "pair";
@@ -819,7 +819,8 @@ export function CfProcessPage() {
   const scopedCamps = selectedCamp ? [selectedCamp] : campsInRegion;
   const chartBaselineRaw = selectedField ? fieldBaseline : selectedCamp ? selectedCamp.baselineProcessActivities : scopedCamps.length ? aggregateCampActivities(scopedCamps, "baselineProcessActivities") : baseline;
   const chartCurrentRaw = selectedField ? fieldCurrent : selectedCamp ? selectedCamp.currentProcessActivities : scopedCamps.length ? aggregateCampActivities(scopedCamps, "currentProcessActivities") : activities.filter((item) => item.year === currentYear);
-  const caneMeta = caneScopeInfo(caneTypeResult.data, caneScope);
+  const effectiveCaneScope = activeView === "emissions" ? caneScope : "all";
+  const caneMeta = caneScopeInfo(caneTypeResult.data, effectiveCaneScope);
   const chartBaseline = withDetailedActivities(scaleProcessRows(rowsForComparisonYear({
     year: actualGraphYearA,
     currentYear,
@@ -836,8 +837,7 @@ export function CfProcessPage() {
     baselineRows: chartBaselineRaw,
     currentRows: chartCurrentRaw,
   }), caneMeta.factor));
-  const selectedByCane = chartCurrent;
-  const selectedByCaneKg = toKgProcessRows(selectedByCane);
+  // selectedByCane removed
   const chartBaselineKg = toKgProcessRows(chartBaseline);
   const chartCurrentKg = toKgProcessRows(chartCurrent);
   const campRows = scaleCampRows(scopedCamps, caneMeta.factor);
@@ -857,17 +857,6 @@ export function CfProcessPage() {
   const chartDiff = chartBaselineTotal - chartCurrentTotal;
   const graphLabelA = periodLabel(graphYearA, currentYear);
   const graphLabelB = periodLabel(graphYearB, currentYear);
-  const processDetailRows = sortProcessLabels(Array.from(new Set([...chartBaseline, ...chartCurrent].map((item) => item.process)))).map((process) => {
-    const valueA = chartBaseline.find((item) => item.process === process)?.totalEmission ?? 0;
-    const valueB = chartCurrent.find((item) => item.process === process)?.totalEmission ?? 0;
-    return {
-      process,
-      valueA,
-      valueB,
-      diff: valueA - valueB,
-      pct: valueA ? ((valueA - valueB) / valueA) * 100 : 0,
-    };
-  });
   const selectedRegion = farmGroupFilterOptions.find((option) => option.id === regionId);
   const campComparisonRows: ScopeComparisonRow[] = campRows.map((camp) => ({
     id: `camp-${camp.campId}`,
@@ -1058,9 +1047,9 @@ export function CfProcessPage() {
               ))}
             </select>
           </label>
-          <label>
+          <label style={{ opacity: activeView !== "emissions" ? 0.4 : 1, cursor: activeView !== "emissions" ? "not-allowed" : "inherit" }}>
             ประเภทอ้อย
-            <select value={caneScope} onChange={(event) => setCaneScope(event.target.value as CaneScope)}>
+            <select value={effectiveCaneScope} disabled={activeView !== "emissions"} style={{ cursor: activeView !== "emissions" ? "not-allowed" : "inherit" }} onChange={(event) => setCaneScope(event.target.value as CaneScope)}>
               <option value="all">อ้อยปลูก + อ้อยตอ + พื้นที่พักดิน</option>
               <option value="new">อ้อยปลูกใหม่</option>
               <option value="ratoon">อ้อยตอ</option>
@@ -1069,7 +1058,7 @@ export function CfProcessPage() {
           </label>
         </section>
 
-        <section className="premium-summary-grid footprint-process-summary" aria-label="สรุป Carbon Footprint">
+        <section className={`premium-summary-grid footprint-process-summary ${activeView !== "net" ? "five-cols" : ""}`.trim()} aria-label="สรุป Carbon Footprint">
           {activeView === "emissions" && (
             <>
               <article>
@@ -1095,6 +1084,12 @@ export function CfProcessPage() {
                 <strong className={totalDiff >= 0 ? "green-text" : "red-text"} style={{ fontSize: "1.5em" }}>{totalDiffPct.toFixed(1)}%</strong>
                 <small>{(Math.abs(totalDiffKg) / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e | {Math.abs(totalDiffKg).toLocaleString(undefined, { maximumFractionDigits: 0 })} {FOOTPRINT_UNIT}</small>
                 <em>{totalDiff >= 0 ? "ลดลงจากปีฐาน" : "เพิ่มขึ้นจากปีฐาน"}</em>
+              </article>
+              <article>
+                <span>Emission / Area</span>
+                <strong style={{ fontSize: "1.5em" }}>{summaryAreaRai ? (currentTotalKg / 1000 / summaryAreaRai).toLocaleString(undefined, { maximumFractionDigits: 4 }) : 0} tCO2e/ไร่</strong>
+                <small>{summaryAreaRai ? (currentTotalKg / summaryAreaRai).toLocaleString(undefined, { maximumFractionDigits: 2 }) : 0} {FOOTPRINT_UNIT}/ไร่</small>
+                <em>สัดส่วนการปล่อยต่อพื้นที่</em>
               </article>
             </>
           )}
@@ -1123,6 +1118,12 @@ export function CfProcessPage() {
                 <strong>{bestSocCamps[0]?.name ?? "-"}</strong>
                 <small>{bestSocCamps[0] ? `${bestSocCamps[0].socIncrease.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e` : "-"}</small>
                 <em>อันดับสูงสุดตามตัวกรอง</em>
+              </article>
+              <article>
+                <span>SOC / Area</span>
+                <strong style={{ fontSize: "1.5em" }} className="green-text">{summaryAreaRai ? (socTotal / summaryAreaRai).toLocaleString(undefined, { maximumFractionDigits: 4 }) : 0}</strong>
+                <small>tCO2e/ไร่</small>
+                <em>สัดส่วนการกักเก็บต่อพื้นที่</em>
               </article>
             </>
           )}
@@ -1246,13 +1247,12 @@ export function CfProcessPage() {
           <div className="card-title-row">
             <div>
               <div className="card-title">เปรียบเทียบแคมป์และรายแปลง</div>
-              <p className="muted">ดู benchmark ทุกแคมป์ หรือเลือกพื้นที่ A/B เพื่อเทียบระดับแคมป์และรายแปลงในขอบเขตตัวกรองปัจจุบัน</p>
               <SourceBadge source={fieldResult.source} meta={fieldResult.meta} />
             </div>
             <div className="group-mode-switch" role="tablist" aria-label="เลือกมุมมองเปรียบเทียบ">
               {[
                 ["benchmark", "ภาพรวมทุกแคมป์"],
-                ["pair", "เปรียบเทียบ A/B"],
+                ["pair", "เปรียบเทียบ"],
               ].map(([value, label]) => (
                 <button
                   key={value}
@@ -1405,7 +1405,7 @@ export function CfProcessPage() {
               {[
                 ["baseline", graphLabelA],
                 ["current", graphLabelB],
-                ["both", "เปรียบเทียบ (A/B)"],
+                ["both", "เปรียบเทียบ"],
               ].map(([value, label]) => (
                 <button
                   key={value}

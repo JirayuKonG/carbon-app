@@ -6,6 +6,7 @@ import { TrendLineChart } from "../components/charts/TrendLineChart";
 import { spatialProjectPlots, type SpatialProjectPlot } from "../data/spatialProjectPlots";
 import { useAsyncData } from "../hooks/useAsyncData";
 import { getCaneTypeSummaries, getInputUsageSummary, getOverviewKpi, getProcessInputComparisons, getTrend } from "../services/dashboardApi";
+import { get } from "@/lib/api";
 import type { CaneTypeSummary, DataResult, InputUsageSummaryResponse, OverviewKpi, ProcessInputComparison, TrendPoint } from "../types/dashboard";
 import { emptyInputUsageSummary, summarizeResourceUsage } from "../utils/resourceUsage";
 import "../cf-dashboard.css";
@@ -179,6 +180,27 @@ export function CfOverviewPage() {
   const inputs = useAsyncData<ProcessInputComparison[]>(getProcessInputComparisons, []);
   const caneTypes = useAsyncData<CaneTypeSummary[]>(getCaneTypeSummaries, []);
   const inputUsage = useAsyncData<InputUsageSummaryResponse>(getInputUsageSummary, emptyInputUsageSummary);
+
+  // Priority 2: ดึง SOC summary จริงจาก carbon-soc/summary API
+  const socSummary = useAsyncData<{ socTotalTco2e: number; fnfixTotalTn: number; landCount: number; missingInputCount: number }>(
+    async () => {
+      const res = await get<{ socTotalTco2e: number; fnfixTotalTn: number; landCount: number; missingInputCount: number }>("/carbon-soc/summary");
+      return {
+        data: res,
+        source: "api",
+        meta: {
+          route: "/carbon-soc/summary",
+          techniques: ["Prisma", "PostgreSQL"],
+          rowCount: 1,
+          datasourceStatus: "api_real",
+        },
+      };
+    },
+    { socTotalTco2e: 0, fnfixTotalTn: 0, landCount: 0, missingInputCount: 0 },
+  );
+  const realSocTco2e = socSummary.data.socTotalTco2e ?? 0;
+  const hasSocData = realSocTco2e > 0;
+
   const groupedOverview = useMemo(
     () => selectedFarmGroup === "all" ? null : buildGroupedOverview(selectedFarmGroup, kpi.data, trend.data),
     [kpi.data, selectedFarmGroup, trend.data],
@@ -250,8 +272,12 @@ export function CfOverviewPage() {
   const n2oReduction = Math.max(n2oProject * fertilizerRatio - n2oProject, 0);
   const fuelProject = overviewKpi.machineEmission;
   const fuelReduction = Math.max(fuelProject * fuelRatio - fuelProject, 0);
-  const socRemoval = Math.max(overviewKpi.baselineAvgEmission - overviewKpi.currentEmission, 0) * 0.35;
-  const socBaseline = Math.max(overviewKpi.areaRai * 0.02, 0);
+
+  // Priority 2: ใช้ SOC จริงจาก carbon-soc/summary ถ้ามีข้อมูล
+  // fallback: (baseline - current) * 0.35 ถ้ายังไม่มีข้อมูลจริง
+  const socProxyRemoval = Math.max(overviewKpi.baselineAvgEmission - overviewKpi.currentEmission, 0) * 0.35;
+  const socRemoval = hasSocData ? realSocTco2e : socProxyRemoval;
+  const socBaseline = Math.max(overviewKpi.areaRai * 0.02, socRemoval * 0.6);
   const socProject = socBaseline + socRemoval;
   const socDiff = socProject - socBaseline;
 
@@ -280,10 +306,14 @@ export function CfOverviewPage() {
     {
       key: "soc",
       label: "SOC Removal",
-      description: "เครดิตจากคาร์บอนที่สะสมเพิ่มในดิน",
+      description: hasSocData
+        ? `ค่า SOC จริงจากตาราง carbon_soc (${socSummary.data.landCount} แปลง)`
+        : "เครดิตจากคาร์บอนที่สะสมเพิ่มในดิน (ประมาณการ)",
       value: socRemoval,
       color: "#A855F7",
-      basis: `SOC เพิ่มขึ้น ${formatNumber(socDiff)} tCO2e (↑${socDiffPercent.toFixed(1)}%)`,
+      basis: hasSocData
+        ? `SOC รวม ${formatNumber(realSocTco2e)} tCO2e/ปี (จาก ${socSummary.data.landCount} แปลง)`
+        : `SOC เพิ่มขึ้น ${formatNumber(socDiff)} tCO2e (↑${socDiffPercent.toFixed(1)}%) [ประมาณการ]`,
     },
   ];
 

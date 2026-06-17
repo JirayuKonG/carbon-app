@@ -7,13 +7,13 @@ import { SourceBadge } from "../components/common/SourceBadge";
 import { ThailandMap } from "../components/map/ThailandMap";
 import { getSpatialProjectGeo, normalizeProjectCampName } from "../data/spatialProjectGeoMappings";
 import { spatialProjectPlots, type SpatialProjectPlot } from "../data/spatialProjectPlots";
-import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCfSpatialNodes } from "../services/dashboardApi";
+import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCfSpatialNodes, getOverviewKpi } from "../services/dashboardApi";
+import { get } from "@/lib/api";
 import type { CampCarbonSummary, CampFieldCarbonDetail, DataResult, FieldCarbonDetail, ProcessInputComparison, SpatialLevel, SpatialSummaryNode } from "../types/dashboard";
 import { MapPinned } from "lucide-react";
 import "../cf-dashboard.css";
 
 type SpatialPreviewTab = "pdf" | "excel";
-type SpatialProcessPeriod = "both" | "baseline" | "current";
 
 interface SpatialExcelRows {
   campRows: Record<string, unknown>[];
@@ -282,9 +282,9 @@ function rowsForSheet<T extends object>(rows: T[]): Record<string, unknown>[] {
   return rows.length ? rows.map((row) => ({ ...row }) as Record<string, unknown>) : [{}];
 }
 
-function creditSummary(baseline: number, current: number) {
+function creditSummary(baseline: number, current: number, actualCredit?: number) {
   const diff = baseline - current;
-  const credit = Math.max(diff, 0);
+  const credit = actualCredit !== undefined && actualCredit !== null ? actualCredit : Math.max(diff, 0);
   return {
     diff,
     credit,
@@ -312,8 +312,9 @@ function buildSpatialExcelRows(fieldsForExport: CampFieldCarbonDetail[], campsFo
       "Number of Plots": campFields.length || camp.fieldCount,
       "Number of Farmers": farmerCount,
       "Area (Rai)": Number((campFields.reduce((sum, field) => sum + field.areaRai, 0) || camp.areaRai).toFixed(2)),
-      "Carbon Footprint (tCO2e)": Number(campCurrent.toFixed(2)),
-      "Carbon Credit (tCO2e)": Number(Math.max(campBaseline - campCurrent, 0).toFixed(2)),
+      "Carbon Footprint (kgCO2e)": Number((campCurrent * 1000).toFixed(2)),
+      "SOC (kgCO2e)": Number(((campFields.reduce((sum, f) => sum + (f.actualSoc ?? 0), 0) || Math.max(campBaseline - campCurrent, 0) * 0.35)) * 1000).toFixed(2),
+      "Carbon Credit (kgCO2e)": Number(((campFields.reduce((sum, f) => sum + (f.actualCredit ?? 0), 0) || Math.max(campBaseline - campCurrent, 0))) * 1000).toFixed(2),
     };
   });
 
@@ -333,8 +334,9 @@ function buildSpatialExcelRows(fieldsForExport: CampFieldCarbonDetail[], campsFo
       "Number of Plots": fields.length,
       "Number of Farmers": farmers.size,
       "Area (Rai)": Number(fields.reduce((sum, field) => sum + field.areaRai, 0).toFixed(2)),
-      "Carbon Footprint (tCO2e)": Number(current.toFixed(2)),
-      "Carbon Credit (tCO2e)": Number(Math.max(baseline - current, 0).toFixed(2)),
+      "Carbon Footprint (kgCO2e)": Number((current * 1000).toFixed(2)),
+      "SOC (kgCO2e)": Number(((fields.reduce((sum, f) => sum + (f.actualSoc ?? 0), 0) || Math.max(baseline - current, 0) * 0.35)) * 1000).toFixed(2),
+      "Carbon Credit (kgCO2e)": Number(((fields.reduce((sum, f) => sum + (f.actualCredit ?? 0), 0) || Math.max(baseline - current, 0))) * 1000).toFixed(2),
     };
   });
 
@@ -347,10 +349,11 @@ function buildSpatialExcelRows(fieldsForExport: CampFieldCarbonDetail[], campsFo
       Farmer: field.farmerName,
       "Area (Rai)": Number(field.areaRai.toFixed(2)),
       "Cane Type": caneTypeForField(field),
-      "Baseline Emission (tCO2e)": Number(field.baselineEmission.toFixed(2)),
-      "Project Emission (tCO2e)": Number(field.currentEmission.toFixed(2)),
-      "Emission Reduction (tCO2e)": Number(reduction.toFixed(2)),
-      "Carbon Credit (tCO2e)": Number(Math.max(reduction, 0).toFixed(2)),
+      "Baseline Emission (kgCO2e)": Number((field.baselineEmission * 1000).toFixed(2)),
+      "Carbon Footprint (kgCO2e)": Number((field.currentEmission * 1000).toFixed(2)),
+      "SOC (kgCO2e)": Number(((field.actualSoc ?? Math.max(reduction, 0) * 0.35)) * 1000).toFixed(2),
+      "Emission Reduction (kgCO2e)": Number((reduction * 1000).toFixed(2)),
+      "Carbon Credit (kgCO2e)": Number(((field.actualCredit ?? Math.max(reduction, 0))) * 1000).toFixed(2),
     };
   });
 
@@ -409,19 +412,25 @@ function fieldThumbnail(field: CampFieldCarbonDetail, index: number) {
   );
 }
 
-function SpatialDocument({ title, fields }: { title: string; fields: CampFieldCarbonDetail[] }) {
+function SpatialDocument({ docInfo, fields }: { docInfo: { title: string; periodLabel: string; filterScope: string }; fields: CampFieldCarbonDetail[] }) {
+  const totalCurr = fields.reduce((s, f) => s + f.currentEmission, 0);
+  const totalSoc = fields.reduce((s, f) => s + (f.actualSoc ?? Math.max(f.baselineEmission - f.currentEmission, 0) * 0.35), 0);
+
   return (
     <div className="spatial-doc-paper">
       <div className="spatial-doc-header">
-        <div className="spatial-doc-logo">Premium<br />T-VER</div>
-        <div>
-          <strong>โครงการลดก๊าซเรือนกระจกภาคสมัครใจตามมาตรฐานของประเทศไทย</strong>
-          <span>มาตรฐานขั้นสูง Premium T-VER</span>
-          <span>{title}</span>
+        <div className="spatial-doc-logo" style={{ display: "grid", alignContent: "center", justifyItems: "center" }}>
+          <MapPinned size={32} strokeWidth={1.5} color="#333" />
         </div>
         <div>
-          <strong>T-VER-P-F003-PDD</strong>
-          <span>VERSION 2.0</span>
+          <strong>รายงานรายละเอียดการปล่อยและกักเก็บก๊าซเรือนกระจกรายแปลง</strong>
+          <span>{docInfo.title}</span>
+          <span style={{ color: "#666" }}>ข้อมูลโครงการประเมินคาร์บอนฟุตพริ้นท์ ไร่บริษัทกลุ่มมิตรผล</span>
+        </div>
+        <div style={{ textAlign: "right", borderRight: 0, paddingRight: "16px" }}>
+          <strong>ปีดำเนินการ: {docInfo.periodLabel}</strong>
+          <span>ขอบเขต: {docInfo.filterScope}</span>
+          <span style={{ color: "#888", fontSize: "10px" }}>ออกรายงาน ณ {new Date().toLocaleDateString("th-TH")}</span>
         </div>
       </div>
       <table className="spatial-doc-table">
@@ -431,29 +440,42 @@ function SpatialDocument({ title, fields }: { title: string; fields: CampFieldCa
             <th>ชื่อแคมป์</th>
             <th>รหัสแปลง</th>
             <th>ชนิดดิน</th>
-            <th>พื้นที่โครงการ (ไร่)</th>
-            <th>พิกัด x</th>
-            <th>พิกัด y</th>
+            <th>พื้นที่ (ไร่)</th>
+            <th>Carbon Footprint<br/>(kgCO2e)</th>
+            <th>SOC<br/>(kgCO2e)</th>
             <th>ภาพลักษณะแปลง</th>
           </tr>
         </thead>
         <tbody>
-          {fields.map((field, index) => (
-            <tr key={`doc-${field.id}`}>
-              <td>{index + 1}</td>
-              <td>{field.campName}</td>
-              <td>{field.fieldCode}</td>
-              <td>{field.soilType || "-"}</td>
-              <td>{formatNumber(field.areaRai, 2)}</td>
-              <td>{field.lng.toFixed(6)}</td>
-              <td>{field.lat.toFixed(6)}</td>
-              <td>{fieldThumbnail(field, index)}</td>
-            </tr>
-          ))}
+          {fields.map((field, index) => {
+            const reduction = field.baselineEmission - field.currentEmission;
+            const carbonFootprint = field.currentEmission * 1000;
+            const soc = (field.actualSoc !== undefined && field.actualSoc !== null ? field.actualSoc : Math.max(reduction, 0) * 0.35) * 1000;
+            return (
+              <tr key={`doc-${field.id}`}>
+                <td>{index + 1}</td>
+                <td>{field.campName}</td>
+                <td>{field.fieldCode}</td>
+                <td>{field.soilType || "-"}</td>
+                <td>{formatNumber(field.areaRai, 2)}</td>
+                <td>{formatNumber(carbonFootprint, 2)}</td>
+                <td>{formatNumber(soc, 2)}</td>
+                <td>{fieldThumbnail(field, index)}</td>
+              </tr>
+            );
+          })}
           {!fields.length && (
             <tr><td colSpan={8}>ยังไม่มีข้อมูลแปลงในขอบเขตที่เลือก</td></tr>
           )}
         </tbody>
+        <tfoot>
+          <tr>
+            <td colSpan={5} className="border p-2">รวมทั้งหมด</td>
+            <td className="border p-2">{totalCurr.toFixed(2)}</td>
+            <td className="border p-2">{(totalSoc * 1000).toFixed(2)}</td>
+            <td className="border p-2"></td>
+          </tr>
+        </tfoot>
       </table>
       <div className="spatial-doc-footer">
         <span>องค์การบริหารจัดการก๊าซเรือนกระจก (องค์การมหาชน)</span>
@@ -466,9 +488,9 @@ function SpatialDocument({ title, fields }: { title: string; fields: CampFieldCa
 const documentCss = `
   body { margin: 0; background: #fff; font-family: "Sarabun", "Tahoma", sans-serif; color: #222; }
   .spatial-doc-paper { width: 760px; padding: 22px 28px; background: #fff; font-size: 11px; }
-  .spatial-doc-header { display: grid; grid-template-columns: 74px 1fr 116px; border: 1px solid #222; margin-bottom: 10px; }
+  .spatial-doc-header { display: grid; grid-template-columns: 74px 1fr 200px; border: 1px solid #222; margin-bottom: 10px; }
   .spatial-doc-header > div { padding: 6px 8px; border-right: 1px solid #222; display: grid; gap: 3px; align-content: center; }
-  .spatial-doc-header > div:last-child { border-right: 0; text-align: center; }
+  .spatial-doc-header > div:last-child { border-right: 0; text-align: right; }
   .spatial-doc-logo { color: #b89119; font-weight: 800; text-align: center; line-height: 1.1; }
   .spatial-doc-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
   .spatial-doc-table th, .spatial-doc-table td { border: 1px solid #222; padding: 5px 4px; text-align: center; vertical-align: middle; }
@@ -490,26 +512,71 @@ export function CfSpatialPage() {
   const [selectedBoundaryFieldId, setSelectedBoundaryFieldId] = useState("");
   const [selectedProjectCampName, setSelectedProjectCampName] = useState("all");
   const [selectedProjectPlotCode, setSelectedProjectPlotCode] = useState("all");
-  const [processPeriod, setProcessPeriod] = useState<SpatialProcessPeriod>("both");
-  const [generatedDocument, setGeneratedDocument] = useState<{ title: string; fields: CampFieldCarbonDetail[]; camps: CampCarbonSummary[] } | null>(null);
+  const [generatedDocument, setGeneratedDocument] = useState<{ title: string; periodLabel: string; filterScope: string; fields: CampFieldCarbonDetail[]; camps: CampCarbonSummary[] } | null>(null);
   const [activePreviewTab, setActivePreviewTab] = useState<SpatialPreviewTab>("pdf");
   const [documentRenderId, setDocumentRenderId] = useState(0);
   const [generatingDocument, setGeneratingDocument] = useState(false);
   const [documentNotice, setDocumentNotice] = useState("");
   const [filters, setFilters] = useState<Record<Exclude<SpatialLevel, "country">, string>>(emptySpatialFilters);
+  const [period, setPeriod] = useState<string>("project");
+  const [availableYears, setAvailableYears] = useState<string[]>([]);
+  const [currentYear, setCurrentYear] = useState<string>("-");
   const rootId = nodes.find((node) => !node.parentId)?.id ?? "thailand";
 
   useEffect(() => {
-    Promise.all([getCfSpatialNodes(), getCampCarbonSummaries(), getCampFieldCarbonDetails()])
-      .then(([result, , campFieldDetailResult]) => {
+    Promise.all([getCfSpatialNodes(), getCampCarbonSummaries(), getCampFieldCarbonDetails(), getOverviewKpi()])
+      .then(([result, , campFieldDetailResult, kpiResult]) => {
         setNodes(result.data);
         setSpatialResult(result);
-        setCampFieldResult(campFieldDetailResult);
+        const kpiYears = Array.from(new Set(kpiResult.data.years ?? [])).filter((y) => y && y !== "baseline_avg").sort();
+        setAvailableYears(kpiYears);
+        setCurrentYear(kpiResult.data.currentYear || "-");
         const root = result.data.find((node) => !node.parentId);
         if (root) setSelectedId(root.id);
+
+        // Priority 3: โหลด SOC measurements และ inject actualSoc ลงใน campFields
+        get<{ data: Array<{ land_id: number; carbon_soc_socIT: number; unit_socIT: number }> }>("/carbon-soc/soc-measurements")
+          .then((socRes) => {
+            const socByLand = new Map<number, number>();
+            const measurements = Array.isArray(socRes) ? socRes : (socRes as { data: Array<{ land_id: number; carbon_soc_socIT: number }> }).data ?? [];
+            measurements.forEach((m) => {
+              if (m?.land_id && m?.carbon_soc_socIT) {
+                // carbon_soc_socIT คือ tCO2e/ปี
+                socByLand.set(Number(m.land_id), Number(m.carbon_soc_socIT));
+              }
+            });
+            if (socByLand.size > 0) {
+              const enrichedFields = campFieldDetailResult.data.map((field) => {
+                const landId = typeof field.id === "string" && field.id.startsWith("field-")
+                  ? Number(field.id.replace("field-", ""))
+                  : undefined;
+                const soc = landId ? socByLand.get(landId) : undefined;
+                return soc !== undefined ? { ...field, actualSoc: soc } : field;
+              });
+              setCampFieldResult({ ...campFieldDetailResult, data: enrichedFields });
+            } else {
+              setCampFieldResult(campFieldDetailResult);
+            }
+          })
+          .catch(() => setCampFieldResult(campFieldDetailResult));
       })
       .catch((err) => setError(err instanceof Error ? err.message : "โหลดข้อมูลแผนที่ไม่สำเร็จ"));
   }, []);
+
+  useEffect(() => {
+    if (!spatialResult) return;
+    Promise.all([
+      getCfSpatialNodes({ year: period }),
+      getCampCarbonSummaries({ year: period }),
+      getCampFieldCarbonDetails({ year: period })
+    ])
+      .then(([spatialRes, , campFieldRes]) => {
+        setNodes(spatialRes.data);
+        setSpatialResult(spatialRes);
+        setCampFieldResult(campFieldRes);
+      })
+      .catch((err) => console.error("Failed to load spatial nodes for period", err));
+  }, [period]);
 
   useEffect(() => {
     if (selectedCampId === "all") return;
@@ -771,20 +838,16 @@ export function CfSpatialPage() {
   const diff = focusNode ? focusNode.baselineEmission - focusNode.currentEmission : 0;
   const diffPercent = focusNode?.baselineEmission ? (diff / focusNode.baselineEmission) * 100 : 0;
   const carbonCredit = focusNode ? creditSummary(focusNode.baselineEmission, focusNode.currentEmission) : creditSummary(0, 0);
-  const baselineProcessBreakdown = focusNode ? scaleProcessBreakdown(focusNode.processBreakdown, focusNode.baselineEmission) : [];
   const currentProcessBreakdown = focusNode?.processBreakdown ?? [];
-  const processBreakdownForPeriod = processPeriod === "current" ? currentProcessBreakdown : baselineProcessBreakdown;
-  const processComparisonBreakdown = processPeriod === "baseline" ? currentProcessBreakdown : baselineProcessBreakdown;
-  const processPeriodLabel = processPeriod === "both"
-    ? "ปีฐาน VS ปีดำเนินการ"
-    : processPeriod === "baseline"
-      ? "ปีฐาน"
-      : "ปีดำเนินการ";
   const spatialInputs = focusNode?.processInputComparisons ?? [];
   const inputTotals = sumInputs(spatialInputs);
   const fertilizerDiff = inputTotals.baselineFertilizerKg - inputTotals.currentFertilizerKg;
   const fuelDiff = inputTotals.baselineFuelLiter - inputTotals.currentFuelLiter;
-  const socRemoval = focusNode ? Math.max(focusNode.baselineEmission - focusNode.currentEmission, 0) * 0.35 : 0;
+  // Priority 3: ใช้ actualSoc จาก carbon_soc table ถ้ามีข้อมูล fallback: (baseline-current)*0.35
+  const fieldActualSoc = isField(focusNode) ? (focusNode as CampFieldCarbonDetail & { actualSoc?: number }).actualSoc : undefined;
+  const socRemoval = fieldActualSoc !== undefined
+    ? fieldActualSoc
+    : (focusNode ? Math.max(focusNode.baselineEmission - focusNode.currentEmission, 0) * 0.35 : 0);
   const socIndex = focusNode?.areaRai ? (socRemoval / focusNode.areaRai) * 100 : 0;
   const mapFieldRenderLimit = selectedCamp ? MAP_CAMP_FIELD_RENDER_LIMIT : MAP_FIELD_RENDER_LIMIT;
   const hasFocusedProjectPlot = selectedProjectPlotCode !== "all";
@@ -917,7 +980,9 @@ export function CfSpatialPage() {
       return "";
     });
     setDocumentNotice("กำลังสร้าง Preview เอกสารตามฟิลเตอร์ปัจจุบัน...");
-    setGeneratedDocument({ title: documentTitle, fields: documentFields, camps: documentCamps });
+    const documentPeriodLabel = availableYears.find(y => y === period) || "ปีโครงการหลัก";
+    const documentFilterScope = [filters.province, filters.district, filters.subdistrict].filter(Boolean).join(" / ") || "ทุกพื้นที่";
+    setGeneratedDocument({ title: documentTitle, periodLabel: documentPeriodLabel, filterScope: documentFilterScope, fields: documentFields, camps: documentCamps });
     setDocumentRenderId((value) => value + 1);
     setActivePreviewTab("pdf");
   };
@@ -1091,6 +1156,15 @@ export function CfSpatialPage() {
           </div>
           <div className="spatial-select-grid">
             <label>
+              ปีดำเนินการ
+              <select value={period} onChange={(event) => setPeriod(event.target.value)}>
+                <option value="project">ปีดำเนินการ {currentYear}</option>
+                {availableYears.map(y => (
+                  <option key={y} value={y}>ปี {y}</option>
+                ))}
+              </select>
+            </label>
+            <label>
               กลุ่มไร่หลัก
               <select value={filters.region} onChange={(event) => selectArea("region", event.target.value)}>
                 <option value="">ทุกกลุ่มไร่หลัก</option>
@@ -1171,6 +1245,7 @@ export function CfSpatialPage() {
                   <th>ชื่อแคมป์</th>
                   <th>รหัสแปลง</th>
                   <th>พื้นที่โครงการ (ไร่)</th>
+                  <th>สถานะคำนวณ</th>
                   <th>พิกัด X</th>
                   <th>พิกัด Y</th>
                   <th>ขอบเขต</th>
@@ -1188,6 +1263,26 @@ export function CfSpatialPage() {
                       <td>{field.campName}</td>
                       <td>{plot.plotCode}</td>
                       <td>{plot.projectAreaRai.toLocaleString(undefined, { maximumFractionDigits: 3 })}</td>
+                      <td>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                          [1].includes(field.calStatusId ?? 2) ? "bg-surface-100 text-surface-600" :
+                          [2, 3].includes(field.calStatusId ?? 2) ? "bg-blue-100 text-blue-700" :
+                          [4].includes(field.calStatusId ?? 2) ? "bg-amber-100 text-amber-700" :
+                          [5, 6].includes(field.calStatusId ?? 2) ? "bg-emerald-100 text-emerald-700" :
+                          [7, 8].includes(field.calStatusId ?? 2) ? "bg-rose-100 text-rose-700" :
+                          "bg-surface-100 text-surface-600"
+                        }`}>
+                          {field.calStatusId === 1 ? "นำเข้าข้อมูลแล้ว" :
+                           field.calStatusId === 2 ? "การเตรียมข้อมูล" :
+                           field.calStatusId === 3 ? "ประเมินการคำนวณ" :
+                           field.calStatusId === 4 ? "พร้อมคำนวณมาตรฐาน" :
+                           field.calStatusId === 5 ? "คำนวณแล้ว(มาตรฐาน)" :
+                           field.calStatusId === 6 ? "คำนวณแล้ว(มาตรฐาน,C-credit)" :
+                           field.calStatusId === 7 ? "ผิดพลาด(มาตรฐาน)" :
+                           field.calStatusId === 8 ? "ผิดพลาด(cfp)" :
+                           "รอข้อมูล"}
+                        </span>
+                      </td>
                       <td>{plot.x.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
                       <td>{plot.y.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
                       <td>
@@ -1275,23 +1370,11 @@ export function CfSpatialPage() {
               <div className="card-title-row">
                 <div className="card-title">กราฟแท่ง · สัดส่วนกระบวนการในพื้นที่</div>
                 <SourceBadge source={projectPlotSource.source} meta={projectPlotSource.meta} />
-                <div className="period-switch spatial-period-switch" role="group" aria-label="เลือกปีข้อมูลกราฟแท่ง">
-                  <button type="button" className={processPeriod === "both" ? "active" : ""} onClick={() => setProcessPeriod("both")}>
-                    ปีฐาน VS ปีดำเนินการ
-                  </button>
-                  <button type="button" className={processPeriod === "baseline" ? "active" : ""} onClick={() => setProcessPeriod("baseline")}>
-                    ปีฐาน
-                  </button>
-                  <button type="button" className={processPeriod === "current" ? "active" : ""} onClick={() => setProcessPeriod("current")}>
-                    ปีดำเนินการ
-                  </button>
-                </div>
               </div>
               <ProcessDoughnut
-                title={`${focusNode.name} · ${processPeriodLabel}`}
-                data={processBreakdownForPeriod}
-                comparisonData={processPeriod === "both" ? currentProcessBreakdown : processComparisonBreakdown}
-                variant={processPeriod === "both" ? "comparisonBar" : "bar"}
+                title={`${focusNode.name} · ${period === "project" ? `ปีดำเนินการ ${currentYear}` : `ปี ${period}`}`}
+                data={currentProcessBreakdown}
+                variant="bar"
               />
             </article>
           </div>
@@ -1398,7 +1481,11 @@ export function CfSpatialPage() {
             {chunkRows(generatedDocument?.fields ?? [], SPATIAL_DOC_ROWS_PER_PAGE).map((pageFields, pageIndex, pages) => (
               <SpatialDocument
                 key={`spatial-doc-page-${pageIndex}`}
-                title={`${generatedDocument?.title ?? documentTitle} · Page ${pageIndex + 1}/${pages.length}`}
+                docInfo={{
+                  title: `${generatedDocument?.title ?? documentTitle} · Page ${pageIndex + 1}/${pages.length}`,
+                  periodLabel: generatedDocument?.periodLabel ?? "-",
+                  filterScope: generatedDocument?.filterScope ?? "-"
+                }}
                 fields={pageFields}
               />
             ))}

@@ -62,6 +62,9 @@ type ProcessInputComparison = {
 type CalculationBreakdown = Record<string, unknown>
 
 type SpatialNode = {
+  calStatusId?: number
+  actualCredit?: number
+  actualSoc?: number
   id: string
   parentId?: string
   level: 'country' | 'region' | 'province' | 'district' | 'subdistrict' | 'field'
@@ -92,6 +95,7 @@ type SpatialNode = {
 type ReportFilter = {
   level?: FilterLevel
   id?: string
+  year?: string | number
 }
 
 const TRANSPORT_RE = /(ขนส่ง|transport|truck|รถ|โรงงาน)/i
@@ -104,6 +108,11 @@ function n(value: unknown): number {
   if (typeof value === 'number') return Number.isFinite(value) ? value : 0
   if (typeof value === 'string') {
     const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+  // Prisma Decimal type: object with toString()
+  if (value !== null && typeof value === 'object' && typeof (value as { toString?: unknown }).toString === 'function') {
+    const parsed = Number((value as { toString(): string }).toString())
     return Number.isFinite(parsed) ? parsed : 0
   }
   return 0
@@ -480,7 +489,7 @@ export class AnalyticsService {
       .sort((a, b) => b.areaRai - a.areaRai)
   }
 
-  async getCfCamps() {
+  async getCfCamps(year?: string) {
     const rows = await this.getEmissionRows()
     const camps = new Map<number, EmissionRow[]>()
     rows.forEach((row) => {
@@ -488,11 +497,12 @@ export class AnalyticsService {
       if (!camps.has(campId)) camps.set(campId, [])
       camps.get(campId)!.push(row)
     })
+    const targetYearStr = year && year !== 'project' ? yearLabel(Number(year)) : undefined
 
     return Array.from(camps.entries())
       .map(([campId, campRows]) => {
         const meta = this.getYearMeta(campRows)
-        const currentYear = meta.currentYear ? yearLabel(meta.currentYear) : ''
+        const currentYear = targetYearStr ?? (meta.currentYear ? yearLabel(meta.currentYear) : '')
         const currentRows = currentYear ? campRows.filter((row) => yearLabel(row.year ?? 0) === currentYear) : []
         const activities = this.buildProcessActivities(campRows)
         const baselineProcessActivities = activities.filter((row) => row.year === 'baseline_avg')
@@ -524,7 +534,7 @@ export class AnalyticsService {
       .sort((a, b) => b.co2eTotal - a.co2eTotal)
   }
 
-  async getCfCampFields(campId?: number) {
+  async getCfCampFields(campId?: number, year?: string) {
     const rows = await this.getEmissionRows()
     const selectedRows = campId
       ? rows.filter((row) => this.presentationCampId(row) === campId || row.camp_id === campId)
@@ -535,11 +545,12 @@ export class AnalyticsService {
       if (!byLand.has(row.land_id)) byLand.set(row.land_id, [])
       byLand.get(row.land_id)!.push(row)
     })
+    const targetYearNum = year && year !== 'project' ? Number(year) : undefined
 
     return Array.from(byLand.entries()).map(([landId, landRows]) => {
-      const node = this.buildSpatialNodes(landRows).find((item) => item.level === 'field')
+      const node = this.buildSpatialNodes(landRows, targetYearNum).find((item) => item.level === 'field')
       const first = landRows[0]
-      const currentYear = this.getYearMeta(landRows).currentYear
+      const currentYear = targetYearNum ?? this.getYearMeta(landRows).currentYear
       const activitiesLogged = Array.from(new Set(landRows.filter((row) => row.year === currentYear).map((row) => labelOr(row.activity, '-'))))
 
       return {
@@ -557,6 +568,9 @@ export class AnalyticsService {
           currentEmission: 0,
           processBreakdown: [],
           childrenIds: [],
+          calStatusId: 0,
+          actualCredit: 0,
+          actualSoc: 0,
         }),
         fieldCode: first.land_code ?? '',
         fieldName: labelOr(first.land_name, first.land_code ?? ''),
@@ -579,7 +593,9 @@ export class AnalyticsService {
   }
 
   async getCfSpatialNodes(filter: ReportFilter = {}) {
-    const nodes = this.buildSpatialNodes(await this.getEmissionRows())
+    const rows = await this.getEmissionRows()
+    const targetYear = filter.year && filter.year !== 'project' ? Number(filter.year) : undefined
+    const nodes = this.buildSpatialNodes(rows, targetYear)
     if (!filter.level || filter.level === 'all' || !filter.id) return nodes
     const selected = nodes.find((node) => node.id === `${filter.level}-${filter.id}` || node.id === filter.id)
     if (!selected) return nodes
@@ -642,7 +658,10 @@ export class AnalyticsService {
     const calculatedStatusIds = await this.getCalculatedStatusIds()
     return this.prisma.$queryRaw<EmissionRow[]>`
       SELECT
-        EXTRACT(YEAR FROM ah."activities_header_startDate")::int AS year,
+        EXTRACT(YEAR FROM COALESCE(
+          ah."activities_header_startDate",
+          ah."activities_header_create_at"
+        ))::int AS year,
         CASE
           WHEN cpq."carbon_process_queue_resultValue" IS NULL THEN 0
           WHEN LOWER(COALESCE(ru.unit_initial, ru.unit_name, '')) LIKE '%kg%' THEN cpq."carbon_process_queue_resultValue"::numeric / 1000
@@ -662,7 +681,7 @@ export class AnalyticsService {
         l.land_id,
         l.land_code,
         l.name AS land_name,
-        l.area_size AS land_area,
+        COALESCE(l.area_size, l.land_size) AS land_area,
         l.latitude::text AS land_lat,
         l.longitude::text AS land_lng,
         lc.land_camp_id AS camp_id,
@@ -698,8 +717,6 @@ export class AnalyticsService {
       LEFT JOIN districts d ON d.districts_id = sd.district_code
       LEFT JOIN provinces p ON p.provinces_id = d.province_code
       LEFT JOIN geographies g ON g.geographies_id = p.geography_id
-      WHERE COALESCE(cpq."log_act_detail_calStatus_id", ld."log_act_detail_calStatus_id") IN (${Prisma.join(calculatedStatusIds)})
-        AND ah."activities_header_startDate" IS NOT NULL
     `
   }
 
@@ -848,8 +865,9 @@ export class AnalyticsService {
     }))
   }
 
-  private buildSpatialNodes(rows: EmissionRow[]): SpatialNode[] {
+  private buildSpatialNodes(rows: EmissionRow[], targetYear?: number): SpatialNode[] {
     const meta = this.getYearMeta(rows)
+    const currentYear = targetYear ?? meta.currentYear
     const nodes = new Map<string, SpatialNode & { fieldSet: Set<number>; farmerSet: Set<number>; areaSet: Map<number, number>; processMap: Map<string, number>; calculationBreakdowns: CalculationBreakdown[] }>()
 
     const ensureNode = (id: string, parentId: string | undefined, level: SpatialNode['level'], name: string, lat: number, lng: number, zoom: number) => {
@@ -906,7 +924,7 @@ export class AnalyticsService {
         if (row.farmer_id) node.farmerSet.add(row.farmer_id)
         if (row.land_id) node.areaSet.set(row.land_id, n(row.land_area))
         const co2e = n(row.co2e)
-        if (row.year === meta.currentYear) {
+        if (row.year === currentYear) {
           node.currentEmission += co2e
           addToMap(node.processMap, labelOr(row.process, 'ไม่ระบุกระบวนการ'), co2e)
         } else if (row.year && meta.baselineYears.includes(row.year)) {
