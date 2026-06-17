@@ -90,6 +90,16 @@ Recent Prisma sync update from user prompt on 2026-06-15:
 - Verification: `npm run prisma:generate --workspace=backend` and `npm run build --workspace=backend`.
 - Limitation: this task prepared the ORM layer only; no backend service/module logic was added yet for the new SOC, soil-improvement plant, product-year, or camp-group tables.
 
+Recent SOC / soil-improvement Prisma and backend update from user prompt on 2026-06-16:
+
+- Prompt summary: the user provided the newer database snapshot `managementDataSystem_forCalculate_3.1_06162026_postgres.sql` and asked to align Prisma plus the backend SOC module so both `carbon_soc` and `carbon_soilImprovementPlants` can store both the total calculated value and the new per-rai calculated value.
+- Schema result: `backend/src/prisma/schema.prisma` now matches the new snapshot for these tables by adding `carbon_soc_socIT_perRai`, `unit_socIT_perRai`, `carbon_soilImprovementPlant_fnFix_perRai`, and `unit_fnFix_perRai`, along with the required Prisma relation names on `units`.
+- Backend result: `backend/src/modules/carbon-soc/carbon-soc.service.ts` now persists both total and per-rai values for SOC and soil-improvement rows. The service computes and stores those fields during `create`, `update`, and explicit `calculate` actions, and clears stale calculated values back to `null` when required inputs or usable land area are missing.
+- Unit behavior: SOC per-rai values are standardized to `tCO2e/ไร่/ปี`, while soil-improvement per-rai values are standardized to `tN/ไร่`.
+- Source of truth: `managementDataSystem_forCalculate_3.1_06162026_postgres.sql`, `backend/src/prisma/schema.prisma`, and `backend/src/modules/carbon-soc/carbon-soc.service.ts`.
+- Verification: `npm run prisma:generate --workspace=backend` and `npm run build --workspace=backend`.
+- Docs impact: `CONTEXT.md` updated. `COMPONENT_PJ.md` was not changed because the module/file entry points did not move.
+
 ## Current App Routing Snapshot
 
 Verified from `frontend/src/App.tsx` on 2026-06-11:
