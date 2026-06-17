@@ -709,8 +709,7 @@ export class AnalyticsService {
       LEFT JOIN districts d ON d.districts_id = sd.district_code
       LEFT JOIN provinces p ON p.provinces_id = d.province_code
       LEFT JOIN geographies g ON g.geographies_id = p.geography_id
-      -- WHERE COALESCE(cpq."log_act_detail_calStatus_id", ld."log_act_detail_calStatus_id") IN (${Prisma.join(calculatedStatusIds)})
-        AND ah."activities_header_startDate" IS NOT NULL
+      WHERE ah."activities_header_startDate" IS NOT NULL
     `
   }
 
