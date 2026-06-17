@@ -1069,7 +1069,7 @@ export function CfProcessPage() {
           </label>
         </section>
 
-        <section className="premium-summary-grid footprint-process-summary" aria-label="สรุป Carbon Footprint">
+        <section className={`premium-summary-grid footprint-process-summary ${activeView !== "net" ? "five-cols" : ""}`.trim()} aria-label="สรุป Carbon Footprint">
           {activeView === "emissions" && (
             <>
               <article>
@@ -1095,6 +1095,12 @@ export function CfProcessPage() {
                 <strong className={totalDiff >= 0 ? "green-text" : "red-text"} style={{ fontSize: "1.5em" }}>{totalDiffPct.toFixed(1)}%</strong>
                 <small>{(Math.abs(totalDiffKg) / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e | {Math.abs(totalDiffKg).toLocaleString(undefined, { maximumFractionDigits: 0 })} {FOOTPRINT_UNIT}</small>
                 <em>{totalDiff >= 0 ? "ลดลงจากปีฐาน" : "เพิ่มขึ้นจากปีฐาน"}</em>
+              </article>
+              <article>
+                <span>Emission / Area</span>
+                <strong style={{ fontSize: "1.5em" }}>{summaryAreaRai ? (currentTotalKg / 1000 / summaryAreaRai).toLocaleString(undefined, { maximumFractionDigits: 4 }) : 0} tCO2e/ไร่</strong>
+                <small>{summaryAreaRai ? (currentTotalKg / summaryAreaRai).toLocaleString(undefined, { maximumFractionDigits: 2 }) : 0} {FOOTPRINT_UNIT}/ไร่</small>
+                <em>สัดส่วนการปล่อยต่อพื้นที่</em>
               </article>
             </>
           )}
@@ -1123,6 +1129,12 @@ export function CfProcessPage() {
                 <strong>{bestSocCamps[0]?.name ?? "-"}</strong>
                 <small>{bestSocCamps[0] ? `${bestSocCamps[0].socIncrease.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e` : "-"}</small>
                 <em>อันดับสูงสุดตามตัวกรอง</em>
+              </article>
+              <article>
+                <span>SOC / Area</span>
+                <strong style={{ fontSize: "1.5em" }} className="green-text">{summaryAreaRai ? (socTotal / summaryAreaRai).toLocaleString(undefined, { maximumFractionDigits: 4 }) : 0}</strong>
+                <small>tCO2e/ไร่</small>
+                <em>สัดส่วนการกักเก็บต่อพื้นที่</em>
               </article>
             </>
           )}
