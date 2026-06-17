@@ -281,9 +281,9 @@ function rowsForSheet<T extends object>(rows: T[]): Record<string, unknown>[] {
   return rows.length ? rows.map((row) => ({ ...row }) as Record<string, unknown>) : [{}];
 }
 
-function creditSummary(baseline: number, current: number) {
+function creditSummary(baseline: number, current: number, actualCredit?: number) {
   const diff = baseline - current;
-  const credit = Math.max(diff, 0);
+  const credit = actualCredit !== undefined && actualCredit !== null ? actualCredit : Math.max(diff, 0);
   return {
     diff,
     credit,
@@ -312,8 +312,8 @@ function buildSpatialExcelRows(fieldsForExport: CampFieldCarbonDetail[], campsFo
       "Number of Farmers": farmerCount,
       "Area (Rai)": Number((campFields.reduce((sum, field) => sum + field.areaRai, 0) || camp.areaRai).toFixed(2)),
       "Carbon Footprint (kgCO2e)": Number((campCurrent * 1000).toFixed(2)),
-      "SOC (kgCO2e)": Number((Math.max(campBaseline - campCurrent, 0) * 0.35 * 1000).toFixed(2)),
-      "Carbon Credit (kgCO2e)": Number((Math.max(campBaseline - campCurrent, 0) * 1000).toFixed(2)),
+      "SOC (kgCO2e)": Number(((campFields.reduce((sum, f) => sum + (f.actualSoc ?? 0), 0) || Math.max(campBaseline - campCurrent, 0) * 0.35)) * 1000).toFixed(2),
+      "Carbon Credit (kgCO2e)": Number(((campFields.reduce((sum, f) => sum + (f.actualCredit ?? 0), 0) || Math.max(campBaseline - campCurrent, 0))) * 1000).toFixed(2),
     };
   });
 
@@ -334,8 +334,8 @@ function buildSpatialExcelRows(fieldsForExport: CampFieldCarbonDetail[], campsFo
       "Number of Farmers": farmers.size,
       "Area (Rai)": Number(fields.reduce((sum, field) => sum + field.areaRai, 0).toFixed(2)),
       "Carbon Footprint (kgCO2e)": Number((current * 1000).toFixed(2)),
-      "SOC (kgCO2e)": Number((Math.max(baseline - current, 0) * 0.35 * 1000).toFixed(2)),
-      "Carbon Credit (kgCO2e)": Number((Math.max(baseline - current, 0) * 1000).toFixed(2)),
+      "SOC (kgCO2e)": Number(((fields.reduce((sum, f) => sum + (f.actualSoc ?? 0), 0) || Math.max(baseline - current, 0) * 0.35)) * 1000).toFixed(2),
+      "Carbon Credit (kgCO2e)": Number(((fields.reduce((sum, f) => sum + (f.actualCredit ?? 0), 0) || Math.max(baseline - current, 0))) * 1000).toFixed(2),
     };
   });
 
@@ -350,9 +350,9 @@ function buildSpatialExcelRows(fieldsForExport: CampFieldCarbonDetail[], campsFo
       "Cane Type": caneTypeForField(field),
       "Baseline Emission (kgCO2e)": Number((field.baselineEmission * 1000).toFixed(2)),
       "Carbon Footprint (kgCO2e)": Number((field.currentEmission * 1000).toFixed(2)),
-      "SOC (kgCO2e)": Number((Math.max(reduction, 0) * 0.35 * 1000).toFixed(2)),
+      "SOC (kgCO2e)": Number(((field.actualSoc ?? Math.max(reduction, 0) * 0.35)) * 1000).toFixed(2),
       "Emission Reduction (kgCO2e)": Number((reduction * 1000).toFixed(2)),
-      "Carbon Credit (kgCO2e)": Number((Math.max(reduction, 0) * 1000).toFixed(2)),
+      "Carbon Credit (kgCO2e)": Number(((field.actualCredit ?? Math.max(reduction, 0))) * 1000).toFixed(2),
     };
   });
 
@@ -412,6 +412,9 @@ function fieldThumbnail(field: CampFieldCarbonDetail, index: number) {
 }
 
 function SpatialDocument({ docInfo, fields }: { docInfo: { title: string; periodLabel: string; filterScope: string }; fields: CampFieldCarbonDetail[] }) {
+  const totalCurr = fields.reduce((s, f) => s + f.currentEmission, 0);
+  const totalSoc = fields.reduce((s, f) => s + (f.actualSoc ?? Math.max(f.baselineEmission - f.currentEmission, 0) * 0.35), 0);
+
   return (
     <div className="spatial-doc-paper">
       <div className="spatial-doc-header">
@@ -444,8 +447,9 @@ function SpatialDocument({ docInfo, fields }: { docInfo: { title: string; period
         </thead>
         <tbody>
           {fields.map((field, index) => {
+            const reduction = field.baselineEmission - field.currentEmission;
             const carbonFootprint = field.currentEmission * 1000;
-            const soc = Math.max(field.baselineEmission - field.currentEmission, 0) * 0.35 * 1000;
+            const soc = (field.actualSoc !== undefined && field.actualSoc !== null ? field.actualSoc : Math.max(reduction, 0) * 0.35) * 1000;
             return (
               <tr key={`doc-${field.id}`}>
                 <td>{index + 1}</td>
@@ -463,6 +467,14 @@ function SpatialDocument({ docInfo, fields }: { docInfo: { title: string; period
             <tr><td colSpan={8}>ยังไม่มีข้อมูลแปลงในขอบเขตที่เลือก</td></tr>
           )}
         </tbody>
+        <tfoot>
+          <tr>
+            <td colSpan={5} className="border p-2">รวมทั้งหมด</td>
+            <td className="border p-2">{totalCurr.toFixed(2)}</td>
+            <td className="border p-2">{(totalSoc * 1000).toFixed(2)}</td>
+            <td className="border p-2"></td>
+          </tr>
+        </tfoot>
       </table>
       <div className="spatial-doc-footer">
         <span>องค์การบริหารจัดการก๊าซเรือนกระจก (องค์การมหาชน)</span>
@@ -526,7 +538,7 @@ export function CfSpatialPage() {
   }, []);
 
   useEffect(() => {
-    if (!spatialResult) return; // Prevent initial double fetch
+    if (!spatialResult) return;
     Promise.all([
       getCfSpatialNodes({ year: period }),
       getCampCarbonSummaries({ year: period }),
@@ -535,9 +547,6 @@ export function CfSpatialPage() {
       .then(([spatialRes, , campFieldRes]) => {
         setNodes(spatialRes.data);
         setSpatialResult(spatialRes);
-        // We only update campFieldResult to avoid breaking campSummaries which aren't in state but wait,
-        // are campSummaries stored in state?
-        // Let's check where campSummaries are used... wait, in the initial load we ignored campSummaryRes.
         setCampFieldResult(campFieldRes);
       })
       .catch((err) => console.error("Failed to load spatial nodes for period", err));
@@ -1206,6 +1215,7 @@ export function CfSpatialPage() {
                   <th>ชื่อแคมป์</th>
                   <th>รหัสแปลง</th>
                   <th>พื้นที่โครงการ (ไร่)</th>
+                  <th>สถานะคำนวณ</th>
                   <th>พิกัด X</th>
                   <th>พิกัด Y</th>
                   <th>ขอบเขต</th>
@@ -1223,6 +1233,26 @@ export function CfSpatialPage() {
                       <td>{field.campName}</td>
                       <td>{plot.plotCode}</td>
                       <td>{plot.projectAreaRai.toLocaleString(undefined, { maximumFractionDigits: 3 })}</td>
+                      <td>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                          [1].includes(field.calStatusId ?? 2) ? "bg-surface-100 text-surface-600" :
+                          [2, 3].includes(field.calStatusId ?? 2) ? "bg-blue-100 text-blue-700" :
+                          [4].includes(field.calStatusId ?? 2) ? "bg-amber-100 text-amber-700" :
+                          [5, 6].includes(field.calStatusId ?? 2) ? "bg-emerald-100 text-emerald-700" :
+                          [7, 8].includes(field.calStatusId ?? 2) ? "bg-rose-100 text-rose-700" :
+                          "bg-surface-100 text-surface-600"
+                        }`}>
+                          {field.calStatusId === 1 ? "นำเข้าข้อมูลแล้ว" :
+                           field.calStatusId === 2 ? "การเตรียมข้อมูล" :
+                           field.calStatusId === 3 ? "ประเมินการคำนวณ" :
+                           field.calStatusId === 4 ? "พร้อมคำนวณมาตรฐาน" :
+                           field.calStatusId === 5 ? "คำนวณแล้ว(มาตรฐาน)" :
+                           field.calStatusId === 6 ? "คำนวณแล้ว(มาตรฐาน,C-credit)" :
+                           field.calStatusId === 7 ? "ผิดพลาด(มาตรฐาน)" :
+                           field.calStatusId === 8 ? "ผิดพลาด(cfp)" :
+                           "รอข้อมูล"}
+                        </span>
+                      </td>
                       <td>{plot.x.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
                       <td>{plot.y.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
                       <td>

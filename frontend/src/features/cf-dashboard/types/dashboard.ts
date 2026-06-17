@@ -27,6 +27,7 @@ export interface OverviewKpi {
   inputEmission: number;
   fertilizerAmountKg: number;
   fertilizerEmission: number;
+  calProgress?: { calculated: number; pending: number; error: number; total: number };
   areaRai: number;
   yieldTon: number;
   co2ePerTon: number;
@@ -163,6 +164,9 @@ export interface SpatialSummaryNode {
   processInputComparisons?: ProcessInputComparison[];
   childrenIds: string[];
   calculationBreakdowns?: CalculationBreakdown[];
+  calStatusId?: number;
+  actualCredit?: number;
+  actualSoc?: number;
 }
 
 export interface ChanotRecord {

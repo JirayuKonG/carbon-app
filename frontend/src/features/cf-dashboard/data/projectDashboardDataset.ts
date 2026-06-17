@@ -446,6 +446,7 @@ export const projectDashboardDataset: DashboardDataset = {
     fields: projectFields.length,
     years: [...BASELINE_YEARS, PROJECT_CURRENT_YEAR],
     baselineYears: BASELINE_YEARS,
+    calProgress: { calculated: 450, pending: 150, error: 20, total: 620 },
   },
   trend: projectTrend,
   processEmissions: projectProcessEmissions,

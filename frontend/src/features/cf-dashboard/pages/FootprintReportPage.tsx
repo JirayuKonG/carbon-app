@@ -1532,9 +1532,63 @@ export function CfFootprintReportPage() {
               {(selectedCamp ? fieldsInCamp : fieldsInArea).map((field) => <option key={field.id} value={field.id}>{field.fieldCode} · {field.fieldName}</option>)}
             </select>
           </label>
+          <label style={{ minWidth: 0 }}>
+            จังหวัด
+            <select value={areaPath.province} onChange={(event) => selectAreaPath("province", event.target.value)} disabled={!areaPath.region}>
+              <option value="">ทุกจังหวัด</option>
+              {areaOptionsFor("province", areaPath.region).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+            </select>
+          </label>
+          <label style={{ minWidth: 0 }}>
+            อำเภอ / เขต
+            <select value={areaPath.district} onChange={(event) => selectAreaPath("district", event.target.value)} disabled={!areaPath.province}>
+              <option value="">ทุกอำเภอ/เขต</option>
+              {areaOptionsFor("district", areaPath.province).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+            </select>
+          </label>
+          <label style={{ minWidth: 0 }}>
+            ตำบล / แขวง
+            <select value={areaPath.subdistrict} onChange={(event) => selectAreaPath("subdistrict", event.target.value)} disabled={!areaPath.district}>
+              <option value="">ทุกตำบล/แขวง</option>
+              {areaOptionsFor("subdistrict", areaPath.district).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+            </select>
+          </label>
+          <label className="filter-level-camp" style={{ minWidth: 0 }}>
+            แคมป์
+            <select value={scope} onChange={(event) => selectScopeValue(event.target.value)}>
+              <option value="all">ภาพรวมตามพื้นที่ที่เลือก</option>
+              {campsInArea.map((camp) => <option key={camp.campId} value={`camp-${camp.campId}`}>{camp.campName}</option>)}
+            </select>
+          </label>
+          <label className="filter-level-field" style={{ minWidth: 0 }}>
+            แปลง
+            <select value={selectedFieldId} onChange={(event) => selectFieldScope(event.target.value)} disabled={!areaPath.subdistrict && !selectedCamp}>
+              <option value="all">{selectedCamp ? "ทุกแปลงในแคมป์" : "ทุกแปลงตามพื้นที่"}</option>
+              {(selectedCamp ? fieldsInCamp : fieldsInArea).map((field) => <option key={field.id} value={field.id}>{field.fieldCode} · {field.fieldName}</option>)}
+            </select>
+          </label>
         </section>
 
         <section className="footprint-report-right-column">
+          {scopedKpi.calProgress && scopedKpi.calProgress.total > 0 && (
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-surface-200 mb-4">
+              <div className="flex justify-between items-end mb-2">
+                <div className="font-semibold text-surface-800 text-sm">ความคืบหน้าการคำนวณ</div>
+                <div className="text-xs text-surface-500">ทั้งหมด {scopedKpi.calProgress.total} รายการ</div>
+              </div>
+              <div className="w-full h-3 bg-surface-100 rounded-full overflow-hidden flex">
+                <div className="bg-emerald-500 h-full" style={{ width: `${(scopedKpi.calProgress.calculated / scopedKpi.calProgress.total) * 100}%` }} title={`คำนวณแล้ว ${scopedKpi.calProgress.calculated} รายการ`} />
+                <div className="bg-amber-400 h-full" style={{ width: `${(scopedKpi.calProgress.pending / scopedKpi.calProgress.total) * 100}%` }} title={`รอคำนวณ ${scopedKpi.calProgress.pending} รายการ`} />
+                <div className="bg-rose-500 h-full" style={{ width: `${(scopedKpi.calProgress.error / scopedKpi.calProgress.total) * 100}%` }} title={`ข้อผิดพลาด ${scopedKpi.calProgress.error} รายการ`} />
+              </div>
+              <div className="flex flex-col gap-1 mt-3 text-xs">
+                <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span><span className="text-surface-600 truncate">คำนวณแล้ว {((scopedKpi.calProgress.calculated / scopedKpi.calProgress.total) * 100).toFixed(1)}%</span></div>
+                <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span><span className="text-surface-600 truncate">รอคำนวณ {((scopedKpi.calProgress.pending / scopedKpi.calProgress.total) * 100).toFixed(1)}%</span></div>
+                <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-rose-500 shrink-0"></span><span className="text-surface-600 truncate">ข้อผิดพลาด {((scopedKpi.calProgress.error / scopedKpi.calProgress.total) * 100).toFixed(1)}%</span></div>
+              </div>
+            </div>
+          )}
+
           <section className="card report-toolbar footprint-report-toolbar">
             <div>
               <div className="card-title-row">
@@ -1791,6 +1845,25 @@ export function CfFootprintReportPage() {
             <div className="error-panel">Data quality guard: {resourceUsage.warnings.join(" | ")}</div>
           )}
         </section>
+
+        {scopedKpi.calProgress && scopedKpi.calProgress.total > 0 && (
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-surface-200 mb-4 col-span-full mx-6 mt-4">
+            <div className="flex justify-between items-end mb-2">
+              <div className="font-semibold text-surface-800 text-sm">ความคืบหน้าการคำนวณคาร์บอนฟุตพริ้นท์</div>
+              <div className="text-xs text-surface-500">ทั้งหมด {scopedKpi.calProgress.total} รายการ</div>
+            </div>
+            <div className="w-full h-3 bg-surface-100 rounded-full overflow-hidden flex">
+              <div className="bg-emerald-500 h-full" style={{ width: `${(scopedKpi.calProgress.calculated / scopedKpi.calProgress.total) * 100}%` }} title={`คำนวณแล้ว ${scopedKpi.calProgress.calculated} รายการ`} />
+              <div className="bg-amber-400 h-full" style={{ width: `${(scopedKpi.calProgress.pending / scopedKpi.calProgress.total) * 100}%` }} title={`รอคำนวณ ${scopedKpi.calProgress.pending} รายการ`} />
+              <div className="bg-rose-500 h-full" style={{ width: `${(scopedKpi.calProgress.error / scopedKpi.calProgress.total) * 100}%` }} title={`ข้อผิดพลาด ${scopedKpi.calProgress.error} รายการ`} />
+            </div>
+            <div className="flex gap-4 mt-2 text-xs">
+              <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500"></span><span className="text-surface-600">คำนวณแล้ว {((scopedKpi.calProgress.calculated / scopedKpi.calProgress.total) * 100).toFixed(1)}%</span></div>
+              <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span><span className="text-surface-600">รอคำนวณ {((scopedKpi.calProgress.pending / scopedKpi.calProgress.total) * 100).toFixed(1)}%</span></div>
+              <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-500"></span><span className="text-surface-600">ข้อผิดพลาด {((scopedKpi.calProgress.error / scopedKpi.calProgress.total) * 100).toFixed(1)}%</span></div>
+            </div>
+          </div>
+        )}
 
         <section className="footprint-report-left-column">
           <section className="card full-span footprint-kpi-section footprint-context-grid">

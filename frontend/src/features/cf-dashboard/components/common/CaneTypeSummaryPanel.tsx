@@ -1,5 +1,6 @@
 import type { CaneTypeSummary, DataResult } from "../../types/dashboard";
 import { SourceBadge } from "./SourceBadge";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 
 const caneColors = ["#5BA4FF", "#72D6C9", "#FFB86B"];
 
@@ -58,14 +59,25 @@ export function CaneTypeSummaryPanel({
         <div><strong>{formatRai(showFootprintBreakdown ? footprintValue(totalCo2e) : totalArea)}</strong><span>{showFootprintBreakdown ? `${footprintUnit} รวม` : "ไร่รวม"}</span></div>
       </div>
 
-      <div className="cane-share-bar" aria-label="สัดส่วนประเภทอ้อย">
-        {result.data.map((item, index) => (
-          <span
-            key={item.name}
-            style={{ width: `${item.percent}%`, background: caneColors[index % caneColors.length] }}
-            title={`${item.name} ${item.percent.toFixed(1)}%`}
-          />
-        ))}
+      <div style={{ width: '100%', height: 280, margin: '1.5rem 0' }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={result.data}
+              cx="50%"
+              cy="50%"
+              outerRadius={110}
+              dataKey="percent"
+              nameKey="name"
+              label={({ name, percent }) => `${name} ${percent.toFixed(1)}%`}
+            >
+              {result.data.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={caneColors[index % caneColors.length]} />
+              ))}
+            </Pie>
+            <Tooltip formatter={(value) => `${Number(value).toFixed(1)}%`} />
+          </PieChart>
+        </ResponsiveContainer>
       </div>
 
       <div className="cane-legend-grid">
