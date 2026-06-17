@@ -7,7 +7,7 @@ import { SourceBadge } from "../components/common/SourceBadge";
 import { ThailandMap } from "../components/map/ThailandMap";
 import { getSpatialProjectGeo, normalizeProjectCampName } from "../data/spatialProjectGeoMappings";
 import { spatialProjectPlots, type SpatialProjectPlot } from "../data/spatialProjectPlots";
-import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCfSpatialNodes } from "../services/dashboardApi";
+import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCfSpatialNodes, getOverviewKpi } from "../services/dashboardApi";
 import type { CampCarbonSummary, CampFieldCarbonDetail, DataResult, FieldCarbonDetail, ProcessInputComparison, SpatialLevel, SpatialSummaryNode } from "../types/dashboard";
 import { MapPinned } from "lucide-react";
 import "../cf-dashboard.css";
@@ -497,14 +497,20 @@ export function CfSpatialPage() {
   const [generatingDocument, setGeneratingDocument] = useState(false);
   const [documentNotice, setDocumentNotice] = useState("");
   const [filters, setFilters] = useState<Record<Exclude<SpatialLevel, "country">, string>>(emptySpatialFilters);
+  const [period, setPeriod] = useState<string>("project");
+  const [availableYears, setAvailableYears] = useState<string[]>([]);
+  const [currentYear, setCurrentYear] = useState<string>("-");
   const rootId = nodes.find((node) => !node.parentId)?.id ?? "thailand";
 
   useEffect(() => {
-    Promise.all([getCfSpatialNodes(), getCampCarbonSummaries(), getCampFieldCarbonDetails()])
-      .then(([result, , campFieldDetailResult]) => {
+    Promise.all([getCfSpatialNodes(), getCampCarbonSummaries(), getCampFieldCarbonDetails(), getOverviewKpi()])
+      .then(([result, , campFieldDetailResult, kpiResult]) => {
         setNodes(result.data);
         setSpatialResult(result);
         setCampFieldResult(campFieldDetailResult);
+        const kpiYears = Array.from(new Set(kpiResult.data.years ?? [])).filter((y) => y && y !== "baseline_avg").sort();
+        setAvailableYears(kpiYears);
+        setCurrentYear(kpiResult.data.currentYear || "-");
         const root = result.data.find((node) => !node.parentId);
         if (root) setSelectedId(root.id);
       })
@@ -1090,6 +1096,15 @@ export function CfSpatialPage() {
             </button>
           </div>
           <div className="spatial-select-grid">
+            <label>
+              ปีดำเนินการ
+              <select value={period} onChange={(event) => setPeriod(event.target.value)}>
+                <option value="project">ปีดำเนินการ {currentYear}</option>
+                {availableYears.map(y => (
+                  <option key={y} value={y}>ปี {y}</option>
+                ))}
+              </select>
+            </label>
             <label>
               กลุ่มไร่หลัก
               <select value={filters.region} onChange={(event) => selectArea("region", event.target.value)}>

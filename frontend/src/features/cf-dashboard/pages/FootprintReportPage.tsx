@@ -993,6 +993,7 @@ export function CfFootprintReportPage() {
   const [spatialNodes, setSpatialNodes] = useState<SpatialSummaryNode[]>([]);
   const [spatialResult, setSpatialResult] = useState<DataResult<SpatialSummaryNode[]>>({ data: [], source: "mock" });
   const [areaPath, setAreaPath] = useState<Record<FootprintAreaLevel, string>>(emptyFootprintAreaPath);
+  const [period, setPeriod] = useState<string>("project");
   const [scope, setScope] = useState<ScopeValue>("all");
   const [selectedFieldId, setSelectedFieldId] = useState("all");
   const [caneFilter, setCaneFilter] = useState<CaneFilter>("all");
@@ -1041,7 +1042,12 @@ export function CfFootprintReportPage() {
     setGenerateNotice("เลือกแคมป์จากหน้า Carbon Footprint แล้ว กดสร้างเอกสารเมื่อพร้อม");
   }, [campResult.data, searchParams]);
 
-  const currentYear = currentYearFrom(activities) || kpi.data.currentYear;
+  const defaultCurrentYear = currentYearFrom(activities) || kpi.data.currentYear;
+  const currentYear = period === "project" ? defaultCurrentYear : period;
+  const availableYears = Array.from(new Set([
+    ...(kpi.data.years ?? []),
+    ...activities.map((item) => item.year),
+  ].filter((year) => year && year !== "baseline_avg"))).sort();
   const selectedCampId = scope === "all" ? undefined : Number(scope.replace("camp-", ""));
   const rootNode = spatialNodes.find((node) => !node.parentId);
   const selectedAreaId = [...footprintAreaOrder].reverse().map((level) => areaPath[level]).find(Boolean) || rootNode?.id;
@@ -1474,6 +1480,16 @@ export function CfFootprintReportPage() {
             </div>
             <p className="muted text-xs font-normal" style={{ fontSize: "0.85em", opacity: 0.6 }}>กรุณาระบุกลุ่มไร่หลักและพื้นที่เป้าหมาย รวมถึงประเภทอ้อย เพื่อใช้เป็นเงื่อนไขในการจัดทำเอกสารรายงาน</p>
           </div>
+          <label style={{ minWidth: 0 }}>
+            ปีดำเนินการ
+            <select value={period} onChange={(event) => {
+              setPeriod(event.target.value);
+              markFilterChanged();
+            }}>
+              <option value="project">ปีดำเนินการ {defaultCurrentYear || "-"}</option>
+              {availableYears.map((year) => <option key={year} value={year}>ปี {year}</option>)}
+            </select>
+          </label>
           <label style={{ minWidth: 0 }}>
             กลุ่มไร่หลัก
             <select value={areaPath.region} onChange={(event) => selectAreaPath("region", event.target.value)}>
