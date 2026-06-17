@@ -93,6 +93,7 @@ export class ActivitiesController {
     @Body() b: {
       resultUnitId?: number
       selectedEfId?: number
+      organicFertilizerMode?: 'manual_formula' | 'generic_ef' | 'skip_error'
       fertilizerUreaEfId?: number
       fertilizerDapEfId?: number
       fertilizerKclEfId?: number

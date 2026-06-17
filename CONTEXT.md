@@ -790,6 +790,28 @@ Additional follow-up update on 2026-06-17 for the same bulk-preparation preview 
 - Prompt summary: the right-side preview tables did not clearly show which quantity value was used in the multiplication formula.
 - Result: the preview tables in `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now include a `จำนวนที่ใช้คูณ` column for all groups (`ปุ๋ย`, `น้ำมัน`, `ปุ๋ยน้ำ`, and `อื่น ๆ`), showing both the quantity value and its quantity-unit label beside the formula.
 
+Additional follow-up update on 2026-06-17 for the same Carbon Footprint card-page layout:
+
+- Prompt summary: on `คำนวณ Carbon -> Carbon Footprint -> คำนวณรายการที่เลือก`, keep the right-side ready-to-calculate tables visible at all times for every group (`ปุ๋ย`, `ปุ๋ยน้ำ`, `น้ำมัน`, and fertilizer rows without detected N), and shrink the `Simulation preview` block so it behaves more like the newer `เตรียมข้อมูล Carbon` card page.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now keeps the right-side preview/result tables visible even when `Simulation preview` is collapsed. The collapse control only hides the upper formula-preview block, the left/right split resize handle remains available, the simulation area uses a smaller vertically resizable frame, and the right-side tables now sit in their own always-visible resizable scroll frame for easier review across all supported row groups.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: `npm run build --workspace=frontend` still fails only on the pre-existing `frontend/src/features/cf-dashboard/pages/ProcessPage.tsx` TypeScript issues (`selectedByCaneKg`, `processDetailRows`, and `ActivityChartMode` mismatch), not from this card-page layout update.
+
+Additional follow-up update on 2026-06-17 for the same Carbon Footprint page filters:
+
+- Prompt summary: on `คำนวณ Carbon -> Carbon Footprint`, sort the `ปีการผลิต` dropdown in ascending order by the displayed production-year label instead of leaving it in unsorted source order.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now sorts the production-year filter options with `localeCompare(..., { numeric: true })`, so labels such as real production-year names appear in ascending order in the dropdown.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: not re-built yet in this focused filter-ordering change.
+
+Additional follow-up update on 2026-06-17 for the same Carbon Footprint calculation card page:
+
+- Prompt summary: on `คำนวณ Carbon -> Carbon Footprint -> คำนวณรายการที่เลือก`, keep chemical fertilizer rows using the existing formula flow, but let organic fertilizer rows choose between three calculation modes on the card page: `กรอก N-P2O5-K2O เอง`, `ใช้ EF แบบทั่วไปเหมือนน้ำมัน`, or `ยังไม่คำนวณ` and intentionally move that row into the calculation-error path. Also improve the EF selection UX so the fuel EF chooser no longer overlaps the row table, and let organic-fertilizer EF selection use the same chooser style.
+- Frontend result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now adds per-row organic-fertilizer mode toggles inside the calculation card page, reuses the existing manual N-P2O5-K2O flow only when that mode is selected, and adds a shared `EF Browser` workspace for all `generic_ef` rows (`น้ำมัน`, `ปุ๋ยน้ำ`, and organic fertilizer rows that choose EF mode). The old overlapping inline EF dropdown behavior on the fuel table was replaced by row actions plus a shared EF browser panel so users can inspect the activity row and the EF list more easily at the same time.
+- Backend result: `backend/src/modules/activities/activities.controller.ts` and `backend/src/modules/activities/activities.service.ts` now accept `organicFertilizerMode` in the calculate payload. During actual calculation, organic fertilizer rows can stay on the fertilizer formula path, switch to `generic_ef`, or deliberately throw a controlled error so the queue moves that row to the existing calculation-error status.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`, `backend/src/modules/activities/activities.controller.ts`, and `backend/src/modules/activities/activities.service.ts`.
+- Verification: `npm run build --workspace=backend` passed. `npm run build --workspace=frontend` still fails only on the pre-existing `frontend/src/features/cf-dashboard/pages/ProcessPage.tsx` TypeScript issues (`selectedByCaneKg`, `processDetailRows`, and `ActivityChartMode` mismatch), not from this Carbon Footprint card-page update.
+
 ## Recent Input Usage Shared Filter And KPI Label Update - 2026-06-17
 
 - Prompt summary: on the `คำนวณ Carbon` -> `สรุปการใช้ปัจจัย` page, change `ปีการผลิต` in the shared filter area from many chip buttons to a dropdown that can show real production-year labels such as `63/64`, move `ล้างตัวกรอง` up to the filter-header level, and rename the `Record ที่ใช้สรุป` KPI card.

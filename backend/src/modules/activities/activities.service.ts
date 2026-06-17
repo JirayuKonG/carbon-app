@@ -162,6 +162,7 @@ type GenericEfCalculationResult = {
 type CarbonQueueCalculationPayload = {
   resultUnitId?: number | string | null
   selectedEfId?: number | string | null
+  organicFertilizerMode?: 'manual_formula' | 'generic_ef' | 'skip_error' | string | null
   fertilizerUreaEfId?: number | string | null
   fertilizerDapEfId?: number | string | null
   fertilizerKclEfId?: number | string | null
@@ -2710,6 +2711,9 @@ export class ActivitiesService {
     const amountInput = this.resolveQueueAmountInput(queue)
     const requestedResultUnitId = this.toOptionalNumber(payload?.resultUnitId)
     const selectedEfId = this.toOptionalNumber(payload?.selectedEfId)
+    const organicFertilizerMode = typeof payload?.organicFertilizerMode === 'string'
+      ? payload.organicFertilizerMode.trim().toLowerCase()
+      : ''
     const fertilizerUreaEfId = this.toOptionalNumber(payload?.fertilizerUreaEfId)
     const fertilizerDapEfId = this.toOptionalNumber(payload?.fertilizerDapEfId)
     const fertilizerKclEfId = this.toOptionalNumber(payload?.fertilizerKclEfId)
@@ -2719,6 +2723,21 @@ export class ActivitiesService {
     const manualFertilizerK2OPercent = this.toOptionalNumber(payload?.manualFertilizerK2OPercent)
 
     if (formulaMode === 'fertilizer_n2o') {
+      const fertilizerProfile = this.inferFertilizerNitrogenFromName(
+        queue?.log_activities_detail?.activities_fertilizers?.act_fertilizer_name,
+      )
+
+      if (fertilizerProfile.kind === 'organic') {
+        if (organicFertilizerMode === 'skip_error') {
+          throw new BadRequestException('ผู้ใช้เลือกให้ปุ๋ยอินทรีย์รายการนี้ยังไม่คำนวณ และย้ายไปสถานะคำนวณผิดพลาด')
+        }
+
+        if (organicFertilizerMode === 'generic_ef') {
+          const result = await this.calculateGenericEfForQueue(queue, amountInput, { selectedEfId })
+          return this.applyRequestedFootprintResultUnit(result, requestedResultUnitId)
+        }
+      }
+
       const result = await this.calculateFertilizerN2OForQueue(queue, amountInput, {
         fertilizerUreaEfId,
         fertilizerDapEfId,
