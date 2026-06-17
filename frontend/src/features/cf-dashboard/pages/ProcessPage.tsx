@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Bar } from "react-chartjs-2";
 import { ActivityGroupedBar } from "../components/charts/ActivityGroupedBar";
-import { chartOptions, chartPalette, sortProcessLabels } from "../components/charts/ChartRegistry";
+import { chartOptions, chartPalette } from "../components/charts/ChartRegistry";
 import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
 import { SourceBadge } from "../components/common/SourceBadge";
 import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCaneTypeSummaries, getCfProcessActivities, getCfSpatialNodes, getInputUsageSummary, getOverviewKpi, getProcessEmissions } from "../services/dashboardApi";
@@ -12,7 +12,7 @@ import "../cf-dashboard.css";
 
 type PeriodMode = string;
 type ScopeValue = "all" | `camp-${number}`;
-type ActivityChartMode = "both" | "baseline" | "current" | "details";
+type ActivityChartMode = "both" | "baseline" | "current";
 type CaneScope = "all" | "new" | "ratoon" | "fallow";
 type FootprintView = "emissions" | "sequestration" | "net";
 type ComparisonTab = "benchmark" | "pair";
@@ -837,8 +837,7 @@ export function CfProcessPage() {
     baselineRows: chartBaselineRaw,
     currentRows: chartCurrentRaw,
   }), caneMeta.factor));
-  const selectedByCane = chartCurrent;
-  const selectedByCaneKg = toKgProcessRows(selectedByCane);
+  // selectedByCane removed
   const chartBaselineKg = toKgProcessRows(chartBaseline);
   const chartCurrentKg = toKgProcessRows(chartCurrent);
   const campRows = scaleCampRows(scopedCamps, caneMeta.factor);
@@ -858,17 +857,6 @@ export function CfProcessPage() {
   const chartDiff = chartBaselineTotal - chartCurrentTotal;
   const graphLabelA = periodLabel(graphYearA, currentYear);
   const graphLabelB = periodLabel(graphYearB, currentYear);
-  const processDetailRows = sortProcessLabels(Array.from(new Set([...chartBaseline, ...chartCurrent].map((item) => item.process)))).map((process) => {
-    const valueA = chartBaseline.find((item) => item.process === process)?.totalEmission ?? 0;
-    const valueB = chartCurrent.find((item) => item.process === process)?.totalEmission ?? 0;
-    return {
-      process,
-      valueA,
-      valueB,
-      diff: valueA - valueB,
-      pct: valueA ? ((valueA - valueB) / valueA) * 100 : 0,
-    };
-  });
   const selectedRegion = farmGroupFilterOptions.find((option) => option.id === regionId);
   const campComparisonRows: ScopeComparisonRow[] = campRows.map((camp) => ({
     id: `camp-${camp.campId}`,

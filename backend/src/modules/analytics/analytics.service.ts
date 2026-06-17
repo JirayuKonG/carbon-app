@@ -92,6 +92,7 @@ type SpatialNode = {
 type ReportFilter = {
   level?: FilterLevel
   id?: string
+  year?: string | number
 }
 
 const TRANSPORT_RE = /(ขนส่ง|transport|truck|รถ|โรงงาน)/i
@@ -480,7 +481,7 @@ export class AnalyticsService {
       .sort((a, b) => b.areaRai - a.areaRai)
   }
 
-  async getCfCamps() {
+  async getCfCamps(year?: string) {
     const rows = await this.getEmissionRows()
     const camps = new Map<number, EmissionRow[]>()
     rows.forEach((row) => {
@@ -488,11 +489,12 @@ export class AnalyticsService {
       if (!camps.has(campId)) camps.set(campId, [])
       camps.get(campId)!.push(row)
     })
+    const targetYearStr = year && year !== 'project' ? yearLabel(Number(year)) : undefined
 
     return Array.from(camps.entries())
       .map(([campId, campRows]) => {
         const meta = this.getYearMeta(campRows)
-        const currentYear = meta.currentYear ? yearLabel(meta.currentYear) : ''
+        const currentYear = targetYearStr ?? (meta.currentYear ? yearLabel(meta.currentYear) : '')
         const currentRows = currentYear ? campRows.filter((row) => yearLabel(row.year ?? 0) === currentYear) : []
         const activities = this.buildProcessActivities(campRows)
         const baselineProcessActivities = activities.filter((row) => row.year === 'baseline_avg')
@@ -524,7 +526,7 @@ export class AnalyticsService {
       .sort((a, b) => b.co2eTotal - a.co2eTotal)
   }
 
-  async getCfCampFields(campId?: number) {
+  async getCfCampFields(campId?: number, year?: string) {
     const rows = await this.getEmissionRows()
     const selectedRows = campId
       ? rows.filter((row) => this.presentationCampId(row) === campId || row.camp_id === campId)
@@ -535,11 +537,12 @@ export class AnalyticsService {
       if (!byLand.has(row.land_id)) byLand.set(row.land_id, [])
       byLand.get(row.land_id)!.push(row)
     })
+    const targetYearNum = year && year !== 'project' ? Number(year) : undefined
 
     return Array.from(byLand.entries()).map(([landId, landRows]) => {
-      const node = this.buildSpatialNodes(landRows).find((item) => item.level === 'field')
+      const node = this.buildSpatialNodes(landRows, targetYearNum).find((item) => item.level === 'field')
       const first = landRows[0]
-      const currentYear = this.getYearMeta(landRows).currentYear
+      const currentYear = targetYearNum ?? this.getYearMeta(landRows).currentYear
       const activitiesLogged = Array.from(new Set(landRows.filter((row) => row.year === currentYear).map((row) => labelOr(row.activity, '-'))))
 
       return {
@@ -579,7 +582,9 @@ export class AnalyticsService {
   }
 
   async getCfSpatialNodes(filter: ReportFilter = {}) {
-    const nodes = this.buildSpatialNodes(await this.getEmissionRows())
+    const rows = await this.getEmissionRows()
+    const targetYear = filter.year && filter.year !== 'project' ? Number(filter.year) : undefined
+    const nodes = this.buildSpatialNodes(rows, targetYear)
     if (!filter.level || filter.level === 'all' || !filter.id) return nodes
     const selected = nodes.find((node) => node.id === `${filter.level}-${filter.id}` || node.id === filter.id)
     if (!selected) return nodes
@@ -848,8 +853,9 @@ export class AnalyticsService {
     }))
   }
 
-  private buildSpatialNodes(rows: EmissionRow[]): SpatialNode[] {
+  private buildSpatialNodes(rows: EmissionRow[], targetYear?: number): SpatialNode[] {
     const meta = this.getYearMeta(rows)
+    const currentYear = targetYear ?? meta.currentYear
     const nodes = new Map<string, SpatialNode & { fieldSet: Set<number>; farmerSet: Set<number>; areaSet: Map<number, number>; processMap: Map<string, number>; calculationBreakdowns: CalculationBreakdown[] }>()
 
     const ensureNode = (id: string, parentId: string | undefined, level: SpatialNode['level'], name: string, lat: number, lng: number, zoom: number) => {
@@ -906,7 +912,7 @@ export class AnalyticsService {
         if (row.farmer_id) node.farmerSet.add(row.farmer_id)
         if (row.land_id) node.areaSet.set(row.land_id, n(row.land_area))
         const co2e = n(row.co2e)
-        if (row.year === meta.currentYear) {
+        if (row.year === currentYear) {
           node.currentEmission += co2e
           addToMap(node.processMap, labelOr(row.process, 'ไม่ระบุกระบวนการ'), co2e)
         } else if (row.year && meta.baselineYears.includes(row.year)) {

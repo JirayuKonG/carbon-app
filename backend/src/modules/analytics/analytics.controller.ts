@@ -63,19 +63,21 @@ export class AnalyticsController {
   }
 
   @Get('cf-camps')
-  getCfCamps() {
-    return this.svc.getCfCamps()
+  @ApiQuery({ name: 'year', required: false, type: String })
+  getCfCamps(@Query('year') year?: string) {
+    return this.svc.getCfCamps(year)
   }
 
   @Get('cf-camp-fields')
   @ApiQuery({ name: 'camp_id', required: false, type: Number })
-  getCfCampFields(@Query('camp_id') campId?: string) {
-    return this.svc.getCfCampFields(campId ? +campId : undefined)
+  @ApiQuery({ name: 'year', required: false, type: String })
+  getCfCampFields(@Query('camp_id') campId?: string, @Query('year') year?: string) {
+    return this.svc.getCfCampFields(campId ? +campId : undefined, year)
   }
 
   @Get('cf-spatial-nodes')
-  getCfSpatialNodes(@Query('level') level?: string, @Query('id') id?: string) {
-    return this.svc.getCfSpatialNodes({ level: this.filterLevel(level), id })
+  getCfSpatialNodes(@Query('level') level?: string, @Query('id') id?: string, @Query('year') year?: string) {
+    return this.svc.getCfSpatialNodes({ level: this.filterLevel(level), id, year })
   }
 
   @Get('cf-report-summary')

@@ -129,16 +129,22 @@ export async function getCaneTypeSummaries(filter?: Partial<ReportFilter>): Prom
   return apiOrMock(route, () => get<CaneTypeSummary[]>(route, cleanParams(filter)), projectDashboardDataset.caneTypeSummaries, hasCaneRows);
 }
 
-export async function getCampCarbonSummaries(): Promise<DataResult<CampCarbonSummary[]>> {
+export async function getCampCarbonSummaries(filter?: Partial<ReportFilter>): Promise<DataResult<CampCarbonSummary[]>> {
   const route = "/analytics/cf-camps";
-  return apiOrMock(route, () => get<CampCarbonSummary[]>(route), projectDashboardDataset.campSummaries, hasCampRows);
+  const params = filter?.year ? { year: filter.year } : undefined;
+  const routeWithQuery = filter?.year ? `${route}?year=${filter.year}` : route;
+  return apiOrMock(routeWithQuery, () => get<CampCarbonSummary[]>(route, params), projectDashboardDataset.campSummaries, hasCampRows);
 }
 
-export async function getCampFieldCarbonDetails(campId?: number): Promise<DataResult<CampFieldCarbonDetail[]>> {
+export async function getCampFieldCarbonDetails(filter?: Partial<ReportFilter>, campId?: number): Promise<DataResult<CampFieldCarbonDetail[]>> {
   const route = "/analytics/cf-camp-fields";
-  const routeWithQuery = campId ? `${route}?camp_id=${campId}` : route;
+  const params: Record<string, string> = {};
+  if (campId) params.camp_id = String(campId);
+  if (filter?.year) params.year = filter.year;
+  const queryParts = Object.entries(params).map(([k, v]) => `${k}=${v}`).join("&");
+  const routeWithQuery = queryParts ? `${route}?${queryParts}` : route;
   const data = campId ? projectDashboardDataset.campFields.filter((field) => field.campId === campId) : projectDashboardDataset.campFields;
-  return apiOrMock(routeWithQuery, () => get<CampFieldCarbonDetail[]>(route, campId ? { camp_id: String(campId) } : undefined), data, hasCampFieldRows);
+  return apiOrMock(routeWithQuery, () => get<CampFieldCarbonDetail[]>(route, Object.keys(params).length ? params : undefined), data, hasCampFieldRows);
 }
 
 export async function getReportSummary(filter: ReportFilter): Promise<ReportSummary> {

@@ -228,6 +228,7 @@ export type ReportFilterLevel = "all" | "region" | "province" | "district" | "su
 export interface ReportFilter {
   level: ReportFilterLevel;
   id?: string;
+  year?: string;
 }
 
 export interface ReportSummary {
