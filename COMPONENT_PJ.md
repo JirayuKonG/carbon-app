@@ -1,6 +1,6 @@
 # Project Component Map
 
-Last updated: 2026-06-16
+Last updated: 2026-06-17
 
 Use this file to quickly find where a page, component, layout element, or related API code lives.
 
@@ -67,6 +67,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | `/calculate/prepare` | `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` | Carbon data preparation page that moves imported activity details into `carbon_process_queue`, including production-year filtering. |
 | `/calculate/usage` | `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` | Input usage summary page for fertilizer, fuel, and other activity factors by camp/field/production year before Carbon Footprint calculation, including a workbook-style fertilizer view based on the attached xlsx report layout. |
 | `/calculate/footprint` | `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` | Carbon Footprint queue page for unit/volume preparation, fertilizer/fuel conversions, soil/SOC inputs, production-year filtering, ready status, and calculation actions. |
+| `/calculate/soc` | `frontend/src/features/cf-dashboard/pages/SoilOrganicCarbonPage.tsx` | Soil Organic Carbon page for SOC and soil-improvement plant inputs/calculation, required-field markers, a switchable rollup summary (`ตามแปลง` / `ตามกลุ่มไร่` / `ตามปีเริ่มโครงการ`), and by-cover-crop-type Fnfix summaries. |
 | `/calculate/credit` | `frontend/src/features/cf-dashboard/pages/CarbonCreditPage.tsx` | Read-only Carbon Credit analysis page with 4 baseline production years, 1 project production year, and plot-level fertilizer/fuel comparison. |
 | `/dashboard` | `frontend/src/features/dashboard/DashboardPage.tsx` | Older GHG dashboard page kept as a separate route. |
 | `/geo` | `frontend/src/features/geo/GeoPage.tsx` | Geographies, provinces, districts, and subdistricts. |
@@ -78,7 +79,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | `/emission-factors` | `frontend/src/features/emission-factors/EmissionFactorsPage.tsx` | Emission factors, GWP, units, reference data, row-level favorites for EF/GWP/Unit, and a `รายการโปรด` tab that shows saved favorites from browser local storage. |
 | `/activities` | `frontend/src/App.tsx` | Redirects to `/activities/logs`. |
 | `/activities/logs` | `frontend/src/features/activities/ActivityLogListPage.tsx` | Daily-use list for `log_activities_detail` with production-year filters and add/edit/delete. |
-| `/activities/resources` | `frontend/src/features/activities/ActivityResourcesPage.tsx` | Activity resource master-data page for fertilizers, fuels/equipments, chemicals, and other resource items, with type filters, add/edit/delete modals, and explicit destination selection when creating new items. |
+| `/activities/resources` | `frontend/src/features/activities/ActivityResourcesPage.tsx` | Activity resource master-data page for fertilizers, fuels/equipments, chemicals, and other resource items, with type filters, a colored `หน้ารวมรายการ` grouped catalog view, a merged `ตารางรวม` view, add/edit/delete modals, and explicit destination selection when creating new items. |
 | `/activities/types` | `frontend/src/features/activities/ActivityTypesPage.tsx` | Activity master-data page for `activities_header_type`, `activities_header_detail_type`, and the one-parent mapping from activity detail type to activity header type, with usage counts and guarded deletes. |
 | `/activities/manage` | `frontend/src/features/activities/ActivitiesPage.tsx` | Advanced activity management page with headers, activity CSV import including production year, workflow tools, and imported-file history. |
 | `/activities/logs/new` | `frontend/src/App.tsx` | Redirect helper that preserves the query string and sends users to `/activities/manage`. |

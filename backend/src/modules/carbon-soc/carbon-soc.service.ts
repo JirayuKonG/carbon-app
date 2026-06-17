@@ -103,6 +103,7 @@ const STANDARD_UNITS: Record<StandardUnitKey, { unitName: string; unitInitial: s
 @Injectable()
 export class CarbonSocService {
   private readonly socAnnualizationYears = 20
+  private readonly standardUnitIdCache = new Map<StandardUnitKey, number>()
 
   constructor(private prisma: PrismaService) {}
 
@@ -114,7 +115,19 @@ export class CarbonSocService {
         name: true,
         land_size: true,
         area_size: true,
-        lands_camps: { select: { land_camp_name: true } },
+        lands_camps: {
+          select: {
+            land_camp_name: true,
+            land_camp_group_id: true,
+            lands_camps_groups: {
+              select: {
+                land_camp_group_id: true,
+                land_camp_group_idCode: true,
+                land_camp_group_name: true,
+              },
+            },
+          },
+        },
       },
     },
     units_socSampleIT: { select: { unit_id: true, unit_name: true, unit_initial: true } },
@@ -132,7 +145,19 @@ export class CarbonSocService {
         name: true,
         land_size: true,
         area_size: true,
-        lands_camps: { select: { land_camp_name: true } },
+        lands_camps: {
+          select: {
+            land_camp_name: true,
+            land_camp_group_id: true,
+            lands_camps_groups: {
+              select: {
+                land_camp_group_id: true,
+                land_camp_group_idCode: true,
+                land_camp_group_name: true,
+              },
+            },
+          },
+        },
       },
     },
     activities_resourceOther: {
@@ -193,6 +218,9 @@ export class CarbonSocService {
   }
 
   private async ensureStandardUnitId(kind: StandardUnitKey, tx: any = this.prisma) {
+    const cached = this.standardUnitIdCache.get(kind)
+    if (cached) return cached
+
     const spec = STANDARD_UNITS[kind]
     const aliases = [spec.unitName, spec.unitInitial, ...spec.aliases]
       .map((value) => this.normalizeUnitText(value))
@@ -211,7 +239,10 @@ export class CarbonSocService {
       return tokens.some((token) => aliases.includes(token))
     })
 
-    if (matched) return matched.unit_id
+    if (matched) {
+      this.standardUnitIdCache.set(kind, matched.unit_id)
+      return matched.unit_id
+    }
 
     const current = await tx.units.aggregate({ _max: { unit_id: true } })
     const created = await tx.units.create({
@@ -224,24 +255,35 @@ export class CarbonSocService {
       select: { unit_id: true },
     })
 
+    this.standardUnitIdCache.set(kind, created.unit_id)
     return created.unit_id
   }
 
   private async standardSocUnitFields() {
-    const unit_socSampleIT = await this.ensureStandardUnitId('percent')
-    const unit_socbdSampleIT = await this.ensureStandardUnitId('bulkDensity')
-    const unit_depSampleIT = await this.ensureStandardUnitId('centimeter')
-    const unit_socIT = await this.ensureStandardUnitId('tco2ePerYear')
-    const unit_socIT_perRai = await this.ensureStandardUnitId('tco2ePerRaiPerYear')
+    const [
+      unit_socSampleIT,
+      unit_socbdSampleIT,
+      unit_depSampleIT,
+      unit_socIT,
+      unit_socIT_perRai,
+    ] = await Promise.all([
+      this.ensureStandardUnitId('percent'),
+      this.ensureStandardUnitId('bulkDensity'),
+      this.ensureStandardUnitId('centimeter'),
+      this.ensureStandardUnitId('tco2ePerYear'),
+      this.ensureStandardUnitId('tco2ePerRaiPerYear'),
+    ])
 
     return { unit_socSampleIT, unit_socbdSampleIT, unit_depSampleIT, unit_socIT, unit_socIT_perRai }
   }
 
   private async standardSoilImprovementUnitFields() {
-    const unit_mc = await this.ensureStandardUnitId('kgPerRai')
-    const unit_nc = await this.ensureStandardUnitId('percentNitrogen')
-    const unit_fnFix = await this.ensureStandardUnitId('tonNitrogen')
-    const unit_fnFix_perRai = await this.ensureStandardUnitId('tonNitrogenPerRai')
+    const [unit_mc, unit_nc, unit_fnFix, unit_fnFix_perRai] = await Promise.all([
+      this.ensureStandardUnitId('kgPerRai'),
+      this.ensureStandardUnitId('percentNitrogen'),
+      this.ensureStandardUnitId('tonNitrogen'),
+      this.ensureStandardUnitId('tonNitrogenPerRai'),
+    ])
 
     return { unit_mc, unit_nc, unit_fnFix, unit_fnFix_perRai }
   }
@@ -312,6 +354,81 @@ export class CarbonSocService {
       throw new BadRequestException(`กรุณาระบุ${label}เป็นตัวเลขมากกว่า 0`)
     }
     return num
+  }
+
+  private assertRequiredNumber(value: unknown, label: string) {
+    const num = this.toFiniteNumber(value)
+    if (num === undefined) {
+      throw new BadRequestException(`กรุณากรอก${label}`)
+    }
+    return num
+  }
+
+  private async ensureLandExists(landId?: number, tx: any = this.prisma) {
+    if (!landId) return null
+
+    const land = await tx.lands.findUnique({
+      where: { land_id: landId },
+      select: {
+        land_id: true,
+        land_size: true,
+        area_size: true,
+      },
+    })
+
+    if (!land) {
+      throw new BadRequestException(`ไม่พบแปลง land_id=${landId}`)
+    }
+
+    return land
+  }
+
+  private async ensureResourceOtherExists(resourceOtherId?: number, tx: any = this.prisma) {
+    if (!resourceOtherId) return null
+
+    const resource = await tx.activities_resourceOther.findUnique({
+      where: { act_resourceOther_id: resourceOtherId },
+      select: { act_resourceOther_id: true },
+    })
+
+    if (!resource) {
+      throw new BadRequestException(`ไม่พบรายการพืช/วัสดุ act_resourceOther_id=${resourceOtherId}`)
+    }
+
+    return resource
+  }
+
+  private validateSocRequiredInput(input: {
+    land_id?: unknown
+    carbon_soc_socSampleIT?: unknown
+    carbon_soc_bdSampleIt?: unknown
+    carbon_soc_depSampleIT?: unknown
+  }) {
+    if (!this.toOptionalInt(input.land_id)) {
+      throw new BadRequestException('กรุณาเลือกแปลง')
+    }
+
+    this.assertRequiredNumber(input.carbon_soc_socSampleIT, 'ค่า SOC sample')
+    this.assertRequiredNumber(input.carbon_soc_bdSampleIt, 'ค่า bulk density')
+    this.assertRequiredNumber(input.carbon_soc_depSampleIT, 'ค่าความลึกดิน')
+  }
+
+  private validateSoilImprovementRequiredInput(input: {
+    land_id?: unknown
+    act_resourceOther_id?: unknown
+    carbon_soilImprovementPlant_mc?: unknown
+    carbon_soilImprovementPlant_nc?: unknown
+  }) {
+    if (!this.toOptionalInt(input.land_id)) {
+      throw new BadRequestException('กรุณาเลือกแปลง')
+    }
+
+    if (!this.toOptionalInt(input.act_resourceOther_id)) {
+      throw new BadRequestException('กรุณาเลือกพืช/วัสดุ')
+    }
+
+    this.assertRequiredNumber(input.carbon_soilImprovementPlant_mc, 'ค่า mc dry matter')
+    this.assertRequiredNumber(input.carbon_soilImprovementPlant_nc, 'ค่า nc (%N)')
   }
 
   private calculateSocValues(areaRai: number, socPercent: number, bulkDensity: number, depthCm: number) {
@@ -471,7 +588,10 @@ export class CarbonSocService {
     const standardUnits = await this.standardSocUnitFields()
     const now = new Date()
 
+    this.validateSocRequiredInput(normalized)
+
     const row = await this.prisma.$transaction(async (tx) => {
+      await this.ensureLandExists(this.toOptionalInt(normalized.land_id), tx)
       const calculated = await this.resolveSocCalculatedFields(normalized, tx)
 
       return tx.carbon_soc.create({
@@ -505,12 +625,17 @@ export class CarbonSocService {
 
     if (!existing) throw new NotFoundException(`carbon_soc ${id} not found`)
 
-    const calculated = await this.resolveSocCalculatedFields({
+    const mergedInput = {
       land_id: normalized.land_id ?? existing.land_id,
       carbon_soc_socSampleIT: normalized.carbon_soc_socSampleIT ?? existing.carbon_soc_socSampleIT,
       carbon_soc_bdSampleIt: normalized.carbon_soc_bdSampleIt ?? existing.carbon_soc_bdSampleIt,
       carbon_soc_depSampleIT: normalized.carbon_soc_depSampleIT ?? existing.carbon_soc_depSampleIT,
-    })
+    }
+
+    this.validateSocRequiredInput(mergedInput)
+    await this.ensureLandExists(this.toOptionalInt(mergedInput.land_id))
+
+    const calculated = await this.resolveSocCalculatedFields(mergedInput)
 
     const row = await this.prisma.carbon_soc.update({
       where: { carbon_soc_id: id },
@@ -579,7 +704,11 @@ export class CarbonSocService {
     const standardUnits = await this.standardSoilImprovementUnitFields()
     const now = new Date()
 
+    this.validateSoilImprovementRequiredInput(normalized)
+
     const row = await this.prisma.$transaction(async (tx) => {
+      await this.ensureLandExists(this.toOptionalInt(normalized.land_id), tx)
+      await this.ensureResourceOtherExists(this.toOptionalInt(normalized.act_resourceOther_id), tx)
       const calculated = await this.resolveSoilImprovementCalculatedFields(normalized, tx)
 
       return tx.carbon_soilImprovementPlants.create({
@@ -607,16 +736,24 @@ export class CarbonSocService {
         land_id: true,
         carbon_soilImprovementPlant_mc: true,
         carbon_soilImprovementPlant_nc: true,
+        act_resourceOther_id: true,
       },
     })
 
     if (!existing) throw new NotFoundException(`carbon_soilImprovementPlant ${id} not found`)
 
-    const calculated = await this.resolveSoilImprovementCalculatedFields({
+    const mergedInput = {
       land_id: normalized.land_id ?? existing.land_id,
+      act_resourceOther_id: normalized.act_resourceOther_id ?? existing.act_resourceOther_id,
       carbon_soilImprovementPlant_mc: normalized.carbon_soilImprovementPlant_mc ?? existing.carbon_soilImprovementPlant_mc,
       carbon_soilImprovementPlant_nc: normalized.carbon_soilImprovementPlant_nc ?? existing.carbon_soilImprovementPlant_nc,
-    })
+    }
+
+    this.validateSoilImprovementRequiredInput(mergedInput)
+    await this.ensureLandExists(this.toOptionalInt(mergedInput.land_id))
+    await this.ensureResourceOtherExists(this.toOptionalInt(mergedInput.act_resourceOther_id))
+
+    const calculated = await this.resolveSoilImprovementCalculatedFields(mergedInput)
 
     const row = await this.prisma.carbon_soilImprovementPlants.update({
       where: { carbon_soilImprovementPlant_id: id },

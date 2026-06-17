@@ -50,6 +50,7 @@ type ActivityDetailPayload = {
   log_act_detail_create_at?: Date | string | null
   // log_act_detail_create_at is used to date, such as 2024-07-01, but it is not used to time
   calcMode?: 'standard' | 'tver'
+  skipRequiredValidation?: boolean
 }
 
 type FertilizerPayload = {
@@ -190,6 +191,7 @@ type InputUsageSummaryRow = {
   id: string
   bucket: InputUsageBucket
   year: number | null
+  yearLabel: string
   caneTypeName?: string
   campId: number | null
   campName: string
@@ -197,6 +199,7 @@ type InputUsageSummaryRow = {
   landCode: string
   landName: string
   landLabel: string
+  activityNames: string[]
   itemName: string
   resourceTypeName: string
   fertilizerKind?: InputUsageFertilizerKind
@@ -228,9 +231,17 @@ type InputUsageComparisonTarget = {
   warningCount: number
 }
 
+type InputUsageYearFilterOption = {
+  value: string
+  label: string
+  sortYear: number | null
+}
+
 type InputUsageSourceDetail = {
   log_act_detail_id: number
   act_productYear_id?: number | null
+  act_header_type_id?: number | null
+  act_header_detail_type_id?: number | null
   log_act_detail_quatity?: number | null
   log_act_detail_volumePerUnit?: number | null
   log_act_detail_volumeAll?: number | null
@@ -401,6 +412,48 @@ export class ActivitiesService {
       log_act_detail_areawork:           this.toOptionalNumber(data.log_act_detail_areawork),
       log_act_detail_create_at:          this.toOptionalDate(data.log_act_detail_create_at),
       // log_act_detail_create_at is used to date, such as 2024-07-01, but it is not used to time
+    }
+  }
+
+  private hasSelectedDetailResource(normalized: ReturnType<ActivitiesService['normalizeDetailPayload']>) {
+    return normalized.act_fertilizer_id != null
+      || normalized.act_equipment_id != null
+      || normalized.act_chemiscal_id != null
+      || normalized.act_resourceOther_id != null
+  }
+
+  private validateRequiredDetailPayload(
+    data: ActivityDetailPayload,
+    normalized: ReturnType<ActivitiesService['normalizeDetailPayload']>,
+  ) {
+    if (data.skipRequiredValidation) return
+
+    if (normalized.activities_header_id == null) {
+      throw new BadRequestException('กรุณาเลือกหัวข้อกิจกรรมของแปลงที่ต้องการบันทึก')
+    }
+
+    if (normalized.act_productYear_id == null) {
+      throw new BadRequestException('กรุณาเลือกปีการผลิต')
+    }
+
+    if (normalized.act_header_detail_type_id == null) {
+      throw new BadRequestException('กรุณาเลือกประเภทรายละเอียดกิจกรรม')
+    }
+
+    if (!this.hasSelectedDetailResource(normalized)) {
+      throw new BadRequestException('กรุณาเลือกอย่างน้อย 1 รายการจาก ปุ๋ย / อุปกรณ์ / สารเคมี / รายการอื่น ๆ')
+    }
+
+    if (normalized.unit_id == null) {
+      throw new BadRequestException('กรุณาเลือกหน่วยนับ')
+    }
+
+    if (normalized.log_act_detail_quatity == null) {
+      throw new BadRequestException('กรุณากรอกจำนวน')
+    }
+
+    if (normalized.log_act_detail_areawork == null) {
+      throw new BadRequestException('กรุณากรอกพื้นที่ทำงาน')
     }
   }
 
@@ -1265,6 +1318,13 @@ export class ActivitiesService {
     return parsed.getFullYear()
   }
 
+  private getInputUsageYearLabel(detail: InputUsageSourceDetail, year: number | null) {
+    const productionYearLabel = this.compactText(detail.activities_productYear?.act_productYear_name)
+    if (productionYearLabel) return productionYearLabel
+    if (year != null) return String(year)
+    return 'ไม่ระบุปีการผลิต'
+  }
+
   private parseProductionYearNumber(value?: string | null) {
     const text = value?.trim()
     if (!text) return null
@@ -1274,7 +1334,44 @@ export class ActivitiesService {
       return this.normalizeImportedYear(Number(fullYearMatch[1]))
     }
 
+    const shortYearMatch = text.match(/\b(\d{2})(?:\s*\/\s*\d{2})?\b/)
+    if (shortYearMatch) {
+      const shortYear = Number(shortYearMatch[1])
+      if (Number.isFinite(shortYear)) return shortYear + 2500
+    }
+
     return null
+  }
+
+  private buildInputUsageYearFilterOptions(details: InputUsageSourceDetail[]): InputUsageYearFilterOption[] {
+    const options = new Map<string, InputUsageYearFilterOption>()
+
+    details.forEach((detail) => {
+      const year = this.getInputUsageYear(detail)
+      const label = this.getInputUsageYearLabel(detail, year)
+      if (!label) return
+
+      const existing = options.get(label)
+      if (!existing) {
+        options.set(label, {
+          value: label,
+          label,
+          sortYear: year,
+        })
+        return
+      }
+
+      if (existing.sortYear == null || (year != null && year < existing.sortYear)) {
+        existing.sortYear = year
+      }
+    })
+
+    return Array.from(options.values()).sort((left, right) => {
+      const leftYear = left.sortYear ?? Number.MAX_SAFE_INTEGER
+      const rightYear = right.sortYear ?? Number.MAX_SAFE_INTEGER
+      if (leftYear !== rightYear) return leftYear - rightYear
+      return left.label.localeCompare(right.label, 'th')
+    })
   }
 
   private addInputUsageRow(map: Map<string, InputUsageSummaryRow>, row: InputUsageSummaryRow) {
@@ -1289,6 +1386,9 @@ export class ActivitiesService {
     existing.recordCount += row.recordCount
     existing.sourcePreparedCount += row.sourcePreparedCount
     existing.warningCount += row.warningCount
+    row.activityNames.forEach((activityName) => {
+      if (!existing.activityNames.includes(activityName)) existing.activityNames.push(activityName)
+    })
     row.warnings.forEach((warning) => {
       if (!existing.warnings.includes(warning)) existing.warnings.push(warning)
     })
@@ -1408,7 +1508,7 @@ export class ActivitiesService {
   }
 
   async getInputUsageSummary() {
-    const [details, units, prefixes] = await Promise.all([
+    const [details, units, prefixes, headerTypes, detailTypes] = await Promise.all([
       this.prisma.log_activities_detail.findMany({
         include: {
           activities_header: {
@@ -1457,6 +1557,8 @@ export class ActivitiesService {
       }),
       this.prisma.units.findMany({ select: { unit_id: true, unit_name: true, unit_initial: true } }),
       this.prisma.units_prefixs.findMany({ select: { unit_prefix_id: true, unit_prefix_name: true, unit_prefix_initial: true } }),
+      this.prisma.activities_header_type.findMany({ select: { act_header_type_id: true, act_header_type_name_th: true } }),
+      this.prisma.activities_header_detail_type.findMany({ select: { act_header_detail_type_id: true, act_header_detail_type_name_th: true } }),
     ])
 
     const unitById = units.reduce<Record<number, InputUsageUnitRef>>((map, unit) => {
@@ -1465,6 +1567,16 @@ export class ActivitiesService {
     }, {})
     const prefixById = prefixes.reduce<Record<number, InputUsagePrefixRef>>((map, prefix) => {
       map[prefix.unit_prefix_id] = prefix
+      return map
+    }, {})
+    const headerTypeNameById = headerTypes.reduce<Record<number, string>>((map, item) => {
+      const label = this.compactText(item.act_header_type_name_th)
+      if (label) map[item.act_header_type_id] = label
+      return map
+    }, {})
+    const detailTypeNameById = detailTypes.reduce<Record<number, string>>((map, item) => {
+      const label = this.compactText(item.act_header_detail_type_name_th)
+      if (label) map[item.act_header_detail_type_id] = label
       return map
     }, {})
 
@@ -1489,7 +1601,17 @@ export class ActivitiesService {
         ? this.getFertilizerProfile(`${itemName} ${resourceTypeName}`)
         : null
       const year = this.getInputUsageYear(detail)
+      const yearLabel = this.getInputUsageYearLabel(detail, year)
       const caneTypeName = this.compactText(detail.activities_header?.activities_header_typeSugarCane?.act_header_typeSugarCane_name) || '—'
+      const headerTypeName = detail.act_header_type_id != null
+        ? (headerTypeNameById[detail.act_header_type_id] ?? '')
+        : ''
+      const detailTypeName = detail.act_header_detail_type_id != null
+        ? (detailTypeNameById[detail.act_header_detail_type_id] ?? '')
+        : ''
+      const activityName = detailTypeName
+        ? (headerTypeName && headerTypeName !== detailTypeName ? `${headerTypeName} / ${detailTypeName}` : detailTypeName)
+        : (headerTypeName || 'ไม่ระบุกิจกรรม')
       const land = detail.activities_header?.lands
       const landId = land?.land_id ?? detail.activities_header?.land_id ?? null
       const landCode = this.compactText(land?.land_code) || (landId != null ? `#${landId}` : 'ไม่ระบุแปลง')
@@ -1518,6 +1640,7 @@ export class ActivitiesService {
         id: key,
         bucket,
         year,
+        yearLabel,
         caneTypeName,
         campId,
         campName,
@@ -1525,6 +1648,7 @@ export class ActivitiesService {
         landCode,
         landName: landName || '—',
         landLabel,
+        activityNames: [activityName],
         itemName,
         resourceTypeName,
         ...(fertilizerProfile ? {
@@ -1549,6 +1673,7 @@ export class ActivitiesService {
     const fuel = Array.from(fuelMap.values()).sort((a, b) => b.amount - a.amount)
     const other = Array.from(otherMap.values()).sort((a, b) => b.recordCount - a.recordCount || b.amount - a.amount)
     const allRows = [...fertilizer, ...fuel, ...other]
+    const yearOptions = this.buildInputUsageYearFilterOptions(details)
     const campOptions = new Map<number, { id: number; label: string }>()
     const landOptions = new Map<number, { id: number; label: string; campId: number | null; campLabel: string }>()
 
@@ -1569,6 +1694,7 @@ export class ActivitiesService {
     return {
       filters: {
         years: Array.from(new Set(allRows.map((row) => row.year).filter((year): year is number => year != null))).sort((a, b) => a - b),
+        yearOptions,
         camps: Array.from(campOptions.values()).sort((a, b) => a.label.localeCompare(b.label, 'th')),
         lands: Array.from(landOptions.values()).sort((a, b) => a.label.localeCompare(b.label, 'th')),
       },
@@ -1633,6 +1759,7 @@ export class ActivitiesService {
 
   async createDetail(data: ActivityDetailPayload) {
     const normalized = this.normalizeDetailPayload(data)
+    this.validateRequiredDetailPayload(data, normalized)
     const calStatusId = await this.getCalStatusId(CAL_STATUS_NAMES.imported)
     const createdAt = normalized.log_act_detail_create_at ?? new Date()
 
@@ -1653,6 +1780,7 @@ export class ActivitiesService {
 
   async updateDetail(id: number, data: ActivityDetailPayload) {
     const normalized = this.normalizeDetailPayload(data)
+    this.validateRequiredDetailPayload(data, normalized)
     const currentDetail = await this.getDetailForWorkflow(id)
     const currentStatusName = this.getDetailStatusName(currentDetail)
     const nextStatusName: CalStatusName = (
@@ -4215,6 +4343,7 @@ export class ActivitiesService {
           log_act_detail_volumeAll:  volumeAll,
           log_act_detail_areawork:   areawork,
           log_act_detail_create_at:  activityDate,
+          skipRequiredValidation:    true,
         })
 
         results.inserted++

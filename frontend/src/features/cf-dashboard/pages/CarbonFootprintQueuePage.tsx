@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Calculator, CheckCircle2, ChevronDown, ChevronUp, CircleAlert, Code2, Edit3, GripHorizontal, LoaderCircle, Plus, Wand2, X } from 'lucide-react'
+import { Calculator, CheckCircle2, ChevronDown, ChevronUp, CircleAlert, Code2, Edit3, LoaderCircle, Plus, Wand2, X } from 'lucide-react'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import {
@@ -1286,8 +1286,6 @@ export function CarbonFootprintQueuePage({
   const [isFootprintPreviewWide, setIsFootprintPreviewWide] = useState(false)
   const [isFootprintPreviewCollapsed, setIsFootprintPreviewCollapsed] = useState(true)
   const [isBulkSimulationCollapsed, setIsBulkSimulationCollapsed] = useState(true)
-  const [bulkSimulationHeight, setBulkSimulationHeight] = useState(320)
-  const [isBulkSimulationResizing, setIsBulkSimulationResizing] = useState(false)
   const [footprintEfFilterCfTypeId, setFootprintEfFilterCfTypeId] = useState('')
   const [footprintEfFilterGroupId, setFootprintEfFilterGroupId] = useState('')
   const [footprintEfFilterUnitId, setFootprintEfFilterUnitId] = useState('')
@@ -1298,7 +1296,6 @@ export function CarbonFootprintQueuePage({
   const [footprintUnitCreateError, setFootprintUnitCreateError] = useState<string | null>(null)
   const [form, setForm] = useState<PreparationForm>(emptyForm)
   const footprintPreviewLayoutRef = useRef<HTMLDivElement | null>(null)
-  const bulkSimulationResizeStartRef = useRef<{ startY: number; startHeight: number } | null>(null)
 
   const { data: queue = [], isLoading, error: queueError } = useQuery({
     queryKey: ['carbon-process-queue'],
@@ -1380,6 +1377,7 @@ export function CarbonFootprintQueuePage({
   })
 
   const kgUnit = findUnit(['kg', 'กิโลกรัม', 'kilogram', 'kilograms'])
+  const gramUnit = findUnit(['g', 'gram', 'grams', 'กรัม'])
   const literUnit = findUnit(['l', 'lit', 'liter', 'litre', 'litter', 'ลิตร'])
   const cubicMeterUnit = findUnit(['m3', 'm^3', 'm³', 'cubicmeter', 'cubicmetre', 'ลูกบาศก์เมตร'])
   const milliliterUnit = findUnit(['ml', 'milliliter', 'millilitre', 'มิลลิลิตร'])
@@ -1872,6 +1870,7 @@ export function CarbonFootprintQueuePage({
   const isFuelRow = (row: QueueRow) => row.rowType === 'fuel' || /น้ำมัน|fuel|diesel|gasohol|benzene|เบนซิน|lit|liter|litre|litter|ลิตร|m3|m\^3|m³|ลูกบาศก์เมตร/.test(getRowResourceText(row))
   const isLiterRow = (row: QueueRow) => isLiterUnitText(getRowUnitText(row))
   const isCubicMeterRow = (row: QueueRow) => isCubicMeterUnitText(getRowUnitText(row))
+  const isMilliliterRow = (row: QueueRow) => isMilliliterUnitText(getRowUnitText(row))
 
   const buildBulkConversionPreview = (row: QueueRow): BulkConversionPreview => {
     const detail = row.original.log_activities_detail
@@ -2087,11 +2086,164 @@ export function CarbonFootprintQueuePage({
     const manualN = toNumberOrUndefined(bulkUnknownFertilizerN)
     return manualN != null ? formatNumber(manualN, 3) : 'null'
   }
+
+  const getBulkPreviewCodeLines = (item: BulkConversionPreview) => {
+    const detail = item.row.original.log_activities_detail
+    const quantity = detail?.log_act_detail_quatity ?? 0
+    const sourceVolumeAll = item.row.preparationInfo.sourceVolumeAll ?? detail?.log_act_detail_volumeAll ?? 0
+
+    if (isSolidFertilizerRow(item.row)) {
+      const bagWeightKg = toNumberOrUndefined(bulkFertilizerBagWeightKg) ?? 50
+      const unitFactor = toNumberOrUndefined(bulkFertilizerUnitFactor) ?? 1
+      const baseKg = quantity * bagWeightKg
+
+      return [
+        { label: 'quantity', value: formatNumberish(quantity, 4) },
+        { label: 'kg_per_bag', value: formatNumberish(bagWeightKg, 4) },
+        { label: 'base_kg', value: `${formatNumberish(quantity, 4)} x ${formatNumberish(bagWeightKg, 4)} = ${formatNumberish(baseKg, 4)}` },
+        { label: 'unit_factor', value: formatNumberish(unitFactor, 6) },
+        { label: 'prepared_amount', value: `${formatNumberish(baseKg, 4)} x ${formatNumberish(unitFactor, 6)} = ${formatNumberish(item.preparedVolumeAll, 4)} ${item.preparedUnitLabel}` },
+        { label: 'nitrogen_to_save', value: getBulkFertilizerPreviewNLabel(item.row) },
+      ]
+    }
+
+    if (isLiquidFertilizerRow(item.row)) {
+      const valuePerUnit = toNumberOrUndefined(bulkFuelValuePerUnit) ?? detail?.log_act_detail_volumePerUnit ?? 1
+
+      return [
+        { label: 'quantity', value: formatNumberish(quantity, 4) },
+        { label: 'prepared_per_unit', value: formatNumberish(valuePerUnit, 6) },
+        { label: 'prepared_amount', value: `${formatNumberish(quantity, 4)} x ${formatNumberish(valuePerUnit, 6)} = ${formatNumberish(item.preparedVolumeAll, 4)} ${item.preparedUnitLabel}` },
+        { label: 'target_unit', value: item.preparedUnitLabel },
+      ]
+    }
+
+    if (item.rowType === 'fuel') {
+      const valuePerUnit = toNumberOrUndefined(bulkFuelValuePerUnit) ?? detail?.log_act_detail_volumePerUnit ?? 1
+
+      return [
+        { label: 'quantity', value: formatNumberish(quantity, 4) },
+        { label: 'prepared_per_unit', value: formatNumberish(valuePerUnit, 6) },
+        { label: 'prepared_amount', value: `${formatNumberish(quantity, 4)} x ${formatNumberish(valuePerUnit, 6)} = ${formatNumberish(item.preparedVolumeAll, 4)} ${item.preparedUnitLabel}` },
+        { label: 'target_unit', value: item.preparedUnitLabel },
+      ]
+    }
+
+    const config = bulkOtherConfigs[getOtherGroupKey(item.row)] ?? DEFAULT_OTHER_GROUP_CONFIG
+    const factor = config.mode === 'factor'
+      ? (toNumberOrUndefined(config.conversionFactor) ?? 1)
+      : 1
+
+    return [
+      { label: 'source_amount', value: `${formatNumberish(sourceVolumeAll, 4)} ${item.currentUnitLabel}`.trim() },
+      { label: 'mode', value: config.mode === 'factor' ? 'convert_with_factor' : 'keep_current_unit' },
+      { label: 'unit_factor', value: formatNumberish(factor, 6) },
+      { label: 'prepared_amount', value: `${formatNumberish(sourceVolumeAll, 4)} x ${formatNumberish(factor, 6)} = ${formatNumberish(item.preparedVolumeAll, 4)} ${item.preparedUnitLabel}` },
+      { label: 'target_unit', value: item.preparedUnitLabel },
+    ]
+  }
+
   const getBulkFuelPresetValue = (target: 'liter' | 'milliliter') => {
-    const hasLiter = selectedFuelRows.some(isLiterRow)
-    const hasCubicMeter = selectedFuelRows.some(isCubicMeterRow)
-    if (target === 'milliliter') return '0.001'
-    return hasCubicMeter && !hasLiter ? '1000' : '1'
+    const volumePresetRows = [...selectedFuelRows, ...selectedLiquidFertilizerRows]
+    const hasLiter = volumePresetRows.some(isLiterRow)
+    const hasCubicMeter = volumePresetRows.some(isCubicMeterRow)
+    const hasMilliliter = volumePresetRows.some(isMilliliterRow)
+
+    if (target === 'milliliter') {
+      if (hasCubicMeter && !hasLiter && !hasMilliliter) return '1000000'
+      if (hasMilliliter && !hasLiter && !hasCubicMeter) return '1'
+      return '1000'
+    }
+
+    if (hasCubicMeter && !hasLiter && !hasMilliliter) return '1000'
+    if (hasMilliliter && !hasLiter && !hasCubicMeter) return '0.001'
+    return '1'
+  }
+
+  const applyPreparedUnitPreset = (
+    unit: Unit | undefined,
+    fallbackName: string,
+    fallbackInitial: string,
+    setters: {
+      setId: (value: string) => void
+      setName: (value: string) => void
+      setInitial: (value: string) => void
+    },
+  ) => {
+    if (unit?.unit_id != null) {
+      setters.setId(String(unit.unit_id))
+      setters.setName('')
+      setters.setInitial('')
+      return
+    }
+
+    setters.setId('')
+    setters.setName(fallbackName)
+    setters.setInitial(fallbackInitial)
+  }
+
+  const isPreparedUnitPresetActive = (
+    preparedUnitId: string | undefined,
+    preparedUnitName: string | undefined,
+    preparedUnitInitial: string | undefined,
+    unit: Unit | undefined,
+    aliases: string[],
+  ) => {
+    const selectedUnitId = preparedUnitId?.trim() ?? ''
+    if (selectedUnitId && unit?.unit_id != null) {
+      return selectedUnitId === String(unit.unit_id)
+    }
+
+    const normalizedValues = [preparedUnitName, preparedUnitInitial].map(normalizeUnitText)
+    return normalizedValues.some((value) => value && aliases.includes(value))
+  }
+
+  const applyBulkFertilizerUnitPreset = (target: 'kg' | 'g') => {
+    const presetUnit = target === 'kg' ? kgUnit : gramUnit
+    const fallbackName = target === 'kg' ? 'kilogram' : 'gram'
+    const fallbackInitial = target
+
+    applyPreparedUnitPreset(presetUnit, fallbackName, fallbackInitial, {
+      setId: setBulkFertilizerPreparedUnitId,
+      setName: setBulkFertilizerTargetUnitName,
+      setInitial: setBulkFertilizerTargetUnitInitial,
+    })
+    setBulkFertilizerUnitFactor(target === 'kg' ? '1' : '1000')
+  }
+
+  const applyBulkOtherUnitPreset = (groupKey: string, target: 'keep' | 'kg' | 'g' | 'l' | 'ml' | 'm3') => {
+    if (target === 'keep') {
+      updateOtherGroupConfig(groupKey, {
+        preparedUnitId: '',
+        preparedUnitPrefixId: '',
+        preparedUnitName: '',
+        preparedUnitInitial: '',
+      })
+      return
+    }
+
+    const preset = target === 'kg'
+      ? { unit: kgUnit, name: 'kilogram', initial: 'kg' }
+      : target === 'g'
+        ? { unit: gramUnit, name: 'gram', initial: 'g' }
+        : target === 'l'
+          ? { unit: literUnit, name: 'litre', initial: 'L' }
+          : target === 'ml'
+            ? { unit: milliliterUnit, name: 'milliliter', initial: 'ml' }
+            : { unit: cubicMeterUnit, name: 'cubic meter', initial: 'm3' }
+
+    const patch: Partial<OtherGroupConfig> = { preparedUnitPrefixId: '' }
+    if (preset.unit?.unit_id != null) {
+      patch.preparedUnitId = String(preset.unit.unit_id)
+      patch.preparedUnitName = ''
+      patch.preparedUnitInitial = ''
+    } else {
+      patch.preparedUnitId = ''
+      patch.preparedUnitName = preset.name
+      patch.preparedUnitInitial = preset.initial
+    }
+
+    updateOtherGroupConfig(groupKey, patch)
   }
 
   const toggleFootprintPreviewCollapsed = () => {
@@ -2102,26 +2254,18 @@ export function CarbonFootprintQueuePage({
     setIsBulkSimulationCollapsed((prev) => !prev)
   }
 
-  const startBulkSimulationResize = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    event.preventDefault()
-    bulkSimulationResizeStartRef.current = {
-      startY: event.clientY,
-      startHeight: bulkSimulationHeight,
-    }
-    setIsBulkSimulationResizing(true)
-  }
-
   const applyBulkFuelPreset = (target: 'liter' | 'milliliter') => {
-    const targetUnit = target === 'liter' ? literUnit : milliliterUnit
     setBulkFuelValuePerUnit(getBulkFuelPresetValue(target))
-    setBulkFuelPreparedUnitId(targetUnit?.unit_id != null ? String(targetUnit.unit_id) : '')
-    if (target === 'milliliter' && !targetUnit?.unit_id) {
-      setBulkFuelPreparedUnitName('milliliter')
-      setBulkFuelPreparedUnitInitial('ml')
-      return
-    }
-    setBulkFuelPreparedUnitName('')
-    setBulkFuelPreparedUnitInitial('')
+    applyPreparedUnitPreset(
+      target === 'liter' ? literUnit : milliliterUnit,
+      target === 'liter' ? 'litre' : 'milliliter',
+      target === 'liter' ? 'L' : 'ml',
+      {
+        setId: setBulkFuelPreparedUnitId,
+        setName: setBulkFuelPreparedUnitName,
+        setInitial: setBulkFuelPreparedUnitInitial,
+      },
+    )
   }
 
   useEffect(() => {
@@ -2143,7 +2287,12 @@ export function CarbonFootprintQueuePage({
   }, [bulkPreparationPopup])
 
   useEffect(() => {
-    if (!kgUnit?.unit_id || bulkFertilizerPreparedUnitId) return
+    if (
+      !kgUnit?.unit_id
+      || bulkFertilizerPreparedUnitId
+      || Boolean(bulkFertilizerTargetUnitName.trim())
+      || Boolean(bulkFertilizerTargetUnitInitial.trim())
+    ) return
     setBulkFertilizerPreparedUnitId(String(kgUnit.unit_id))
   }, [bulkFertilizerPreparedUnitId, kgUnit])
 
@@ -2198,7 +2347,6 @@ export function CarbonFootprintQueuePage({
   useEffect(() => {
     if (bulkModalOpen) {
       setIsBulkSimulationCollapsed(true)
-      setBulkSimulationHeight(320)
     }
   }, [bulkModalOpen])
 
@@ -2233,36 +2381,6 @@ export function CarbonFootprintQueuePage({
       window.removeEventListener('mouseup', handlePointerUp)
     }
   }, [isFootprintModalResizing, isFootprintPreviewWide])
-
-  useEffect(() => {
-    if (!isBulkSimulationResizing) return undefined
-
-    const handlePointerMove = (event: MouseEvent) => {
-      const start = bulkSimulationResizeStartRef.current
-      if (!start) return
-
-      const delta = event.clientY - start.startY
-      const nextHeight = Math.min(720, Math.max(180, start.startHeight + delta))
-      setBulkSimulationHeight(nextHeight)
-    }
-
-    const handlePointerUp = () => {
-      setIsBulkSimulationResizing(false)
-      bulkSimulationResizeStartRef.current = null
-    }
-
-    document.body.style.cursor = 'row-resize'
-    document.body.style.userSelect = 'none'
-    window.addEventListener('mousemove', handlePointerMove)
-    window.addEventListener('mouseup', handlePointerUp)
-
-    return () => {
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-      window.removeEventListener('mousemove', handlePointerMove)
-      window.removeEventListener('mouseup', handlePointerUp)
-    }
-  }, [isBulkSimulationResizing])
 
   useEffect(() => {
     if (isPreparationMode || footprintCalculationModal.kind === 'hidden' || !units.length) return
@@ -4469,36 +4587,52 @@ export function CarbonFootprintQueuePage({
                               onChange={(event) => setBulkFertilizerUnitFactor(event.target.value)}
                             />
                           </div>
-                          <div>
-                            <label className="label">หน่วยหลังเตรียม</label>
-                            <select
-                              className="select"
-                              value={bulkFertilizerPreparedUnitId}
-                              onChange={(event) => setBulkFertilizerPreparedUnitId(event.target.value)}
-                            >
-                              <option value="">— กรอกหน่วยเอง —</option>
-                              {units.map((unit) => <option key={unit.unit_id} value={unit.unit_id}>{unitLabel(unit)}</option>)}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="label">ชื่อหน่วยใหม่</label>
-                            <input
-                              className="input"
-                              value={bulkFertilizerTargetUnitName}
-                              onChange={(event) => setBulkFertilizerTargetUnitName(event.target.value)}
-                              disabled={Boolean(bulkFertilizerPreparedUnitId)}
-                              placeholder="เช่น kilogram"
-                            />
-                          </div>
-                          <div>
-                            <label className="label">ตัวย่อหน่วยใหม่</label>
-                            <input
-                              className="input"
-                              value={bulkFertilizerTargetUnitInitial}
-                              onChange={(event) => setBulkFertilizerTargetUnitInitial(event.target.value)}
-                              disabled={Boolean(bulkFertilizerPreparedUnitId)}
-                              placeholder="เช่น kg หรือ g"
-                            />
+                          <div className="md:col-span-2">
+                            <label className="label">เลือกหน่วยหลังเตรียม</label>
+                            <div className="flex flex-wrap gap-2">
+                              {[
+                                {
+                                  key: 'kg',
+                                  label: 'kg',
+                                  active: isPreparedUnitPresetActive(
+                                    bulkFertilizerPreparedUnitId,
+                                    bulkFertilizerTargetUnitName,
+                                    bulkFertilizerTargetUnitInitial,
+                                    kgUnit,
+                                    ['kg', 'kilogram', 'กิโลกรัม'],
+                                  ),
+                                  onClick: () => applyBulkFertilizerUnitPreset('kg'),
+                                },
+                                {
+                                  key: 'g',
+                                  label: 'g',
+                                  active: isPreparedUnitPresetActive(
+                                    bulkFertilizerPreparedUnitId,
+                                    bulkFertilizerTargetUnitName,
+                                    bulkFertilizerTargetUnitInitial,
+                                    gramUnit,
+                                    ['g', 'gram', 'กรัม'],
+                                  ),
+                                  onClick: () => applyBulkFertilizerUnitPreset('g'),
+                                },
+                              ].map((option) => (
+                                <button
+                                  key={option.key}
+                                  type="button"
+                                  className={`btn-sm rounded-xl border px-3 py-2 text-sm transition ${
+                                    option.active
+                                      ? 'border-primary-500 bg-primary-50 text-primary-700 shadow-sm'
+                                      : 'border-[#d9e7f2] bg-white text-surface-700 hover:border-[#c5dbeb]'
+                                  }`}
+                                  onClick={option.onClick}
+                                >
+                                  {option.label}
+                                </button>
+                              ))}
+                            </div>
+                            <p className="mt-2 text-xs text-surface-500">
+                              บังคับเลือกเฉพาะหน่วยที่ใช้บ่อยเพื่อลดความสับสน ตอนนี้ตั้งไว้แค่ `kg` และ `g`
+                            </p>
                           </div>
                           <div className="md:col-span-2 rounded-xl border border-[#d9e7f2] bg-[#f8fbff] px-3 py-3 text-xs text-surface-600">
                             <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
@@ -4544,18 +4678,7 @@ export function CarbonFootprintQueuePage({
                           </div>
                           <span className="rounded-full bg-[#eefbf7] px-3 py-1 text-xs font-medium text-green-700">เลือกหน่วยปลายทางแบบปริมาตร</span>
                         </div>
-                        <div className="mb-3 flex flex-wrap gap-2">
-                          <button type="button" className="btn-secondary btn-sm" onClick={() => applyBulkFuelPreset('liter')}>ใช้ preset L</button>
-                          <button type="button" className="btn-secondary btn-sm" onClick={() => applyBulkFuelPreset('milliliter')}>ใช้ preset ml</button>
-                        </div>
                         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                          <div>
-                            <label className="label">หน่วยหลังเตรียม</label>
-                            <select className="select" value={bulkFuelPreparedUnitId} onChange={(event) => setBulkFuelPreparedUnitId(event.target.value)}>
-                              <option value="">— กรอกหน่วยเอง / คงเดิม —</option>
-                              {units.map((unit) => <option key={unit.unit_id} value={unit.unit_id}>{unitLabel(unit)}</option>)}
-                            </select>
-                          </div>
                           <div>
                             <label className="label">ค่าหลังแปลงต่อจำนวน</label>
                             <input
@@ -4567,24 +4690,49 @@ export function CarbonFootprintQueuePage({
                             />
                           </div>
                           <div>
-                            <label className="label">ชื่อหน่วยใหม่</label>
-                            <input
-                              className="input"
-                              value={bulkFuelPreparedUnitName}
-                              onChange={(event) => setBulkFuelPreparedUnitName(event.target.value)}
-                              disabled={Boolean(bulkFuelPreparedUnitId)}
-                              placeholder="เช่น litre"
-                            />
-                          </div>
-                          <div>
-                            <label className="label">ตัวย่อหน่วยใหม่</label>
-                            <input
-                              className="input"
-                              value={bulkFuelPreparedUnitInitial}
-                              onChange={(event) => setBulkFuelPreparedUnitInitial(event.target.value)}
-                              disabled={Boolean(bulkFuelPreparedUnitId)}
-                              placeholder="เช่น L หรือ m3"
-                            />
+                            <label className="label">เลือกหน่วยหลังเตรียม</label>
+                            <div className="flex flex-wrap gap-2">
+                              {[
+                                {
+                                  key: 'liter',
+                                  label: 'L',
+                                  active: isPreparedUnitPresetActive(
+                                    bulkFuelPreparedUnitId,
+                                    bulkFuelPreparedUnitName,
+                                    bulkFuelPreparedUnitInitial,
+                                    literUnit,
+                                    ['l', 'lit', 'liter', 'litre', 'ลิตร'],
+                                  ),
+                                  onClick: () => applyBulkFuelPreset('liter'),
+                                },
+                                {
+                                  key: 'milliliter',
+                                  label: 'ml',
+                                  active: isPreparedUnitPresetActive(
+                                    bulkFuelPreparedUnitId,
+                                    bulkFuelPreparedUnitName,
+                                    bulkFuelPreparedUnitInitial,
+                                    milliliterUnit,
+                                    ['ml', 'milliliter', 'millilitre', 'มิลลิลิตร'],
+                                  ),
+                                  onClick: () => applyBulkFuelPreset('milliliter'),
+                                },
+                              ].map((option) => (
+                                <button
+                                  key={option.key}
+                                  type="button"
+                                  className={`btn-sm rounded-xl border px-3 py-2 text-sm transition ${
+                                    option.active
+                                      ? 'border-primary-500 bg-primary-50 text-primary-700 shadow-sm'
+                                      : 'border-[#d9e7f2] bg-white text-surface-700 hover:border-[#c5dbeb]'
+                                  }`}
+                                  onClick={option.onClick}
+                                >
+                                  {option.label}
+                                </button>
+                              ))}
+                            </div>
+                            <p className="mt-2 text-xs text-surface-500">บังคับเลือกเฉพาะหน่วยปริมาตรที่ใช้บ่อยสำหรับปุ๋ยน้ำ</p>
                           </div>
                           <p className="text-xs text-surface-500 md:col-span-2">
                             ปุ๋ยน้ำจะไม่แสดงหรือใช้สูตรแปลงแบบกระสอบ/kg แล้ว โดยสูตรที่ใช้บันทึกคือ จำนวน * ค่าหลังแปลงต่อจำนวน เช่น 1000 * 0.001 = 1 m3
@@ -4602,18 +4750,7 @@ export function CarbonFootprintQueuePage({
                           </div>
                           <span className="rounded-full bg-[#eefbf7] px-3 py-1 text-xs font-medium text-green-700">เลือกหน่วยปลายทางได้เอง</span>
                         </div>
-                        <div className="mb-3 flex flex-wrap gap-2">
-                          <button type="button" className="btn-secondary btn-sm" onClick={() => applyBulkFuelPreset('liter')}>ใช้ preset L</button>
-                          <button type="button" className="btn-secondary btn-sm" onClick={() => applyBulkFuelPreset('milliliter')}>ใช้ preset ml</button>
-                        </div>
                         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                          <div>
-                            <label className="label">หน่วยหลังเตรียม</label>
-                            <select className="select" value={bulkFuelPreparedUnitId} onChange={(event) => setBulkFuelPreparedUnitId(event.target.value)}>
-                              <option value="">— กรอกหน่วยเอง / คงเดิม —</option>
-                              {units.map((unit) => <option key={unit.unit_id} value={unit.unit_id}>{unitLabel(unit)}</option>)}
-                            </select>
-                          </div>
                           <div>
                             <label className="label">ค่าหลังแปลงต่อจำนวน</label>
                             <input
@@ -4625,24 +4762,49 @@ export function CarbonFootprintQueuePage({
                             />
                           </div>
                           <div>
-                            <label className="label">ชื่อหน่วยใหม่</label>
-                            <input
-                              className="input"
-                              value={bulkFuelPreparedUnitName}
-                              onChange={(event) => setBulkFuelPreparedUnitName(event.target.value)}
-                              disabled={Boolean(bulkFuelPreparedUnitId)}
-                              placeholder="เช่น litre"
-                            />
-                          </div>
-                          <div>
-                            <label className="label">ตัวย่อหน่วยใหม่</label>
-                            <input
-                              className="input"
-                              value={bulkFuelPreparedUnitInitial}
-                              onChange={(event) => setBulkFuelPreparedUnitInitial(event.target.value)}
-                              disabled={Boolean(bulkFuelPreparedUnitId)}
-                              placeholder="เช่น L หรือ m3"
-                            />
+                            <label className="label">เลือกหน่วยหลังเตรียม</label>
+                            <div className="flex flex-wrap gap-2">
+                              {[
+                                {
+                                  key: 'liter',
+                                  label: 'L',
+                                  active: isPreparedUnitPresetActive(
+                                    bulkFuelPreparedUnitId,
+                                    bulkFuelPreparedUnitName,
+                                    bulkFuelPreparedUnitInitial,
+                                    literUnit,
+                                    ['l', 'lit', 'liter', 'litre', 'ลิตร'],
+                                  ),
+                                  onClick: () => applyBulkFuelPreset('liter'),
+                                },
+                                {
+                                  key: 'milliliter',
+                                  label: 'ml',
+                                  active: isPreparedUnitPresetActive(
+                                    bulkFuelPreparedUnitId,
+                                    bulkFuelPreparedUnitName,
+                                    bulkFuelPreparedUnitInitial,
+                                    milliliterUnit,
+                                    ['ml', 'milliliter', 'millilitre', 'มิลลิลิตร'],
+                                  ),
+                                  onClick: () => applyBulkFuelPreset('milliliter'),
+                                },
+                              ].map((option) => (
+                                <button
+                                  key={option.key}
+                                  type="button"
+                                  className={`btn-sm rounded-xl border px-3 py-2 text-sm transition ${
+                                    option.active
+                                      ? 'border-primary-500 bg-primary-50 text-primary-700 shadow-sm'
+                                      : 'border-[#d9e7f2] bg-white text-surface-700 hover:border-[#c5dbeb]'
+                                  }`}
+                                  onClick={option.onClick}
+                                >
+                                  {option.label}
+                                </button>
+                              ))}
+                            </div>
+                            <p className="mt-2 text-xs text-surface-500">บังคับเลือกเฉพาะหน่วยปริมาตรหลักสำหรับน้ำมัน</p>
                           </div>
                           <p className="text-xs text-surface-500 md:col-span-2">สูตรที่ใช้บันทึกคือ จำนวน * ค่าหลังแปลงต่อจำนวน เช่น 1000 * 0.001 = 1 m3</p>
                         </div>
@@ -4684,47 +4846,94 @@ export function CarbonFootprintQueuePage({
                                 disabled={config.mode !== 'factor'}
                               />
                             </div>
-                            <div>
-                              <label className="label">Prefix หน่วยหลังเตรียม</label>
-                              <select
-                                className="select"
-                                value={config.preparedUnitPrefixId}
-                                onChange={(event) => updateOtherGroupConfig(group.key, { preparedUnitPrefixId: event.target.value })}
-                              >
-                                <option value="">— คงค่าเดิม —</option>
-                                {unitPrefixes.map((prefix) => <option key={prefix.unit_prefix_id} value={prefix.unit_prefix_id}>{prefixLabel(prefix)}</option>)}
-                              </select>
-                            </div>
-                            <div>
-                              <label className="label">หน่วยหลังเตรียม</label>
-                              <select
-                                className="select"
-                                value={config.preparedUnitId}
-                                onChange={(event) => updateOtherGroupConfig(group.key, { preparedUnitId: event.target.value })}
-                              >
-                                <option value="">— คงค่าเดิม —</option>
-                                {units.map((unit) => <option key={unit.unit_id} value={unit.unit_id}>{unitLabel(unit)}</option>)}
-                              </select>
-                            </div>
-                            <div>
-                              <label className="label">ชื่อหน่วยใหม่</label>
-                              <input
-                                className="input"
-                                value={config.preparedUnitName}
-                                onChange={(event) => updateOtherGroupConfig(group.key, { preparedUnitName: event.target.value })}
-                                disabled={Boolean(config.preparedUnitId)}
-                                placeholder="เช่น kilogram"
-                              />
-                            </div>
-                            <div>
-                              <label className="label">ตัวย่อหน่วยใหม่</label>
-                              <input
-                                className="input"
-                                value={config.preparedUnitInitial}
-                                onChange={(event) => updateOtherGroupConfig(group.key, { preparedUnitInitial: event.target.value })}
-                                disabled={Boolean(config.preparedUnitId)}
-                                placeholder="เช่น kg"
-                              />
+                            <div className="md:col-span-2">
+                              <label className="label">เลือกหน่วยหลังเตรียม</label>
+                              <div className="flex flex-wrap gap-2">
+                                {[
+                                  {
+                                    key: 'keep',
+                                    label: 'คงหน่วยเดิม',
+                                    active: !config.preparedUnitId && !config.preparedUnitName && !config.preparedUnitInitial,
+                                    onClick: () => applyBulkOtherUnitPreset(group.key, 'keep'),
+                                  },
+                                  {
+                                    key: 'kg',
+                                    label: 'kg',
+                                    active: isPreparedUnitPresetActive(
+                                      config.preparedUnitId,
+                                      config.preparedUnitName,
+                                      config.preparedUnitInitial,
+                                      kgUnit,
+                                      ['kg', 'kilogram', 'กิโลกรัม'],
+                                    ),
+                                    onClick: () => applyBulkOtherUnitPreset(group.key, 'kg'),
+                                  },
+                                  {
+                                    key: 'g',
+                                    label: 'g',
+                                    active: isPreparedUnitPresetActive(
+                                      config.preparedUnitId,
+                                      config.preparedUnitName,
+                                      config.preparedUnitInitial,
+                                      gramUnit,
+                                      ['g', 'gram', 'กรัม'],
+                                    ),
+                                    onClick: () => applyBulkOtherUnitPreset(group.key, 'g'),
+                                  },
+                                  {
+                                    key: 'l',
+                                    label: 'L',
+                                    active: isPreparedUnitPresetActive(
+                                      config.preparedUnitId,
+                                      config.preparedUnitName,
+                                      config.preparedUnitInitial,
+                                      literUnit,
+                                      ['l', 'lit', 'liter', 'litre', 'ลิตร'],
+                                    ),
+                                    onClick: () => applyBulkOtherUnitPreset(group.key, 'l'),
+                                  },
+                                  {
+                                    key: 'ml',
+                                    label: 'ml',
+                                    active: isPreparedUnitPresetActive(
+                                      config.preparedUnitId,
+                                      config.preparedUnitName,
+                                      config.preparedUnitInitial,
+                                      milliliterUnit,
+                                      ['ml', 'milliliter', 'millilitre', 'มิลลิลิตร'],
+                                    ),
+                                    onClick: () => applyBulkOtherUnitPreset(group.key, 'ml'),
+                                  },
+                                  {
+                                    key: 'm3',
+                                    label: 'm3',
+                                    active: isPreparedUnitPresetActive(
+                                      config.preparedUnitId,
+                                      config.preparedUnitName,
+                                      config.preparedUnitInitial,
+                                      cubicMeterUnit,
+                                      ['m3', 'm^3', 'm³', 'cubicmeter', 'cubicmetre', 'ลูกบาศก์เมตร'],
+                                    ),
+                                    onClick: () => applyBulkOtherUnitPreset(group.key, 'm3'),
+                                  },
+                                ].map((option) => (
+                                  <button
+                                    key={`${group.key}-${option.key}`}
+                                    type="button"
+                                    className={`btn-sm rounded-xl border px-3 py-2 text-sm transition ${
+                                      option.active
+                                        ? 'border-primary-500 bg-primary-50 text-primary-700 shadow-sm'
+                                        : 'border-[#d9e7f2] bg-white text-surface-700 hover:border-[#c5dbeb]'
+                                    }`}
+                                    onClick={option.onClick}
+                                  >
+                                    {option.label}
+                                  </button>
+                                ))}
+                              </div>
+                              <p className="mt-2 text-xs text-surface-500">
+                                ใช้ปุ่มเลือกหน่วยที่จำเป็นเท่านั้น ถ้าต้องแปลงจริงให้กรอกตัวคูณร่วมกับโหมดด้านบน
+                              </p>
                             </div>
                             <p className="text-xs text-surface-500 md:col-span-2">
                               ระบบจะสร้างส่วนนี้ให้อัตโนมัติสำหรับทุกหัวข้อที่ไม่ใช่ปุ๋ยหรือน้ำมัน และให้แต่ละหัวข้อตั้งค่าการเปลี่ยนหน่วยของตัวเองได้
@@ -4749,7 +4958,7 @@ export function CarbonFootprintQueuePage({
                   </div>
 
                   <div className="mt-4 rounded-xl border border-[#d9e7f2] bg-white/90 p-3 text-xs text-surface-600">
-                    ส่วน Simulation จะพับไว้เป็นค่าเริ่มต้นเพื่อให้ตารางรายการสำคัญกว่า หากต้องการตรวจสูตรสามารถเปิดดูและลากปรับความสูงของส่วนนี้ได้
+                    ตาราง preview จะยังแสดงตลอดเพื่อให้อ่านรายการได้ทันที ส่วนที่พับได้จะเหลือเฉพาะบล็อกสูตรจำลองและการ์ดสรุปด้านขวา
                   </div>
                 </section>
 
@@ -4759,173 +4968,164 @@ export function CarbonFootprintQueuePage({
                       <Code2 size={15} className="text-primary-600" />
                       <div>
                         <h4 className="text-sm font-semibold">Simulation preview</h4>
-                        <p className="mt-1 text-xs text-surface-500">ซ่อน/แสดงได้ และลากเพื่อปรับความสูงของส่วนนี้ให้ตารางด้านล่างอ่านง่ายขึ้น</p>
+                        <p className="mt-1 text-xs text-surface-500">ย่อเฉพาะส่วนสรุปสูตรจำลองได้ ส่วนตารางรายการด้านล่างจะยังคงแสดงอยู่เสมอ</p>
                       </div>
                     </div>
                     <button type="button" className="btn-ghost btn-sm" onClick={toggleBulkSimulationCollapsed}>
                       {isBulkSimulationCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
-                      {isBulkSimulationCollapsed ? 'แสดง preview' : 'ซ่อน preview'}
+                      {isBulkSimulationCollapsed ? 'แสดงบล็อกสูตร' : 'ซ่อนบล็อกสูตร'}
                     </button>
                   </div>
 
                   {!isBulkSimulationCollapsed && (
-                    <>
-                      <button
-                        type="button"
-                        className={`mb-3 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[#d9e7f2] bg-[#f8fbff] px-3 py-2 text-xs text-surface-500 ${isBulkSimulationResizing ? 'cursor-row-resize bg-slate-100' : 'cursor-row-resize hover:bg-slate-50'}`}
-                        onMouseDown={startBulkSimulationResize}
-                        title="ลากขึ้น-ลงเพื่อปรับความสูงของ preview"
-                      >
-                        <GripHorizontal size={14} />
-                        ลากขึ้น-ลงเพื่อปรับความสูงของ Simulation preview
-                      </button>
+                    <div
+                      className="mb-4 overflow-auto rounded-2xl border border-dashed border-[#c7d9ea] bg-[linear-gradient(180deg,#f8fbff,#eef5fb)] p-3"
+                      style={{ resize: 'vertical', minHeight: '240px', height: '360px', maxHeight: '70vh' }}
+                    >
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#d9e7f2] bg-white/80 px-3 py-2 text-xs text-surface-500">
+                        <span>ลากมุมขวาล่างของกรอบนี้เพื่อขยายหรือหดส่วนสูตรจำลอง</span>
+                        <span className="rounded-full bg-[#f3f7fb] px-2.5 py-1 font-medium text-surface-600">ตารางด้านล่างจะไม่หาย</span>
+                      </div>
 
-                      <div className="space-y-4 overflow-y-auto pr-1" style={{ height: `${bulkSimulationHeight}px` }}>
+                      <div className="space-y-4 pr-1">
                         <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-                          {selectedFertilizerRows.length > 0 && (
-                            <div className="rounded-xl border border-[#d9e7f2] bg-[#f8fbff] p-3">
-                              <h5 className="text-sm font-semibold text-surface-800">ปุ๋ย</h5>
-                              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                                <div className="rounded-lg border border-[#e5eef5] bg-white px-3 py-2">
-                                  <div className="text-[11px] text-surface-500">kg ต่อจำนวน</div>
-                                  <div className="mt-1 text-sm font-medium text-surface-800">{formatNumberish(toNumberOrUndefined(bulkFertilizerBagWeightKg), 4) || '—'}</div>
-                                </div>
-                                <div className="rounded-lg border border-[#e5eef5] bg-white px-3 py-2">
-                                  <div className="text-[11px] text-surface-500">ตัวคูณแปลงหน่วย</div>
-                                  <div className="mt-1 text-sm font-medium text-surface-800">{formatNumberish(toNumberOrUndefined(bulkFertilizerUnitFactor), 6) || '—'}</div>
-                                </div>
-                                <div className="rounded-lg border border-[#e5eef5] bg-white px-3 py-2">
-                                  <div className="text-[11px] text-surface-500">หน่วยปลายทาง</div>
-                                  <div className="mt-1 text-sm font-medium text-surface-800">{bulkFertilizerPreview[0]?.preparedUnitLabel ?? '—'}</div>
-                                </div>
-                              </div>
-                              <div className="mt-3 rounded-lg border border-[#e5eef5] bg-white px-3 py-2 text-[11px] leading-5 text-surface-600">
-                                สูตรตัวอย่าง: {bulkFertilizerPreview[0]?.formulaText ?? 'เลือกรายการปุ๋ยเพื่อดูตัวอย่าง'}
-                              </div>
-                            </div>
-                          )}
+                          {bulkPreviewDisplayGroups.map((group) => {
+                            if (!group.items.length) return null
 
-                          {selectedLiquidFertilizerRows.length > 0 && (
-                            <div className="rounded-xl border border-[#d9e7f2] bg-[#f8fbff] p-3">
-                              <h5 className="text-sm font-semibold text-surface-800">ปุ๋ยน้ำ</h5>
-                              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                <div className="rounded-lg border border-[#e5eef5] bg-white px-3 py-2">
-                                  <div className="text-[11px] text-surface-500">ค่าหลังแปลงต่อจำนวน</div>
-                                  <div className="mt-1 text-sm font-medium text-surface-800">{formatNumberish(toNumberOrUndefined(bulkFuelValuePerUnit), 6) || '—'}</div>
-                                </div>
-                                <div className="rounded-lg border border-[#e5eef5] bg-white px-3 py-2">
-                                  <div className="text-[11px] text-surface-500">หน่วยปลายทาง</div>
-                                  <div className="mt-1 text-sm font-medium text-surface-800">{bulkLiquidFertilizerPreview[0]?.preparedUnitLabel ?? '—'}</div>
-                                </div>
-                              </div>
-                              <div className="mt-3 rounded-lg border border-[#e5eef5] bg-white px-3 py-2 text-[11px] leading-5 text-surface-600">
-                                สูตรตัวอย่าง: {bulkLiquidFertilizerPreview[0]?.formulaText ?? 'เลือกรายการปุ๋ยน้ำเพื่อดูตัวอย่าง'}
-                              </div>
-                            </div>
-                          )}
-
-                          {selectedFuelRows.length > 0 && (
-                            <div className="rounded-xl border border-[#d9e7f2] bg-[#f8fbff] p-3">
-                              <h5 className="text-sm font-semibold text-surface-800">น้ำมัน</h5>
-                              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                <div className="rounded-lg border border-[#e5eef5] bg-white px-3 py-2">
-                                  <div className="text-[11px] text-surface-500">ค่าหลังแปลงต่อจำนวน</div>
-                                  <div className="mt-1 text-sm font-medium text-surface-800">{formatNumberish(toNumberOrUndefined(bulkFuelValuePerUnit), 6) || '—'}</div>
-                                </div>
-                                <div className="rounded-lg border border-[#e5eef5] bg-white px-3 py-2">
-                                  <div className="text-[11px] text-surface-500">หน่วยปลายทาง</div>
-                                  <div className="mt-1 text-sm font-medium text-surface-800">{bulkFuelPreview[0]?.preparedUnitLabel ?? '—'}</div>
-                                </div>
-                              </div>
-                              <div className="mt-3 rounded-lg border border-[#e5eef5] bg-white px-3 py-2 text-[11px] leading-5 text-surface-600">
-                                สูตรตัวอย่าง: {bulkFuelPreview[0]?.formulaText ?? 'เลือกรายการน้ำมันเพื่อดูตัวอย่าง'}
-                              </div>
-                            </div>
-                          )}
-
-                          {bulkOtherPreviewGroups.map((group) => {
-                            const config = bulkOtherConfigs[group.key] ?? DEFAULT_OTHER_GROUP_CONFIG
+                            const sample = group.items[0]
+                            const codeLines = getBulkPreviewCodeLines(sample)
 
                             return (
-                              <div key={`summary-${group.key}`} className="rounded-xl border border-[#d9e7f2] bg-[#f8fbff] p-3">
-                                <h5 className="text-sm font-semibold text-surface-800">{group.label}</h5>
-                                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                                  <div className="rounded-lg border border-[#e5eef5] bg-white px-3 py-2">
-                                    <div className="text-[11px] text-surface-500">โหมด</div>
-                                    <div className="mt-1 text-sm font-medium text-surface-800">{config.mode === 'factor' ? 'แปลงด้วยตัวคูณ' : 'คงหน่วยเดิม'}</div>
+                              <div key={`summary-${group.key}`} className="rounded-xl border border-[#d9e7f2] bg-white/90 p-3 shadow-sm">
+                                <div className="mb-3 flex items-start justify-between gap-3">
+                                  <div>
+                                    <h5 className="text-sm font-semibold text-surface-800">{group.label}</h5>
+                                    <p className="mt-1 text-xs text-surface-500">{group.items.length.toLocaleString('th-TH')} รายการ</p>
                                   </div>
-                                  <div className="rounded-lg border border-[#e5eef5] bg-white px-3 py-2">
-                                    <div className="text-[11px] text-surface-500">ตัวคูณ</div>
-                                    <div className="mt-1 text-sm font-medium text-surface-800">{formatNumberish(config.mode === 'factor' ? toNumberOrUndefined(config.conversionFactor) : 1, 6) || '—'}</div>
+                                  <span className="rounded-full border border-[#d9e7f2] bg-[#f8fbff] px-3 py-1 text-[11px] font-medium text-surface-600">
+                                    {sample.ruleLabel}
+                                  </span>
+                                </div>
+
+                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
+                                  <div className="rounded-lg border border-[#e5eef5] bg-[#f8fbff] px-3 py-2">
+                                    <div className="text-[11px] text-surface-500">รายการตัวอย่าง</div>
+                                    <div className="mt-1 text-sm font-medium text-surface-800 break-words">{sample.row.resourceItemName}</div>
                                   </div>
-                                  <div className="rounded-lg border border-[#e5eef5] bg-white px-3 py-2">
+                                  <div className="rounded-lg border border-[#e5eef5] bg-[#f8fbff] px-3 py-2">
+                                    <div className="text-[11px] text-surface-500">หน่วยเดิม</div>
+                                    <div className="mt-1 text-sm font-medium text-surface-800">{sample.currentUnitLabel}</div>
+                                  </div>
+                                  <div className="rounded-lg border border-[#e5eef5] bg-[#f8fbff] px-3 py-2">
                                     <div className="text-[11px] text-surface-500">หน่วยปลายทาง</div>
-                                    <div className="mt-1 text-sm font-medium text-surface-800">{group.items[0]?.preparedUnitLabel ?? 'คงหน่วยเดิม'}</div>
+                                    <div className="mt-1 text-sm font-medium text-surface-800">{sample.preparedUnitLabel}</div>
+                                  </div>
+                                  <div className="rounded-lg border border-[#e5eef5] bg-[#f8fbff] px-3 py-2">
+                                    <div className="text-[11px] text-surface-500">ผลลัพธ์ตัวอย่าง</div>
+                                    <div className="mt-1 text-sm font-medium text-surface-800">{formatNumberish(sample.preparedVolumeAll, 4)} {sample.preparedUnitLabel}</div>
                                   </div>
                                 </div>
-                                <div className="mt-3 rounded-lg border border-[#e5eef5] bg-white px-3 py-2 text-[11px] leading-5 text-surface-600">
-                                  สูตรตัวอย่าง: {group.items[0]?.formulaText ?? `เลือก${group.label}เพื่อดูตัวอย่าง`}
+
+                                <div className="mt-3 overflow-hidden rounded-xl border border-slate-800 bg-slate-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+                                  <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2 text-[11px] text-slate-400">
+                                    <span>Code preview</span>
+                                    <span>{group.label} sample</span>
+                                  </div>
+                                  <div className="space-y-2 px-4 py-3 font-mono text-xs leading-6 text-slate-100">
+                                    {codeLines.map((line) => (
+                                      <div key={`${group.key}-${line.label}`} className="break-words">
+                                        <span className="text-cyan-300">{line.label}</span>
+                                        <span className="px-2 text-slate-500">=</span>
+                                        <span>{line.value || '—'}</span>
+                                      </div>
+                                    ))}
+                                  </div>
                                 </div>
                               </div>
                             )
                           })}
                         </div>
-
-                        {bulkPreviewDisplayGroups.map((group) => (
-                          group.items.length ? (
-                            <div key={group.key} className="rounded-xl border border-[#d9e7f2]">
-                              <div className="border-b border-[#d9e7f2] bg-[#f8fbff] px-4 py-3">
-                                <h5 className="text-sm font-semibold">{group.label}</h5>
-                              </div>
-                              <div className="max-h-[280px] overflow-auto">
-                                <table className="w-full min-w-[760px] text-left text-xs">
-                                  <thead className="sticky top-0 bg-[#f3f7fb] text-surface-600">
-                                    <tr>
-                                      <th className="px-3 py-2 font-semibold">หัวข้อกิจกรรม</th>
-                                      <th className="px-3 py-2 font-semibold">รายการ</th>
-                                      <th className="px-3 py-2 font-semibold">หน่วยเดิม</th>
-                                      {group.key === 'fertilizer' && <th className="px-3 py-2 font-semibold">N ที่จะบันทึก</th>}
-                                      <th className="px-3 py-2 font-semibold">Rule</th>
-                                      <th className="px-3 py-2 font-semibold">สูตร</th>
-                                      <th className="px-3 py-2 font-semibold">ผลลัพธ์</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-[#e5eef5] bg-white">
-                                    {group.items.map((item) => (
-                                      <tr key={item.row.id}>
-                                        <td className="px-3 py-2 align-top">
-                                          <div className="min-w-[140px]">
-                                            <div className="font-medium text-surface-800">{item.row.headerLabel}</div>
-                                            <div className="text-[11px] text-surface-500">{item.row.activityTypeName}</div>
-                                          </div>
-                                        </td>
-                                        <td className="px-3 py-2 align-top">{item.row.resourceItemName}</td>
-                                        <td className="px-3 py-2 align-top">{item.currentUnitLabel}</td>
-                                        {group.key === 'fertilizer' && (
-                                          <td className="px-3 py-2 align-top">
-                                            <span className="font-mono">{getBulkFertilizerPreviewNLabel(item.row)}</span>
-                                          </td>
-                                        )}
-                                        <td className="px-3 py-2 align-top">{item.ruleLabel}</td>
-                                        <td className="px-3 py-2 align-top font-mono">{item.formulaText}</td>
-                                        <td className="px-3 py-2 align-top font-mono">{formatNumber(item.preparedVolumeAll)} {item.preparedUnitLabel}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          ) : null
-                        ))}
-
-                        {!bulkConversionPreview.length && (
-                          <div className="rounded-xl border border-dashed border-[#d9e7f2] px-4 py-8 text-center text-sm text-surface-400">
-                            ยังไม่ได้เลือกรายการ
-                          </div>
-                        )}
                       </div>
-                    </>
+                    </div>
                   )}
+
+                  <div
+                    className="mt-4 overflow-auto rounded-2xl border border-[#d9e7f2] bg-[linear-gradient(180deg,#ffffff,#f5f9fc)] p-3"
+                    style={{ resize: 'vertical', minHeight: '280px', height: '380px', maxHeight: '70vh' }}
+                    onWheel={(event) => event.stopPropagation()}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h5 className="text-sm font-semibold text-surface-800">ตาราง preview รายการที่เลือก</h5>
+                        <p className="mt-1 text-xs text-surface-500">ใช้ล้อเมาส์ scroll ภายในกรอบนี้ได้ทันที และลากมุมขวาล่างเพื่อขยายหรือหดพื้นที่ตาราง</p>
+                      </div>
+                      {isBulkSimulationCollapsed && (
+                        <span className="rounded-full border border-[#d9e7f2] bg-[#f8fbff] px-3 py-1 text-[11px] font-medium text-surface-600">
+                          ซ่อนเฉพาะบล็อกสูตรด้านบน
+                        </span>
+                      )}
+                    </div>
+
+                    {bulkPreviewDisplayGroups.map((group) => (
+                      group.items.length ? (
+                        <div key={group.key} className="rounded-xl border border-[#d9e7f2]">
+                          <div className="border-b border-[#d9e7f2] bg-[#f8fbff] px-4 py-3">
+                            <h5 className="text-sm font-semibold">{group.label}</h5>
+                          </div>
+                          <div className="overflow-x-auto">
+                            <table className="w-full min-w-[760px] text-left text-xs">
+                              <thead className="sticky top-0 bg-[#f3f7fb] text-surface-600">
+                                <tr>
+                                  <th className="px-3 py-2 font-semibold">หัวข้อกิจกรรม</th>
+                                  <th className="px-3 py-2 font-semibold">รายการ</th>
+                                  <th className="px-3 py-2 font-semibold">จำนวนที่ใช้คูณ</th>
+                                  <th className="px-3 py-2 font-semibold">หน่วยเดิม</th>
+                                  {group.key === 'fertilizer' && <th className="px-3 py-2 font-semibold">N ที่จะบันทึก</th>}
+                                  <th className="px-3 py-2 font-semibold">Rule</th>
+                                  <th className="px-3 py-2 font-semibold">สูตร</th>
+                                  <th className="px-3 py-2 font-semibold">ผลลัพธ์</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-[#e5eef5] bg-white">
+                                {group.items.map((item) => (
+                                  <tr key={item.row.id}>
+                                    <td className="px-3 py-2 align-top">
+                                      <div className="min-w-[140px]">
+                                        <div className="font-medium text-surface-800">{item.row.headerLabel}</div>
+                                        <div className="text-[11px] text-surface-500">{item.row.activityTypeName}</div>
+                                      </div>
+                                    </td>
+                                    <td className="px-3 py-2 align-top">{item.row.resourceItemName}</td>
+                                    <td className="px-3 py-2 align-top">
+                                      <div className="min-w-[120px]">
+                                        <div className="font-mono text-surface-800">{item.row.quantityLabel}</div>
+                                        <div className="text-[11px] text-surface-500">{item.row.quantityUnitLabel || 'unit จำนวนไม่ระบุ'}</div>
+                                      </div>
+                                    </td>
+                                    <td className="px-3 py-2 align-top">{item.currentUnitLabel}</td>
+                                    {group.key === 'fertilizer' && (
+                                      <td className="px-3 py-2 align-top">
+                                        <span className="font-mono">{getBulkFertilizerPreviewNLabel(item.row)}</span>
+                                      </td>
+                                    )}
+                                    <td className="px-3 py-2 align-top">{item.ruleLabel}</td>
+                                    <td className="px-3 py-2 align-top font-mono">{item.formulaText}</td>
+                                    <td className="px-3 py-2 align-top font-mono">{formatNumber(item.preparedVolumeAll)} {item.preparedUnitLabel}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      ) : null
+                    ))}
+
+                    {!bulkConversionPreview.length && (
+                      <div className="rounded-xl border border-dashed border-[#d9e7f2] px-4 py-8 text-center text-sm text-surface-400">
+                        ยังไม่ได้เลือกรายการ
+                      </div>
+                    )}
+                  </div>
                 </section>
               </div>
 

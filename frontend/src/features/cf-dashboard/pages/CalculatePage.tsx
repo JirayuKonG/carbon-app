@@ -126,6 +126,7 @@ export function CfCalculatePage() {
   const qc = useQueryClient()
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [statusFilter, setStatusFilter] = useState('')
+  const [hasInitializedStatusFilter, setHasInitializedStatusFilter] = useState(false)
   const [productYearFilter, setProductYearFilter] = useState('')
   const [activityTypeFilter, setActivityTypeFilter] = useState('')
   const [resourceTypeFilters, setResourceTypeFilters] = useState<string[]>([])
@@ -157,6 +158,15 @@ export function CfCalculatePage() {
     queryKey: ['activity-product-years-calculate'],
     queryFn: () => get<ProductYear[]>('/activities/product-years'),
   })
+
+  const importedStatusFilterValue = useMemo(
+    () => String(
+      calStatuses.find((status) =>
+        getActivityCalStatusKind(status.log_act_detail_calStatus_name, status.log_act_detail_calStatus_id) === 'imported'
+      )?.log_act_detail_calStatus_id ?? '',
+    ),
+    [calStatuses],
+  )
 
   const pageQueryItems = [
     { label: 'รายการสำหรับคำนวณ', error: detailsError },
@@ -243,7 +253,7 @@ export function CfCalculatePage() {
 
   const clearSelectedRows = () => setSelectedIds([])
   const clearFilters = () => {
-    setStatusFilter('')
+    setStatusFilter(importedStatusFilterValue)
     setProductYearFilter('')
     setActivityTypeFilter('')
     setResourceTypeFilters([])
@@ -258,6 +268,12 @@ export function CfCalculatePage() {
         : prev.filter((item) => item !== value)
     ))
   }
+
+  useEffect(() => {
+    if (hasInitializedStatusFilter || !calStatuses.length) return
+    setStatusFilter(importedStatusFilterValue)
+    setHasInitializedStatusFilter(true)
+  }, [calStatuses.length, hasInitializedStatusFilter, importedStatusFilterValue])
 
   useEffect(() => {
     if (statusPopup.kind !== 'success') return undefined

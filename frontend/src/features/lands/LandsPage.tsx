@@ -158,6 +158,7 @@ export function LandsPage() {
   const [bulkDistrictId, setBulkDistrictId] = useState<number | null>(null)
   const [bulkSubdistrictId, setBulkSubdistrictId] = useState<number | null>(null)
   const [campGroupFilter, setCampGroupFilter] = useState<CampGroupFilter>('all')
+  const [campGroupIdFilter, setCampGroupIdFilter] = useState<string>('')
   const [selectedCampIds, setSelectedCampIds] = useState<number[]>([])
   const [bulkCampGroupId, setBulkCampGroupId] = useState<number | null>(null)
   const [activityProductYearFilter, setActivityProductYearFilter] = useState('')
@@ -305,12 +306,16 @@ export function LandsPage() {
 
   const filteredLands = selectedCamp ? lands.filter((land) => land.land_camp_id === selectedCamp) : lands
   const filteredCamps = useMemo(() => (
-    campGroupFilter === 'grouped'
-      ? camps.filter((camp) => camp.land_camp_group_id != null)
-      : campGroupFilter === 'ungrouped'
-        ? camps.filter((camp) => camp.land_camp_group_id == null)
-        : camps
-  ), [campGroupFilter, camps])
+    camps.filter((camp) => {
+      const matchesStatus = campGroupFilter === 'grouped'
+        ? camp.land_camp_group_id != null
+        : campGroupFilter === 'ungrouped'
+          ? camp.land_camp_group_id == null
+          : true
+      const matchesGroupId = !campGroupIdFilter || String(camp.land_camp_group_id ?? '') === campGroupIdFilter
+      return matchesStatus && matchesGroupId
+    })
+  ), [campGroupFilter, campGroupIdFilter, camps])
   const selectedLandIdSet = useMemo(() => new Set(selectedLandIds), [selectedLandIds])
   const filteredLandIds = useMemo(() => filteredLands.map((land) => land.land_id), [filteredLands])
   const filteredLandIdSet = useMemo(() => new Set(filteredLandIds), [filteredLandIds])
@@ -364,6 +369,12 @@ export function LandsPage() {
   useEffect(() => {
     setSelectedCampIds((prev) => prev.filter((campId) => camps.some((camp) => camp.land_camp_id === campId)))
   }, [camps])
+
+  useEffect(() => {
+    if (!campGroupIdFilter) return
+    if (campGroups.some((group) => String(group.land_camp_group_id) === campGroupIdFilter)) return
+    setCampGroupIdFilter('')
+  }, [campGroupIdFilter, campGroups])
 
   const toggleLandSelection = (landId: number) => {
     setSelectedLandIds((prev) => (
@@ -953,6 +964,37 @@ export function LandsPage() {
                       >
                         มีกลุ่มแล้ว ({groupedCampsCount})
                       </button>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+                      <div>
+                        <label className="label">กรองตามกลุ่มไร่</label>
+                        <select
+                          className="select"
+                          value={campGroupIdFilter}
+                          onChange={(event) => setCampGroupIdFilter(event.target.value)}
+                        >
+                          <option value="">ทุกกลุ่มไร่</option>
+                          {campGroups.map((group) => (
+                            <option key={group.land_camp_group_id} value={group.land_camp_group_id}>
+                              {group.land_camp_group_name || group.land_camp_group_idCode || `#${group.land_camp_group_id}`}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex items-end">
+                        <button
+                          type="button"
+                          className="btn-secondary btn-sm w-full justify-center lg:w-auto"
+                          onClick={() => {
+                            setCampGroupFilter('all')
+                            setCampGroupIdFilter('')
+                          }}
+                          disabled={campGroupFilter === 'all' && !campGroupIdFilter}
+                        >
+                          ล้าง filter แคมป์
+                        </button>
+                      </div>
                     </div>
 
                     <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
