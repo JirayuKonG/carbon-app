@@ -183,7 +183,19 @@ export function CfOverviewPage() {
 
   // Priority 2: ดึง SOC summary จริงจาก carbon-soc/summary API
   const socSummary = useAsyncData<{ socTotalTco2e: number; fnfixTotalTn: number; landCount: number; missingInputCount: number }>(
-    () => get("/carbon-soc/summary"),
+    async () => {
+      const res = await get<{ socTotalTco2e: number; fnfixTotalTn: number; landCount: number; missingInputCount: number }>("/carbon-soc/summary");
+      return {
+        data: res,
+        source: "api",
+        meta: {
+          route: "/carbon-soc/summary",
+          techniques: ["Prisma", "PostgreSQL"],
+          rowCount: 1,
+          datasourceStatus: "api_real",
+        },
+      };
+    },
     { socTotalTco2e: 0, fnfixTotalTn: 0, landCount: 0, missingInputCount: 0 },
   );
   const realSocTco2e = socSummary.data.socTotalTco2e ?? 0;
