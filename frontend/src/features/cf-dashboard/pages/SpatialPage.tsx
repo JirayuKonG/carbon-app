@@ -1290,23 +1290,11 @@ export function CfSpatialPage() {
               <div className="card-title-row">
                 <div className="card-title">กราฟแท่ง · สัดส่วนกระบวนการในพื้นที่</div>
                 <SourceBadge source={projectPlotSource.source} meta={projectPlotSource.meta} />
-                <div className="period-switch spatial-period-switch" role="group" aria-label="เลือกปีข้อมูลกราฟแท่ง">
-                  <button type="button" className={processPeriod === "both" ? "active" : ""} onClick={() => setProcessPeriod("both")}>
-                    ปีฐาน VS ปีดำเนินการ
-                  </button>
-                  <button type="button" className={processPeriod === "baseline" ? "active" : ""} onClick={() => setProcessPeriod("baseline")}>
-                    ปีฐาน
-                  </button>
-                  <button type="button" className={processPeriod === "current" ? "active" : ""} onClick={() => setProcessPeriod("current")}>
-                    ปีดำเนินการ
-                  </button>
-                </div>
               </div>
               <ProcessDoughnut
-                title={`${focusNode.name} · ${processPeriodLabel}`}
-                data={processBreakdownForPeriod}
-                comparisonData={processPeriod === "both" ? currentProcessBreakdown : processComparisonBreakdown}
-                variant={processPeriod === "both" ? "comparisonBar" : "bar"}
+                title={`${focusNode.name} · ${period === "project" ? `ปีดำเนินการ ${currentYear}` : `ปี ${period}`}`}
+                data={currentProcessBreakdown}
+                variant="bar"
               />
             </article>
           </div>
