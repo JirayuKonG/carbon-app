@@ -1532,41 +1532,6 @@ export function CfFootprintReportPage() {
               {(selectedCamp ? fieldsInCamp : fieldsInArea).map((field) => <option key={field.id} value={field.id}>{field.fieldCode} · {field.fieldName}</option>)}
             </select>
           </label>
-          <label style={{ minWidth: 0 }}>
-            จังหวัด
-            <select value={areaPath.province} onChange={(event) => selectAreaPath("province", event.target.value)} disabled={!areaPath.region}>
-              <option value="">ทุกจังหวัด</option>
-              {areaOptionsFor("province", areaPath.region).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
-            </select>
-          </label>
-          <label style={{ minWidth: 0 }}>
-            อำเภอ / เขต
-            <select value={areaPath.district} onChange={(event) => selectAreaPath("district", event.target.value)} disabled={!areaPath.province}>
-              <option value="">ทุกอำเภอ/เขต</option>
-              {areaOptionsFor("district", areaPath.province).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
-            </select>
-          </label>
-          <label style={{ minWidth: 0 }}>
-            ตำบล / แขวง
-            <select value={areaPath.subdistrict} onChange={(event) => selectAreaPath("subdistrict", event.target.value)} disabled={!areaPath.district}>
-              <option value="">ทุกตำบล/แขวง</option>
-              {areaOptionsFor("subdistrict", areaPath.district).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
-            </select>
-          </label>
-          <label className="filter-level-camp" style={{ minWidth: 0 }}>
-            แคมป์
-            <select value={scope} onChange={(event) => selectScopeValue(event.target.value)}>
-              <option value="all">ภาพรวมตามพื้นที่ที่เลือก</option>
-              {campsInArea.map((camp) => <option key={camp.campId} value={`camp-${camp.campId}`}>{camp.campName}</option>)}
-            </select>
-          </label>
-          <label className="filter-level-field" style={{ minWidth: 0 }}>
-            แปลง
-            <select value={selectedFieldId} onChange={(event) => selectFieldScope(event.target.value)} disabled={!areaPath.subdistrict && !selectedCamp}>
-              <option value="all">{selectedCamp ? "ทุกแปลงในแคมป์" : "ทุกแปลงตามพื้นที่"}</option>
-              {(selectedCamp ? fieldsInCamp : fieldsInArea).map((field) => <option key={field.id} value={field.id}>{field.fieldCode} · {field.fieldName}</option>)}
-            </select>
-          </label>
         </section>
 
         <section className="footprint-report-right-column">

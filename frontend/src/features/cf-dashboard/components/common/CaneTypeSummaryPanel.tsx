@@ -71,7 +71,7 @@ export function CaneTypeSummaryPanel({
               nameKey="name"
               label={({ name, percent }) => `${name} ${percent.toFixed(1)}%`}
             >
-              {result.data.map((entry, index) => (
+              {result.data.map((_, index) => (
                 <Cell key={`cell-${index}`} fill={caneColors[index % caneColors.length]} />
               ))}
             </Pie>
