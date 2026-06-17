@@ -1076,12 +1076,11 @@ export function CfFootprintReportPage() {
     ? aggregateActivityRows(aggregateCamps, "currentProcessActivities")
     : activities.filter((item) => item.year === currentYear);
   const processInputRows = selectedField ? scaleInputsForField(inputs, selectedField) : selectedCamp ? selectedCamp.processInputComparisons : aggregateCamps.length ? aggregateInputRows(aggregateCamps.map((camp) => camp.processInputComparisons)) : inputs;
-  const currentYearNumber = /^\d+$/.test(currentYear) ? Number(currentYear) : undefined;
   const selectedFieldLandId = selectedField?.id.match(/^field-(\d+)$/)?.[1];
   const resourceUsage = summarizeResourceUsage(inputUsageResult.data, {
     campId: selectedField?.campId ?? selectedCamp?.campId,
     landId: selectedFieldLandId ? Number(selectedFieldLandId) : undefined,
-    year: currentYearNumber,
+    yearLabel: currentYear,
   });
   const baselineTotal = sumEmission(baselineRows);
   const currentTotal = sumEmission(currentRows);
@@ -1120,14 +1119,19 @@ export function CfFootprintReportPage() {
   const selectedCanePercent = selectedCaneTypes.reduce((sum, item) => sum + item.percent, 0);
   const reportSources = [kpi, activityResult, inputResult, inputUsageResult, campResult, fieldResult, caneTypeResult, spatialResult];
   const hasFallbackReportSource = reportSources.some((result) => result.source === "mock" || result.meta?.datasourceStatus === "fallback");
+  const hasMissingReportSource = reportSources.some((result) => result.meta?.datasourceStatus === "missing");
   const reportDatasource = {
     source: hasFallbackReportSource ? "mock" as const : "api" as const,
     meta: {
       route: "frontend/footprint-report-compose",
       techniques: ["Carbon Analytics endpoints", "frontend report layout"],
       rowCount: reportSources.reduce((sum, result) => sum + (result.meta?.rowCount ?? 0), 0),
-      datasourceStatus: hasFallbackReportSource ? "fallback" as const : "api_partial" as const,
-      note: hasFallbackReportSource ? "some sections use fallback" : "report is composed in frontend",
+      datasourceStatus: hasFallbackReportSource ? "fallback" as const : hasMissingReportSource ? "missing" as const : "api_partial" as const,
+      note: hasFallbackReportSource
+        ? "some sections use demo fallback"
+        : hasMissingReportSource
+        ? "some sections are missing real API data"
+        : "report is composed in frontend",
     },
   };
 

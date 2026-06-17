@@ -1,6 +1,6 @@
 # Project Component Map
 
-Last updated: 2026-06-17
+Last updated: 2026-06-18
 
 Use this file to quickly find where a page, component, layout element, or related API code lives.
 
@@ -27,9 +27,9 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Group | Items | Notes |
 | --- | --- | --- |
 | `CARBON ANALYTICS` | `ข้อมูลสรุปคาร์บอนเครดิต`, `ข้อมูลสรุปคาร์บอนฟุตพริ้นท์`, `แผนที่พื้นที่` | `ข้อมูลสรุปคาร์บอนเครดิต` expands to `คาร์บอนเครดิต` and `รายงาน Premium T-VER`; `ข้อมูลสรุปคาร์บอนฟุตพริ้นท์` expands to `คาร์บอนฟุตพริ้นท์` and `รายงานคาร์บอนฟุตพริ้นท์`. |
-| `CARBON` | `บันทึกกิจกรรม`, `คำนวณ Carbon` | `บันทึกกิจกรรม` expands to `จัดการกิจกรรม` and `รายการบันทึกกิจกรรม`; `คำนวณ Carbon` expands to `เตรียมข้อมูล Carbon`, `สรุปการใช้ปัจจัย`, `Carbon Footprint`, and `Carbon Credit`. |
+| `CARBON` | `บันทึกกิจกรรม`, `คำนวณ Carbon` | `บันทึกกิจกรรม` expands to `จัดการกิจกรรม` and `รายการบันทึกกิจกรรม`; `คำนวณ Carbon` expands to `เตรียมข้อมูล Carbon`, `สรุปการใช้ปัจจัย`, `Carbon Footprint`, `Soil Organic Carbon`, `Carbon Credit`, and `สรุปผลการคำนวณ`. |
 | `ข้อมูลเกษตรกร` | `จัดการเกษตรกร`, `พื้นที่เพาะปลูก`, `ข้อมูลสภาพอากาศ` | Farmer and land-related operational pages. |
-| `ตั้งค่าระบบ` | `พื้นที่ในประเทศไทย`, `โรงงาน / บริการ`, `จัดการผู้ใช้`, `EF / GWP / หน่วย`, `กิจกรรมหลัก / กิจกรรมย่อย`, `ปุ๋ย / น้ำมัน` | System reference data, user management, activity-type mapping, and activity-resource setup pages. |
+| `ตั้งค่าระบบ` | `พื้นที่ในประเทศไทย`, `โรงงาน / บริการ`, `จัดการผู้ใช้`, `EF / GWP / หน่วย`, `กิจกรรมหลัก / กิจกรรมย่อย`, `ปุ๋ย / น้ำมัน`, `ปีการผลิต` | System reference data, user management, activity-type mapping, activity-resource setup, and production-year master data. |
 
 ## Shared UI Components
 
@@ -46,8 +46,8 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Part | File/Folder | Notes |
 | --- | --- | --- |
 | Carbon Analytics pages | `frontend/src/features/cf-dashboard/pages/` | Contains the active Carbon Analytics route pages. |
-| Dashboard API adapter | `frontend/src/features/cf-dashboard/services/dashboardApi.ts` | Loads API data first and falls back to mock data when needed. |
-| Dashboard mock data | `frontend/src/features/cf-dashboard/data/mockDashboard.ts` | Mock/fallback data for preview and partial API gaps. |
+| Dashboard API adapter | `frontend/src/features/cf-dashboard/services/dashboardApi.ts` | Backend-first Carbon Analytics loader. In normal `api` mode it returns real analytics data or explicit missing/partial states; demo/mock fallback is only used when `VITE_CF_ANALYTICS_SOURCE` is explicitly set to `demo` or `mock`. |
+| Dashboard mock data | `frontend/src/features/cf-dashboard/data/mockDashboard.ts` | Older mock/fallback helpers kept for explicit demo-only usage; not the default production source. |
 | Shared dashboard styles | `frontend/src/features/cf-dashboard/cf-dashboard.css` | Feature-specific styling for analytics pages. |
 | Shared charts | `frontend/src/features/cf-dashboard/components/charts/` | Chart building blocks and chart registry/palette setup. |
 | Shared dashboard UI | `frontend/src/features/cf-dashboard/components/common/` | Reusable cards, KPI blocks, filters, and shared dashboard UI parts. |
@@ -68,7 +68,8 @@ Use this file to quickly find where a page, component, layout element, or relate
 | `/calculate/usage` | `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` | Input usage summary page for fertilizer, fuel, and other activity factors by camp/field/production year before Carbon Footprint calculation, including a workbook-style fertilizer view based on the attached xlsx report layout. |
 | `/calculate/footprint` | `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` | Carbon Footprint queue page for unit/volume preparation, fertilizer/fuel conversions, soil/SOC inputs, production-year filtering, ready status, and calculation actions. |
 | `/calculate/soc` | `frontend/src/features/cf-dashboard/pages/SoilOrganicCarbonPage.tsx` | Soil Organic Carbon page for SOC and soil-improvement plant inputs/calculation, required-field markers, a switchable rollup summary (`ตามแปลง` / `ตามกลุ่มไร่` / `ตามปีเริ่มโครงการ`), and by-cover-crop-type Fnfix summaries. |
-| `/calculate/credit` | `frontend/src/features/cf-dashboard/pages/CarbonCreditPage.tsx` | Read-only Carbon Credit analysis page with 4 baseline production years, 1 project production year, and plot-level fertilizer/fuel comparison. |
+| `/calculate/credit` | `frontend/src/features/cf-dashboard/pages/CarbonCreditPage.tsx` | Carbon Credit calculation workflow using real queue data: 4 baseline production years, 1 project production year, queue row selection, bulk EF assignment, preview, credit calculation, queue result persistence, and audit drawer. |
+| `/calculate/summary` | `frontend/src/features/cf-dashboard/pages/CalculationSummaryPage.tsx` | Read-only calculation summary page for Carbon Footprint and Carbon Credit results, with production-year/area filters, KPI and insight blocks, emission breakdowns, datasource status, and audit drill-down to queue/detail/calculation breakdown data. |
 | `/dashboard` | `frontend/src/features/dashboard/DashboardPage.tsx` | Older GHG dashboard page kept as a separate route. |
 | `/geo` | `frontend/src/features/geo/GeoPage.tsx` | Geographies, provinces, districts, and subdistricts. |
 | `/infra` | `frontend/src/features/infra/InfraPage.tsx` | Factories, service areas, and departments. |
@@ -81,6 +82,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | `/activities/logs` | `frontend/src/features/activities/ActivityLogListPage.tsx` | Daily-use list for `log_activities_detail` with production-year filters and add/edit/delete. |
 | `/activities/resources` | `frontend/src/features/activities/ActivityResourcesPage.tsx` | Activity resource master-data page for fertilizers, fuels/equipments, chemicals, and other resource items, with type filters, a colored `หน้ารวมรายการ` grouped catalog view, a merged `ตารางรวม` view, add/edit/delete modals, and explicit destination selection when creating new items. |
 | `/activities/types` | `frontend/src/features/activities/ActivityTypesPage.tsx` | Activity master-data page for `activities_header_type`, `activities_header_detail_type`, and the one-parent mapping from activity detail type to activity header type, with usage counts and guarded deletes. |
+| `/activities/product-years` | `frontend/src/features/activities/ProductYearsPage.tsx` | Production-year master-data page for `activities_productYear`, with CRUD, usage-aware delete blocking, summary tiles, and deep-link actions that open related pages with production-year filters prefilled. |
 | `/activities/manage` | `frontend/src/features/activities/ActivitiesPage.tsx` | Advanced activity management page with headers, activity CSV import including production year, workflow tools, and imported-file history. |
 | `/activities/logs/new` | `frontend/src/App.tsx` | Redirect helper that preserves the query string and sends users to `/activities/manage`. |
 
@@ -95,7 +97,8 @@ Use this file to quickly find where a page, component, layout element, or relate
 
 | Frontend Feature | Backend Files | API Base |
 | --- | --- | --- |
-| Carbon Analytics (`/overview`, `/process`, `/spatial`, `/report`, `/footprint-report`, `/pipeline`) | `backend/src/modules/analytics/*` | `/api/analytics` |
+| Carbon Analytics (`/overview`, `/process`, `/spatial`, `/report`, `/footprint-report`, `/pipeline`) | `backend/src/modules/analytics/*` | `/api/analytics` with production-year labels coming from `activities_productYear.act_productYear_name`; main analytics rows now join persisted Carbon Credit results from `carbon_process_queue` and SOC totals from `carbon_soc`; physical input-usage totals still come from `/api/activities/input-usage-summary`. |
+| Calculation Summary (`/calculate/summary`) | `backend/src/modules/analytics/*` | `/api/analytics/calculation-summary` reads `carbon_process_queue`, queue calculation JSON, production-year labels, lands/camps/camp groups, result units, and SOC rows to summarize Footprint/Credit results without writing to the database. |
 | Legacy dashboard (`/dashboard`) | `backend/src/modules/analytics/*` | `/api/analytics` |
 | Geo | `backend/src/modules/geo/*` | `/api/geo` |
 | Infra | `backend/src/modules/infra/*` | `/api/infra` |
@@ -104,7 +107,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Lands | `backend/src/modules/lands/*` | `/api/lands` including camp-group CRUD at `/api/lands/camp-groups`, bulk camp-group assignment at `/api/lands/camps/bulk-group`, and the bulk subdistrict update endpoint `/api/lands/bulk/subdistrict`. |
 | Weather | `backend/src/modules/weather/*` | `/api/lands/weather` |
 | Emission factors | `backend/src/modules/emission-factors/*` | `/api/emission-factors` |
-| Activities | `backend/src/modules/activities/*` | `/api/activities` including headers/details, activity type CRUD at `/api/activities/header-types` and `/api/activities/detail-types`, production-year reference endpoints `/api/activities/product-years`, CSV import, import-history endpoints, input usage summary `/api/activities/input-usage-summary`, and carbon queue endpoints such as `/api/activities/carbon-process-queue`. |
+| Activities | `backend/src/modules/activities/*` | `/api/activities` including headers/details, activity type CRUD at `/api/activities/header-types` and `/api/activities/detail-types`, production-year CRUD plus usage metadata at `/api/activities/product-years`, CSV import, import-history endpoints, input usage summary `/api/activities/input-usage-summary`, carbon queue endpoints such as `/api/activities/carbon-process-queue`, and Carbon Credit workflow endpoints at `/api/activities/carbon-credit/*`. |
 | Prisma database access | `backend/src/modules/prisma/*` | Used by all backend services. |
 
 ## Database And Schema
@@ -124,9 +127,12 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Where is the nav bar? | `frontend/src/components/layout/Sidebar.tsx`, `MobileNav.tsx`, `Topbar.tsx` |
 | Where are routes defined? | `frontend/src/App.tsx` |
 | Where is Carbon Analytics data loading? | `frontend/src/features/cf-dashboard/services/dashboardApi.ts` |
-| Where is API-to-mock fallback logic? | `frontend/src/features/cf-dashboard/services/dashboardApi.ts` |
+| Where is the production-year label contract for analytics? | `backend/src/modules/analytics/analytics.service.ts` and `backend/src/modules/activities/production-year.util.ts` |
+| Where is API-to-demo fallback logic? | `frontend/src/features/cf-dashboard/services/dashboardApi.ts` |
 | Where are Carbon Analytics pages? | `frontend/src/features/cf-dashboard/pages/` |
 | Where is the input usage summary page? | `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`; backend source is `backend/src/modules/activities/activities.service.ts`. |
+| Where is the Carbon Credit calculation workflow? | `frontend/src/features/cf-dashboard/pages/CarbonCreditPage.tsx`, API helper `frontend/src/features/cf-dashboard/services/carbonCreditApi.ts`, types `frontend/src/features/cf-dashboard/types/carbonCredit.ts`, backend source `backend/src/modules/activities/activities.service.ts`. |
+| Where is the calculation summary page? | `frontend/src/features/cf-dashboard/pages/CalculationSummaryPage.tsx`; backend source is `backend/src/modules/analytics/analytics.service.ts` via `/api/analytics/calculation-summary`. |
 | Where are Carbon Analytics charts/components? | `frontend/src/features/cf-dashboard/components/` |
 | Where is the table component? | `frontend/src/components/ui/DataTable.tsx` |
 | Where is CSV import UI? | `frontend/src/components/ui/CsvMappingWizard.tsx` |
@@ -134,6 +140,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Where is the activity log page? | `frontend/src/features/activities/ActivityLogListPage.tsx` |
 | Where is the advanced activity management page? | `frontend/src/features/activities/ActivitiesPage.tsx` |
 | Where are activity main/sub type mappings managed? | `frontend/src/features/activities/ActivityTypesPage.tsx`; backend CRUD lives in `backend/src/modules/activities/activities.service.ts`. |
+| Where are production years managed? | `frontend/src/features/activities/ProductYearsPage.tsx`; backend CRUD and usage metadata live in `backend/src/modules/activities/activities.service.ts`. |
 | Where is the bulk subdistrict tool for lands? | `frontend/src/features/lands/LandsPage.tsx`; backend update endpoint is `backend/src/modules/lands/lands.service.ts`. |
 | Where are `/lands/camps` and `/lands/camp-groups` routes handled? | `backend/src/modules/lands/lands.controller.ts` |
 | Where is PostgreSQL/Prisma schema? | `backend/src/prisma/schema.prisma` |

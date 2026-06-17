@@ -55,45 +55,10 @@ const knownGeoValue = (value?: string) => Boolean(value && value !== "-");
 const MAP_FIELD_RENDER_LIMIT = 160;
 const MAP_CAMP_FIELD_RENDER_LIMIT = 220;
 const SPATIAL_DOC_ROWS_PER_PAGE = 10;
-const projectProcessLabels = [
-  "1. การเตรียมดินและปลูก",
-  "2. การใช้ปุ๋ย",
-  "3. การให้น้ำและกำจัดวัชพืช",
-  "4. การเก็บเกี่ยว",
-];
-const projectProcessShares = [0.18, 0.26, 0.35, 0.21];
-const projectReductionBands = [-0.08, 0.02, 0.04, 0.07, 0.1, 0.13, 0.16, 0.19, 0.23, 0.28];
 const farmGroupFilterOptions = [
   { value: "dan-chang", label: "ไร่ด่านช้าง" },
   { value: "isan", label: "ไร่อีสาน" },
 ] as const;
-
-function projectPlotId(plotCode: string) {
-  return `project-${plotCode.toLowerCase()}`;
-}
-
-function projectCampId(campName: string, farmGroup: string) {
-  const key = `${farmGroup}:${campName}`;
-  let hash = 0;
-  for (let index = 0; index < key.length; index += 1) {
-    hash = ((hash * 31) + key.charCodeAt(index)) % 900000;
-  }
-  return 100000 + hash;
-}
-
-function projectStableIndex(key: string, modulo: number) {
-  let hash = 0;
-  for (let index = 0; index < key.length; index += 1) {
-    hash = ((hash * 33) + key.charCodeAt(index)) % 1000003;
-  }
-  return hash % modulo;
-}
-
-function projectReductionPct(plot: SpatialProjectPlot, campName: string) {
-  const baseIndex = projectStableIndex(`${plot.plotCode}:${campName}`, projectReductionBands.length);
-  const farmShift = plot.farmGroup === "dan-chang" ? 1 : 0;
-  return projectReductionBands[(baseIndex + farmShift) % projectReductionBands.length];
-}
 
 function utmToLatLng(easting: number, northing: number, farmGroup: string) {
   const zone = farmGroup === "isan" && easting < 300000 ? 48 : 47;
@@ -127,57 +92,6 @@ function utmToLatLng(easting: number, northing: number, farmGroup: string) {
     + (5 - 2 * c1 + 28 * t1 - 3 * c1 ** 2 + 8 * e1sq + 24 * t1 ** 2) * d ** 5 / 120
   ) / Math.cos(phi1) * (180 / Math.PI);
   return { lat: lat * (180 / Math.PI), lng };
-}
-
-function projectPlotToField(plot: SpatialProjectPlot): CampFieldCarbonDetail {
-  const campName = normalizeProjectCampName(plot.campName);
-  const geo = getSpatialProjectGeo(plot.campName);
-  const { lat, lng } = utmToLatLng(plot.x, plot.y, plot.farmGroup);
-  const baselineEmission = Number((plot.projectAreaRai * (0.08 + (plot.sequence % 9) * 0.006)).toFixed(2));
-  const reductionFactor = projectReductionPct(plot, campName);
-  const currentEmission = Number((baselineEmission * (1 - reductionFactor)).toFixed(2));
-  const processBreakdown = projectProcessLabels.map((name, index) => ({
-    name,
-    emission: Number((currentEmission * projectProcessShares[index]).toFixed(2)),
-  }));
-  const processInputComparisons = projectProcessLabels.map((process, index) => ({
-    process,
-    baselineFertilizerKg: Number((plot.projectAreaRai * [8, 16, 22, 0][index]).toFixed(1)),
-    currentFertilizerKg: Number((plot.projectAreaRai * [7.1, 14.4, 18.8, 0][index]).toFixed(1)),
-    baselineFuelLiter: Number((plot.projectAreaRai * [3.4, 2.6, 1.6, 4.2][index]).toFixed(1)),
-    currentFuelLiter: Number((plot.projectAreaRai * [2.9, 2.2, 1.5, 3.5][index]).toFixed(1)),
-  }));
-  return {
-    id: projectPlotId(plot.plotCode),
-    parentId: plot.farmGroup,
-    level: "field",
-    name: `${plot.plotCode} - ${campName}`,
-    lat,
-    lng,
-    zoom: 15,
-    fields: 1,
-    farmers: 1,
-    areaRai: plot.projectAreaRai,
-    baselineEmission,
-    currentEmission,
-    processBreakdown,
-    processInputComparisons,
-    childrenIds: [],
-    fieldCode: plot.plotCode,
-    fieldName: `${plot.plotCode} - ${campName}`,
-    farmerName: "-",
-    phone: "-",
-    province: geo.province,
-    district: geo.district,
-    subdistrict: geo.subdistrict,
-    soilType: plot.soilType,
-    irrigationType: "-",
-    chanots: [],
-    campId: projectCampId(campName, plot.farmGroup),
-    campName,
-    activitiesLogged: ["เตรียมดินและปลูก", "ใช้ปุ๋ย", "ให้น้ำ/กำจัดวัชพืช", "เก็บเกี่ยว"],
-    co2eTotal: currentEmission,
-  };
 }
 
 function summarizeProjectCamps(fields: CampFieldCarbonDetail[]): CampCarbonSummary[] {
@@ -506,8 +420,28 @@ export function CfSpatialPage() {
   const [error, setError] = useState("");
   const [pdfUrl, setPdfUrl] = useState("");
   const [selectedId, setSelectedId] = useState("thailand");
-  const [spatialResult, setSpatialResult] = useState<DataResult<SpatialSummaryNode[]>>({ data: [], source: "mock" });
-  const [campFieldResult, setCampFieldResult] = useState<DataResult<CampFieldCarbonDetail[]>>({ data: [], source: "mock" });
+  const [spatialResult, setSpatialResult] = useState<DataResult<SpatialSummaryNode[]>>({
+    data: [],
+    source: "api",
+    meta: {
+      route: "/analytics/cf-spatial-nodes",
+      techniques: ["NestJS", "Prisma", "PostgreSQL"],
+      rowCount: 0,
+      datasourceStatus: "missing",
+      note: "loading spatial analytics",
+    },
+  });
+  const [campFieldResult, setCampFieldResult] = useState<DataResult<CampFieldCarbonDetail[]>>({
+    data: [],
+    source: "api",
+    meta: {
+      route: "/analytics/cf-camp-fields",
+      techniques: ["NestJS", "Prisma", "PostgreSQL"],
+      rowCount: 0,
+      datasourceStatus: "missing",
+      note: "loading field analytics",
+    },
+  });
   const [selectedCampId, setSelectedCampId] = useState<number | "all">("all");
   const [selectedBoundaryFieldId, setSelectedBoundaryFieldId] = useState("");
   const [selectedProjectCampName, setSelectedProjectCampName] = useState("all");
@@ -523,42 +457,43 @@ export function CfSpatialPage() {
   const [currentYear, setCurrentYear] = useState<string>("-");
   const rootId = nodes.find((node) => !node.parentId)?.id ?? "thailand";
 
+  const applySocMeasurements = (baseResult: DataResult<CampFieldCarbonDetail[]>) => {
+    get<{ data: Array<{ land_id: number; carbon_soc_socIT: number; unit_socIT: number }> }>("/carbon-soc/soc-measurements")
+      .then((socRes) => {
+        const socByLand = new Map<number, number>();
+        const measurements = Array.isArray(socRes) ? socRes : (socRes as { data: Array<{ land_id: number; carbon_soc_socIT: number }> }).data ?? [];
+        measurements.forEach((measurement) => {
+          if (measurement?.land_id && measurement?.carbon_soc_socIT) {
+            socByLand.set(Number(measurement.land_id), Number(measurement.carbon_soc_socIT));
+          }
+        });
+        if (!socByLand.size) {
+          setCampFieldResult(baseResult);
+          return;
+        }
+        const enrichedFields = baseResult.data.map((field) => {
+          const landId = typeof field.id === "string" && field.id.startsWith("field-")
+            ? Number(field.id.replace("field-", ""))
+            : undefined;
+          const actualSoc = landId ? socByLand.get(landId) : undefined;
+          return actualSoc !== undefined ? { ...field, actualSoc } : field;
+        });
+        setCampFieldResult({ ...baseResult, data: enrichedFields });
+      })
+      .catch(() => setCampFieldResult(baseResult));
+  };
+
   useEffect(() => {
     Promise.all([getCfSpatialNodes(), getCampCarbonSummaries(), getCampFieldCarbonDetails(), getOverviewKpi()])
       .then(([result, , campFieldDetailResult, kpiResult]) => {
         setNodes(result.data);
         setSpatialResult(result);
-        const kpiYears = Array.from(new Set(kpiResult.data.years ?? [])).filter((y) => y && y !== "baseline_avg").sort();
+        const kpiYears = Array.from(new Set((kpiResult.data.years ?? []).filter((year) => year && year !== "baseline_avg")));
         setAvailableYears(kpiYears);
         setCurrentYear(kpiResult.data.currentYear || "-");
         const root = result.data.find((node) => !node.parentId);
         if (root) setSelectedId(root.id);
-
-        // Priority 3: โหลด SOC measurements และ inject actualSoc ลงใน campFields
-        get<{ data: Array<{ land_id: number; carbon_soc_socIT: number; unit_socIT: number }> }>("/carbon-soc/soc-measurements")
-          .then((socRes) => {
-            const socByLand = new Map<number, number>();
-            const measurements = Array.isArray(socRes) ? socRes : (socRes as { data: Array<{ land_id: number; carbon_soc_socIT: number }> }).data ?? [];
-            measurements.forEach((m) => {
-              if (m?.land_id && m?.carbon_soc_socIT) {
-                // carbon_soc_socIT คือ tCO2e/ปี
-                socByLand.set(Number(m.land_id), Number(m.carbon_soc_socIT));
-              }
-            });
-            if (socByLand.size > 0) {
-              const enrichedFields = campFieldDetailResult.data.map((field) => {
-                const landId = typeof field.id === "string" && field.id.startsWith("field-")
-                  ? Number(field.id.replace("field-", ""))
-                  : undefined;
-                const soc = landId ? socByLand.get(landId) : undefined;
-                return soc !== undefined ? { ...field, actualSoc: soc } : field;
-              });
-              setCampFieldResult({ ...campFieldDetailResult, data: enrichedFields });
-            } else {
-              setCampFieldResult(campFieldDetailResult);
-            }
-          })
-          .catch(() => setCampFieldResult(campFieldDetailResult));
+        applySocMeasurements(campFieldDetailResult);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "โหลดข้อมูลแผนที่ไม่สำเร็จ"));
   }, []);
@@ -573,7 +508,7 @@ export function CfSpatialPage() {
       .then(([spatialRes, , campFieldRes]) => {
         setNodes(spatialRes.data);
         setSpatialResult(spatialRes);
-        setCampFieldResult(campFieldRes);
+        applySocMeasurements(campFieldRes);
       })
       .catch((err) => console.error("Failed to load spatial nodes for period", err));
   }, [period]);
@@ -597,8 +532,25 @@ export function CfSpatialPage() {
 
   const selected = nodes.find((node) => node.id === selectedId) ?? nodes[0];
   const selectedProjectGroup = filters.region === "dan-chang" || filters.region === "isan" ? filters.region : "all";
-  const projectFields = useMemo(() => spatialProjectPlots.map(projectPlotToField), []);
   const projectPlotByCode = useMemo(() => new Map(spatialProjectPlots.map((plot) => [plot.plotCode, plot])), []);
+  const projectFields = useMemo(
+    () => campFieldResult.data.map((field) => {
+      const plot = projectPlotByCode.get(field.fieldCode);
+      const geo = plot ? getSpatialProjectGeo(plot.campName) : undefined;
+      const point = plot ? utmToLatLng(plot.x, plot.y, plot.farmGroup) : undefined;
+      return {
+        ...field,
+        parentId: field.parentId || plot?.farmGroup || field.parentId,
+        campName: field.campName ? normalizeProjectCampName(field.campName) : normalizeProjectCampName(plot?.campName ?? "-"),
+        lat: Number.isFinite(field.lat) && field.lat ? field.lat : (point?.lat ?? field.lat),
+        lng: Number.isFinite(field.lng) && field.lng ? field.lng : (point?.lng ?? field.lng),
+        province: knownGeoValue(field.province) ? field.province : (geo?.province ?? field.province),
+        district: knownGeoValue(field.district) ? field.district : (geo?.district ?? field.district),
+        subdistrict: knownGeoValue(field.subdistrict) ? field.subdistrict : (geo?.subdistrict ?? field.subdistrict),
+      };
+    }),
+    [campFieldResult.data, projectPlotByCode],
+  );
   const projectFieldsForGroup = useMemo(
     () => selectedProjectGroup === "all"
       ? projectFields
@@ -787,7 +739,11 @@ export function CfSpatialPage() {
     const totalAreaRai = displayCampFields.reduce((sum, field) => sum + field.areaRai, 0);
     return { campCount, totalAreaRai, plotCount: displayCampFields.length };
   }, [displayCampFields]);
-  const activeBoundaryFieldId = selectedBoundaryFieldId || (selectedProjectPlotCode === "all" ? "" : projectPlotId(selectedProjectPlotCode));
+  const activeBoundaryFieldId = selectedBoundaryFieldId || (
+    selectedProjectPlotCode === "all"
+      ? ""
+      : (displayCampFields.find((field) => field.fieldCode === selectedProjectPlotCode)?.id ?? "")
+  );
   const selectedBoundaryField = activeBoundaryFieldId
     ? displayCampFields.find((field) => field.id === activeBoundaryFieldId)
     : undefined;
@@ -830,6 +786,8 @@ export function CfSpatialPage() {
       areaRai: displayCampFields.reduce((sum, field) => sum + field.areaRai, 0),
       baselineEmission: Number(displayCampFields.reduce((sum, field) => sum + field.baselineEmission, 0).toFixed(2)),
       currentEmission: Number(displayCampFields.reduce((sum, field) => sum + field.currentEmission, 0).toFixed(2)),
+      actualCredit: Number(displayCampFields.reduce((sum, field) => sum + (field.actualCredit ?? 0), 0).toFixed(4)),
+      actualSoc: Number(displayCampFields.reduce((sum, field) => sum + (field.actualSoc ?? 0), 0).toFixed(4)),
       processBreakdown: aggregateProcessBreakdown(displayCampFields),
       processInputComparisons: hasInputComparisonRows(inputRows) ? inputRows : selected.processInputComparisons,
     };
@@ -837,17 +795,18 @@ export function CfSpatialPage() {
   const focusNode = selectedBoundaryField ?? selectedCampNode ?? scopedNode ?? selected;
   const diff = focusNode ? focusNode.baselineEmission - focusNode.currentEmission : 0;
   const diffPercent = focusNode?.baselineEmission ? (diff / focusNode.baselineEmission) * 100 : 0;
-  const carbonCredit = focusNode ? creditSummary(focusNode.baselineEmission, focusNode.currentEmission) : creditSummary(0, 0);
+  const focusActualCredit = (focusNode?.actualCredit ?? 0) > 0 ? focusNode?.actualCredit : undefined;
+  const carbonCredit = focusNode ? creditSummary(focusNode.baselineEmission, focusNode.currentEmission, focusActualCredit) : creditSummary(0, 0);
   const currentProcessBreakdown = focusNode?.processBreakdown ?? [];
   const spatialInputs = focusNode?.processInputComparisons ?? [];
   const inputTotals = sumInputs(spatialInputs);
   const fertilizerDiff = inputTotals.baselineFertilizerKg - inputTotals.currentFertilizerKg;
   const fuelDiff = inputTotals.baselineFuelLiter - inputTotals.currentFuelLiter;
-  // Priority 3: ใช้ actualSoc จาก carbon_soc table ถ้ามีข้อมูล fallback: (baseline-current)*0.35
-  const fieldActualSoc = isField(focusNode) ? (focusNode as CampFieldCarbonDetail & { actualSoc?: number }).actualSoc : undefined;
-  const socRemoval = fieldActualSoc !== undefined
-    ? fieldActualSoc
+  const focusActualSoc = focusNode?.actualSoc;
+  const socRemoval = focusActualSoc !== undefined
+    ? focusActualSoc
     : (focusNode ? Math.max(focusNode.baselineEmission - focusNode.currentEmission, 0) * 0.35 : 0);
+  const totalCreditWithSoc = focusActualCredit !== undefined ? carbonCredit.credit : carbonCredit.credit + socRemoval;
   const socIndex = focusNode?.areaRai ? (socRemoval / focusNode.areaRai) * 100 : 0;
   const mapFieldRenderLimit = selectedCamp ? MAP_CAMP_FIELD_RENDER_LIMIT : MAP_FIELD_RENDER_LIMIT;
   const hasFocusedProjectPlot = selectedProjectPlotCode !== "all";
@@ -882,11 +841,11 @@ export function CfSpatialPage() {
   const projectPlotSource = {
     source: "api" as const,
     meta: {
-      route: "frontend/spatial-project-plots",
-      techniques: ["API spatial hierarchy", "project plot file"],
+      route: "/analytics/cf-camp-fields + frontend/spatial-project-plots",
+      techniques: ["Carbon Analytics API", "project plot geometry"],
       rowCount: displayCampFields.length,
       datasourceStatus: "api_partial" as const,
-      note: "plot boundaries are derived in frontend",
+      note: "field rows come from API; plot geometry is enriched in frontend",
     },
   };
 
@@ -980,7 +939,7 @@ export function CfSpatialPage() {
       return "";
     });
     setDocumentNotice("กำลังสร้าง Preview เอกสารตามฟิลเตอร์ปัจจุบัน...");
-    const documentPeriodLabel = availableYears.find(y => y === period) || "ปีโครงการหลัก";
+    const documentPeriodLabel = availableYears.find((year) => year === period) || `ปีดำเนินการ ${currentYear}`;
     const documentFilterScope = [filters.province, filters.district, filters.subdistrict].filter(Boolean).join(" / ") || "ทุกพื้นที่";
     setGeneratedDocument({ title: documentTitle, periodLabel: documentPeriodLabel, filterScope: documentFilterScope, fields: documentFields, camps: documentCamps });
     setDocumentRenderId((value) => value + 1);
@@ -1254,15 +1213,14 @@ export function CfSpatialPage() {
               <tbody>
                 {displayCampFields.map((field) => {
                   const plot = projectPlotByCode.get(field.fieldCode);
-                  if (!plot) return null;
                   const fieldId = field.id;
                   return (
-                    <tr key={plot.plotCode} className={mapActiveBoundaryFieldId === fieldId ? "active-row" : ""}>
-                      <td>{plot.sequence.toLocaleString()}</td>
-                      <td>{plot.farmGroupName}</td>
+                    <tr key={field.id} className={mapActiveBoundaryFieldId === fieldId ? "active-row" : ""}>
+                      <td>{plot?.sequence?.toLocaleString() ?? "-"}</td>
+                      <td>{plot?.farmGroupName ?? (field.parentId === "dan-chang" ? "ไร่ด่านช้าง" : field.parentId === "isan" ? "ไร่อีสาน" : "-")}</td>
                       <td>{field.campName}</td>
-                      <td>{plot.plotCode}</td>
-                      <td>{plot.projectAreaRai.toLocaleString(undefined, { maximumFractionDigits: 3 })}</td>
+                      <td>{field.fieldCode}</td>
+                      <td>{field.areaRai.toLocaleString(undefined, { maximumFractionDigits: 3 })}</td>
                       <td>
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                           [1].includes(field.calStatusId ?? 2) ? "bg-surface-100 text-surface-600" :
@@ -1283,8 +1241,8 @@ export function CfSpatialPage() {
                            "รอข้อมูล"}
                         </span>
                       </td>
-                      <td>{plot.x.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
-                      <td>{plot.y.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                      <td>{(plot?.x ?? field.lng ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                      <td>{(plot?.y ?? field.lat ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
                       <td>
                         <button
                           type="button"
@@ -1298,8 +1256,8 @@ export function CfSpatialPage() {
                     </tr>
                   );
                 })}
-                {!visibleProjectPlots.length && (
-                  <tr><td colSpan={8}>ไม่พบข้อมูลรายแปลงตามตัวกรองนี้</td></tr>
+                {!displayCampFields.length && (
+                  <tr><td colSpan={9}>ไม่พบข้อมูลรายแปลงตามตัวกรองนี้</td></tr>
                 )}
               </tbody>
             </table>
@@ -1343,7 +1301,7 @@ export function CfSpatialPage() {
                 <div><span>เครดิตที่ได้</span><strong className={carbonCredit.credit > 0 ? "green-text" : "red-text"}>{formatNumber(carbonCredit.credit, 2)} tCO2e</strong></div>
                 <div><span>การสะสมคาร์บอนในดิน (SOC)</span><strong className="green-text">{formatNumber(socRemoval, 2)} tCO2e</strong></div>
                 <div><span>SOC index ต่อพื้นที่</span><strong>{formatNumber(socIndex, 2)}</strong></div>
-                <div><span>เครดิตรวมหลังรวม SOC</span><strong className="green-text">{formatNumber(carbonCredit.credit + socRemoval, 2)} tCO2e</strong></div>
+                <div><span>เครดิตรวมหลังรวม SOC</span><strong className="green-text">{formatNumber(totalCreditWithSoc, 2)} tCO2e</strong></div>
               </div>
               {isField(focusNode) && (
                 <div className="field-detail">

@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { Calculator, CheckCircle2, ChevronDown, ChevronUp, CircleAlert, Code2, Edit3, LoaderCircle, Plus, Wand2, X } from 'lucide-react'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { DataTable, type Column } from '@/components/ui/DataTable'
+import { useToast } from '@/components/ui/Toast'
 import {
   ACTIVITY_CAL_STATUS_NAMES,
   getActivityCalStatusBadgeClass,
@@ -1305,6 +1307,8 @@ export function CarbonFootprintQueuePage({
   const isPreparationMode = mode === 'preparation'
   const isEmbeddedPreparationSection = embedded && isPreparationMode
   const qc = useQueryClient()
+  const toast = useToast()
+  const [searchParams] = useSearchParams()
   const [statusFilter, setStatusFilter] = useState(isPreparationMode ? 'preparing' : 'ready')
   const [productYearFilter, setProductYearFilter] = useState('')
   const [resourceTypeFilter, setResourceTypeFilter] = useState('')
@@ -1336,6 +1340,7 @@ export function CarbonFootprintQueuePage({
   const [footprintFertilizerFactorSelections, setFootprintFertilizerFactorSelections] = useState<FertilizerFactorSelections>(EMPTY_FERTILIZER_FACTOR_SELECTIONS)
   const [footprintManualFertilizerFormulaInputs, setFootprintManualFertilizerFormulaInputs] = useState<Record<number, ManualFertilizerFormulaInput>>({})
   const [footprintEfPicker, setFootprintEfPicker] = useState<FootprintEfPickerState>({ kind: 'hidden' })
+  const [footprintBulkEfRowIds, setFootprintBulkEfRowIds] = useState<number[]>([])
   const [footprintFertilizerFactorSearchInputs, setFootprintFertilizerFactorSearchInputs] = useState<Record<string, string>>({})
   const [footprintFertilizerFactorFocusedKey, setFootprintFertilizerFactorFocusedKey] = useState<string | null>(null)
   const [footprintModalLeftPaneWidth, setFootprintModalLeftPaneWidth] = useState(42)
@@ -1353,6 +1358,10 @@ export function CarbonFootprintQueuePage({
   const [footprintUnitCreateError, setFootprintUnitCreateError] = useState<string | null>(null)
   const [form, setForm] = useState<PreparationForm>(emptyForm)
   const footprintPreviewLayoutRef = useRef<HTMLDivElement | null>(null)
+  const preparationToastIdRef = useRef<string | null>(null)
+  const bulkPreparationToastIdRef = useRef<string | null>(null)
+  const statusToastIdRef = useRef<string | null>(null)
+  const calculationToastIdRef = useRef<string | null>(null)
 
   const { data: queue = [], isLoading, error: queueError } = useQuery({
     queryKey: ['carbon-process-queue'],
@@ -1793,6 +1802,9 @@ export function CarbonFootprintQueuePage({
     units.filter((unit) => Boolean(resolveFootprintResultUnitKindFromNames([unit.unit_name, unit.unit_initial])))
   ), [units])
   const footprintModalGenericEfRowsMissingEf = footprintModalGenericEfRows.filter((row) => !footprintSelectedEfIds[row.id])
+  const footprintModalGenericEfRowIdKey = footprintModalGenericEfRows.map((row) => row.id).join('|')
+  const footprintBulkEfSelectedRows = footprintModalGenericEfRows.filter((row) => footprintBulkEfRowIds.includes(row.id))
+  const footprintBulkEfSelectedMissingRows = footprintBulkEfSelectedRows.filter((row) => !footprintSelectedEfIds[row.id])
   const footprintManualFertilizerFormulaRowsMissingInput = fertilizerRowsMissingDetectedFormula.filter((row) => {
     const preview = footprintModalRowPreviewById[row.id]
     return preview?.previewStatusKind === 'blocked'
@@ -2372,6 +2384,11 @@ export function CarbonFootprintQueuePage({
   }
 
   useEffect(() => {
+    const productYearId = searchParams.get('productYearId') ?? ''
+    setProductYearFilter((prev) => (prev === productYearId ? prev : productYearId))
+  }, [searchParams])
+
+  useEffect(() => {
     if (bulkPreparationPopup.kind !== 'success') return undefined
 
     const timer = window.setTimeout(() => {
@@ -2388,6 +2405,21 @@ export function CarbonFootprintQueuePage({
 
     return () => window.clearTimeout(timer)
   }, [bulkPreparationPopup])
+
+  useEffect(() => () => {
+    ;[
+      preparationToastIdRef.current,
+      bulkPreparationToastIdRef.current,
+      statusToastIdRef.current,
+      calculationToastIdRef.current,
+    ].forEach((toastId) => {
+      if (toastId) toast.dismiss(toastId)
+    })
+    preparationToastIdRef.current = null
+    bulkPreparationToastIdRef.current = null
+    statusToastIdRef.current = null
+    calculationToastIdRef.current = null
+  }, [toast])
 
   useEffect(() => {
     if (
@@ -2446,6 +2478,19 @@ export function CarbonFootprintQueuePage({
       setIsFootprintPreviewCollapsed(true)
     }
   }, [footprintCalculationModal.kind])
+
+  useEffect(() => {
+    if (footprintCalculationModal.kind === 'hidden') {
+      setFootprintBulkEfRowIds([])
+      return
+    }
+
+    const genericEfRowIds = new Set(footprintModalGenericEfRows.map((row) => row.id))
+    setFootprintBulkEfRowIds((prev) => {
+      const next = prev.filter((id) => genericEfRowIds.has(id))
+      return next.length === prev.length ? prev : next
+    })
+  }, [footprintCalculationModal.kind, footprintModalGenericEfRowIdKey])
 
   useEffect(() => {
     if (bulkModalOpen) {
@@ -2684,13 +2729,28 @@ export function CarbonFootprintQueuePage({
   const preparationMut = useMutation({
     mutationFn: ({ id, payload }: { id: number; payload: Record<string, unknown> }) =>
       put(`/activities/carbon-process-queue/${id}/preparation`, payload),
+    onMutate: (_variables) => {
+      preparationToastIdRef.current = toast.loading('กำลังบันทึกการเตรียมข้อมูล', 'ระบบกำลังอัปเดตหน่วย ปริมาณ และข้อมูลที่ใช้ก่อนคำนวณ')
+    },
     onSuccess: () => {
+      if (preparationToastIdRef.current) {
+        toast.dismiss(preparationToastIdRef.current)
+      }
+      preparationToastIdRef.current = null
+      toast.success('บันทึกการเตรียมข้อมูลแล้ว')
       void qc.invalidateQueries({ queryKey: ['carbon-process-queue'] })
       void qc.invalidateQueries({ queryKey: ['activity-details-calculate'] })
       void qc.invalidateQueries({ queryKey: ['activity-details'] })
       void qc.invalidateQueries({ queryKey: ['units-carbon-footprint'] })
       void qc.invalidateQueries({ queryKey: ['units'] })
       closePreparationForm()
+    },
+    onError: (error) => {
+      if (preparationToastIdRef.current) {
+        toast.dismiss(preparationToastIdRef.current)
+      }
+      preparationToastIdRef.current = null
+      toast.error('บันทึกการเตรียมข้อมูลไม่สำเร็จ', getErrorMessage(error))
     },
   })
 
@@ -2753,7 +2813,21 @@ export function CarbonFootprintQueuePage({
 
       return updated
     },
+    onMutate: (variables) => {
+      bulkPreparationToastIdRef.current = toast.loading(
+        'กำลังเตรียมข้อมูลหลายรายการ',
+        `กำลังอัปเดต ${variables.items.length.toLocaleString('th-TH')} รายการ${variables.moveToReady ? ` และย้ายสถานะเป็น ${ACTIVITY_CAL_STATUS_NAMES.ready}` : ''}`,
+      )
+    },
     onSuccess: async (_data, variables) => {
+      if (bulkPreparationToastIdRef.current) {
+        toast.dismiss(bulkPreparationToastIdRef.current)
+      }
+      bulkPreparationToastIdRef.current = null
+      toast.success(
+        'เตรียมข้อมูลหลายรายการสำเร็จ',
+        `${variables.items.length.toLocaleString('th-TH')} รายการถูกอัปเดตแล้ว${variables.moveToReady ? ` และย้ายสถานะ ${variables.detailIds.length.toLocaleString('th-TH')} รายการ` : ''}`,
+      )
       void qc.invalidateQueries({ queryKey: ['carbon-process-queue'] })
       void qc.invalidateQueries({ queryKey: ['activity-details-calculate'] })
       void qc.invalidateQueries({ queryKey: ['activity-details'] })
@@ -2768,6 +2842,11 @@ export function CarbonFootprintQueuePage({
       })
     },
     onError: (error) => {
+      if (bulkPreparationToastIdRef.current) {
+        toast.dismiss(bulkPreparationToastIdRef.current)
+      }
+      bulkPreparationToastIdRef.current = null
+      toast.error('เตรียมข้อมูลหลายรายการไม่สำเร็จ', getErrorMessage(error))
       setBulkPreparationPopup({ kind: 'hidden' })
       setBulkModalError(getErrorMessage(error))
     },
@@ -2780,6 +2859,10 @@ export function CarbonFootprintQueuePage({
         : post('/activities/details/manual-status/bulk', { ids: detailIds, statusName }, { timeout: 10 * 60_000 })
     ),
     onMutate: ({ detailIds, statusName, fromStatusLabel, toStatusLabel }) => {
+      statusToastIdRef.current = toast.loading(
+        'กำลังเปลี่ยนสถานะข้อมูล',
+        `กำลังย้าย ${detailIds.length.toLocaleString('th-TH')} รายการไป ${toStatusLabel ?? statusName}`,
+      )
       setStatusPopup({
         kind: 'loading',
         itemCount: detailIds.length,
@@ -2788,6 +2871,14 @@ export function CarbonFootprintQueuePage({
       })
     },
     onSuccess: async (_data, variables) => {
+      if (statusToastIdRef.current) {
+        toast.dismiss(statusToastIdRef.current)
+      }
+      statusToastIdRef.current = null
+      toast.success(
+        'เปลี่ยนสถานะข้อมูลแล้ว',
+        `${variables.detailIds.length.toLocaleString('th-TH')} รายการถูกย้ายไป ${variables.toStatusLabel ?? variables.statusName}`,
+      )
       await Promise.all([
         qc.invalidateQueries({ queryKey: ['carbon-process-queue'] }),
         qc.invalidateQueries({ queryKey: ['activity-details-calculate'] }),
@@ -2802,7 +2893,12 @@ export function CarbonFootprintQueuePage({
         toStatusLabel: variables.toStatusLabel ?? variables.statusName,
       })
     },
-    onError: () => {
+    onError: (error) => {
+      if (statusToastIdRef.current) {
+        toast.dismiss(statusToastIdRef.current)
+      }
+      statusToastIdRef.current = null
+      toast.error('เปลี่ยนสถานะข้อมูลไม่สำเร็จ', getErrorMessage(error))
       setStatusPopup({ kind: 'hidden' })
     },
   })
@@ -2827,6 +2923,7 @@ export function CarbonFootprintQueuePage({
 
   const openFootprintCalculationModal = (rowsToReview: QueueRow[], source: FootprintCalculationSource) => {
     setFootprintEfPicker({ kind: 'hidden' })
+    setFootprintBulkEfRowIds([])
     setFootprintFertilizerFactorSearchInputs({})
     setFootprintFertilizerFactorFocusedKey(null)
     setFootprintManualFertilizerFormulaInputs({})
@@ -2848,6 +2945,7 @@ export function CarbonFootprintQueuePage({
   const closeFootprintCalculationModal = () => {
     if (footprintCalculationModal.kind === 'running') return
     setFootprintEfPicker({ kind: 'hidden' })
+    setFootprintBulkEfRowIds([])
     setFootprintFertilizerFactorSearchInputs({})
     setFootprintFertilizerFactorFocusedKey(null)
     setFootprintManualFertilizerFormulaInputs({})
@@ -2904,6 +3002,35 @@ export function CarbonFootprintQueuePage({
   const applyFootprintGenericEfSelection = (rowId: number, ef?: Ef) => {
     updateFootprintSelectedEf(rowId, ef ? String(ef.coefficient_emission_factor_id) : '')
     setFootprintEfPicker({ kind: 'hidden' })
+  }
+
+  const toggleFootprintBulkEfRow = (rowId: number, checked: boolean) => {
+    setFootprintBulkEfRowIds((prev) => (
+      checked
+        ? Array.from(new Set([...prev, rowId]))
+        : prev.filter((id) => id !== rowId)
+    ))
+  }
+
+  const setFootprintBulkEfRows = (rowsToSelect: QueueRow[]) => {
+    setFootprintBulkEfRowIds(Array.from(new Set(rowsToSelect.map((row) => row.id))))
+  }
+
+  const isEfCompatibleWithFootprintRow = (row: QueueRow, ef: Ef) => {
+    const rowUnitId = getRowCalculationUnitId(row)
+    const efUnitId = getEfInputUnitId(ef)
+    return rowUnitId == null || efUnitId == null || rowUnitId === efUnitId
+  }
+
+  const applyFootprintGenericEfSelectionToRows = (rowsToApply: QueueRow[], ef?: Ef) => {
+    if (!rowsToApply.length) return
+    setFootprintSelectedEfIds((prev) => {
+      const next = { ...prev }
+      rowsToApply.forEach((row) => {
+        next[row.id] = ef ? String(ef.coefficient_emission_factor_id) : ''
+      })
+      return next
+    })
   }
 
   const openFootprintEfPicker = (row: QueueRow) => {
@@ -3051,6 +3178,11 @@ export function CarbonFootprintQueuePage({
     const successRows: FootprintCalculationRunResult[] = []
     const failedRows: FootprintCalculationRunResult[] = []
 
+    calculationToastIdRef.current = toast.loading(
+      'กำลังคำนวณ Carbon Footprint',
+      `ระบบกำลังประมวลผล ${readyRows.length.toLocaleString('th-TH')} รายการแบบเรียงลำดับ`,
+    )
+
     setFootprintCalculationModal({
       kind: 'running',
       source,
@@ -3126,6 +3258,20 @@ export function CarbonFootprintQueuePage({
     ])
 
     setSelectedQueueIds((prev) => prev.filter((id) => !successRows.some((item) => item.row.id === id)))
+    if (calculationToastIdRef.current) {
+      toast.dismiss(calculationToastIdRef.current)
+    }
+    calculationToastIdRef.current = null
+    if (failedRows.length === 0) {
+      toast.success('คำนวณ Carbon Footprint สำเร็จ', `ประมวลผลครบ ${successRows.length.toLocaleString('th-TH')} รายการ`)
+    } else if (successRows.length > 0) {
+      toast.warning(
+        'คำนวณ Carbon Footprint เสร็จบางส่วน',
+        `สำเร็จ ${successRows.length.toLocaleString('th-TH')} รายการ และไม่สำเร็จ ${failedRows.length.toLocaleString('th-TH')} รายการ`,
+      )
+    } else {
+      toast.error('คำนวณ Carbon Footprint ไม่สำเร็จ', `ไม่สำเร็จ ${failedRows.length.toLocaleString('th-TH')} รายการ`)
+    }
     setFootprintCalculationModal({
       kind: 'complete',
       source,
@@ -4217,10 +4363,70 @@ export function CarbonFootprintQueuePage({
                             </p>
                           </div>
 
+                          <div className="rounded-2xl border border-[#cfe7d9] bg-[linear-gradient(180deg,#f7fdf9,#eef9f2)] p-3">
+                            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                              <div className="min-w-0">
+                                <div className="text-sm font-semibold text-surface-900">ตั้งค่า EF หลายรายการ</div>
+                                <p className="mt-1 text-xs leading-5 text-surface-600">
+                                  เลือกหลายแถวจากตารางนี้ แล้วใช้ EF เดียวกันกับกลุ่มที่เลือกได้ใน EF Browser ด้านล่าง ระบบจะช่วยใช้กับรายการที่หน่วยเข้ากันได้เท่านั้น
+                                </p>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3 xl:min-w-[24rem]">
+                                <div className="rounded-xl border border-[#d9e7f2] bg-white/85 px-3 py-2">
+                                  <span className="block text-surface-500">รายการ EF ทั้งหมด</span>
+                                  <strong className="text-sm">{footprintModalGenericEfRows.length.toLocaleString('th-TH')}</strong>
+                                </div>
+                                <div className="rounded-xl border border-[#d9e7f2] bg-white/85 px-3 py-2">
+                                  <span className="block text-surface-500">เลือกไว้</span>
+                                  <strong className="text-sm text-emerald-700">{footprintBulkEfSelectedRows.length.toLocaleString('th-TH')}</strong>
+                                </div>
+                                <div className="rounded-xl border border-[#f5dfb8] bg-white/85 px-3 py-2">
+                                  <span className="block text-surface-500">ยังไม่มี EF</span>
+                                  <strong className="text-sm text-amber-700">{footprintBulkEfSelectedMissingRows.length.toLocaleString('th-TH')}</strong>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button type="button" className="btn-secondary btn-sm" onClick={() => setFootprintBulkEfRows(footprintModalGenericEfRows)}>
+                                เลือกทั้งหมดในตาราง
+                              </button>
+                              <button type="button" className="btn-secondary btn-sm" onClick={() => setFootprintBulkEfRows(footprintModalGenericEfRowsMissingEf)}>
+                                เลือกเฉพาะที่ยังไม่มี EF
+                              </button>
+                              {footprintEfPickerRow && (
+                                <button
+                                  type="button"
+                                  className="btn-secondary btn-sm"
+                                  onClick={() => {
+                                    const pickerUnitId = getRowCalculationUnitId(footprintEfPickerRow)
+                                    setFootprintBulkEfRows(
+                                      footprintModalGenericEfRows.filter((row) => pickerUnitId == null || getRowCalculationUnitId(row) === pickerUnitId),
+                                    )
+                                  }}
+                                >
+                                  เลือกหน่วยเดียวกับแถวที่เปิดอยู่
+                                </button>
+                              )}
+                              <button type="button" className="btn-ghost btn-sm" onClick={() => setFootprintBulkEfRowIds([])}>
+                                ล้างแถวที่เลือก
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-ghost btn-sm"
+                                disabled={!footprintBulkEfSelectedRows.length}
+                                onClick={() => applyFootprintGenericEfSelectionToRows(footprintBulkEfSelectedRows)}
+                              >
+                                ล้าง EF ของแถวที่เลือก
+                              </button>
+                            </div>
+                          </div>
+
                           <div className="mt-4 max-h-[360px] overflow-auto rounded-xl border border-[#d9e7f2]">
-                            <table className="w-full min-w-[1280px] text-left text-xs">
+                            <table className="w-full min-w-[1360px] text-left text-xs">
                               <thead className="sticky top-0 bg-[#f3f7fb] text-surface-600">
                                 <tr>
+                                  <th className="px-3 py-2 font-semibold">เลือก</th>
                                   <th className="px-3 py-2 font-semibold">หัวข้อกิจกรรม</th>
                                   <th className="px-3 py-2 font-semibold">ประเภท</th>
                                   <th className="px-3 py-2 font-semibold">รายการ</th>
@@ -4240,6 +4446,14 @@ export function CarbonFootprintQueuePage({
 
                                   return (
                                     <tr key={`generic-ef-${row.id}`}>
+                                      <td className="px-3 py-2 align-top">
+                                        <input
+                                          type="checkbox"
+                                          checked={footprintBulkEfRowIds.includes(row.id)}
+                                          onChange={(event) => toggleFootprintBulkEfRow(row.id, event.target.checked)}
+                                          aria-label={`เลือก ${row.resourceItemName} สำหรับตั้งค่า EF หลายรายการ`}
+                                        />
+                                      </td>
                                       <td className="px-3 py-2 align-top">
                                         <div className="min-w-[150px]">
                                           <div className="font-medium text-surface-800">{row.headerLabel}</div>
@@ -4387,6 +4601,8 @@ export function CarbonFootprintQueuePage({
                                     <tbody className="divide-y divide-[#e5eef5] bg-white">
                                       {footprintEfPickerRowSelectableEfs.map((item) => {
                                         const isActive = String(item.coefficient_emission_factor_id) === (footprintSelectedEfIds[footprintEfPickerRow.id] ?? '')
+                                        const compatibleBulkRows = footprintBulkEfSelectedRows.filter((row) => isEfCompatibleWithFootprintRow(row, item))
+                                        const skippedBulkRowsCount = Math.max(footprintBulkEfSelectedRows.length - compatibleBulkRows.length, 0)
 
                                         return (
                                           <tr key={`ef-browser-${footprintEfPickerRow.id}-${item.coefficient_emission_factor_id}`} className={isActive ? 'bg-emerald-50/60' : ''}>
@@ -4408,17 +4624,32 @@ export function CarbonFootprintQueuePage({
                                               {item.group_emission_factor_id != null ? (efGroupMap[item.group_emission_factor_id] || `#${item.group_emission_factor_id}`) : '—'}
                                             </td>
                                             <td className="px-3 py-2 align-top">
-                                              <button
-                                                type="button"
-                                                className={`btn-sm rounded-xl border px-3 py-2 text-sm transition ${
-                                                  isActive
-                                                    ? 'border-emerald-500 bg-emerald-100 text-emerald-800'
-                                                    : 'border-[#d9e7f2] bg-white text-surface-700 hover:border-[#c5dbeb]'
-                                                }`}
-                                                onClick={() => applyFootprintGenericEfSelection(footprintEfPickerRow.id, item)}
-                                              >
-                                                {isActive ? 'เลือกอยู่' : 'ใช้ EF นี้'}
-                                              </button>
+                                              <div className="flex min-w-[150px] flex-col gap-2">
+                                                <button
+                                                  type="button"
+                                                  className={`btn-sm rounded-xl border px-3 py-2 text-sm transition ${
+                                                    isActive
+                                                      ? 'border-emerald-500 bg-emerald-100 text-emerald-800'
+                                                      : 'border-[#d9e7f2] bg-white text-surface-700 hover:border-[#c5dbeb]'
+                                                  }`}
+                                                  onClick={() => applyFootprintGenericEfSelection(footprintEfPickerRow.id, item)}
+                                                >
+                                                  {isActive ? 'เลือกอยู่' : 'ใช้ EF นี้'}
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  className="btn-secondary btn-sm justify-center"
+                                                  disabled={!compatibleBulkRows.length}
+                                                  onClick={() => applyFootprintGenericEfSelectionToRows(compatibleBulkRows, item)}
+                                                >
+                                                  ใช้กับที่เลือก {compatibleBulkRows.length.toLocaleString('th-TH')}
+                                                </button>
+                                                {skippedBulkRowsCount > 0 && (
+                                                  <span className="text-[11px] leading-4 text-amber-700">
+                                                    ข้าม {skippedBulkRowsCount.toLocaleString('th-TH')} รายการที่หน่วยไม่ตรง
+                                                  </span>
+                                                )}
+                                              </div>
                                             </td>
                                           </tr>
                                         )

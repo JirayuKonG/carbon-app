@@ -11,10 +11,12 @@ export function SourceBadge({ source, meta, loading }: Props) {
   const visible = useDatasourceStatusVisible();
   const status: DataSourceStatus = meta?.datasourceStatus ?? (source === "api" ? "api_real" : "fallback");
   const sourceLabel = status === "api_real"
-    ? "API real calculation"
+    ? "API real"
     : status === "api_partial"
     ? "API partial"
-    : "Fallback dataset";
+    : status === "missing"
+    ? "Missing data"
+    : "Demo fallback";
 
   if (!visible) return null;
 

@@ -23,23 +23,23 @@ export class AnalyticsController {
   }
 
   @Get('cf-kpi')
-  getCfKpi(@Query('level') level?: string, @Query('id') id?: string) {
-    return this.svc.getCfKpi({ level: this.filterLevel(level), id })
+  getCfKpi(@Query('level') level?: string, @Query('id') id?: string, @Query('year') year?: string) {
+    return this.svc.getCfKpi({ level: this.filterLevel(level), id, year })
   }
 
   @Get('cf-trend')
-  getCfTrend(@Query('level') level?: string, @Query('id') id?: string) {
-    return this.svc.getCfTrend({ level: this.filterLevel(level), id })
+  getCfTrend(@Query('level') level?: string, @Query('id') id?: string, @Query('year') year?: string) {
+    return this.svc.getCfTrend({ level: this.filterLevel(level), id, year })
   }
 
   @Get('cf-process')
-  getCfProcess(@Query('level') level?: string, @Query('id') id?: string) {
-    return this.svc.getCfProcess({ level: this.filterLevel(level), id })
+  getCfProcess(@Query('level') level?: string, @Query('id') id?: string, @Query('year') year?: string) {
+    return this.svc.getCfProcess({ level: this.filterLevel(level), id, year })
   }
 
   @Get('cf-transport')
-  getCfTransport(@Query('level') level?: string, @Query('id') id?: string) {
-    return this.svc.getCfTransport({ level: this.filterLevel(level), id })
+  getCfTransport(@Query('level') level?: string, @Query('id') id?: string, @Query('year') year?: string) {
+    return this.svc.getCfTransport({ level: this.filterLevel(level), id, year })
   }
 
   @Get('cf-process-activities')
@@ -47,19 +47,20 @@ export class AnalyticsController {
     @Query('kind') kind?: string,
     @Query('level') level?: string,
     @Query('id') id?: string,
+    @Query('year') year?: string,
   ) {
     const selectedKind = kind === 'process' || kind === 'transport' ? kind : 'all'
-    return this.svc.getCfProcessActivities(selectedKind, { level: this.filterLevel(level), id })
+    return this.svc.getCfProcessActivities(selectedKind, { level: this.filterLevel(level), id, year })
   }
 
   @Get('cf-process-inputs')
-  getCfProcessInputs(@Query('level') level?: string, @Query('id') id?: string) {
-    return this.svc.getCfProcessInputs({ level: this.filterLevel(level), id })
+  getCfProcessInputs(@Query('level') level?: string, @Query('id') id?: string, @Query('year') year?: string) {
+    return this.svc.getCfProcessInputs({ level: this.filterLevel(level), id, year })
   }
 
   @Get('cf-cane-types')
-  getCfCaneTypes(@Query('level') level?: string, @Query('id') id?: string) {
-    return this.svc.getCfCaneTypes({ level: this.filterLevel(level), id })
+  getCfCaneTypes(@Query('level') level?: string, @Query('id') id?: string, @Query('year') year?: string) {
+    return this.svc.getCfCaneTypes({ level: this.filterLevel(level), id, year })
   }
 
   @Get('cf-camps')
@@ -80,9 +81,38 @@ export class AnalyticsController {
     return this.svc.getCfSpatialNodes({ level: this.filterLevel(level), id, year })
   }
 
+  @Get('calculation-summary')
+  getCalculationSummary(
+    @Query('mode') mode?: string,
+    @Query('years') years?: string,
+    @Query('yearFrom') yearFrom?: string,
+    @Query('yearTo') yearTo?: string,
+    @Query('scope') scope?: string,
+    @Query('campGroupId') campGroupId?: string,
+    @Query('campId') campId?: string,
+    @Query('landId') landId?: string,
+    @Query('groupBy') groupBy?: string,
+    @Query('baselineYears') baselineYears?: string,
+    @Query('projectYear') projectYear?: string,
+  ) {
+    return this.svc.getCalculationSummary({
+      mode,
+      years,
+      yearFrom,
+      yearTo,
+      scope,
+      campGroupId,
+      campId,
+      landId,
+      groupBy,
+      baselineYears,
+      projectYear,
+    })
+  }
+
   @Get('cf-report-summary')
-  getCfReportSummary(@Query('level') level?: string, @Query('id') id?: string) {
-    return this.svc.getCfReportSummary({ level: this.filterLevel(level), id })
+  getCfReportSummary(@Query('level') level?: string, @Query('id') id?: string, @Query('year') year?: string) {
+    return this.svc.getCfReportSummary({ level: this.filterLevel(level), id, year })
   }
 
   private filterLevel(level?: string) {

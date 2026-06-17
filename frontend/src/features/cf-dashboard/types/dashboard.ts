@@ -1,5 +1,5 @@
 export type DataSource = "api" | "mock";
-export type DataSourceStatus = "api_real" | "api_partial" | "fallback";
+export type DataSourceStatus = "api_real" | "api_partial" | "fallback" | "missing";
 export type SpatialLevel = "country" | "region" | "province" | "district" | "subdistrict" | "field";
 
 export interface PipelineMeta {
@@ -33,6 +33,9 @@ export interface OverviewKpi {
   co2ePerTon: number;
   farmers: number;
   fields: number;
+  creditTotalTco2e?: number;
+  socRemovalTco2e?: number;
+  creditCalculatedRows?: number;
   years?: string[];
   baselineYears?: string[];
 }
@@ -78,6 +81,7 @@ export interface InputUsageSummaryRow {
   id: string;
   bucket: InputUsageBucket;
   year: number | null;
+  yearLabel: string;
   caneTypeName?: string;
   campId: number | null;
   campName: string;
@@ -85,6 +89,7 @@ export interface InputUsageSummaryRow {
   landCode: string;
   landName: string;
   landLabel: string;
+  activityNames: string[];
   itemName: string;
   resourceTypeName: string;
   fertilizerKind?: FertilizerKind;
@@ -96,6 +101,12 @@ export interface InputUsageSummaryRow {
   sourcePreparedCount: number;
   warningCount: number;
   warnings: string[];
+}
+
+export interface InputUsageYearFilterOption {
+  value: string;
+  label: string;
+  sortYear?: number | null;
 }
 
 export interface InputUsageComparisonTarget {
@@ -119,6 +130,7 @@ export interface InputUsageComparisonTarget {
 export interface InputUsageSummaryResponse {
   filters: {
     years: number[];
+    yearOptions?: InputUsageYearFilterOption[];
     camps: Array<{ id: number; label: string }>;
     lands: Array<{ id: number; label: string; campId: number | null; campLabel: string }>;
   };
@@ -251,4 +263,110 @@ export interface ReportSummary {
     topTransport: string;
     areaSummary: string;
   };
+}
+
+export type CalculationSummaryMode = "footprint" | "credit";
+export type CalculationSummaryScope = "all" | "camp_group" | "camp" | "land";
+export type CalculationSummaryGroupBy = "year" | "camp_group" | "camp" | "land";
+
+export interface CalculationSummaryParams {
+  mode?: CalculationSummaryMode;
+  years?: string;
+  yearFrom?: string;
+  yearTo?: string;
+  scope?: CalculationSummaryScope;
+  campGroupId?: string | number;
+  campId?: string | number;
+  landId?: string | number;
+  groupBy?: CalculationSummaryGroupBy;
+  baselineYears?: string;
+  projectYear?: string;
+}
+
+export interface CalculationSummaryFilterOption {
+  id: number;
+  label: string;
+  groupId?: number | null;
+  campId?: number | null;
+}
+
+export interface CalculationSummaryYearOption {
+  label: string;
+  value: string;
+  sortYear?: number | null;
+}
+
+export interface CalculationSummaryAuditItem {
+  queueId?: number | null;
+  activityDetailId?: number | null;
+  productionYearLabel?: string | null;
+  campLabel?: string | null;
+  landLabel?: string | null;
+  resourceName?: string | null;
+  formulaMode?: string | null;
+  preparedAmount?: number | null;
+  preparedUnitLabel?: string | null;
+  efId?: number | null;
+  gwpId?: number | null;
+  resultValue?: number | null;
+  resultUnitLabel?: string | null;
+  resultTco2e?: number | null;
+  statusName?: string | null;
+  errorMessage?: string | null;
+  calculationBreakdown?: Record<string, unknown> | null;
+}
+
+export interface CalculationSummaryRow {
+  id: string;
+  groupType: CalculationSummaryGroupBy;
+  groupLabel: string;
+  productionYearLabel?: string;
+  campGroupId?: number | null;
+  campId?: number | null;
+  landId?: number | null;
+  areaRai: number;
+  grossEmissionTco2e: number;
+  socRemovalTco2e: number;
+  netEmissionTco2e: number;
+  creditTco2e?: number;
+  intensityTco2ePerRai?: number | null;
+  datasourceStatus: DataSourceStatus;
+  auditItems: CalculationSummaryAuditItem[];
+}
+
+export interface CalculationInsight {
+  type: "good" | "warning" | "info";
+  title: string;
+  detail: string;
+  value?: string;
+}
+
+export interface CalculationSummaryResponse {
+  mode: CalculationSummaryMode;
+  datasourceStatus: DataSourceStatus;
+  notes: string[];
+  filters: {
+    yearOptions: CalculationSummaryYearOption[];
+    campGroups: Array<{ id: number; label: string }>;
+    camps: CalculationSummaryFilterOption[];
+    lands: CalculationSummaryFilterOption[];
+  };
+  kpi: {
+    areaRai: number;
+    rowCount: number;
+    calculatedCount: number;
+    missingBreakdownCount: number;
+    grossEmissionTco2e: number;
+    socRemovalTco2e: number;
+    netEmissionTco2e: number;
+    creditTco2e?: number;
+    intensityTco2ePerRai?: number | null;
+  };
+  breakdowns: {
+    emissionByFormula: Array<{ name: string; valueTco2e: number }>;
+    emissionByResource: Array<{ name: string; valueTco2e: number }>;
+    emissionByYear: Array<{ year: string; grossTco2e: number; netTco2e: number }>;
+  };
+  rows: CalculationSummaryRow[];
+  insights: CalculationInsight[];
 }

@@ -897,6 +897,15 @@ export function ActivitiesPage() {
   }, [headers, navigate, searchParams, showForm])
 
   useEffect(() => {
+    const productYearId = searchParams.get('productYearId') ?? ''
+    setDetailFilters((prev) => (
+      prev.productYearId === productYearId
+        ? prev
+        : { ...prev, productYearId }
+    ))
+  }, [searchParams])
+
+  useEffect(() => {
     if (!detailFilters.landId) return
 
     const selectedLand = lands.find((land) => land.land_id === Number(detailFilters.landId))

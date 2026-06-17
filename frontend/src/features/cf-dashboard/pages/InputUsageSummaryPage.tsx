@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type WheelEvent as ReactWheelEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { ArrowLeftRight, BarChart3, Droplets, FileSpreadsheet, FlaskConical, GitCompare, Layers, Leaf, Maximize2, Minimize2, Plus, SlidersHorizontal, TriangleAlert, X } from 'lucide-react'
 import ExcelJS from 'exceljs'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
@@ -1127,6 +1128,7 @@ function FertilizerWorkbookTable({
 export function InputUsageSummaryPage() {
   const qc = useQueryClient()
   const toast = useToast()
+  const [searchParams] = useSearchParams()
   const [yearFilters, setYearFilters] = useState<string[]>([])
   const [campFilter, setCampFilter] = useState('')
   const [landFilter, setLandFilter] = useState('')
@@ -1207,6 +1209,30 @@ export function InputUsageSummaryPage() {
       return next.length === prev.length ? prev : next
     })
   }, [availableYearOptions, yearFilters.length])
+
+  useEffect(() => {
+    const requestedYears = (searchParams.get('years') ?? '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+
+    if (!requestedYears.length) {
+      setYearFilters((prev) => (prev.length ? [] : prev))
+      return
+    }
+
+    const availableOrder = new Map(availableYearOptions.map((option, index) => [option.value, index]))
+    const nextValues = requestedYears
+      .filter((value, index, array) => array.indexOf(value) === index)
+      .filter((value) => !availableOrder.size || availableOrder.has(value))
+      .sort((left, right) => (availableOrder.get(left) ?? Number.MAX_SAFE_INTEGER) - (availableOrder.get(right) ?? Number.MAX_SAFE_INTEGER))
+
+    setYearFilters((prev) => (
+      prev.join('|') === nextValues.join('|')
+        ? prev
+        : nextValues
+    ))
+  }, [availableYearOptions, searchParams])
 
   useEffect(() => {
     if (!landFilter) return

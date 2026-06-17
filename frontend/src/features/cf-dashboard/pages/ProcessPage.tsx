@@ -813,7 +813,6 @@ export function CfProcessPage() {
   const selectedField = selectedFieldId === "all" ? undefined : fieldsInRegion.find((field) => field.id === selectedFieldId);
   const fieldsInCamp = selectedCampId ? fieldsInRegion.filter((field) => field.campId === selectedCampId) : [];
   const baseline = activities.filter((item) => item.year === "baseline_avg");
-  const currentYearNumber = /^\d+$/.test(currentYear) ? Number(currentYear) : undefined;
   const fieldBaseline = selectedField ? fieldProcessRows(selectedField, "baseline_avg", selectedField.baselineEmission) : [];
   const fieldCurrent = selectedField ? fieldProcessRows(selectedField, currentYear, selectedField.currentEmission) : [];
   const scopedCamps = selectedCamp ? [selectedCamp] : campsInRegion;
@@ -890,7 +889,7 @@ export function CfProcessPage() {
     const reduction = Math.max(row.baseline - row.current, 0);
     const campResourceUsage = summarizeResourceUsage(inputUsageResult.data, {
       campId: row.camp?.campId,
-      year: currentYearNumber,
+      yearLabel: currentYear,
     });
     const fertilizerKg = campResourceUsage.fertilizerKg;
     const socIncrease = Number((campResourceUsage.organicFertilizerKg * SOC_TCO2E_PER_ORGANIC_FERTILIZER_KG).toFixed(2));

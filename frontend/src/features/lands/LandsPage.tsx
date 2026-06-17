@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { DataTable, Column, ExpandableTextCell } from '@/components/ui/DataTable'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -148,6 +148,7 @@ export function LandsPage() {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const toast = useToast()
+  const [searchParams] = useSearchParams()
   const [tab, setTab] = useState<TabKey>('lands')
   const [selectedCamp, setSelectedCamp] = useState<number | null>(null)
   const [modal, setModal] = useState<ModalState>(null)
@@ -222,6 +223,11 @@ export function LandsPage() {
     if (!provinceId) return '-'
     return provinceMap[provinceId] ?? String(provinceId)
   }
+
+  useEffect(() => {
+    const productYearId = searchParams.get('activityProductYearId') ?? ''
+    setActivityProductYearFilter((prev) => (prev === productYearId ? prev : productYearId))
+  }, [searchParams])
 
   const invalidateLands = () => {
     qc.invalidateQueries({ queryKey: ['lands'] })

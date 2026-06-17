@@ -391,11 +391,13 @@ export function ActivityLogListPage() {
   useEffect(() => {
     const landId = searchParams.get('land_id') ?? ''
     const campId = searchParams.get('camp_id') ?? ''
+    const productYearId = searchParams.get('productYearId') ?? ''
 
     setDetailFilters((prev) => ({
       ...prev,
       landId,
       campId,
+      productYearId,
     }))
   }, [searchParams])
 

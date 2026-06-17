@@ -76,6 +76,28 @@ export class ActivitiesController {
   @Put('details/:id') updateDetail(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateDetail(id, b) }
   @Delete('details/:id') deleteDetail(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteDetail(id) }
 
+  // Carbon Credit calculation workflow
+  @Get('carbon-credit/workspace')
+  getCarbonCreditWorkspace(
+    @Query('years') years?: string,
+    @Query('scope') scope?: string,
+    @Query('campGroupId') campGroupId?: string,
+    @Query('campId') campId?: string,
+    @Query('landId') landId?: string,
+  ) {
+    return this.svc.getCarbonCreditWorkspace({ years, scope, campGroupId, campId, landId })
+  }
+
+  @Post('carbon-credit/preview')
+  previewCarbonCreditCalculation(@Body() body: any) {
+    return this.svc.previewCarbonCreditCalculation(body)
+  }
+
+  @Post('carbon-credit/calculate')
+  calculateCarbonCredit(@Body() body: any) {
+    return this.svc.calculateCarbonCredit(body)
+  }
+
   // Carbon process queue
   @Get('carbon-process-queue')
   getCarbonProcessQueue() {
@@ -146,6 +168,8 @@ export class ActivitiesController {
   @Delete('resource-others/:id') deleteResourceOther(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteResourceOther(id) }
   @Get('product-years') getProductYears(){ return this.svc.getProductYears() }
   @Post('product-years') createProductYear(@Body() b: any) { return this.svc.createProductYear(b) }
+  @Put('product-years/:id') updateProductYear(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateProductYear(id, b) }
+  @Delete('product-years/:id') deleteProductYear(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteProductYear(id) }
   @Get('sugarcane-types') getSugarCaneTypes(){ return this.svc.getSugarCaneTypes() }
   @Get('land-types')      getLandTypes()     { return this.svc.getLandTypes() }
   @Get('cal-statuses')    getCalStatuses()   { return this.svc.getCalStatuses() }
