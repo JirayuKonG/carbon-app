@@ -8,6 +8,7 @@ import { ThailandMap } from "../components/map/ThailandMap";
 import { getSpatialProjectGeo, normalizeProjectCampName } from "../data/spatialProjectGeoMappings";
 import { spatialProjectPlots, type SpatialProjectPlot } from "../data/spatialProjectPlots";
 import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCfSpatialNodes, getOverviewKpi } from "../services/dashboardApi";
+import { get } from "@/lib/api";
 import type { CampCarbonSummary, CampFieldCarbonDetail, DataResult, FieldCarbonDetail, ProcessInputComparison, SpatialLevel, SpatialSummaryNode } from "../types/dashboard";
 import { MapPinned } from "lucide-react";
 import "../cf-dashboard.css";
@@ -527,12 +528,37 @@ export function CfSpatialPage() {
       .then(([result, , campFieldDetailResult, kpiResult]) => {
         setNodes(result.data);
         setSpatialResult(result);
-        setCampFieldResult(campFieldDetailResult);
         const kpiYears = Array.from(new Set(kpiResult.data.years ?? [])).filter((y) => y && y !== "baseline_avg").sort();
         setAvailableYears(kpiYears);
         setCurrentYear(kpiResult.data.currentYear || "-");
         const root = result.data.find((node) => !node.parentId);
         if (root) setSelectedId(root.id);
+
+        // Priority 3: โหลด SOC measurements และ inject actualSoc ลงใน campFields
+        get<{ data: Array<{ land_id: number; carbon_soc_socIT: number; unit_socIT: number }> }>("/carbon-soc/soc-measurements")
+          .then((socRes) => {
+            const socByLand = new Map<number, number>();
+            const measurements = Array.isArray(socRes) ? socRes : (socRes as { data: Array<{ land_id: number; carbon_soc_socIT: number }> }).data ?? [];
+            measurements.forEach((m) => {
+              if (m?.land_id && m?.carbon_soc_socIT) {
+                // carbon_soc_socIT คือ tCO2e/ปี
+                socByLand.set(Number(m.land_id), Number(m.carbon_soc_socIT));
+              }
+            });
+            if (socByLand.size > 0) {
+              const enrichedFields = campFieldDetailResult.data.map((field) => {
+                const landId = typeof field.id === "string" && field.id.startsWith("field-")
+                  ? Number(field.id.replace("field-", ""))
+                  : undefined;
+                const soc = landId ? socByLand.get(landId) : undefined;
+                return soc !== undefined ? { ...field, actualSoc: soc } : field;
+              });
+              setCampFieldResult({ ...campFieldDetailResult, data: enrichedFields });
+            } else {
+              setCampFieldResult(campFieldDetailResult);
+            }
+          })
+          .catch(() => setCampFieldResult(campFieldDetailResult));
       })
       .catch((err) => setError(err instanceof Error ? err.message : "โหลดข้อมูลแผนที่ไม่สำเร็จ"));
   }, []);
@@ -817,7 +843,11 @@ export function CfSpatialPage() {
   const inputTotals = sumInputs(spatialInputs);
   const fertilizerDiff = inputTotals.baselineFertilizerKg - inputTotals.currentFertilizerKg;
   const fuelDiff = inputTotals.baselineFuelLiter - inputTotals.currentFuelLiter;
-  const socRemoval = focusNode ? Math.max(focusNode.baselineEmission - focusNode.currentEmission, 0) * 0.35 : 0;
+  // Priority 3: ใช้ actualSoc จาก carbon_soc table ถ้ามีข้อมูล fallback: (baseline-current)*0.35
+  const fieldActualSoc = isField(focusNode) ? (focusNode as CampFieldCarbonDetail & { actualSoc?: number }).actualSoc : undefined;
+  const socRemoval = fieldActualSoc !== undefined
+    ? fieldActualSoc
+    : (focusNode ? Math.max(focusNode.baselineEmission - focusNode.currentEmission, 0) * 0.35 : 0);
   const socIndex = focusNode?.areaRai ? (socRemoval / focusNode.areaRai) * 100 : 0;
   const mapFieldRenderLimit = selectedCamp ? MAP_CAMP_FIELD_RENDER_LIMIT : MAP_FIELD_RENDER_LIMIT;
   const hasFocusedProjectPlot = selectedProjectPlotCode !== "all";

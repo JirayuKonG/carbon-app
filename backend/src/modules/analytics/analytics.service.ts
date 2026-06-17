@@ -110,6 +110,11 @@ function n(value: unknown): number {
     const parsed = Number(value)
     return Number.isFinite(parsed) ? parsed : 0
   }
+  // Prisma Decimal type: object with toString()
+  if (value !== null && typeof value === 'object' && typeof (value as { toString?: unknown }).toString === 'function') {
+    const parsed = Number((value as { toString(): string }).toString())
+    return Number.isFinite(parsed) ? parsed : 0
+  }
   return 0
 }
 
@@ -653,7 +658,10 @@ export class AnalyticsService {
     const calculatedStatusIds = await this.getCalculatedStatusIds()
     return this.prisma.$queryRaw<EmissionRow[]>`
       SELECT
-        EXTRACT(YEAR FROM ah."activities_header_startDate")::int AS year,
+        EXTRACT(YEAR FROM COALESCE(
+          ah."activities_header_startDate",
+          ah."activities_header_create_at"
+        ))::int AS year,
         CASE
           WHEN cpq."carbon_process_queue_resultValue" IS NULL THEN 0
           WHEN LOWER(COALESCE(ru.unit_initial, ru.unit_name, '')) LIKE '%kg%' THEN cpq."carbon_process_queue_resultValue"::numeric / 1000
@@ -673,7 +681,7 @@ export class AnalyticsService {
         l.land_id,
         l.land_code,
         l.name AS land_name,
-        l.area_size AS land_area,
+        COALESCE(l.area_size, l.land_size) AS land_area,
         l.latitude::text AS land_lat,
         l.longitude::text AS land_lng,
         lc.land_camp_id AS camp_id,
@@ -709,7 +717,6 @@ export class AnalyticsService {
       LEFT JOIN districts d ON d.districts_id = sd.district_code
       LEFT JOIN provinces p ON p.provinces_id = d.province_code
       LEFT JOIN geographies g ON g.geographies_id = p.geography_id
-      WHERE ah."activities_header_startDate" IS NOT NULL
     `
   }
 
