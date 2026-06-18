@@ -1054,3 +1054,10 @@ Follow-up Carbon Credit transaction fix on 2026-06-18:
   - `frontend/src/features/cf-dashboard/pages/ReportPage.tsx` now prefers real SOC and persisted credit totals from the report KPI when calculating Premium T-VER summary metrics.
 - Type contract update: `frontend/src/features/cf-dashboard/types/dashboard.ts` now allows `OverviewKpi.creditTotalTco2e`, `OverviewKpi.socRemovalTco2e`, and `OverviewKpi.creditCalculatedRows`.
 - Verification: `npm run build --workspace=backend` and `npm run build --workspace=frontend` passed. Frontend build still reports only the existing Vite chunk-size warning.
+
+## Recent Process Chart Thai Label Wrapping Update - 2026-06-18
+
+- Prompt summary: fix the `/process` GHG process comparison chart because Thai x-axis labels were being split in the middle of words and became hard to read.
+- Frontend result: `frontend/src/features/cf-dashboard/components/charts/ActivityGroupedBar.tsx` now formats process labels with a dedicated `01 - [01]` code line and wraps Thai process names by word segmentation when the browser supports it, instead of slicing raw characters.
+- Source of truth: `ActivityGroupedBar` is the shared bar chart used by the main process comparison chart and related process comparison panels.
+- Verification: `npm run build --workspace=frontend` passed. Frontend build still reports only the existing Vite chunk-size warning.

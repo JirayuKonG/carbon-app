@@ -7,39 +7,67 @@ function isProcessStepLabel(label: string) {
   return /^\d+\.\s/.test(label.trim());
 }
 
+function splitProcessCodePrefix(label: string) {
+  const match = label.match(/^(\d+\s*-\s*\[[^\]]+\])\s+(.+)$/);
+  if (!match) return undefined;
+  return { code: match[1], name: match[2] };
+}
+
+function tokenizeLabelName(label: string) {
+  const normalized = label.replace(/\s+/g, " ").trim();
+  if (!normalized) return [];
+
+  const hasThai = /[\u0E00-\u0E7F]/.test(normalized);
+  const segmenter = hasThai && typeof Intl !== "undefined" && "Segmenter" in Intl
+    ? new (Intl as any).Segmenter("th", { granularity: "word" })
+    : undefined;
+
+  if (segmenter) {
+    return Array.from(segmenter.segment(normalized))
+      .map((item: any) => String(item.segment).trim())
+      .filter(Boolean);
+  }
+
+  return normalized.includes(" ") ? normalized.split(" ") : [normalized];
+}
+
+function wrapLabelName(label: string, maxChars: number, maxRows: number) {
+  const tokens = tokenizeLabelName(label);
+  const hasThai = /[\u0E00-\u0E7F]/.test(label);
+  const rows: string[] = [];
+  let current = "";
+
+  tokens.forEach((token) => {
+    const separator = current && !hasThai ? " " : "";
+    const next = `${current}${separator}${token}`;
+    if (!current || next.length <= maxChars) {
+      current = next;
+      return;
+    }
+    rows.push(current);
+    current = token;
+  });
+  if (current) rows.push(current);
+
+  if (!rows.length) return [label];
+  if (rows.length <= maxRows) return rows;
+  const lastRow = rows.slice(maxRows - 1).join(hasThai ? "" : " ");
+  return [...rows.slice(0, maxRows - 1), lastRow];
+}
+
 function wrapGroupedBarLabel(label: string, maxChars = 14, maxRows = 3): string | string[] {
   const normalized = label.replace(/\s+/g, " ").trim();
   if (!normalized) return label;
   if (isProcessStepLabel(normalized)) return normalized;
-  const words = normalized.split(" ");
-  const rows: string[] = [];
-  let current = "";
+  const processPrefix = splitProcessCodePrefix(normalized);
+  if (processPrefix) {
+    return [
+      processPrefix.code,
+      ...wrapLabelName(processPrefix.name, Math.max(maxChars + 4, 18), maxRows - 1),
+    ];
+  }
 
-  words.forEach((word) => {
-    if (!current) {
-      current = word;
-      return;
-    }
-    if (`${current} ${word}`.length <= maxChars) {
-      current = `${current} ${word}`;
-      return;
-    }
-    rows.push(current);
-    current = word;
-  });
-  if (current) rows.push(current);
-
-  const splitRows = rows.flatMap((row) => {
-    if (row.length <= maxChars) return [row];
-    const chunks: string[] = [];
-    for (let index = 0; index < row.length; index += maxChars) {
-      chunks.push(row.slice(index, index + maxChars));
-    }
-    return chunks;
-  });
-
-  if (splitRows.length <= maxRows) return splitRows;
-  return [...splitRows.slice(0, maxRows - 1), `${splitRows.slice(maxRows - 1).join("").slice(0, maxChars - 3)}...`];
+  return wrapLabelName(normalized, maxChars, maxRows);
 }
 
 const differencePlugin = {
