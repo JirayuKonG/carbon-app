@@ -77,7 +77,7 @@ createdb managementDataSystem_forCalculate
 psql -d managementDataSystem_forCalculate -f managementDataSystem_forCalculate_2.0_06082026_postgres.sql
 ```
 
-If you use Aiven PostgreSQL, keep `sslmode=require` and append `schema=public` in `DATABASE_URL`.
+If you use Aiven PostgreSQL, keep `sslmode=require` and append `schema=public` in `DATABASE_URL`. Also keep `connection_limit=5&pool_timeout=20` on small managed database plans, or let the backend apply those Prisma pool defaults at startup.
 
 ### 4. Generate Prisma client
 
@@ -123,6 +123,8 @@ Minimum production environment variables:
 
 - backend:
   - `DATABASE_URL`
+  - `PRISMA_CONNECTION_LIMIT` (optional; defaults to `5` when `DATABASE_URL` has no `connection_limit`)
+  - `PRISMA_POOL_TIMEOUT` (optional; defaults to `20` seconds when `DATABASE_URL` has no `pool_timeout`)
   - `JWT_SECRET`
   - `ALLOWED_ORIGINS`
 - frontend:

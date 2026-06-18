@@ -19,7 +19,7 @@ const exactActivityColorMap: Record<string, string> = {
   "ท่อนพันธุ์": "#FDBA74", // Pastel Orange
   // 3. การให้น้ำและกำจัดวัชพืช
   "ปุ๋ยเคมี": "#FDA4AF", // Pastel Rose Pink
-  "สารเคมี/ยาป้องกันกำจัดศัตรูพืช": "#C4B5FD", // Pastel Lavender
+  "สารเคมี/สารกำจัดวัชพืช": "#C4B5FD", // Pastel Lavender
   "น้ำ/ไฟฟ้า": "#67E8F9", // Pastel Cyan
   "น้ำมันสูบน้ำ": "#A5B4FC", // Pastel Indigo
   // 4. การเก็บเกี่ยว
@@ -33,8 +33,8 @@ const activityColorMap: { pattern: RegExp; color: string }[] = [
   { pattern: /น้ำมัน|ดีเซล|fuel|สูบน้ำ|รถตัด/i, color: "#93C5FD" }, // Light blue pastel
   // 2. กลุ่มปุ๋ย/สารปรับปรุงดิน (เขียวพาสเทล)
   { pattern: /ปุ๋ย|ปูน|อินทรีย์|หมัก|เคมี|ไนโตรเจน/i, color: "#86EFAC" }, // Light green pastel
-  // 3. กลุ่มสารเคมี/ยาปราบศัตรูพืช (ม่วงพาสเทล)
-  { pattern: /สารเคมี|ยาป้องกัน|ศัตรูพืช|chemical|herbicide|pesticide/i, color: "#C4B5FD" }, // Light purple/violet pastel
+  // รองรับทั้งคำใหม่และคำเดิมจากข้อมูลเก่าเพื่อให้การจัดสีกลุ่มยังทำงานต่อเนื่อง
+  { pattern: /สารเคมี|ยาป้องกัน|ศัตรูพืช|วัชพืช|chemical|herbicide|pesticide/i, color: "#C4B5FD" }, // Light purple/violet pastel
   // 4. กลุ่มเครื่องจักร/เครื่องมือ/แรงงาน (ส้ม/เหลืองพาสเทล)
   { pattern: /เครื่องจักร|เครื่องมือ|แรงงาน|machine|equipment|labor|รวบรวมผลผลิต/i, color: "#FDE68A" }, // Warm cream/yellow-orange pastel
   // 5. แหล่งน้ำ/ไฟฟ้า (ฟ้า/เทอร์คอยส์พาสเทล)

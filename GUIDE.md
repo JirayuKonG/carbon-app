@@ -36,12 +36,12 @@ You can use either Aiven or a local PostgreSQL instance.
 psql "postgresql://avnadmin:PASSWORD@HOST:PORT/defaultdb?sslmode=require" -f managementDataSystem_forCalculate_2.0_06082026_postgres.sql
 ```
 
-4. Set `backend/.env` so `DATABASE_URL` ends with `&schema=public`.
+4. Set `backend/.env` so `DATABASE_URL` includes `schema=public`. On small managed PostgreSQL plans, also keep Prisma pool limits in the URL.
 
 Example:
 
 ```dotenv
-DATABASE_URL="postgresql://avnadmin:PASSWORD@HOST:PORT/defaultdb?sslmode=require&schema=public"
+DATABASE_URL="postgresql://avnadmin:PASSWORD@HOST:PORT/defaultdb?sslmode=require&schema=public&connection_limit=5&pool_timeout=20"
 ```
 
 ### Option B: Local PostgreSQL
@@ -163,7 +163,9 @@ The repository includes [render.yaml](render.yaml) for Render.
 Backend production variables:
 
 ```dotenv
-DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/defaultdb?sslmode=require&schema=public"
+DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/defaultdb?sslmode=require&schema=public&connection_limit=5&pool_timeout=20"
+PRISMA_CONNECTION_LIMIT=5
+PRISMA_POOL_TIMEOUT=20
 JWT_SECRET="change-this-to-a-long-random-secret"
 JWT_EXPIRES_IN=7d
 ALLOWED_ORIGINS=https://your-frontend-domain.onrender.com
