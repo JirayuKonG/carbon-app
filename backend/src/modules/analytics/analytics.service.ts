@@ -263,6 +263,13 @@ function emissionRowYearLabel(row: Pick<EmissionRow, 'production_year_label' | '
 export class AnalyticsService {
   constructor(private prisma: PrismaService) {}
 
+  private readonly calculatedStatusCacheTtlMs = 60_000
+  private readonly emissionRowsCacheTtlMs = 5_000
+  private calculatedStatusIdsCache: { expiresAt: number; ids: number[] } | null = null
+  private calculatedStatusIdsRequest: Promise<number[]> | null = null
+  private emissionRowsCache: { expiresAt: number; rows: EmissionRow[] } | null = null
+  private emissionRowsRequest: Promise<EmissionRow[]> | null = null
+
   private normalizeText(value: string | null | undefined) {
     return (value ?? '').trim().toLowerCase()
   }
@@ -1011,19 +1018,36 @@ export class AnalyticsService {
   }
 
   private async getCalculatedStatusIds() {
-    const statuses = await this.prisma.log_act_detail_calStatus.findMany({
+    const now = Date.now()
+    if (this.calculatedStatusIdsCache && this.calculatedStatusIdsCache.expiresAt > now) {
+      return this.calculatedStatusIdsCache.ids
+    }
+    if (this.calculatedStatusIdsRequest) return this.calculatedStatusIdsRequest
+
+    const request = this.prisma.log_act_detail_calStatus.findMany({
       select: {
         log_act_detail_calStatus_id: true,
         log_act_detail_calStatus_name: true,
       },
       orderBy: { log_act_detail_calStatus_id: 'asc' },
     })
+      .then((statuses) => {
+        const matchedIds = statuses
+          .filter((status) => this.isCalculatedStatusName(this.normalizeCalStatusName(status.log_act_detail_calStatus_name)))
+          .map((status) => status.log_act_detail_calStatus_id)
+        const ids = matchedIds.length > 0 ? matchedIds : [2]
+        this.calculatedStatusIdsCache = {
+          expiresAt: Date.now() + this.calculatedStatusCacheTtlMs,
+          ids,
+        }
+        return ids
+      })
+      .finally(() => {
+        this.calculatedStatusIdsRequest = null
+      })
 
-    const matchedIds = statuses
-      .filter((status) => this.isCalculatedStatusName(this.normalizeCalStatusName(status.log_act_detail_calStatus_name)))
-      .map((status) => status.log_act_detail_calStatus_id)
-
-    return matchedIds.length > 0 ? matchedIds : [2]
+    this.calculatedStatusIdsRequest = request
+    return request
   }
 
   async getSummary() {
@@ -1522,6 +1546,29 @@ export class AnalyticsService {
   }
 
   private async getEmissionRows(): Promise<EmissionRow[]> {
+    const now = Date.now()
+    if (this.emissionRowsCache && this.emissionRowsCache.expiresAt > now) {
+      return this.emissionRowsCache.rows
+    }
+    if (this.emissionRowsRequest) return this.emissionRowsRequest
+
+    const request = this.loadEmissionRows()
+      .then((rows) => {
+        this.emissionRowsCache = {
+          expiresAt: Date.now() + this.emissionRowsCacheTtlMs,
+          rows,
+        }
+        return rows
+      })
+      .finally(() => {
+        this.emissionRowsRequest = null
+      })
+
+    this.emissionRowsRequest = request
+    return request
+  }
+
+  private async loadEmissionRows(): Promise<EmissionRow[]> {
     const calculatedStatusIds = await this.getCalculatedStatusIds()
     return this.prisma.$queryRaw<EmissionRow[]>`
       SELECT

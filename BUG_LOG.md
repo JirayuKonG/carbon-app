@@ -6,6 +6,12 @@ Use the checkboxes to track what is fixed. Keep new findings here so future work
 
 ## Done
 
+- [x] BUG-019: Carbon Analytics could exhaust PostgreSQL connection slots while loading dashboard APIs.
+  - Impact: backend requests could fail with `Too many database connections opened`, often surfacing at `log_act_detail_calStatus.findMany()` even though the real pressure came from several analytics endpoints querying large joined datasets at the same time.
+  - Evidence: Carbon Analytics endpoints shared `getEmissionRows()` but each request loaded its own rows/statuses; `getCfReportSummary()` also fanned out across multiple analytics helpers.
+  - Fix: `PrismaService` now applies safe Prisma pool defaults (`connection_limit=5`, `pool_timeout=20`) when the database URL does not already set them. `AnalyticsService` now deduplicates in-flight calculated-status and emission-row queries and keeps a short cache so concurrent dashboard requests share the same backend work.
+  - Verify: `npm run build --workspace=backend`.
+
 - [x] BUG-001: Static lands routes were shadowed by `GET /api/lands/:id`.
   - Impact: requests such as `GET /api/lands/camps`, `GET /api/lands/landmaps`, and `GET /api/lands/mapping` could be parsed as `id = "camps"` / `"landmaps"` / `"mapping"` and fail with `ParseIntPipe` before reaching the intended handler.
   - Evidence: `backend/src/modules/lands/lands.controller.ts` had `@Get(':id')` before static sub-routes.
