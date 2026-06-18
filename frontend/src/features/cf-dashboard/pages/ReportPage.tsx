@@ -75,8 +75,12 @@ function pddEmissionSummary(report: ReportSummary) {
   const co2FuelProject = report.kpi.machineEmission;
   const co2FuelBaseline = co2FuelProject * fuelRatio;
   const areaRai = reportAreaRai(report);
-  const socRemoval = Math.max(report.kpi.baselineAvgEmission - report.kpi.currentEmission, 0) * 0.35;
+  const socRemoval = report.kpi.socRemovalTco2e ?? Math.max(report.kpi.baselineAvgEmission - report.kpi.currentEmission, 0) * 0.35;
   const leakage = 0;
+  const fallbackTotalReduction = report.kpi.baselineAvgEmission - report.kpi.currentEmission + socRemoval - leakage;
+  const totalReduction = report.kpi.creditTotalTco2e && report.kpi.creditTotalTco2e > 0
+    ? report.kpi.creditTotalTco2e
+    : fallbackTotalReduction;
 
   return {
     areaRai,
@@ -91,7 +95,7 @@ function pddEmissionSummary(report: ReportSummary) {
     leakage,
     socRemoval,
     emissionReduction: report.kpi.baselineAvgEmission - report.kpi.currentEmission,
-    totalReduction: report.kpi.baselineAvgEmission - report.kpi.currentEmission + socRemoval - leakage,
+    totalReduction,
   };
 }
 
@@ -1165,7 +1169,7 @@ export function CfReportPage() {
 
         {generateNotice && <div className="report-generate-notice">{generateNotice}</div>}
 
-        {loading && <div className="empty-state">กำลังสร้างรายงานจากข้อมูลสมมุติเพื่อดูหน้าตาแดชบอร์ด...</div>}
+        {loading && <div className="empty-state">กำลังโหลดรายงานจากข้อมูลจริง...</div>}
 
         {report && (
           <>

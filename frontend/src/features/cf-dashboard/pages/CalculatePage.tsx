@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { ActivitySquare, ArrowRight, Calculator, CheckCircle2, ChevronDown, ChevronUp, CircleAlert, Clock3, Edit3, Leaf, LoaderCircle, X } from 'lucide-react'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { DashboardVisibilityMenu, useDashboardVisibility } from '@/components/ui/DashboardVisibilityMenu'
+import { useToast } from '@/components/ui/Toast'
 import { CarbonFootprintQueuePage } from '@/features/cf-dashboard/pages/CarbonFootprintQueuePage'
 import {
   ACTIVITY_CAL_STATUS_NAMES,
@@ -124,14 +126,18 @@ function getDetailUnitLabel(detail: LogDetail) {
 
 export function CfCalculatePage() {
   const qc = useQueryClient()
+  const toast = useToast()
+  const [searchParams] = useSearchParams()
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [statusFilter, setStatusFilter] = useState('')
+  const [hasInitializedStatusFilter, setHasInitializedStatusFilter] = useState(false)
   const [productYearFilter, setProductYearFilter] = useState('')
   const [activityTypeFilter, setActivityTypeFilter] = useState('')
   const [resourceTypeFilters, setResourceTypeFilters] = useState<string[]>([])
   const [resourceTypeFilterExpanded, setResourceTypeFilterExpanded] = useState(false)
   const [landScopeFilter, setLandScopeFilter] = useState<'actual' | 'all' | 'camp-only'>('actual')
   const [statusPopup, setStatusPopup] = useState<StatusPopupState>({ kind: 'hidden' })
+  const statusToastIdRef = useRef<string | null>(null)
 
   const { data: details = [], isLoading, error: detailsError } = useQuery({
     queryKey: ['activity-details-calculate'],
@@ -157,6 +163,15 @@ export function CfCalculatePage() {
     queryKey: ['activity-product-years-calculate'],
     queryFn: () => get<ProductYear[]>('/activities/product-years'),
   })
+
+  const importedStatusFilterValue = useMemo(
+    () => String(
+      calStatuses.find((status) =>
+        getActivityCalStatusKind(status.log_act_detail_calStatus_name, status.log_act_detail_calStatus_id) === 'imported'
+      )?.log_act_detail_calStatus_id ?? '',
+    ),
+    [calStatuses],
+  )
 
   const pageQueryItems = [
     { label: 'รายการสำหรับคำนวณ', error: detailsError },
@@ -243,7 +258,7 @@ export function CfCalculatePage() {
 
   const clearSelectedRows = () => setSelectedIds([])
   const clearFilters = () => {
-    setStatusFilter('')
+    setStatusFilter(importedStatusFilterValue)
     setProductYearFilter('')
     setActivityTypeFilter('')
     setResourceTypeFilters([])
@@ -260,6 +275,17 @@ export function CfCalculatePage() {
   }
 
   useEffect(() => {
+    if (hasInitializedStatusFilter || !calStatuses.length) return
+    setStatusFilter(importedStatusFilterValue)
+    setHasInitializedStatusFilter(true)
+  }, [calStatuses.length, hasInitializedStatusFilter, importedStatusFilterValue])
+
+  useEffect(() => {
+    const productYearId = searchParams.get('productYearId') ?? ''
+    setProductYearFilter((prev) => (prev === productYearId ? prev : productYearId))
+  }, [searchParams])
+
+  useEffect(() => {
     if (statusPopup.kind !== 'success') return undefined
 
     const timer = window.setTimeout(() => {
@@ -273,6 +299,13 @@ export function CfCalculatePage() {
     return () => window.clearTimeout(timer)
   }, [statusPopup])
 
+  useEffect(() => () => {
+    if (statusToastIdRef.current) {
+      toast.dismiss(statusToastIdRef.current)
+      statusToastIdRef.current = null
+    }
+  }, [toast])
+
   const statusMut = useMutation({
     mutationFn: ({ ids, statusName }: { ids: number[]; statusName: ManualStatusName }) => (
       ids.length === 1
@@ -280,6 +313,7 @@ export function CfCalculatePage() {
         : post('/activities/details/manual-status/bulk', { ids, statusName }, { timeout: 10 * 60_000 })
     ),
     onMutate: ({ ids }) => {
+      statusToastIdRef.current = toast.loading('กำลังส่งรายการเข้า Carbon Queue', `กำลังย้าย ${ids.length.toLocaleString('th-TH')} รายการไปสถานะกำลังเตรียมข้อมูล`)
       setStatusPopup({ kind: 'loading', itemCount: ids.length })
     },
     onSuccess: async (_data, variables) => {
@@ -288,6 +322,11 @@ export function CfCalculatePage() {
         qc.invalidateQueries({ queryKey: ['activity-details'] }),
         qc.invalidateQueries({ queryKey: ['carbon-process-queue'] }),
       ])
+      if (statusToastIdRef.current) {
+        toast.dismiss(statusToastIdRef.current)
+      }
+      statusToastIdRef.current = null
+      toast.success('ส่งเข้า Carbon Queue แล้ว', `${variables.ids.length.toLocaleString('th-TH')} รายการพร้อมไปเตรียมข้อมูลต่อ`)
       setSelectedIds([])
       setStatusPopup({
         kind: 'success',
@@ -295,7 +334,12 @@ export function CfCalculatePage() {
         countdown: 4,
       })
     },
-    onError: () => {
+    onError: (error) => {
+      if (statusToastIdRef.current) {
+        toast.dismiss(statusToastIdRef.current)
+      }
+      statusToastIdRef.current = null
+      toast.error('ส่งเข้า Carbon Queue ไม่สำเร็จ', error instanceof Error ? error.message : undefined)
       setStatusPopup({ kind: 'hidden' })
     },
   })
@@ -312,17 +356,19 @@ export function CfCalculatePage() {
   const preparingCount = rows.filter((row) => getKind(row) === 'preparing').length
   const readyCount = rows.filter((row) => getKind(row) === 'ready').length
   const standardDoneCount = rows.filter((row) => getKind(row) === 'standardDone').length
+  const creditDoneCount = rows.filter((row) => getKind(row) === 'creditDone').length
   const cfpDoneCount = rows.filter((row) => getKind(row) === 'cfpDone').length
   const errorCount = rows.filter((row) => getKind(row) === 'error').length
 
   const dashboardOptions = [
     { key: 'total', label: 'รายการทั้งหมด' },
-    { key: 'imported', label: 'นำเข้าข้อมูลแล้ว' },
-    { key: 'preparing', label: 'กำลังเตรียมข้อมูล' },
-    { key: 'ready', label: 'พร้อมคำนวณมาตรฐาน' },
-    { key: 'standardDone', label: 'คำนวณแล้ว(มาตรฐาน)' },
-    { key: 'cfpDone', label: 'คำนวณแล้ว(มาตรฐาน,C-credit)' },
-    { key: 'error', label: 'คำนวณผิดพลาด' },
+    { key: 'imported', label: ACTIVITY_CAL_STATUS_NAMES.imported },
+    { key: 'preparing', label: ACTIVITY_CAL_STATUS_NAMES.preparing },
+    { key: 'ready', label: ACTIVITY_CAL_STATUS_NAMES.ready },
+    { key: 'standardDone', label: ACTIVITY_CAL_STATUS_NAMES.standardDone },
+    { key: 'creditDone', label: ACTIVITY_CAL_STATUS_NAMES.creditDone },
+    { key: 'cfpDone', label: ACTIVITY_CAL_STATUS_NAMES.cfpDone },
+    { key: 'error', label: ACTIVITY_CAL_STATUS_NAMES.error },
   ]
 
   const {
@@ -366,7 +412,7 @@ export function CfCalculatePage() {
     },
     {
       key: 'ready',
-      label: 'พร้อมคำนวณมาตรฐาน',
+      label: ACTIVITY_CAL_STATUS_NAMES.ready,
       icon: <Clock3 size={14} className="text-accent-500" />,
       value: readyCount,
       valueClassName: 'stat-value text-accent-600',
@@ -375,7 +421,7 @@ export function CfCalculatePage() {
     },
     {
       key: 'standardDone',
-      label: 'คำนวณแล้ว(มาตรฐาน)',
+      label: ACTIVITY_CAL_STATUS_NAMES.standardDone,
       icon: <CheckCircle2 size={14} className="text-primary-500" />,
       value: standardDoneCount,
       valueClassName: 'stat-value text-primary-700',
@@ -383,8 +429,17 @@ export function CfCalculatePage() {
       cardClassName: 'border-[#d9e7f2]',
     },
     {
+      key: 'creditDone',
+      label: ACTIVITY_CAL_STATUS_NAMES.creditDone,
+      icon: <CheckCircle2 size={14} className="text-purple-600" />,
+      value: creditDoneCount,
+      valueClassName: 'stat-value text-purple-700',
+      accentClassName: 'bg-gradient-to-r from-violet-300 via-purple-400 to-fuchsia-300',
+      cardClassName: 'border-[#ddd4f6]',
+    },
+    {
       key: 'cfpDone',
-      label: 'คำนวณแล้ว(มาตรฐาน,C-credit)',
+      label: ACTIVITY_CAL_STATUS_NAMES.cfpDone,
       icon: <Leaf size={14} className="text-cyan-600" />,
       value: cfpDoneCount,
       valueClassName: 'stat-value text-cyan-700',
@@ -393,7 +448,7 @@ export function CfCalculatePage() {
     },
     {
       key: 'error',
-      label: 'คำนวณผิดพลาด',
+      label: ACTIVITY_CAL_STATUS_NAMES.error,
       icon: <CircleAlert size={14} className="text-red-500" />,
       value: errorCount,
       valueClassName: 'stat-value text-red-700',

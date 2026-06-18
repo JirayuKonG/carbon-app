@@ -304,9 +304,11 @@ model units {
   carbon_process_queue_creditResultValue  carbon_process_queue[]           @relation("carbon_process_queue_creditResultValue_unit")
   carbon_soc_unit_depSampleIT             carbon_soc[]                     @relation("carbon_soc_unit_depSampleIT")
   carbon_soc_unit_socIT                   carbon_soc[]                     @relation("carbon_soc_unit_socIT")
+  carbon_soc_unit_socIT_perRai            carbon_soc[]                     @relation("carbon_soc_unit_socIT_perRai")
   carbon_soc_unit_socSampleIT             carbon_soc[]                     @relation("carbon_soc_unit_socSampleIT")
   carbon_soc_unit_socbdSampleIT           carbon_soc[]                     @relation("carbon_soc_unit_socbdSampleIT")
   carbon_soilImprovementPlants_unit_fnFix carbon_soilImprovementPlants[]   @relation("carbon_soilImprovementPlants_unit_fnFix")
+  carbon_soilImprovementPlants_unit_fnFix_perRai carbon_soilImprovementPlants[] @relation("carbon_soilImprovementPlants_unit_fnFix_perRai")
   carbon_soilImprovementPlants_unit_mc    carbon_soilImprovementPlants[]   @relation("carbon_soilImprovementPlants_unit_mc")
   carbon_soilImprovementPlants_unit_nc    carbon_soilImprovementPlants[]   @relation("carbon_soilImprovementPlants_unit_nc")
   coefficients_emissions_factors_ch4      coefficients_emissions_factors[] @relation("coef_ch4_unit")
@@ -658,6 +660,8 @@ model carbon_soc {
   unit_depSampleIT         Int?
   carbon_soc_socIT         Decimal?  @db.Decimal(14, 4)
   unit_socIT               Int?
+  carbon_soc_socIT_perRai  Decimal?  @db.Decimal(14, 4)
+  unit_socIT_perRai        Int?
   carbon_soc_numLandSample Int?
   carbon_soc_numSample     Int?
   carbon_soc_yearBeginPro  String?   @db.VarChar
@@ -667,6 +671,7 @@ model carbon_soc {
   lands                    lands?    @relation(fields: [land_id], references: [land_id], onDelete: NoAction, onUpdate: NoAction)
   units_depSampleIT        units?    @relation("carbon_soc_unit_depSampleIT", fields: [unit_depSampleIT], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
   units_socIT              units?    @relation("carbon_soc_unit_socIT", fields: [unit_socIT], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
+  units_socIT_perRai       units?    @relation("carbon_soc_unit_socIT_perRai", fields: [unit_socIT_perRai], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
   units_socSampleIT        units?    @relation("carbon_soc_unit_socSampleIT", fields: [unit_socSampleIT], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
   units_socbdSampleIT      units?    @relation("carbon_soc_unit_socbdSampleIT", fields: [unit_socbdSampleIT], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
   users                    users?    @relation(fields: [carbon_soc_update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
@@ -682,6 +687,8 @@ model carbon_soilImprovementPlants {
   unit_nc                                Int?
   carbon_soilImprovementPlant_fnFix      Decimal?                  @db.Decimal(14, 4)
   unit_fnFix                             Int?
+  carbon_soilImprovementPlant_fnFix_perRai Decimal?                @db.Decimal(14, 4)
+  unit_fnFix_perRai                      Int?
   act_resourceOther_id                   Int?
   carbon_soilImprovementPlant_create_at  DateTime?                 @db.Timestamp(6)
   carbon_soilImprovementPlant_update_at  DateTime?                 @db.Timestamp(6)
@@ -689,6 +696,7 @@ model carbon_soilImprovementPlants {
   activities_resourceOther               activities_resourceOther? @relation(fields: [act_resourceOther_id], references: [act_resourceOther_id], onDelete: NoAction, onUpdate: NoAction)
   lands                                  lands?                    @relation(fields: [land_id], references: [land_id], onDelete: NoAction, onUpdate: NoAction)
   units_fnFix                            units?                    @relation("carbon_soilImprovementPlants_unit_fnFix", fields: [unit_fnFix], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
+  units_fnFix_perRai                     units?                    @relation("carbon_soilImprovementPlants_unit_fnFix_perRai", fields: [unit_fnFix_perRai], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
   units_mc                               units?                    @relation("carbon_soilImprovementPlants_unit_mc", fields: [unit_mc], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
   units_nc                               units?                    @relation("carbon_soilImprovementPlants_unit_nc", fields: [unit_nc], references: [unit_id], onDelete: NoAction, onUpdate: NoAction)
   users                                  users?                    @relation(fields: [carbon_soilImprovementPlant_update_uid], references: [user_id], onDelete: NoAction, onUpdate: NoAction)

@@ -4,7 +4,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { DataTable, Column, ExpandableTextCell } from '@/components/ui/DataTable'
 import { del, get, post, put } from '@/lib/api'
-import { ChevronDown, ChevronUp, FlaskConical, Pencil, Plus, Settings2, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, Droplets, FlaskConical, Leaf, Package, Pencil, Plus, Settings2, Table2, Trash2 } from 'lucide-react'
 
 interface ResourceType {
   resource_used_type_id: number
@@ -55,6 +55,7 @@ interface ResourceOther {
 type ResourceSectionKey = 'fertilizers' | 'equipments' | 'chemicals' | 'resourceOthers'
 type VisibleButtonKey = ResourceSectionKey | 'resourceTypes'
 type ResourceCategory = 'fertilizer' | 'equipment' | 'chemical' | 'resourceOther'
+type ResourcePageMode = 'catalog' | 'table'
 
 type ResourceTypePayload = {
   resc_used_type_name: string
@@ -141,6 +142,7 @@ const readStoredPreferences = () => {
 
 export function ActivityResourcesPage() {
   const qc = useQueryClient()
+  const [pageMode, setPageMode] = useState<ResourcePageMode>('catalog')
   const [activeResourceTypeFilter, setActiveResourceTypeFilter] = useState<number | 'all'>('all')
   const [showResourceTypeSection, setShowResourceTypeSection] = useState(false)
   const [showButtonConfigModal, setShowButtonConfigModal] = useState(false)
@@ -623,10 +625,22 @@ export function ActivityResourcesPage() {
     saveFertilizerMut.reset()
   }
 
+  const openCreateFertilizerModal = () => {
+    saveFertilizerMut.reset()
+    setEditingFertilizer(null)
+    setShowFertilizerModal(true)
+  }
+
   const closeEquipmentModal = () => {
     setShowEquipmentModal(false)
     setEditingEquipment(null)
     saveEquipmentMut.reset()
+  }
+
+  const openCreateEquipmentModal = () => {
+    saveEquipmentMut.reset()
+    setEditingEquipment(null)
+    setShowEquipmentModal(true)
   }
 
   const closeChemicalModal = () => {
@@ -635,10 +649,22 @@ export function ActivityResourcesPage() {
     saveChemicalMut.reset()
   }
 
+  const openCreateChemicalModal = () => {
+    saveChemicalMut.reset()
+    setEditingChemical(null)
+    setShowChemicalModal(true)
+  }
+
   const closeResourceOtherModal = () => {
     setShowResourceOtherModal(false)
     setEditingResourceOther(null)
     saveResourceOtherMut.reset()
+  }
+
+  const openCreateResourceOtherModal = () => {
+    saveResourceOtherMut.reset()
+    setEditingResourceOther(null)
+    setShowResourceOtherModal(true)
   }
 
   const closeAddResourceModal = () => {
@@ -893,6 +919,101 @@ export function ActivityResourcesPage() {
     })
   }
 
+  const catalogSections = [
+    {
+      key: 'fertilizers' as const,
+      title: 'คลังปุ๋ย',
+      subtitle: 'ดูรายชื่อปุ๋ยทั้งหมดที่ใช้ในระบบ พร้อมจัดการข้อมูลได้จากส่วนนี้',
+      countLabel: 'รายการปุ๋ย',
+      addLabel: 'เพิ่มปุ๋ย',
+      rows: filteredFertilizers.map((row) => ({
+        key: `fertilizer-${row.act_fertilizer_id}`,
+        category: 'fertilizer' as const,
+        resourceId: row.act_fertilizer_id,
+        name: row.act_fertilizer_name?.trim() || '-',
+        info: row.act_fertilizer_info?.trim() || '',
+        resourceUsedTypeName: row.resource_used_type?.resc_used_type_name ?? resourceTypeMap[row.resource_used_type_id ?? 0] ?? '-',
+        source: row,
+      })),
+      isLoading: fertilizersLoading,
+      onAdd: openCreateFertilizerModal,
+      shellClassName: 'border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-emerald-100/70',
+      iconClassName: 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200',
+      badgeClassName: 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200',
+      emptyClassName: 'border-emerald-200 bg-white/85 text-emerald-700',
+      icon: <Leaf size={18} />,
+    },
+    {
+      key: 'equipments' as const,
+      title: 'คลังน้ำมัน / อุปกรณ์',
+      subtitle: 'รวมรายการน้ำมันหรืออุปกรณ์ที่ผูกกับกิจกรรมการทำงานในแปลง',
+      countLabel: 'รายการน้ำมัน',
+      addLabel: 'เพิ่มน้ำมัน',
+      rows: filteredEquipments.map((row) => ({
+        key: `equipment-${row.act_equipment_id}`,
+        category: 'equipment' as const,
+        resourceId: row.act_equipment_id,
+        name: row.act_equipment_name?.trim() || '-',
+        info: row.act_equipment_info?.trim() || '',
+        resourceUsedTypeName: row.resource_used_type?.resc_used_type_name ?? resourceTypeMap[row.resource_used_type_id ?? 0] ?? '-',
+        source: row,
+      })),
+      isLoading: equipmentsLoading,
+      onAdd: openCreateEquipmentModal,
+      shellClassName: 'border-amber-200 bg-gradient-to-br from-amber-50 via-white to-orange-100/70',
+      iconClassName: 'bg-amber-100 text-amber-700 ring-1 ring-amber-200',
+      badgeClassName: 'bg-amber-100 text-amber-800 ring-1 ring-amber-200',
+      emptyClassName: 'border-amber-200 bg-white/85 text-amber-700',
+      icon: <Droplets size={18} />,
+    },
+    {
+      key: 'chemicals' as const,
+      title: 'คลังสารเคมี',
+      subtitle: 'สำหรับเปิดดูและดูแลข้อมูลสารเคมีที่ใช้ในกิจกรรมต่าง ๆ',
+      countLabel: 'รายการสารเคมี',
+      addLabel: 'เพิ่มสารเคมี',
+      rows: filteredChemicals.map((row) => ({
+        key: `chemical-${row.act_chemiscal_id}`,
+        category: 'chemical' as const,
+        resourceId: row.act_chemiscal_id,
+        name: row.act_chemiscal_name?.trim() || '-',
+        info: row.act_chemiscal_info?.trim() || '',
+        resourceUsedTypeName: row.resource_used_type?.resc_used_type_name ?? resourceTypeMap[row.resource_used_type_id ?? 0] ?? '-',
+        source: row,
+      })),
+      isLoading: chemicalsLoading,
+      onAdd: openCreateChemicalModal,
+      shellClassName: 'border-rose-200 bg-gradient-to-br from-rose-50 via-white to-pink-100/70',
+      iconClassName: 'bg-rose-100 text-rose-700 ring-1 ring-rose-200',
+      badgeClassName: 'bg-rose-100 text-rose-800 ring-1 ring-rose-200',
+      emptyClassName: 'border-rose-200 bg-white/85 text-rose-700',
+      icon: <FlaskConical size={18} />,
+    },
+    {
+      key: 'resourceOthers' as const,
+      title: 'คลังรายการอื่น ๆ',
+      subtitle: 'รวมรายการปัจจัยอื่น ๆ ที่ไม่อยู่ในกลุ่มปุ๋ย น้ำมัน หรือสารเคมี',
+      countLabel: 'รายการอื่น ๆ',
+      addLabel: 'เพิ่มรายการอื่น ๆ',
+      rows: filteredResourceOthers.map((row) => ({
+        key: `resource-other-${row.act_resourceOther_id}`,
+        category: 'resourceOther' as const,
+        resourceId: row.act_resourceOther_id,
+        name: row.act_resourceOther_name?.trim() || '-',
+        info: row.act_resourceOther_info?.trim() || '',
+        resourceUsedTypeName: row.resource_used_type?.resc_used_type_name ?? resourceTypeMap[row.resource_used_type_id ?? 0] ?? '-',
+        source: row,
+      })),
+      isLoading: resourceOthersLoading,
+      onAdd: openCreateResourceOtherModal,
+      shellClassName: 'border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-100/70',
+      iconClassName: 'bg-sky-100 text-sky-700 ring-1 ring-sky-200',
+      badgeClassName: 'bg-sky-100 text-sky-800 ring-1 ring-sky-200',
+      emptyClassName: 'border-sky-200 bg-white/85 text-sky-700',
+      icon: <Package size={18} />,
+    },
+  ].filter((section) => visibleButtons[section.key])
+
   return (
     <div>
       <div className="page-header">
@@ -905,6 +1026,20 @@ export function ActivityResourcesPage() {
       </div>
 
       <div className="mb-5 flex flex-wrap items-center gap-2">
+        <button
+          className={pageMode === 'catalog' ? 'btn-primary btn-sm' : 'btn-secondary btn-sm'}
+          onClick={() => setPageMode('catalog')}
+          type="button"
+        >
+          <Package size={13} /> หน้ารวมรายการ
+        </button>
+        <button
+          className={pageMode === 'table' ? 'btn-primary btn-sm' : 'btn-secondary btn-sm'}
+          onClick={() => setPageMode('table')}
+          type="button"
+        >
+          <Table2 size={13} /> ตารางรวม
+        </button>
         {visibleButtons.resourceTypes && (
           <button
             className="btn-secondary btn-sm"
@@ -1015,11 +1150,110 @@ export function ActivityResourcesPage() {
         </div>
       )}
 
+      {hasVisibleResourceSections && (
+        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {catalogSections.map((section) => (
+            <div key={section.key} className={`rounded-2xl border p-4 shadow-sm ${section.shellClassName}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className={`mb-3 inline-flex h-10 w-10 items-center justify-center rounded-2xl ${section.iconClassName}`}>
+                    {section.icon}
+                  </div>
+                  <h2 className="text-base font-semibold text-surface-900">{section.title}</h2>
+                  <p className="mt-1 text-sm leading-6 text-surface-600">{section.subtitle}</p>
+                </div>
+                <span className={`inline-flex shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${section.badgeClassName}`}>
+                  {section.rows.length} รายการ
+                </span>
+              </div>
+              <div className="mt-4 flex items-end justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.16em] text-surface-500">{section.countLabel}</p>
+                  <p className="mt-1 text-2xl font-semibold text-surface-900">{section.rows.length}</p>
+                </div>
+                <button className="btn-secondary btn-sm" type="button" onClick={section.onAdd}>
+                  <Plus size={13} /> {section.addLabel}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {!hasVisibleResourceSections ? (
         <div className="card">
           <div className="rounded-xl border border-dashed border-surface-300 bg-surface-50 px-4 py-8 text-center text-sm text-surface-600">
             ยังไม่มีส่วนข้อมูลที่เปิดแสดงอยู่ กรุณากด <span className="font-medium text-surface-800">Edit ปุ่ม</span> เพื่อเลือกให้แสดง `ปุ๋ย`, `น้ำมัน`, `สารเคมี` หรือ `รายการอื่น ๆ`
           </div>
+        </div>
+      ) : pageMode === 'catalog' ? (
+        <div className="space-y-5">
+          {catalogSections.map((section) => (
+            <section key={section.key} className={`overflow-hidden rounded-3xl border shadow-sm ${section.shellClassName}`}>
+              <div className="border-b border-white/70 px-5 py-5 backdrop-blur-sm sm:px-6">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl ${section.iconClassName}`}>
+                        {section.icon}
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="text-lg font-semibold text-surface-900">{section.title}</h3>
+                        <p className="mt-1 text-sm leading-6 text-surface-600">{section.subtitle}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${section.badgeClassName}`}>
+                      {section.rows.length} รายการที่มองเห็น
+                    </span>
+                    <button className="btn-primary btn-sm" type="button" onClick={section.onAdd}>
+                      <Plus size={13} /> {section.addLabel}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="px-5 py-5 sm:px-6">
+                {section.rows.length === 0 && !section.isLoading ? (
+                  <div className={`rounded-2xl border border-dashed px-4 py-8 text-center text-sm ${section.emptyClassName}`}>
+                    ยังไม่มีข้อมูลในหมวดนี้ภายใต้ตัวกรองปัจจุบัน
+                  </div>
+                ) : (
+                  <DataTable
+                    data={section.rows}
+                    columns={resourceCols}
+                    isLoading={section.isLoading}
+                    rowKey={(row) => row.key}
+                    defaultPageSize={5}
+                    searchPlaceholder={`ค้นหา${section.title}...`}
+                    emptyMessage={`ไม่พบข้อมูล${section.title}`}
+                    actions={(row) => (
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          className="btn-icon btn-ghost btn-sm"
+                          type="button"
+                          title={`แก้ไข${RESOURCE_CATEGORY_LABELS[row.category]}`}
+                          aria-label={`แก้ไข${RESOURCE_CATEGORY_LABELS[row.category]}`}
+                          onClick={() => openEditResourceRow(row)}
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          className="btn-icon btn-ghost btn-sm text-red-500"
+                          type="button"
+                          title={`ลบ${RESOURCE_CATEGORY_LABELS[row.category]}`}
+                          aria-label={`ลบ${RESOURCE_CATEGORY_LABELS[row.category]}`}
+                          onClick={() => openDeleteResourceRow(row)}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    )}
+                  />
+                )}
+              </div>
+            </section>
+          ))}
         </div>
       ) : (
         <div className="card">

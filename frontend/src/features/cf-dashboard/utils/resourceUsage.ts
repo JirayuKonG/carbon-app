@@ -1,7 +1,7 @@
 import type { DataResult, InputUsageSummaryResponse, InputUsageSummaryRow } from "../types/dashboard";
 
 export const emptyInputUsageSummary: InputUsageSummaryResponse = {
-  filters: { years: [], camps: [], lands: [] },
+  filters: { years: [], yearOptions: [], camps: [], lands: [] },
   totals: {
     campCount: 0,
     landCount: 0,
@@ -22,6 +22,7 @@ export interface ResourceUsageScope {
   campId?: number;
   landId?: number;
   year?: number;
+  yearLabel?: string;
 }
 
 export interface ResourceUsageSummary {
@@ -50,7 +51,8 @@ export interface ResourceUsageSummary {
 function matchesScope(row: InputUsageSummaryRow, scope: ResourceUsageScope) {
   return (scope.campId == null || row.campId === scope.campId)
     && (scope.landId == null || row.landId === scope.landId)
-    && (scope.year == null || row.year === scope.year);
+    && (scope.year == null || row.year === scope.year)
+    && (scope.yearLabel == null || row.yearLabel === scope.yearLabel);
 }
 
 function sumAmount(rows: InputUsageSummaryRow[]) {

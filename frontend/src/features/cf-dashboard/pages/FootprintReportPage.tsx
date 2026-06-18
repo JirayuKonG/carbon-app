@@ -114,7 +114,7 @@ function socValues(baselineTotal: number, currentTotal: number, areaRai: number)
 const organicMaterialRows = [
   { key: "organicFertilizer", label: "ปุ๋ยอินทรีย์/ปุ๋ยหมัก", share: 0.34 },
   { key: "filterCake", label: "ฟิลเตอร์เค้ก", share: 0.28 },
-  { key: "vinasse", label: "น้ำกากส่า/Vinasse", share: 0.22 },
+  { key: "vinasse", label: "Vinasse", share: 0.22 },
   { key: "trashRetention", label: "ใบอ้อยคลุมดิน", share: 0.16 },
 ] as const;
 
@@ -993,6 +993,7 @@ export function CfFootprintReportPage() {
   const [spatialNodes, setSpatialNodes] = useState<SpatialSummaryNode[]>([]);
   const [spatialResult, setSpatialResult] = useState<DataResult<SpatialSummaryNode[]>>({ data: [], source: "mock" });
   const [areaPath, setAreaPath] = useState<Record<FootprintAreaLevel, string>>(emptyFootprintAreaPath);
+  const [period, setPeriod] = useState<string>("project");
   const [scope, setScope] = useState<ScopeValue>("all");
   const [selectedFieldId, setSelectedFieldId] = useState("all");
   const [caneFilter, setCaneFilter] = useState<CaneFilter>("all");
@@ -1041,7 +1042,12 @@ export function CfFootprintReportPage() {
     setGenerateNotice("เลือกแคมป์จากหน้า Carbon Footprint แล้ว กดสร้างเอกสารเมื่อพร้อม");
   }, [campResult.data, searchParams]);
 
-  const currentYear = currentYearFrom(activities) || kpi.data.currentYear;
+  const defaultCurrentYear = currentYearFrom(activities) || kpi.data.currentYear;
+  const currentYear = period === "project" ? defaultCurrentYear : period;
+  const availableYears = Array.from(new Set([
+    ...(kpi.data.years ?? []),
+    ...activities.map((item) => item.year),
+  ].filter((year) => year && year !== "baseline_avg"))).sort();
   const selectedCampId = scope === "all" ? undefined : Number(scope.replace("camp-", ""));
   const rootNode = spatialNodes.find((node) => !node.parentId);
   const selectedAreaId = [...footprintAreaOrder].reverse().map((level) => areaPath[level]).find(Boolean) || rootNode?.id;
@@ -1070,12 +1076,11 @@ export function CfFootprintReportPage() {
     ? aggregateActivityRows(aggregateCamps, "currentProcessActivities")
     : activities.filter((item) => item.year === currentYear);
   const processInputRows = selectedField ? scaleInputsForField(inputs, selectedField) : selectedCamp ? selectedCamp.processInputComparisons : aggregateCamps.length ? aggregateInputRows(aggregateCamps.map((camp) => camp.processInputComparisons)) : inputs;
-  const currentYearNumber = /^\d+$/.test(currentYear) ? Number(currentYear) : undefined;
   const selectedFieldLandId = selectedField?.id.match(/^field-(\d+)$/)?.[1];
   const resourceUsage = summarizeResourceUsage(inputUsageResult.data, {
     campId: selectedField?.campId ?? selectedCamp?.campId,
     landId: selectedFieldLandId ? Number(selectedFieldLandId) : undefined,
-    year: currentYearNumber,
+    yearLabel: currentYear,
   });
   const baselineTotal = sumEmission(baselineRows);
   const currentTotal = sumEmission(currentRows);
@@ -1114,14 +1119,19 @@ export function CfFootprintReportPage() {
   const selectedCanePercent = selectedCaneTypes.reduce((sum, item) => sum + item.percent, 0);
   const reportSources = [kpi, activityResult, inputResult, inputUsageResult, campResult, fieldResult, caneTypeResult, spatialResult];
   const hasFallbackReportSource = reportSources.some((result) => result.source === "mock" || result.meta?.datasourceStatus === "fallback");
+  const hasMissingReportSource = reportSources.some((result) => result.meta?.datasourceStatus === "missing");
   const reportDatasource = {
     source: hasFallbackReportSource ? "mock" as const : "api" as const,
     meta: {
       route: "frontend/footprint-report-compose",
       techniques: ["Carbon Analytics endpoints", "frontend report layout"],
       rowCount: reportSources.reduce((sum, result) => sum + (result.meta?.rowCount ?? 0), 0),
-      datasourceStatus: hasFallbackReportSource ? "fallback" as const : "api_partial" as const,
-      note: hasFallbackReportSource ? "some sections use fallback" : "report is composed in frontend",
+      datasourceStatus: hasFallbackReportSource ? "fallback" as const : hasMissingReportSource ? "missing" as const : "api_partial" as const,
+      note: hasFallbackReportSource
+        ? "some sections use demo fallback"
+        : hasMissingReportSource
+        ? "some sections are missing real API data"
+        : "report is composed in frontend",
     },
   };
 
@@ -1475,6 +1485,16 @@ export function CfFootprintReportPage() {
             <p className="muted text-xs font-normal" style={{ fontSize: "0.85em", opacity: 0.6 }}>กรุณาระบุกลุ่มไร่หลักและพื้นที่เป้าหมาย รวมถึงประเภทอ้อย เพื่อใช้เป็นเงื่อนไขในการจัดทำเอกสารรายงาน</p>
           </div>
           <label style={{ minWidth: 0 }}>
+            ปีดำเนินการ
+            <select value={period} onChange={(event) => {
+              setPeriod(event.target.value);
+              markFilterChanged();
+            }}>
+              <option value="project">ปีดำเนินการ {defaultCurrentYear || "-"}</option>
+              {availableYears.map((year) => <option key={year} value={year}>ปี {year}</option>)}
+            </select>
+          </label>
+          <label style={{ minWidth: 0 }}>
             กลุ่มไร่หลัก
             <select value={areaPath.region} onChange={(event) => selectAreaPath("region", event.target.value)}>
               <option value="">ทุกกลุ่มไร่หลัก</option>
@@ -1519,6 +1539,25 @@ export function CfFootprintReportPage() {
         </section>
 
         <section className="footprint-report-right-column">
+          {scopedKpi.calProgress && scopedKpi.calProgress.total > 0 && (
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-surface-200 mb-4">
+              <div className="flex justify-between items-end mb-2">
+                <div className="font-semibold text-surface-800 text-sm">ความคืบหน้าการคำนวณ</div>
+                <div className="text-xs text-surface-500">ทั้งหมด {scopedKpi.calProgress.total} รายการ</div>
+              </div>
+              <div className="w-full h-3 bg-surface-100 rounded-full overflow-hidden flex">
+                <div className="bg-emerald-500 h-full" style={{ width: `${(scopedKpi.calProgress.calculated / scopedKpi.calProgress.total) * 100}%` }} title={`คำนวณแล้ว ${scopedKpi.calProgress.calculated} รายการ`} />
+                <div className="bg-amber-400 h-full" style={{ width: `${(scopedKpi.calProgress.pending / scopedKpi.calProgress.total) * 100}%` }} title={`รอคำนวณ ${scopedKpi.calProgress.pending} รายการ`} />
+                <div className="bg-rose-500 h-full" style={{ width: `${(scopedKpi.calProgress.error / scopedKpi.calProgress.total) * 100}%` }} title={`ข้อผิดพลาด ${scopedKpi.calProgress.error} รายการ`} />
+              </div>
+              <div className="flex flex-col gap-1 mt-3 text-xs">
+                <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span><span className="text-surface-600 truncate">คำนวณแล้ว {((scopedKpi.calProgress.calculated / scopedKpi.calProgress.total) * 100).toFixed(1)}%</span></div>
+                <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span><span className="text-surface-600 truncate">รอคำนวณ {((scopedKpi.calProgress.pending / scopedKpi.calProgress.total) * 100).toFixed(1)}%</span></div>
+                <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-rose-500 shrink-0"></span><span className="text-surface-600 truncate">ข้อผิดพลาด {((scopedKpi.calProgress.error / scopedKpi.calProgress.total) * 100).toFixed(1)}%</span></div>
+              </div>
+            </div>
+          )}
+
           <section className="card report-toolbar footprint-report-toolbar">
             <div>
               <div className="card-title-row">
@@ -1775,6 +1814,25 @@ export function CfFootprintReportPage() {
             <div className="error-panel">Data quality guard: {resourceUsage.warnings.join(" | ")}</div>
           )}
         </section>
+
+        {scopedKpi.calProgress && scopedKpi.calProgress.total > 0 && (
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-surface-200 mb-4 col-span-full mx-6 mt-4">
+            <div className="flex justify-between items-end mb-2">
+              <div className="font-semibold text-surface-800 text-sm">ความคืบหน้าการคำนวณคาร์บอนฟุตพริ้นท์</div>
+              <div className="text-xs text-surface-500">ทั้งหมด {scopedKpi.calProgress.total} รายการ</div>
+            </div>
+            <div className="w-full h-3 bg-surface-100 rounded-full overflow-hidden flex">
+              <div className="bg-emerald-500 h-full" style={{ width: `${(scopedKpi.calProgress.calculated / scopedKpi.calProgress.total) * 100}%` }} title={`คำนวณแล้ว ${scopedKpi.calProgress.calculated} รายการ`} />
+              <div className="bg-amber-400 h-full" style={{ width: `${(scopedKpi.calProgress.pending / scopedKpi.calProgress.total) * 100}%` }} title={`รอคำนวณ ${scopedKpi.calProgress.pending} รายการ`} />
+              <div className="bg-rose-500 h-full" style={{ width: `${(scopedKpi.calProgress.error / scopedKpi.calProgress.total) * 100}%` }} title={`ข้อผิดพลาด ${scopedKpi.calProgress.error} รายการ`} />
+            </div>
+            <div className="flex gap-4 mt-2 text-xs">
+              <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500"></span><span className="text-surface-600">คำนวณแล้ว {((scopedKpi.calProgress.calculated / scopedKpi.calProgress.total) * 100).toFixed(1)}%</span></div>
+              <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span><span className="text-surface-600">รอคำนวณ {((scopedKpi.calProgress.pending / scopedKpi.calProgress.total) * 100).toFixed(1)}%</span></div>
+              <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-500"></span><span className="text-surface-600">ข้อผิดพลาด {((scopedKpi.calProgress.error / scopedKpi.calProgress.total) * 100).toFixed(1)}%</span></div>
+            </div>
+          </div>
+        )}
 
         <section className="footprint-report-left-column">
           <section className="card full-span footprint-kpi-section footprint-context-grid">

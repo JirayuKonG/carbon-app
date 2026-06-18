@@ -12,6 +12,8 @@ type SocPayload = {
   unit_depSampleIT?: unknown
   carbon_soc_socIT?: unknown
   unit_socIT?: unknown
+  carbon_soc_socIT_perRai?: unknown
+  unit_socIT_perRai?: unknown
   carbon_soc_numLandSample?: unknown
   carbon_soc_numSample?: unknown
   carbon_soc_yearBeginPro?: unknown
@@ -27,6 +29,8 @@ type SoilImprovementPayload = {
   unit_nc?: unknown
   carbon_soilImprovementPlant_fnFix?: unknown
   unit_fnFix?: unknown
+  carbon_soilImprovementPlant_fnFix_perRai?: unknown
+  unit_fnFix_perRai?: unknown
   act_resourceOther_id?: unknown
   carbon_soilImprovementPlant_update_uid?: unknown
 }
@@ -36,9 +40,11 @@ type StandardUnitKey =
   | 'bulkDensity'
   | 'centimeter'
   | 'tco2ePerYear'
+  | 'tco2ePerRaiPerYear'
   | 'kgPerRai'
   | 'percentNitrogen'
   | 'tonNitrogen'
+  | 'tonNitrogenPerRai'
 
 type UnitOption = {
   unit_id: number
@@ -67,6 +73,11 @@ const STANDARD_UNITS: Record<StandardUnitKey, { unitName: string; unitInitial: s
     unitInitial: 'tCO2e/ปี',
     aliases: ['tCO2e/ปี', 'tCO2e/year', 'tCO2e per year', 'ton CO2e per year', 'ตัน CO2e ต่อปี'],
   },
+  tco2ePerRaiPerYear: {
+    unitName: 'ตันคาร์บอนไดออกไซด์เทียบเท่าต่อไร่ต่อปี',
+    unitInitial: 'tCO2e/ไร่/ปี',
+    aliases: ['tCO2e/ไร่/ปี', 'tCO2e/rai/year', 'tCO2e per rai per year', 'ตัน CO2e ต่อไร่ต่อปี'],
+  },
   kgPerRai: {
     unitName: 'กิโลกรัมต่อไร่',
     unitInitial: 'kg/ไร่',
@@ -82,11 +93,17 @@ const STANDARD_UNITS: Record<StandardUnitKey, { unitName: string; unitInitial: s
     unitInitial: 'tN',
     aliases: ['tN', 'ton N', 'tonne N', 'ตัน N', 'ตันไนโตรเจน'],
   },
+  tonNitrogenPerRai: {
+    unitName: 'ตันไนโตรเจนต่อไร่',
+    unitInitial: 'tN/ไร่',
+    aliases: ['tN/ไร่', 'tN/rai', 'ton N per rai', 'tonne N per rai', 'ตันไนโตรเจนต่อไร่'],
+  },
 }
 
 @Injectable()
 export class CarbonSocService {
   private readonly socAnnualizationYears = 20
+  private readonly standardUnitIdCache = new Map<StandardUnitKey, number>()
 
   constructor(private prisma: PrismaService) {}
 
@@ -98,13 +115,26 @@ export class CarbonSocService {
         name: true,
         land_size: true,
         area_size: true,
-        lands_camps: { select: { land_camp_name: true } },
+        lands_camps: {
+          select: {
+            land_camp_name: true,
+            land_camp_group_id: true,
+            lands_camps_groups: {
+              select: {
+                land_camp_group_id: true,
+                land_camp_group_idCode: true,
+                land_camp_group_name: true,
+              },
+            },
+          },
+        },
       },
     },
     units_socSampleIT: { select: { unit_id: true, unit_name: true, unit_initial: true } },
     units_socbdSampleIT: { select: { unit_id: true, unit_name: true, unit_initial: true } },
     units_depSampleIT: { select: { unit_id: true, unit_name: true, unit_initial: true } },
     units_socIT: { select: { unit_id: true, unit_name: true, unit_initial: true } },
+    units_socIT_perRai: { select: { unit_id: true, unit_name: true, unit_initial: true } },
   }
 
   private soilImprovementInclude = {
@@ -115,7 +145,19 @@ export class CarbonSocService {
         name: true,
         land_size: true,
         area_size: true,
-        lands_camps: { select: { land_camp_name: true } },
+        lands_camps: {
+          select: {
+            land_camp_name: true,
+            land_camp_group_id: true,
+            lands_camps_groups: {
+              select: {
+                land_camp_group_id: true,
+                land_camp_group_idCode: true,
+                land_camp_group_name: true,
+              },
+            },
+          },
+        },
       },
     },
     activities_resourceOther: {
@@ -128,6 +170,7 @@ export class CarbonSocService {
     units_mc: { select: { unit_id: true, unit_name: true, unit_initial: true } },
     units_nc: { select: { unit_id: true, unit_name: true, unit_initial: true } },
     units_fnFix: { select: { unit_id: true, unit_name: true, unit_initial: true } },
+    units_fnFix_perRai: { select: { unit_id: true, unit_name: true, unit_initial: true } },
   }
 
   private cleanData<T extends Record<string, unknown>>(data: T) {
@@ -175,6 +218,9 @@ export class CarbonSocService {
   }
 
   private async ensureStandardUnitId(kind: StandardUnitKey, tx: any = this.prisma) {
+    const cached = this.standardUnitIdCache.get(kind)
+    if (cached) return cached
+
     const spec = STANDARD_UNITS[kind]
     const aliases = [spec.unitName, spec.unitInitial, ...spec.aliases]
       .map((value) => this.normalizeUnitText(value))
@@ -193,7 +239,10 @@ export class CarbonSocService {
       return tokens.some((token) => aliases.includes(token))
     })
 
-    if (matched) return matched.unit_id
+    if (matched) {
+      this.standardUnitIdCache.set(kind, matched.unit_id)
+      return matched.unit_id
+    }
 
     const current = await tx.units.aggregate({ _max: { unit_id: true } })
     const created = await tx.units.create({
@@ -206,24 +255,37 @@ export class CarbonSocService {
       select: { unit_id: true },
     })
 
+    this.standardUnitIdCache.set(kind, created.unit_id)
     return created.unit_id
   }
 
   private async standardSocUnitFields() {
-    const unit_socSampleIT = await this.ensureStandardUnitId('percent')
-    const unit_socbdSampleIT = await this.ensureStandardUnitId('bulkDensity')
-    const unit_depSampleIT = await this.ensureStandardUnitId('centimeter')
-    const unit_socIT = await this.ensureStandardUnitId('tco2ePerYear')
+    const [
+      unit_socSampleIT,
+      unit_socbdSampleIT,
+      unit_depSampleIT,
+      unit_socIT,
+      unit_socIT_perRai,
+    ] = await Promise.all([
+      this.ensureStandardUnitId('percent'),
+      this.ensureStandardUnitId('bulkDensity'),
+      this.ensureStandardUnitId('centimeter'),
+      this.ensureStandardUnitId('tco2ePerYear'),
+      this.ensureStandardUnitId('tco2ePerRaiPerYear'),
+    ])
 
-    return { unit_socSampleIT, unit_socbdSampleIT, unit_depSampleIT, unit_socIT }
+    return { unit_socSampleIT, unit_socbdSampleIT, unit_depSampleIT, unit_socIT, unit_socIT_perRai }
   }
 
   private async standardSoilImprovementUnitFields() {
-    const unit_mc = await this.ensureStandardUnitId('kgPerRai')
-    const unit_nc = await this.ensureStandardUnitId('percentNitrogen')
-    const unit_fnFix = await this.ensureStandardUnitId('tonNitrogen')
+    const [unit_mc, unit_nc, unit_fnFix, unit_fnFix_perRai] = await Promise.all([
+      this.ensureStandardUnitId('kgPerRai'),
+      this.ensureStandardUnitId('percentNitrogen'),
+      this.ensureStandardUnitId('tonNitrogen'),
+      this.ensureStandardUnitId('tonNitrogenPerRai'),
+    ])
 
-    return { unit_mc, unit_nc, unit_fnFix }
+    return { unit_mc, unit_nc, unit_fnFix, unit_fnFix_perRai }
   }
 
   private async nextSocId(tx: any) {
@@ -250,6 +312,8 @@ export class CarbonSocService {
       unit_depSampleIT: this.toOptionalInt(data.unit_depSampleIT),
       carbon_soc_socIT: this.toOptionalNumber(data.carbon_soc_socIT),
       unit_socIT: this.toOptionalInt(data.unit_socIT),
+      carbon_soc_socIT_perRai: this.toOptionalNumber(data.carbon_soc_socIT_perRai),
+      unit_socIT_perRai: this.toOptionalInt(data.unit_socIT_perRai),
       carbon_soc_numLandSample: this.toOptionalInt(data.carbon_soc_numLandSample),
       carbon_soc_numSample: this.toOptionalInt(data.carbon_soc_numSample),
       carbon_soc_yearBeginPro: this.toOptionalText(data.carbon_soc_yearBeginPro),
@@ -267,6 +331,8 @@ export class CarbonSocService {
       unit_nc: this.toOptionalInt(data.unit_nc),
       carbon_soilImprovementPlant_fnFix: this.toOptionalNumber(data.carbon_soilImprovementPlant_fnFix),
       unit_fnFix: this.toOptionalInt(data.unit_fnFix),
+      carbon_soilImprovementPlant_fnFix_perRai: this.toOptionalNumber(data.carbon_soilImprovementPlant_fnFix_perRai),
+      unit_fnFix_perRai: this.toOptionalInt(data.unit_fnFix_perRai),
       act_resourceOther_id: this.toOptionalInt(data.act_resourceOther_id),
       carbon_soilImprovementPlant_update_uid: this.toOptionalInt(data.carbon_soilImprovementPlant_update_uid),
     })
@@ -290,16 +356,185 @@ export class CarbonSocService {
     return num
   }
 
+  private assertRequiredNumber(value: unknown, label: string) {
+    const num = this.toFiniteNumber(value)
+    if (num === undefined) {
+      throw new BadRequestException(`กรุณากรอก${label}`)
+    }
+    return num
+  }
+
+  private async ensureLandExists(landId?: number, tx: any = this.prisma) {
+    if (!landId) return null
+
+    const land = await tx.lands.findUnique({
+      where: { land_id: landId },
+      select: {
+        land_id: true,
+        land_size: true,
+        area_size: true,
+      },
+    })
+
+    if (!land) {
+      throw new BadRequestException(`ไม่พบแปลง land_id=${landId}`)
+    }
+
+    return land
+  }
+
+  private async ensureResourceOtherExists(resourceOtherId?: number, tx: any = this.prisma) {
+    if (!resourceOtherId) return null
+
+    const resource = await tx.activities_resourceOther.findUnique({
+      where: { act_resourceOther_id: resourceOtherId },
+      select: { act_resourceOther_id: true },
+    })
+
+    if (!resource) {
+      throw new BadRequestException(`ไม่พบรายการพืช/วัสดุ act_resourceOther_id=${resourceOtherId}`)
+    }
+
+    return resource
+  }
+
+  private validateSocRequiredInput(input: {
+    land_id?: unknown
+    carbon_soc_socSampleIT?: unknown
+    carbon_soc_bdSampleIt?: unknown
+    carbon_soc_depSampleIT?: unknown
+  }) {
+    if (!this.toOptionalInt(input.land_id)) {
+      throw new BadRequestException('กรุณาเลือกแปลง')
+    }
+
+    this.assertRequiredNumber(input.carbon_soc_socSampleIT, 'ค่า SOC sample')
+    this.assertRequiredNumber(input.carbon_soc_bdSampleIt, 'ค่า bulk density')
+    this.assertRequiredNumber(input.carbon_soc_depSampleIT, 'ค่าความลึกดิน')
+  }
+
+  private validateSoilImprovementRequiredInput(input: {
+    land_id?: unknown
+    act_resourceOther_id?: unknown
+    carbon_soilImprovementPlant_mc?: unknown
+    carbon_soilImprovementPlant_nc?: unknown
+  }) {
+    if (!this.toOptionalInt(input.land_id)) {
+      throw new BadRequestException('กรุณาเลือกแปลง')
+    }
+
+    if (!this.toOptionalInt(input.act_resourceOther_id)) {
+      throw new BadRequestException('กรุณาเลือกพืช/วัสดุ')
+    }
+
+    this.assertRequiredNumber(input.carbon_soilImprovementPlant_mc, 'ค่า mc dry matter')
+    this.assertRequiredNumber(input.carbon_soilImprovementPlant_nc, 'ค่า nc (%N)')
+  }
+
+  private calculateSocValues(areaRai: number, socPercent: number, bulkDensity: number, depthCm: number) {
+    const socTcPerRai = socPercent * bulkDensity * depthCm * 0.16
+    const socTco2ePerRai = (socTcPerRai * (44 / 12)) / this.socAnnualizationYears
+    const socTco2eTotal = socTco2ePerRai * areaRai
+
+    return {
+      carbon_soc_socIT: this.round(socTco2eTotal, 4),
+      carbon_soc_socIT_perRai: this.round(socTco2ePerRai, 4),
+    }
+  }
+
+  private calculateSoilImprovementValues(areaRai: number, dryMatterKgPerRai: number, nitrogenPercent: number) {
+    const fnfixTnPerRai = (dryMatterKgPerRai / 1000) * (nitrogenPercent / 100)
+    const fnfixTnTotal = areaRai * fnfixTnPerRai
+
+    return {
+      carbon_soilImprovementPlant_fnFix: this.round(fnfixTnTotal, 4),
+      carbon_soilImprovementPlant_fnFix_perRai: this.round(fnfixTnPerRai, 4),
+    }
+  }
+
+  private async resolveSocCalculatedFields(
+    input: {
+      land_id?: unknown
+      carbon_soc_socSampleIT?: unknown
+      carbon_soc_bdSampleIt?: unknown
+      carbon_soc_depSampleIT?: unknown
+    },
+    tx: any = this.prisma,
+  ) {
+    const landId = this.toOptionalInt(input.land_id)
+    const socPercent = this.toFiniteNumber(input.carbon_soc_socSampleIT)
+    const bulkDensity = this.toFiniteNumber(input.carbon_soc_bdSampleIt)
+    const depthCm = this.toFiniteNumber(input.carbon_soc_depSampleIT)
+
+    if (!landId || socPercent === undefined || bulkDensity === undefined || depthCm === undefined) {
+      return {
+        carbon_soc_socIT: null,
+        carbon_soc_socIT_perRai: null,
+      }
+    }
+
+    const land = await tx.lands.findUnique({
+      where: { land_id: landId },
+      select: { land_size: true, area_size: true },
+    })
+    const areaRai = this.landAreaRai(land)
+
+    if (!areaRai) {
+      return {
+        carbon_soc_socIT: null,
+        carbon_soc_socIT_perRai: null,
+      }
+    }
+
+    return this.calculateSocValues(areaRai, socPercent, bulkDensity, depthCm)
+  }
+
+  private async resolveSoilImprovementCalculatedFields(
+    input: {
+      land_id?: unknown
+      carbon_soilImprovementPlant_mc?: unknown
+      carbon_soilImprovementPlant_nc?: unknown
+    },
+    tx: any = this.prisma,
+  ) {
+    const landId = this.toOptionalInt(input.land_id)
+    const dryMatterKgPerRai = this.toFiniteNumber(input.carbon_soilImprovementPlant_mc)
+    const nitrogenPercent = this.toFiniteNumber(input.carbon_soilImprovementPlant_nc)
+
+    if (!landId || dryMatterKgPerRai === undefined || nitrogenPercent === undefined) {
+      return {
+        carbon_soilImprovementPlant_fnFix: null,
+        carbon_soilImprovementPlant_fnFix_perRai: null,
+      }
+    }
+
+    const land = await tx.lands.findUnique({
+      where: { land_id: landId },
+      select: { land_size: true, area_size: true },
+    })
+    const areaRai = this.landAreaRai(land)
+
+    if (!areaRai) {
+      return {
+        carbon_soilImprovementPlant_fnFix: null,
+        carbon_soilImprovementPlant_fnFix_perRai: null,
+      }
+    }
+
+    return this.calculateSoilImprovementValues(areaRai, dryMatterKgPerRai, nitrogenPercent)
+  }
+
   private withSocDerived(row: any) {
     const areaRai = this.landAreaRai(row.lands)
     const socTco2eTotal = this.toFiniteNumber(row.carbon_soc_socIT)
+    const storedPerRai = this.toFiniteNumber(row.carbon_soc_socIT_perRai)
 
     return {
       ...row,
       derived: {
         areaRai: areaRai ?? null,
         socTco2eTotal: socTco2eTotal ?? null,
-        socTco2ePerRai: areaRai && socTco2eTotal !== undefined ? this.round(socTco2eTotal / areaRai, 4) : null,
+        socTco2ePerRai: storedPerRai ?? (areaRai && socTco2eTotal !== undefined ? this.round(socTco2eTotal / areaRai, 4) : null),
       },
     }
   }
@@ -307,13 +542,14 @@ export class CarbonSocService {
   private withSoilImprovementDerived(row: any) {
     const areaRai = this.landAreaRai(row.lands)
     const fnfixTnTotal = this.toFiniteNumber(row.carbon_soilImprovementPlant_fnFix)
+    const storedPerRai = this.toFiniteNumber(row.carbon_soilImprovementPlant_fnFix_perRai)
 
     return {
       ...row,
       derived: {
         areaRai: areaRai ?? null,
         fnfixTnTotal: fnfixTnTotal ?? null,
-        fnfixTnPerRai: areaRai && fnfixTnTotal !== undefined ? this.round(fnfixTnTotal / areaRai, 6) : null,
+        fnfixTnPerRai: storedPerRai ?? (areaRai && fnfixTnTotal !== undefined ? this.round(fnfixTnTotal / areaRai, 6) : null),
       },
     }
   }
@@ -352,16 +588,24 @@ export class CarbonSocService {
     const standardUnits = await this.standardSocUnitFields()
     const now = new Date()
 
-    const row = await this.prisma.$transaction(async (tx) => tx.carbon_soc.create({
-      data: {
-        carbon_soc_id: await this.nextSocId(tx),
-        ...normalized,
-        ...standardUnits,
-        carbon_soc_create_at: now,
-        carbon_soc_update_at: now,
-      },
-      include: this.socInclude,
-    }))
+    this.validateSocRequiredInput(normalized)
+
+    const row = await this.prisma.$transaction(async (tx) => {
+      await this.ensureLandExists(this.toOptionalInt(normalized.land_id), tx)
+      const calculated = await this.resolveSocCalculatedFields(normalized, tx)
+
+      return tx.carbon_soc.create({
+        data: {
+          carbon_soc_id: await this.nextSocId(tx),
+          ...normalized,
+          ...standardUnits,
+          ...calculated,
+          carbon_soc_create_at: now,
+          carbon_soc_update_at: now,
+        },
+        include: this.socInclude,
+      })
+    })
 
     return this.withSocDerived(row)
   }
@@ -369,12 +613,36 @@ export class CarbonSocService {
   async updateSocMeasurement(id: number, data: SocPayload) {
     const normalized = this.normalizeSocPayload(data)
     const standardUnits = await this.standardSocUnitFields()
+    const existing = await this.prisma.carbon_soc.findUnique({
+      where: { carbon_soc_id: id },
+      select: {
+        land_id: true,
+        carbon_soc_socSampleIT: true,
+        carbon_soc_bdSampleIt: true,
+        carbon_soc_depSampleIT: true,
+      },
+    })
+
+    if (!existing) throw new NotFoundException(`carbon_soc ${id} not found`)
+
+    const mergedInput = {
+      land_id: normalized.land_id ?? existing.land_id,
+      carbon_soc_socSampleIT: normalized.carbon_soc_socSampleIT ?? existing.carbon_soc_socSampleIT,
+      carbon_soc_bdSampleIt: normalized.carbon_soc_bdSampleIt ?? existing.carbon_soc_bdSampleIt,
+      carbon_soc_depSampleIT: normalized.carbon_soc_depSampleIT ?? existing.carbon_soc_depSampleIT,
+    }
+
+    this.validateSocRequiredInput(mergedInput)
+    await this.ensureLandExists(this.toOptionalInt(mergedInput.land_id))
+
+    const calculated = await this.resolveSocCalculatedFields(mergedInput)
 
     const row = await this.prisma.carbon_soc.update({
       where: { carbon_soc_id: id },
       data: {
         ...normalized,
         ...standardUnits,
+        ...calculated,
         carbon_soc_update_at: new Date(),
       },
       include: this.socInclude,
@@ -404,15 +672,13 @@ export class CarbonSocService {
     const depthCm = this.assertPositive(row.carbon_soc_depSampleIT, 'ค่าความลึกดิน')
     const standardUnits = await this.standardSocUnitFields()
 
-    const socTcPerRai = socPercent * bulkDensity * depthCm * 0.16
-    const socTco2ePerRai = (socTcPerRai * (44 / 12)) / this.socAnnualizationYears
-    const socTco2eTotal = socTco2ePerRai * areaRai
+    const calculated = this.calculateSocValues(areaRai, socPercent, bulkDensity, depthCm)
 
     const updated = await this.prisma.carbon_soc.update({
       where: { carbon_soc_id: id },
       data: {
         ...standardUnits,
-        carbon_soc_socIT: this.round(socTco2eTotal, 4),
+        ...calculated,
         carbon_soc_update_at: new Date(),
       },
       include: this.socInclude,
@@ -438,16 +704,25 @@ export class CarbonSocService {
     const standardUnits = await this.standardSoilImprovementUnitFields()
     const now = new Date()
 
-    const row = await this.prisma.$transaction(async (tx) => tx.carbon_soilImprovementPlants.create({
-      data: {
-        carbon_soilImprovementPlant_id: await this.nextSoilImprovementPlantId(tx),
-        ...normalized,
-        ...standardUnits,
-        carbon_soilImprovementPlant_create_at: now,
-        carbon_soilImprovementPlant_update_at: now,
-      },
-      include: this.soilImprovementInclude,
-    }))
+    this.validateSoilImprovementRequiredInput(normalized)
+
+    const row = await this.prisma.$transaction(async (tx) => {
+      await this.ensureLandExists(this.toOptionalInt(normalized.land_id), tx)
+      await this.ensureResourceOtherExists(this.toOptionalInt(normalized.act_resourceOther_id), tx)
+      const calculated = await this.resolveSoilImprovementCalculatedFields(normalized, tx)
+
+      return tx.carbon_soilImprovementPlants.create({
+        data: {
+          carbon_soilImprovementPlant_id: await this.nextSoilImprovementPlantId(tx),
+          ...normalized,
+          ...standardUnits,
+          ...calculated,
+          carbon_soilImprovementPlant_create_at: now,
+          carbon_soilImprovementPlant_update_at: now,
+        },
+        include: this.soilImprovementInclude,
+      })
+    })
 
     return this.withSoilImprovementDerived(row)
   }
@@ -455,12 +730,37 @@ export class CarbonSocService {
   async updateSoilImprovementPlant(id: number, data: SoilImprovementPayload) {
     const normalized = this.normalizeSoilImprovementPayload(data)
     const standardUnits = await this.standardSoilImprovementUnitFields()
+    const existing = await this.prisma.carbon_soilImprovementPlants.findUnique({
+      where: { carbon_soilImprovementPlant_id: id },
+      select: {
+        land_id: true,
+        carbon_soilImprovementPlant_mc: true,
+        carbon_soilImprovementPlant_nc: true,
+        act_resourceOther_id: true,
+      },
+    })
+
+    if (!existing) throw new NotFoundException(`carbon_soilImprovementPlant ${id} not found`)
+
+    const mergedInput = {
+      land_id: normalized.land_id ?? existing.land_id,
+      act_resourceOther_id: normalized.act_resourceOther_id ?? existing.act_resourceOther_id,
+      carbon_soilImprovementPlant_mc: normalized.carbon_soilImprovementPlant_mc ?? existing.carbon_soilImprovementPlant_mc,
+      carbon_soilImprovementPlant_nc: normalized.carbon_soilImprovementPlant_nc ?? existing.carbon_soilImprovementPlant_nc,
+    }
+
+    this.validateSoilImprovementRequiredInput(mergedInput)
+    await this.ensureLandExists(this.toOptionalInt(mergedInput.land_id))
+    await this.ensureResourceOtherExists(this.toOptionalInt(mergedInput.act_resourceOther_id))
+
+    const calculated = await this.resolveSoilImprovementCalculatedFields(mergedInput)
 
     const row = await this.prisma.carbon_soilImprovementPlants.update({
       where: { carbon_soilImprovementPlant_id: id },
       data: {
         ...normalized,
         ...standardUnits,
+        ...calculated,
         carbon_soilImprovementPlant_update_at: new Date(),
       },
       include: this.soilImprovementInclude,
@@ -490,13 +790,13 @@ export class CarbonSocService {
     const dryMatterKgPerRai = this.assertPositive(row.carbon_soilImprovementPlant_mc, 'ค่า dry matter / mc')
     const nitrogenPercent = this.assertPositive(row.carbon_soilImprovementPlant_nc, 'ค่า N content / nc')
     const standardUnits = await this.standardSoilImprovementUnitFields()
-    const fnfixTn = areaRai * (dryMatterKgPerRai / 1000) * (nitrogenPercent / 100)
+    const calculated = this.calculateSoilImprovementValues(areaRai, dryMatterKgPerRai, nitrogenPercent)
 
     const updated = await this.prisma.carbon_soilImprovementPlants.update({
       where: { carbon_soilImprovementPlant_id: id },
       data: {
         ...standardUnits,
-        carbon_soilImprovementPlant_fnFix: this.round(fnfixTn, 4),
+        ...calculated,
         carbon_soilImprovementPlant_update_at: new Date(),
       },
       include: this.soilImprovementInclude,

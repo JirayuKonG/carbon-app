@@ -1,6 +1,6 @@
 # Project Context Memory
 
-Last updated: 2026-06-16
+Last updated: 2026-06-18
 
 This file is a working memory for the project. It summarizes the current repo state, important decisions, active risks, and where future work should start. Update it when major behavior, routes, architecture, or project status changes.
 
@@ -90,6 +90,16 @@ Recent Prisma sync update from user prompt on 2026-06-15:
 - Verification: `npm run prisma:generate --workspace=backend` and `npm run build --workspace=backend`.
 - Limitation: this task prepared the ORM layer only; no backend service/module logic was added yet for the new SOC, soil-improvement plant, product-year, or camp-group tables.
 
+Recent SOC / soil-improvement Prisma and backend update from user prompt on 2026-06-16:
+
+- Prompt summary: the user provided the newer database snapshot `managementDataSystem_forCalculate_3.1_06162026_postgres.sql` and asked to align Prisma plus the backend SOC module so both `carbon_soc` and `carbon_soilImprovementPlants` can store both the total calculated value and the new per-rai calculated value.
+- Schema result: `backend/src/prisma/schema.prisma` now matches the new snapshot for these tables by adding `carbon_soc_socIT_perRai`, `unit_socIT_perRai`, `carbon_soilImprovementPlant_fnFix_perRai`, and `unit_fnFix_perRai`, along with the required Prisma relation names on `units`.
+- Backend result: `backend/src/modules/carbon-soc/carbon-soc.service.ts` now persists both total and per-rai values for SOC and soil-improvement rows. The service computes and stores those fields during `create`, `update`, and explicit `calculate` actions, and clears stale calculated values back to `null` when required inputs or usable land area are missing.
+- Unit behavior: SOC per-rai values are standardized to `tCO2e/ไร่/ปี`, while soil-improvement per-rai values are standardized to `tN/ไร่`.
+- Source of truth: `managementDataSystem_forCalculate_3.1_06162026_postgres.sql`, `backend/src/prisma/schema.prisma`, and `backend/src/modules/carbon-soc/carbon-soc.service.ts`.
+- Verification: `npm run prisma:generate --workspace=backend` and `npm run build --workspace=backend`.
+- Docs impact: `CONTEXT.md` updated. `COMPONENT_PJ.md` was not changed because the module/file entry points did not move.
+
 ## Current App Routing Snapshot
 
 Verified from `frontend/src/App.tsx` on 2026-06-11:
@@ -109,6 +119,7 @@ Verified from `frontend/src/App.tsx` on 2026-06-11:
 - `/geo`, `/infra`, `/users`, `/farmers`, `/lands`, `/lands/weather`
 - `/emission-factors`
 - `/activities/logs`, `/activities/resources`, `/activities/types`, `/activities/manage`
+- `/activities/product-years`: production-year master page with CRUD and deep links to year-filtered workflow pages
 
 Important route notes:
 
@@ -149,6 +160,7 @@ Verified from `frontend/src/components/layout/Sidebar.tsx` on 2026-06-11:
   - `/emission-factors`
   - `/activities/types`
   - `/activities/resources`
+  - `/activities/product-years`
 
 ## Carbon Analytics Data Source Reality
 
@@ -213,6 +225,33 @@ Recent input-usage header/comparison workspace update from user prompt on 2026-0
 - Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`.
 - Verification: `npm run build --workspace=frontend`.
 
+Recent Carbon Footprint simulation-preview usability update from user prompt on 2026-06-16:
+
+- Prompt summary: the user asked to make the simulation preview less dominant than the row tables in both the preparation workflow and the Carbon Footprint calculation preview, with preview sections collapsed by default, easier vertical resizing in the preparation modal, and a cleaner presentation that prioritizes important variables like amount and EF instead of code-style `const` displays.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now opens both simulation-preview areas in a collapsed state by default. The preparation modal preview can be expanded and vertically resized by dragging, so the row tables keep priority on screen. The Carbon Footprint calculation preview modal now keeps the preview optional, simplifies the simulation cards to show key variables first, and replaces code-block styling with plain readable formula text.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+- Docs impact: no additional updates were applied to `README.md`, `GUIDE.md`, `COMPONENT_PJ.md`, or `BUG_LOG.md` because this change is a focused UI/UX refinement inside an existing page.
+
+Recent production-year master update from user prompt on 2026-06-18:
+
+- Prompt summary: add a dedicated CRUD page for `activities_productYear`, place it under system settings, and allow each production-year row to open the relevant operational/calculation pages with that year pre-filtered.
+- Frontend result: `frontend/src/features/activities/ProductYearsPage.tsx` now provides a production-year master page at `/activities/product-years` with create/edit/delete, usage-aware delete blocking, summary tiles, and an `เปิดในหน้าอื่น` action menu for deep-linking into activity, land, and carbon workflow pages.
+- Navigation result: `frontend/src/App.tsx` and `frontend/src/components/layout/Sidebar.tsx` now expose the new route under `ตั้งค่าระบบ`.
+- Deep-link result: the following pages now read query-string filters on load so a production-year row can open them already filtered:
+  - `frontend/src/features/activities/ActivitiesPage.tsx` via `productYearId`
+  - `frontend/src/features/activities/ActivityLogListPage.tsx` via `productYearId`
+  - `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` via `productYearId`
+  - `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` via `productYearId`
+  - `frontend/src/features/lands/LandsPage.tsx` via `activityProductYearId`
+  - `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` via `years`
+  - `frontend/src/features/cf-dashboard/pages/CalculationSummaryPage.tsx` via `mode` and `years`
+  - `frontend/src/features/cf-dashboard/pages/CarbonCreditPage.tsx` via `projectYear`
+- Backend result: `backend/src/modules/activities/activities.controller.ts` and `backend/src/modules/activities/activities.service.ts` now support full CRUD for `/api/activities/product-years`, return usage metadata (`detailCount`, `queueCount`, `canDelete`) from `GET /api/activities/product-years`, block duplicate names after whitespace normalization, and block delete when activity details still reference the production year.
+- Source of truth: `frontend/src/features/activities/ProductYearsPage.tsx`, `frontend/src/App.tsx`, `frontend/src/components/layout/Sidebar.tsx`, and `backend/src/modules/activities/activities.service.ts`.
+- Verification: `npm run build --workspace=backend` and `npm run build --workspace=frontend`.
+- Related docs updated: `CONTEXT.md` and `COMPONENT_PJ.md`. `BUG_LOG.md` was not updated because no new persistent bug or regression was introduced during this task.
+
 Recent lands bulk-subdistrict management update from user prompt on 2026-06-15:
 
 - Prompt summary: the user asked whether the `lands` table can manage subdistrict data and requested an easy-to-find tool under `พื้นที่เพาะปลูก` to change `subdistrict code` for many rows at once, preferably using selected lands as the main driver.
@@ -235,6 +274,52 @@ Follow-up completion-notice update on 2026-06-15 for the same lands bulk-subdist
 - Result: `frontend/src/main.tsx` now wraps the app with `ToastProvider`, and `frontend/src/features/lands/LandsPage.tsx` now shows a success toast after `อัปเดตตำบลให้แปลงที่เลือก` completes.
 - Additional behavior: the toast message includes both the number of updated lands and the destination subdistrict name, plus zip code when available.
 - Verification: `npm run build --workspace=frontend`.
+
+Additional camp-table filter follow-up on 2026-06-17 for the same `พื้นที่การเพาะปลูก` page:
+
+- Prompt summary: in the `แคมป์` table area on the `พื้นที่การเพาะปลูก` page, add an extra filter so users can narrow the table more easily.
+- Frontend result: `frontend/src/features/lands/LandsPage.tsx` now adds a dedicated `กรองตามกลุ่มไร่` dropdown above the camp table, alongside the existing grouped/ungrouped status chips. The camp list now filters by both status and selected camp-group ID, and a `ล้าง filter แคมป์` button resets both filters together.
+- Source of truth: `frontend/src/features/lands/LandsPage.tsx`.
+
+Follow-up workbook table update on 2026-06-17 for the same input-usage summary page:
+
+- Prompt summary: when the `ตารางปุ๋ยแบบอ้างอิงไฟล์ตัวอย่าง` is switched to `รายแปลง`, add a new `ชื่อไร่` column before `เลขแปลง`.
+- Result: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now renders the workbook-style fertilizer table with two sticky left columns in land view: `ชื่อไร่` first and `เลขแปลง` second. The export workbook structure was aligned so the generated Excel sheet uses the same left-column order in `รายแปลง` mode.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`.
+- Verification: `npm run build --workspace=frontend` still fails only on the pre-existing `ProcessPage.tsx` TypeScript issues unrelated to this task.
+
+Additional follow-up export feedback update on 2026-06-17 for the same input-usage summary page:
+
+- Prompt summary: when users click `Export Excel` on the fertilizer workbook section, show a toast result and add a cute export log message from the frontend flow.
+- Result: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now uses the shared toast system for export success, no-data, and failure states. The same export flow now writes friendly `console.info` and `console.error` messages from the frontend when the workbook starts, completes, has no data, or fails.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`.
+- Limitation: because the export is a browser-side action, the new log appears in the browser console, not in the Vite terminal window itself.
+
+Additional dev-logger follow-up on 2026-06-17 for the same export flow:
+
+- Prompt summary: the user asked whether the export log could also appear in the Vite terminal and include a visual cue.
+- Result: `frontend/vite.config.ts` now includes a dev-only middleware endpoint at `/__dev/log`, and `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now posts export events to that endpoint during development. This makes the Vite terminal show friendly export messages with emoji-style visual markers for start, no-data, success, and error states, while production behavior stays unchanged.
+- Source of truth: `frontend/vite.config.ts` and `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`.
+- Limitation: the terminal can show emoji/ASCII-style visual markers, not real bitmap images.
+
+Additional summary-table follow-up on 2026-06-17 for the same input-usage summary page:
+
+- Prompt summary: on both `ตารางสรุปปุ๋ยตามไร่/แปลง` and `ตารางสรุปน้ำมันตามไร่/แปลง`, remove the `Warning` column and add a new column that tells users which activity the work was done in.
+- Backend result: `backend/src/modules/activities/activities.service.ts` now attaches activity labels to each input-usage row by resolving activity main/detail names from the activity log IDs, and keeps those labels merged when rows are aggregated.
+- Frontend result: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now removes the shared `Warning` column from the fertilizer/fuel summary tables, adds `ทำในกิจกรรมอะไร`, and also aligns the fertilizer summary Excel sheet to use the same activity column instead of warning.
+- Source of truth: `backend/src/modules/activities/activities.service.ts` and `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`.
+
+Additional column-width follow-up on 2026-06-17 for the same summary tables:
+
+- Prompt summary: the new `ทำในกิจกรรมอะไร` column felt too wide in both fertilizer and fuel summary tables, so the user asked to let that column collapse more.
+- Frontend result: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now renders that column with a narrower width and uses `ExpandableTextCell` so long activity text is truncated in-table but still readable through the built-in detail popup.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`.
+
+Additional row-height follow-up on 2026-06-17 for the same activity column:
+
+- Prompt summary: even after narrowing the activity column, each row still felt too wide/tall, so the user asked to compress that presentation further.
+- Frontend result: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now renders `ทำในกิจกรรมอะไร` as a single-line truncated label with hover title instead of the multi-line expandable cell, which reduces row height and makes both fertilizer/fuel summary tables feel tighter.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`.
 
 Recent workflow update from user prompt on 2026-06-12:
 
@@ -658,3 +743,314 @@ After finishing work from a user prompt:
 - Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` and `backend/src/modules/activities/activities.service.ts`.
 - Verification: `npm run build --workspace=backend` and `npm run build --workspace=frontend` passed.
 - Limitation: this change stops new liquid-fertilizer rows from being auto-forced into sack/kg preparation, but it does not retroactively reclassify already prepared historical rows until those rows are edited or prepared again.
+
+## Recent Calculation Status Rename Alignment Update - 2026-06-16
+
+- Prompt summary: the user shared updated `log_act_detail_calStatus` names from the live database and asked to align frontend and backend behavior with the newer labels.
+- Result: the app now treats the renamed statuses as:
+  - `id 1` -> `คำนวณแล้ว(CFP)`
+  - `id 2` -> `พร้อมคำนวณ`
+  - `id 3` -> `คำนวณแล้ว(CFP,C-credit)`
+  - `id 7` -> `คำนวณแล้ว(C-credit)`
+- Frontend behavior: `frontend/src/features/activities/cal-status.ts` now recognizes both old and new status names, maps fallback IDs correctly, and adds a separate `creditDone` status kind for `คำนวณแล้ว(C-credit)` instead of merging it into the combined done state. Dashboard cards and status filters on the activity pages, Carbon preparation page, Carbon Footprint queue page, and Carbon Credit page now show the new labels.
+- Backend behavior: `backend/src/modules/activities/activities.service.ts` and `backend/src/modules/activities/activities.controller.ts` now use the new canonical names for ready/CFP/C-credit statuses, accept the legacy names as aliases for compatibility, and allow manual status operations to include the new standalone `C-credit` done state.
+- Source of truth: `frontend/src/features/activities/cal-status.ts`, `frontend/src/features/activities/ActivitiesPage.tsx`, `frontend/src/features/activities/ActivityLogListPage.tsx`, `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx`, `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`, `frontend/src/features/cf-dashboard/pages/CarbonCreditPage.tsx`, `backend/src/modules/activities/activities.service.ts`, and `backend/src/modules/activities/activities.controller.ts`.
+- Verification: `npm run build --workspace=backend` and `npm run build --workspace=frontend` passed.
+- Assumption kept intentionally: the code still treats `คำนวณผิดพลาด` as the canonical error label, but now also accepts the typo variant `คำนวณผิดผลาด` as an alias in case that text exists in live data.
+- Related docs updated: `CONTEXT.md` updated for project memory. `COMPONENT_PJ.md` and `BUG_LOG.md` did not need changes for this status-label alignment task.
+
+## Recent Preparation Queue Header Rename Update - 2026-06-16
+
+- Prompt summary: the user asked to rename the embedded `คิวเตรียมข้อมูล Carbon` header on the `คำนวณ Carbon` -> `เตรียมข้อมูล Carbon` page and make that heading slightly smaller.
+- Result: the embedded preparation section now shows `การเปลี่ยนหน่วยปัจจัยการผลิตก่อนคำนวณ` as its main header, and that header uses a slightly smaller size than the standard Carbon Footprint page heading.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: not re-built yet in this small follow-up change at the time of this note.
+- Related docs updated: `CONTEXT.md` updated for project memory. No route/component-map changes were needed.
+
+## Recent Preparation Filter Default Update - 2026-06-17
+
+- Prompt summary: set the default `สถานะ` filter on the `คำนวณ Carbon` -> `เตรียมข้อมูล Carbon` table to `นำเข้าข้อมูลแล้ว`.
+- Result: `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` now initializes the status filter from the real imported-status ID returned by `/api/activities/cal-statuses`, instead of starting at `ทั้งหมด`.
+- Additional behavior: the `ล้างตัวกรอง` action now restores the same default imported-status filter while leaving the other filters cleared and `เฉพาะแปลงจริง` as the land-scope default.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx`.
+- Verification: not re-built yet in this focused UI-state change.
+
+## Recent Bulk Preparation Preview Collapse Update - 2026-06-17
+
+- Prompt summary: on the `คำนวณ Carbon` -> `เตรียมข้อมูล Carbon` page, inside the `ทำรายการทั้งหมดจากที่เลือก` modal, keep the preview table visible while collapsing only the simulation/code-like preview block on the right.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now keeps the per-item preview tables always visible in the bulk-preparation modal. The collapse/expand control only affects the upper simulation-summary block, and the helper text now explains that the tables remain readable even when the formula-preview block is hidden.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: not re-built yet in this focused UI change at the time of the note.
+
+## Recent Bulk Preparation Code Preview And Resizable Frame Update - 2026-06-17
+
+- Prompt summary: on the same `ทำรายการทั้งหมดจากที่เลือก` modal, replace the old drag-bar behavior with a resizable preview frame, keep the open/close toggle, and redesign the formula area into a clearer code-preview style without programmer terms like `const`.
+- Result: the simulation-summary area now uses a vertically resizable frame that users can expand or shrink from the panel itself, while the collapse button still hides or shows that frame. The preview cards for `ปุ๋ย`, `ปุ๋ยน้ำ`, `น้ำมัน`, and `อื่น ๆ` now share the same structure: summary tiles plus a dark `Code preview` block rendered as readable `variable = value` lines instead of code declarations.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: not re-built yet in this focused UI change at the time of the note.
+
+## Recent Bulk Preparation Table Scroll And Unit Preset Update - 2026-06-17
+
+- Prompt summary: in the same bulk-preparation modal, make the right-side preview tables scroll with the mouse wheel inside their own frame, keep them from pushing the modal downward when there are many rows, let that table area resize as a frame, and replace confusing unit dropdowns on the left with a smaller set of forced unit buttons.
+- Result: the right-side table area now sits inside its own vertically resizable scroll frame with wheel scrolling contained inside the component. The left-side unit pickers for `ปุ๋ย`, `ปุ๋ยน้ำ`, `น้ำมัน`, and `อื่น ๆ` now use preset buttons instead of free-form dropdown/text combinations, so users choose from a small constrained set of common units.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: not re-built yet in this focused UI change at the time of the note.
+
+Follow-up fix on 2026-06-17 for the same bulk-preparation unit presets:
+
+- Prompt summary: the fertilizer unit preset buttons visually stayed on `kg` even after the user clicked another unit.
+- Result: the default-kg initializer in `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now respects custom preset text values, so clicking `g` no longer gets auto-overridden back to `kg` when the gram master unit is missing.
+
+Additional follow-up fix on 2026-06-17 for the same bulk-preparation unit presets:
+
+- Prompt summary: in the fuel section, choosing `ml` should mean converting from `L` to `ml`, so the preset multiplier must go upward (`x1000`) instead of downward (`x0.001`).
+- Result: the bulk liquid-unit preset helper in `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now resolves direction-aware multipliers for `ml`, `L`, and `m3`, using the selected liquid/fuel rows as the source context. This corrects `L -> ml` to `x1000` and also keeps `m3` cases consistent.
+
+Additional follow-up update on 2026-06-17 for the same bulk-preparation preview tables:
+
+- Prompt summary: the right-side preview tables did not clearly show which quantity value was used in the multiplication formula.
+- Result: the preview tables in `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now include a `จำนวนที่ใช้คูณ` column for all groups (`ปุ๋ย`, `น้ำมัน`, `ปุ๋ยน้ำ`, and `อื่น ๆ`), showing both the quantity value and its quantity-unit label beside the formula.
+
+Additional follow-up update on 2026-06-17 for the same Carbon Footprint card-page layout:
+
+- Prompt summary: on `คำนวณ Carbon -> Carbon Footprint -> คำนวณรายการที่เลือก`, keep the right-side ready-to-calculate tables visible at all times for every group (`ปุ๋ย`, `ปุ๋ยน้ำ`, `น้ำมัน`, and fertilizer rows without detected N), and shrink the `Simulation preview` block so it behaves more like the newer `เตรียมข้อมูล Carbon` card page.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now keeps the right-side preview/result tables visible even when `Simulation preview` is collapsed. The collapse control only hides the upper formula-preview block, the left/right split resize handle remains available, the simulation area uses a smaller vertically resizable frame, and the right-side tables now sit in their own always-visible resizable scroll frame for easier review across all supported row groups.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: `npm run build --workspace=frontend` still fails only on the pre-existing `frontend/src/features/cf-dashboard/pages/ProcessPage.tsx` TypeScript issues (`selectedByCaneKg`, `processDetailRows`, and `ActivityChartMode` mismatch), not from this card-page layout update.
+
+Additional follow-up update on 2026-06-17 for the same Carbon Footprint page filters:
+
+- Prompt summary: on `คำนวณ Carbon -> Carbon Footprint`, sort the `ปีการผลิต` dropdown in ascending order by the displayed production-year label instead of leaving it in unsorted source order.
+- Result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now sorts the production-year filter options with `localeCompare(..., { numeric: true })`, so labels such as real production-year names appear in ascending order in the dropdown.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`.
+- Verification: not re-built yet in this focused filter-ordering change.
+
+Additional follow-up update on 2026-06-17 for the same Carbon Footprint calculation card page:
+
+- Prompt summary: on `คำนวณ Carbon -> Carbon Footprint -> คำนวณรายการที่เลือก`, keep chemical fertilizer rows using the existing formula flow, but let organic fertilizer rows choose between three calculation modes on the card page: `กรอก N-P2O5-K2O เอง`, `ใช้ EF แบบทั่วไปเหมือนน้ำมัน`, or `ยังไม่คำนวณ` and intentionally move that row into the calculation-error path. Also improve the EF selection UX so the fuel EF chooser no longer overlaps the row table, and let organic-fertilizer EF selection use the same chooser style.
+- Frontend result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now adds per-row organic-fertilizer mode toggles inside the calculation card page, reuses the existing manual N-P2O5-K2O flow only when that mode is selected, and adds a shared `EF Browser` workspace for all `generic_ef` rows (`น้ำมัน`, `ปุ๋ยน้ำ`, and organic fertilizer rows that choose EF mode). The old overlapping inline EF dropdown behavior on the fuel table was replaced by row actions plus a shared EF browser panel so users can inspect the activity row and the EF list more easily at the same time.
+- Backend result: `backend/src/modules/activities/activities.controller.ts` and `backend/src/modules/activities/activities.service.ts` now accept `organicFertilizerMode` in the calculate payload. During actual calculation, organic fertilizer rows can stay on the fertilizer formula path, switch to `generic_ef`, or deliberately throw a controlled error so the queue moves that row to the existing calculation-error status.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx`, `backend/src/modules/activities/activities.controller.ts`, and `backend/src/modules/activities/activities.service.ts`.
+- Verification: `npm run build --workspace=backend` passed. `npm run build --workspace=frontend` still fails only on the pre-existing `frontend/src/features/cf-dashboard/pages/ProcessPage.tsx` TypeScript issues (`selectedByCaneKg`, `processDetailRows`, and `ActivityChartMode` mismatch), not from this Carbon Footprint card-page update.
+
+## Recent Input Usage Shared Filter And KPI Label Update - 2026-06-17
+
+- Prompt summary: on the `คำนวณ Carbon` -> `สรุปการใช้ปัจจัย` page, change `ปีการผลิต` in the shared filter area from many chip buttons to a dropdown that can show real production-year labels such as `63/64`, move `ล้างตัวกรอง` up to the filter-header level, and rename the `Record ที่ใช้สรุป` KPI card.
+- Backend result: `backend/src/modules/activities/activities.service.ts` now includes a `yearLabel` on each input-usage row, preferring `activities_productYear.act_productYear_name` and falling back to the numeric year/date only when needed.
+- Frontend result: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now derives the production-year dropdown from the real row labels, filters rows by that label, uses the same label across workbook/table displays, shows `ล้างตัวกรอง` beside the `Shared Filter Workspace` badge, and renames the KPI card to `รายการกิจกรรม ที่ใช้สรุป`.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` and `backend/src/modules/activities/activities.service.ts`.
+- Verification: `npm run build --workspace=backend` passed. `npm run build --workspace=frontend` still fails only on the pre-existing `ProcessPage.tsx` TypeScript issues unrelated to this task.
+
+Follow-up update on 2026-06-17 for the same input-usage summary page:
+
+- Prompt summary: let `ปีการผลิต` support ticking multiple production-year labels at once so every section below, including the fertilizer workbook-style table, updates from the selected year set; also remove the `Warning` column from the fertilizer workbook/reference table.
+- Frontend result: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now uses a multi-select checkbox dropdown for production-year labels, applies the selected set across fertilizer/fuel/other summaries and the workbook-style fertilizer table, and removes the workbook `Warning` column both from the on-screen table and the workbook export layout.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`.
+- Verification: `npm run build --workspace=frontend` still fails only on the pre-existing `ProcessPage.tsx` TypeScript issues unrelated to this task.
+
+Additional follow-up update on 2026-06-17 for the same input-usage summary page:
+
+- Prompt summary: the shared `ปีการผลิต` filter still missed labels such as `65/66` and `67/68`, so the user asked to restore all real production-year options.
+- Backend result: `backend/src/modules/activities/activities.service.ts` now returns a dedicated `filters.yearOptions` list for the input-usage page based on the underlying activity-detail production-year labels, instead of relying only on summarized rows. The production-year parser also recognizes shorthand labels such as `65/66` for sorting.
+- Frontend result: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now prefers the backend-provided `yearOptions` list for the shared production-year filter, with the old row-derived list kept only as a fallback.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` and `backend/src/modules/activities/activities.service.ts`.
+- Verification: `npm run build --workspace=backend` passed. `npm run build --workspace=frontend` still fails only on the pre-existing `ProcessPage.tsx` TypeScript issues unrelated to this task.
+
+Additional follow-up update on 2026-06-17 for the same input-usage summary page export:
+
+- Prompt summary: make the fertilizer workbook Excel export look more polished and easier to read, with clearer grouping, stronger visual hierarchy, and spreadsheet-like formatting.
+- Frontend result: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now builds the fertilizer workbook export as a report-style sheet with a merged title block, grouped production-year headers, row heights, wider columns, merges for grouped headers, and styled workbook/summary sheets for easier reading in Excel.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx`.
+- Verification: `npm run build --workspace=frontend` still fails only on the pre-existing `ProcessPage.tsx` TypeScript issues unrelated to this task.
+
+Additional follow-up update on 2026-06-17 for the same input-usage summary page export styling:
+
+- Prompt summary: the user specifically wanted the exported fertilizer workbook Excel file to show real color separation by `ปีการผลิต` and visible column/group borders in Excel, not just best-effort styling in code.
+- Frontend result: the fertilizer export on `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` now uses `exceljs` instead of relying on `xlsx` styling. Each production-year group gets its own repeating color palette in the workbook sheet, grouped headers and total columns get stronger fills, and medium/thin borders are applied between columns and at year-group boundaries so the visual separation appears in the actual Excel file.
+- Dependency result: `frontend/package.json` now includes `exceljs` for this styled workbook export flow.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/InputUsageSummaryPage.tsx` and `frontend/package.json`.
+- Verification: `npm run build --workspace=frontend` still fails only on the pre-existing `ProcessPage.tsx` TypeScript issues unrelated to this task.
+
+## Recent Activity Detail Required-Field Validation Update - 2026-06-17
+
+- Prompt summary: on both `บันทึกกิจกรรม -> จัดการกิจกรรม` and `บันทึกกิจกรรม -> รายการบันทึกกิจกรรม`, tighten the manual add/edit detail form so users must choose the plot flow and production year, must choose a detail type, must choose at least one resource item (`ปุ๋ย` / `อุปกรณ์` / `สารเคมี` / `รายการอื่น ๆ`), must choose a unit, must fill quantity and work area, and no longer need to fill total volume.
+- Frontend result: `frontend/src/features/activities/ActivitiesPage.tsx` and `frontend/src/features/activities/ActivityLogListPage.tsx` now share the same manual-detail validation rules through `frontend/src/features/activities/detail-form-validation.ts`. Both modals show the new required markers, block submit early with a clear inline error message, and no longer mark `ปริมาณรวม` as required.
+- Backend result: `backend/src/modules/activities/activities.service.ts` now enforces the same required manual-detail fields in `createDetail` and `updateDetail`, while CSV import explicitly skips that manual-only guard so existing import behavior is preserved.
+- Source of truth: `frontend/src/features/activities/ActivitiesPage.tsx`, `frontend/src/features/activities/ActivityLogListPage.tsx`, `frontend/src/features/activities/detail-form-validation.ts`, and `backend/src/modules/activities/activities.service.ts`.
+- Verification: `npm run build --workspace=backend` passed. `npm run build --workspace=frontend` still fails only on the pre-existing `ProcessPage.tsx` TypeScript issues unrelated to this task.
+
+## Recent Activity Resources Catalog View Update - 2026-06-17
+
+- Prompt summary: on the `ปุ๋ย / น้ำมัน` page, add an extra heading/button near `Edit ปุ่ม` that opens an easier-to-read page view showing what exists in `fertilizer`, `equipment`, `chemical`, and `อื่น ๆ`, while still allowing add/edit/delete/view in that same workspace.
+- Frontend result: `frontend/src/features/activities/ActivityResourcesPage.tsx` now defaults to a new `หน้ารวมรายการ` mode and adds a companion `ตารางรวม` mode beside `Edit ปุ่ม`. The new catalog mode separates `ปุ๋ย`, `น้ำมัน / อุปกรณ์`, `สารเคมี`, and `รายการอื่น ๆ` into clearly colored sections with count cards, per-section add buttons, and searchable per-group tables that keep edit/delete actions inside each group.
+- UI behavior: users can now switch between a grouped visual catalog view and the older merged-table management view without leaving the route, so the page works both as an overview screen and as a CRUD management screen.
+- Source of truth: `frontend/src/features/activities/ActivityResourcesPage.tsx`.
+- Verification: `npm run build --workspace=frontend` still fails only on the pre-existing `frontend/src/features/cf-dashboard/pages/ProcessPage.tsx` TypeScript issues (`selectedByCaneKg`, `processDetailRows`, and `ActivityChartMode` mismatch), not from this page update.
+- Related docs updated: `CONTEXT.md` and `COMPONENT_PJ.md` updated for project memory/component lookup. `README.md`, `GUIDE.md`, and `BUG_LOG.md` were not changed in this task.
+
+## Recent SOC Required-Marker, Rollup View, And Backend Validation Update - 2026-06-17
+
+- Prompt summary: on `คำนวณ Carbon -> Soil Organic Carbon`, the user asked to show required-field `*` markers clearly on both the soil-improvement and SOC forms, add an easier way to read totals by land/plot and by cover-crop type, and reduce frequent `Internal server` errors plus slow update behavior when saving.
+- Frontend result: `frontend/src/features/cf-dashboard/pages/SoilOrganicCarbonPage.tsx` now shows visible `*` markers on required fields, including the land selector in both forms and the required plant/material selector for the soil-improvement section. The page also adds a new summary workspace above the forms with:
+  - a `สรุปผลรวมตามรายแปลง` table that rolls up SOC total/year, SOC per rai/year, Fnfix total, Fnfix per rai, and detected cover-crop names by land
+  - a `สรุปพืชคลุมดินตามชนิด` table that groups Fnfix totals by plant/material type such as `ปอเทือง`, including plot counts and total area
+- Backend result: `backend/src/modules/carbon-soc/carbon-soc.service.ts` now validates required SOC and soil-improvement inputs before Prisma writes, validates referenced `land_id` and `act_resourceOther_id` rows explicitly, and returns readable `BadRequestException` messages instead of falling through to generic database/internal-server failures. The same service now caches standard-unit IDs and resolves those unit IDs in parallel, reducing repeated unit-table scans during create/update flows.
+- Additional backend data shape update: SOC/soil-improvement row includes now also return camp-group relation metadata from `lands_camps_groups`, so the frontend rollup/edit flows have fuller plot context available.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/SoilOrganicCarbonPage.tsx` and `backend/src/modules/carbon-soc/carbon-soc.service.ts`.
+- Verification: `npm run build --workspace=backend` passed. `npm run build --workspace=frontend` still fails only on the pre-existing `frontend/src/features/cf-dashboard/pages/ProcessPage.tsx` TypeScript issues unrelated to the SOC task.
+- Assumption kept intentionally: the soil-improvement `พืช/วัสดุ` selector is now treated as required so the new by-type rollup table can stay meaningful and uncategorized Fnfix rows are avoided in future saves.
+- Related docs updated: `CONTEXT.md` and `COMPONENT_PJ.md` updated. `BUG_LOG.md`, `README.md`, and `GUIDE.md` were not changed in this task.
+
+Follow-up summary-mode update on 2026-06-17 for the same SOC summary workspace:
+
+- Prompt summary: add a selectable summary mode for the first SOC rollup table so users can switch between `รวมตามแปลง`, `รวมตามกลุ่มไร่`, and `รวมตามปีเริ่มโครงการ`.
+- Frontend result: the first summary table on `frontend/src/features/cf-dashboard/pages/SoilOrganicCarbonPage.tsx` now uses a mode selector above the table and rebuilds its grouping key accordingly:
+  - `รวมตามแปลง` groups by `land_id`
+  - `รวมตามกลุ่มไร่` groups by the current camp-group label and sums unique plot areas within that group
+  - `รวมตามปีเริ่มโครงการ` groups SOC rows by `carbon_soc_yearBeginPro`; soil-improvement rows join the same year bucket only when their land maps to a single known SOC project year, otherwise they fall back to `ไม่ระบุปีเริ่มโครงการ`
+- Display behavior: the same table now changes its first-column heading, area heading, `จำนวนแปลง` column visibility, search placeholder, and empty-state text to match the active grouping mode.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/SoilOrganicCarbonPage.tsx`.
+- Verification: `npm run build --workspace=frontend` still fails only on the pre-existing `frontend/src/features/cf-dashboard/pages/ProcessPage.tsx` TypeScript issues unrelated to this SOC follow-up.
+
+## Recent Carbon Analytics Backend-First Production-Year Migration - 2026-06-17
+
+- Prompt summary: keep the existing `CARBON ANALYTICS` UI/layout, but move the main dashboard/report data flow to backend-first real analytics, use `activities_productYear.act_productYear_name` as the production-year label, and stop silently swapping to mock dashboard datasets in production.
+- Backend result:
+  - `backend/src/modules/analytics/analytics.service.ts` now joins `activities_productYear`, stores production-year labels/sort keys in the shared analytics row model, and uses the same label set across `cf-kpi`, `cf-trend`, `cf-process`, `cf-process-activities`, `cf-cane-types`, `cf-camps`, `cf-camp-fields`, `cf-spatial-nodes`, and `cf-report-summary`.
+  - `backend/src/modules/analytics/analytics.controller.ts` now accepts `year=<production-year-label>` on the analytics endpoints that participate in year filtering.
+  - `backend/src/modules/activities/production-year.util.ts` is the shared source of truth for production-year label derivation/sorting, reused by analytics and input-usage summary logic.
+  - `backend/src/modules/activities/activities.service.ts` keeps `/api/activities/input-usage-summary` compatible while preferring real production-year labels and returning sorted `yearOptions`.
+- Frontend result:
+  - `frontend/src/features/cf-dashboard/services/dashboardApi.ts` now treats real analytics APIs as the default source. In normal `api` mode it returns real data, partial empty data, or missing-data states instead of silently substituting `projectDashboardDataset`.
+  - `frontend/src/features/cf-dashboard/pages/OverviewPage.tsx` now loads KPI, trend, cane type, and process-input blocks directly from analytics endpoints per selected farm-group scope instead of projecting those summaries from frontend datasets.
+  - `frontend/src/features/cf-dashboard/pages/ProcessPage.tsx` and `frontend/src/features/cf-dashboard/pages/FootprintReportPage.tsx` now scope physical resource usage by production-year label, matching backend year labels such as `63/64`.
+  - `frontend/src/features/cf-dashboard/pages/SpatialPage.tsx` now treats analytics field rows as the main source and only enriches them with local plot-geometry metadata where needed for boundary/table presentation.
+  - `frontend/src/features/cf-dashboard/components/common/SourceBadge.tsx` now distinguishes `API real`, `API partial`, `Missing data`, and explicit `Demo fallback`.
+- Source of truth:
+  - Analytics year/filter contract: `backend/src/modules/analytics/analytics.service.ts`, `backend/src/modules/analytics/analytics.controller.ts`
+  - Shared production-year helpers: `backend/src/modules/activities/production-year.util.ts`
+  - Frontend analytics loading/fallback policy: `frontend/src/features/cf-dashboard/services/dashboardApi.ts`
+- Verification:
+  - `npm run build --workspace=backend` passed on 2026-06-17.
+  - `npm run build --workspace=frontend` passed on 2026-06-17.
+- Remaining limitation:
+  - `frontend/src/features/cf-dashboard/data/projectDashboardDataset.ts` is still kept in the repo for explicit demo/mock mode, but it is no longer the silent production source for the main Carbon Analytics flow.
+
+## Recent Calculation Summary Page Update - 2026-06-17
+
+- Prompt summary: add a new read-only page under `คำนวณ Carbon` after `Carbon Credit` for summarizing completed Carbon Footprint and Carbon Credit calculation results in one route, with separate tabs, production-year/area filters, insight blocks, and traceability back to queue/detail/calculation inputs.
+- Backend result: `backend/src/modules/analytics/analytics.controller.ts` and `backend/src/modules/analytics/analytics.service.ts` now expose `GET /api/analytics/calculation-summary`. The endpoint reads real `carbon_process_queue` rows, production-year labels, lands/camps/camp groups, result units, `carbon_process_queue_info.calculation`, and SOC rows from `carbon_soc` to build KPI totals, grouped rows, breakdowns, insights, datasource status, and audit items without changing the database schema.
+- Frontend result: `/calculate/summary` now renders `frontend/src/features/cf-dashboard/pages/CalculationSummaryPage.tsx`, with shared filters for year/year range/scope, tabs for `Carbon Footprint` and `Carbon Credit`, a calculation-sequence block, KPI cards, insight and emission-breakdown blocks, and an audit drawer that shows queue/detail IDs, prepared values, formula/EF/GWP metadata, result units, status/error, and raw calculation breakdown.
+- Carbon Credit behavior: when `carbon_process_queue_resultValueCreditCalc` is missing, the summary shows a provisional credit value derived from baseline average, project emission, and SOC, and marks the datasource as `api_partial` instead of presenting it as a fully persisted/verified credit result.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CalculationSummaryPage.tsx`, `frontend/src/features/cf-dashboard/services/dashboardApi.ts`, `frontend/src/features/cf-dashboard/types/dashboard.ts`, `frontend/src/App.tsx`, `frontend/src/components/layout/Sidebar.tsx`, and `backend/src/modules/analytics/*`.
+- Verification: `npm run build --workspace=backend` and `npm run build --workspace=frontend` passed. Frontend build still reports the existing Vite chunk-size warning only.
+- Docs impact: `CONTEXT.md` and `COMPONENT_PJ.md` updated. `BUG_LOG.md`, `README.md`, and `GUIDE.md` were not changed because no new bug, setup step, environment variable, or command was introduced.
+
+Follow-up visual refinement on 2026-06-18:
+
+- Prompt summary: continue the calculation summary implementation and make the page more attractive and easier to scan.
+- Frontend result: `frontend/src/features/cf-dashboard/pages/CalculationSummaryPage.tsx` now uses clearer layout classes for the hero, datasource status, filter workspace, calculation sequence, mode tabs, KPI cards, insight panel, and summary table. `frontend/src/features/cf-dashboard/cf-dashboard.css` now adds scoped styles for those classes, including responsive rules so the hero metrics and calculation sequence stack cleanly on smaller screens.
+- Verification: `npm run build --workspace=frontend` and `npm run build --workspace=backend` passed. Frontend build still reports only the Vite chunk-size warning.
+
+Follow-up loading feedback update on 2026-06-18:
+
+- Prompt summary: when users select filters on the `สรุปผลการคำนวณ` page, show a visible loading cue so the screen does not feel frozen while the API refetch is running.
+- Frontend result: `frontend/src/features/cf-dashboard/pages/CalculationSummaryPage.tsx` now listens to TanStack Query `isFetching` and shows a small non-blocking loading popup while the summary refetches after filter/tab/group changes. The page also passes the same fetching state to `SourceBadge`, so the datasource badge reflects refresh activity beyond the first page load.
+- Style result: `frontend/src/features/cf-dashboard/cf-dashboard.css` now includes scoped popup styling and mobile positioning for the calculation summary loading notice.
+- Verification: `npm run build --workspace=frontend` passed. Frontend build still reports only the Vite chunk-size warning.
+
+Follow-up wording cleanup on 2026-06-18:
+
+- Prompt summary: change the `สรุปผลการคำนวณ` note text so it does not expose real table/column names such as `land_id` or other database wording.
+- Backend result: `backend/src/modules/analytics/analytics.service.ts` now returns a friendlier summary note for SOC/Fnfix limitations, describing the behavior in business language rather than database-schema terms.
+- Verification: `npm run build --workspace=backend` passed.
+
+Follow-up Carbon Credit wording cleanup on 2026-06-18:
+
+- Prompt summary: also remove database/table wording from the Carbon Credit explanatory text on the `สรุปผลการคำนวณ` page.
+- Backend result: `backend/src/modules/analytics/analytics.service.ts` now returns friendlier Carbon Credit note/insight text, replacing schema-oriented wording with user-facing descriptions such as "ผลเครดิตที่บันทึกไว้ยังไม่ครบทุกส่วน" and "ค่าเบื้องต้นจากข้อมูลที่มีอยู่".
+- Verification: `npm run build --workspace=backend` passed.
+
+## Recent Carbon Footprint Bulk EF Selection Update - 2026-06-18
+
+- Prompt summary: on the Carbon Footprint calculation modal, reduce the slow/confusing one-row-at-a-time EF selection flow by adding a way to apply one emission factor to multiple selected rows.
+- Frontend result: `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now adds bulk EF row selection inside the existing `คำนวณรายการที่เลือก` modal. Users can select all generic-EF rows, select only rows still missing EF, select rows with the same unit as the currently opened EF Browser row, clear selected-row EF values, and apply one EF Browser option to all compatible selected rows.
+- Guardrail: bulk EF apply only targets rows whose calculation unit is compatible with the selected EF input unit; incompatible selected rows are skipped and counted in the UI instead of being changed silently.
+- Verification: `npm run build --workspace=frontend` passed. Frontend build still reports only the Vite chunk-size warning.
+
+## Recent Carbon Calculate Loading Toast Update - 2026-06-18
+
+- Prompt summary: add visible loading toast feedback for buttons/actions that take time, especially in the `คำนวณ Carbon` flow.
+- Shared UI result: `frontend/src/components/ui/Toast.tsx` now supports persistent `loading` toasts plus explicit `dismiss`, so long-running actions can show progress feedback until success or failure is known.
+- Frontend result:
+  - `frontend/src/features/cf-dashboard/pages/CalculatePage.tsx` now shows loading/success/error toasts when sending selected activity details into the Carbon queue.
+  - `frontend/src/features/cf-dashboard/pages/CarbonFootprintQueuePage.tsx` now shows loading/success/error toasts for single preparation save, bulk preparation, status changes, and Carbon Footprint calculation runs.
+- UX note: the existing modal/popup loading states are kept; the new toasts add lightweight global feedback so users still see activity even when their focus is away from the center popup.
+- Verification: `npm run build --workspace=frontend` passed. Frontend build still reports only the Vite chunk-size warning.
+
+## Recent Carbon Credit Calculation Workflow Update - 2026-06-18
+
+- Prompt summary: replace the read-only Carbon Credit comparison page with a real calculation workflow that uses `carbon_process_queue` as the source of truth, stores Carbon Credit results back into the existing queue credit-result fields, supports multi-row EF selection, and avoids any database/schema changes.
+- Backend result: `backend/src/modules/activities/activities.controller.ts` and `backend/src/modules/activities/activities.service.ts` now expose:
+  - `GET /api/activities/carbon-credit/workspace`
+  - `POST /api/activities/carbon-credit/preview`
+  - `POST /api/activities/carbon-credit/calculate`
+- Calculation behavior: Carbon Credit v1 calculates a Credit Candidate per plot from `max(0, baselineAverageTco2e - projectTco2e + socRemovalTco2e)`, using four baseline production years and one project production year. Project-year queue rows receive allocated credit values based on project-emission share, or equal shares when project emission is zero.
+- Persistence behavior: the calculate endpoint writes credit results into the existing `carbon_process_queue` credit result fields and stores a `creditCalculation` snapshot inside the existing queue info JSON string. No schema, migration, Prisma schema, or SQL snapshot was changed.
+- SOC/Fnfix behavior: SOC can be included as carbon removal when selected. Fnfix is intentionally shown as supporting readiness context only in v1 and is not added as a direct credit source.
+- Frontend result: `frontend/src/features/cf-dashboard/pages/CarbonCreditPage.tsx` now renders a 5-step workflow: calculation period setup, queue selection, bulk EF assignment, preview, and confirm/calculate with loading toast/modal and audit drawer. New API/types live in `frontend/src/features/cf-dashboard/services/carbonCreditApi.ts` and `frontend/src/features/cf-dashboard/types/carbonCredit.ts`.
+- Integration note: `/calculate/summary` already reads persisted credit result fields, so newly calculated Carbon Credit rows appear there as persisted results instead of provisional values when coverage is complete.
+- Verification: `npm run build --workspace=backend` and `npm run build --workspace=frontend` passed. Frontend build still reports only the Vite chunk-size warning.
+- Remaining limitations: Carbon Credit v1 is still a Credit Candidate, not a verified/certified result. It does not implement leakage, buffer, uncertainty, permanence, or verification status.
+
+Follow-up queue-filter usability update on 2026-06-18:
+
+- Prompt summary: on the Carbon Credit page, add filters in step 2 so users can quickly separate rows that can be used for calculation from rows that cannot.
+- Frontend result: `frontend/src/features/cf-dashboard/pages/CarbonCreditPage.tsx` now adds queue filter chips above the queue table for `ทั้งหมด`, `นำไปคำนวณได้`, `ยังขาด CFP`, `ต้องเลือก EF`, `เลือกแล้ว`, `มี Credit เดิม`, `นอกปีที่เลือก`, and `มีปัญหา`. The table and the "เลือกตาม filter นี้" bulk-select action both respect the active filter.
+- Verification: `npm run build --workspace=frontend` passed. Frontend build still reports only the Vite chunk-size warning.
+
+Follow-up Carbon Credit baseline completeness update on 2026-06-18:
+
+- Prompt summary: clarify what the step-2 queue filter means and avoid blocking a plot only because one or more selected baseline production years are missing.
+- Backend result: `backend/src/modules/activities/activities.service.ts` now treats missing some baseline production years as a warning rather than a block. Carbon Credit preview/calculate averages only the baseline years that have queue data for the plot. A plot is still blocked when it has no usable baseline year at all, has no project-year row, or has queue rows without Carbon Footprint results.
+- Frontend result: `frontend/src/features/cf-dashboard/pages/CarbonCreditPage.tsx` renamed the filter label from `นำไปคำนวณได้` to `มี CFP พร้อมใช้` and added clearer helper text. The preview table now warns when a ready plot is being averaged from fewer than four baseline years, explains the minimum data needed for Credit Candidate, and shows fix guidance for rows/plots that still cannot calculate.
+- Tradeoff: this makes the workflow less strict and easier to use with incomplete historical data, but the result should be read as a Credit Candidate with a visible data-completeness warning.
+
+Follow-up project-year skip update on 2026-06-18:
+
+- Prompt summary: when a plot has no project-year data, do not include that plot in the Carbon Credit calculation instead of blocking the whole calculation round.
+- Backend result: `backend/src/modules/activities/activities.service.ts` now marks plots without project-year rows as `skipped` and excludes them from credit allocation/write plans. These skipped plots no longer add blocked rows and no longer prevent other ready plots from being calculated. Plots with project-year rows can still be blocked when they have no usable baseline year or missing Carbon Footprint results.
+- Frontend result: `frontend/src/features/cf-dashboard/pages/CarbonCreditPage.tsx` now shows a separate `ไม่รวมรอบนี้` count and status label in Preview, with helper text explaining that plots without project-year data are skipped rather than treated as calculation errors.
+
+Follow-up baseline-year skip update on 2026-06-18:
+
+- Prompt summary: treat plots with no usable baseline production-year data the same as plots with no project-year data: skip them from the current Carbon Credit calculation instead of blocking the whole round.
+- Backend result: `backend/src/modules/activities/activities.service.ts` now marks plots with no baseline year rows as `skipped`, excludes them from write plans, and avoids row-level CFP blocking for plots that cannot be calculated because a required side of the baseline/project comparison is absent.
+- Frontend result: `frontend/src/features/cf-dashboard/pages/CarbonCreditPage.tsx` updated the preview helper text so users understand that plots with no project-year data or no usable baseline-year data are not included in the calculation round.
+
+Follow-up Carbon Credit calculate error hardening on 2026-06-18:
+
+- Prompt summary: the `ยืนยันและคำนวณ Carbon Credit` button was hitting an internal-server error and needed a safer calculate path.
+- Backend result: `backend/src/modules/activities/activities.service.ts` now calculates missing CFP only for non-skipped plots, returns a successful no-op result when there is no write plan, and wraps unexpected calculate-time failures into readable `BadRequestException` messages instead of leaking generic 500 responses.
+- Frontend result: `frontend/src/features/cf-dashboard/pages/CarbonCreditPage.tsx` now sends only selected rows that are still within the selected baseline/project years, preventing stale out-of-scope selections from entering preview/calculate requests.
+
+Follow-up Carbon Credit transaction fix on 2026-06-18:
+
+- Prompt summary: the Carbon Credit calculate button still failed with Prisma `Transaction not found` while updating `carbon_process_queue`.
+- Backend result: `backend/src/modules/activities/activities.service.ts` no longer writes all Carbon Credit queue updates inside one long interactive transaction. It now writes each project queue row in a short transaction with its matching activity-detail status update, avoiding closed/expired transaction errors on larger write plans and returning the exact Queue ID if a row-level write fails.
+- Verification: `npm run build --workspace=backend` passed.
+
+## Recent Carbon Analytics Real Credit/SOC Join Update - 2026-06-18
+
+- Prompt summary: update the existing `CARBON ANALYTICS` display without changing the layout now that the calculation data is more complete, focusing on selecting and joining the real backend tables more fully.
+- Backend result: `backend/src/modules/analytics/analytics.service.ts` now enriches the main Carbon Analytics emission-row query with:
+  - queue IDs and calculation status IDs from `carbon_process_queue`
+  - persisted Carbon Credit result values from the existing queue credit-result fields, normalized to `tCO2e`
+  - SOC totals joined by plot from `carbon_soc`
+  - land/camp joins that prefer queue land/camp IDs, then fall back to activity-header land IDs
+- Frontend result: the existing Carbon Analytics layout is kept, but:
+  - `frontend/src/features/cf-dashboard/pages/OverviewPage.tsx` now prefers persisted Credit Candidate totals from `cf-kpi` and uses real SOC totals before falling back to derived/proxy estimates.
+  - `frontend/src/features/cf-dashboard/pages/SpatialPage.tsx` now uses `actualCredit` and `actualSoc` from analytics nodes/details when available, avoiding double-counting SOC when persisted credit already includes it.
+  - `frontend/src/features/cf-dashboard/pages/ReportPage.tsx` now prefers real SOC and persisted credit totals from the report KPI when calculating Premium T-VER summary metrics.
+- Type contract update: `frontend/src/features/cf-dashboard/types/dashboard.ts` now allows `OverviewKpi.creditTotalTco2e`, `OverviewKpi.socRemovalTco2e`, and `OverviewKpi.creditCalculatedRows`.
+- Verification: `npm run build --workspace=backend` and `npm run build --workspace=frontend` passed. Frontend build still reports only the existing Vite chunk-size warning.

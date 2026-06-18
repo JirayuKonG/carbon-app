@@ -1,11 +1,11 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import { CaneTypeSummaryPanel } from "../components/common/CaneTypeSummaryPanel";
 import { DatasourceStatusToggle, useDatasourceStatusVisible } from "../components/common/DatasourceStatusToggle";
 import { SourceBadge } from "../components/common/SourceBadge";
 import { TrendLineChart } from "../components/charts/TrendLineChart";
-import { spatialProjectPlots, type SpatialProjectPlot } from "../data/spatialProjectPlots";
 import { useAsyncData } from "../hooks/useAsyncData";
 import { getCaneTypeSummaries, getInputUsageSummary, getOverviewKpi, getProcessInputComparisons, getTrend } from "../services/dashboardApi";
+import { get } from "@/lib/api";
 import type { CaneTypeSummary, DataResult, InputUsageSummaryResponse, OverviewKpi, ProcessInputComparison, TrendPoint } from "../types/dashboard";
 import { emptyInputUsageSummary, summarizeResourceUsage } from "../utils/resourceUsage";
 import "../cf-dashboard.css";
@@ -17,8 +17,6 @@ const farmGroupOptions: { value: OverviewFarmGroup; label: string }[] = [
   { value: "dan-chang", label: "ไร่ด่านช้าง" },
   { value: "isan", label: "ไร่อีสาน" },
 ];
-
-const overviewReductionBands = [-0.08, 0.02, 0.04, 0.07, 0.1, 0.13, 0.16, 0.19, 0.23, 0.28];
 
 const emptyKpi: OverviewKpi = {
   baselineAvgEmission: 0,
@@ -53,192 +51,45 @@ function formatNumber(value: number, maximumFractionDigits = 2) {
   return value.toLocaleString(undefined, { maximumFractionDigits });
 }
 
-function stableIndex(key: string, modulo: number) {
-  let hash = 0;
-  for (let index = 0; index < key.length; index += 1) {
-    hash = ((hash * 33) + key.charCodeAt(index)) % 1000003;
-  }
-  return hash % modulo;
-}
-
-function projectCarbonForPlot(plot: SpatialProjectPlot) {
-  const baseline = plot.projectAreaRai * (0.08 + (plot.sequence % 9) * 0.006);
-  const farmShift = plot.farmGroup === "dan-chang" ? 1 : 0;
-  const reduction = overviewReductionBands[(stableIndex(`${plot.plotCode}:${plot.campName}`, overviewReductionBands.length) + farmShift) % overviewReductionBands.length];
-  return {
-    baseline,
-    current: baseline * (1 - reduction),
-  };
-}
-
-function buildGroupedInputs(areaRai: number, group: OverviewFarmGroup): ProcessInputComparison[] {
-  const groupFactor = group === "dan-chang" ? 0.96 : 1.04;
-  const rows = [
-    { process: "การเตรียมดินและปลูก", fertilizer: 8, fuel: 3.4, fertilizerSaving: 0.11, fuelSaving: 0.15 },
-    { process: "การใช้ปุ๋ย", fertilizer: 16, fuel: 2.6, fertilizerSaving: 0.14, fuelSaving: 0.13 },
-    { process: "การให้น้ำและกำจัดวัชพืช", fertilizer: 22, fuel: 1.6, fertilizerSaving: 0.16, fuelSaving: 0.08 },
-    { process: "การเก็บเกี่ยว", fertilizer: 0, fuel: 4.2, fertilizerSaving: 0, fuelSaving: 0.17 },
-  ];
-
-  return rows.map((row) => {
-    const baselineFertilizerKg = areaRai * row.fertilizer * groupFactor;
-    const baselineFuelLiter = areaRai * row.fuel * groupFactor;
-    return {
-      process: row.process,
-      baselineFertilizerKg: Number(baselineFertilizerKg.toFixed(1)),
-      currentFertilizerKg: Number((baselineFertilizerKg * (1 - row.fertilizerSaving)).toFixed(1)),
-      baselineFuelLiter: Number(baselineFuelLiter.toFixed(1)),
-      currentFuelLiter: Number((baselineFuelLiter * (1 - row.fuelSaving)).toFixed(1)),
-    };
-  });
-}
-
-function buildGroupedTrend(currentEmission: number, baselineEmission: number, sourceTrend: TrendPoint[]): TrendPoint[] {
-  const baselineYears = sourceTrend.filter((item) => item.isBaseline);
-  const projectYears = sourceTrend.filter((item) => !item.isBaseline);
-  const baselineSource = baselineYears.length
-    ? baselineYears
-    : [{ year: "2563/64", isBaseline: true }, { year: "2564/65", isBaseline: true }, { year: "2565/66", isBaseline: true }];
-  const projectSource = projectYears.length ? projectYears : [{ year: "2566/67", isBaseline: false }];
-  const baselineAverage = Number(baselineEmission.toFixed(2));
-
-  return [
-    ...baselineSource.map((item, index) => ({
-      year: item.year,
-      isBaseline: true,
-      baselineAverage,
-      emission: Number((baselineEmission * [0.96, 1.03, 1.01, 0.99][index % 4]).toFixed(2)),
-    })),
-    ...projectSource.map((item, index) => ({
-      year: item.year,
-      isBaseline: false,
-      baselineAverage,
-      emission: Number((currentEmission * (1 + index * 0.015)).toFixed(2)),
-    })),
-  ];
-}
-
-function buildGroupedCaneTypes(areaRai: number, currentEmission: number, group: OverviewFarmGroup): CaneTypeSummary[] {
-  const shares = group === "dan-chang"
-    ? [
-      { name: "อ้อยปลูก", percent: 48 },
-      { name: "อ้อยตอ", percent: 40 },
-      { name: "พื้นที่พักดิน", percent: 12 },
-    ]
-    : [
-      { name: "อ้อยปลูก", percent: 43 },
-      { name: "อ้อยตอ", percent: 47 },
-      { name: "พื้นที่พักดิน", percent: 10 },
-    ];
-
-  return shares.map((item) => ({
-    ...item,
-    areaRai: Number((areaRai * item.percent / 100).toFixed(1)),
-    co2eTotal: Number((currentEmission * item.percent / 100).toFixed(2)),
-  }));
-}
-
-function buildGroupedOverview(group: OverviewFarmGroup, sourceKpi: OverviewKpi, sourceTrend: TrendPoint[]) {
-  const plots = spatialProjectPlots.filter((plot) => plot.farmGroup === group);
-  const areaRai = plots.reduce((sum, plot) => sum + plot.projectAreaRai, 0);
-  const emissions = plots.map(projectCarbonForPlot);
-  const baselineAvgEmission = emissions.reduce((sum, item) => sum + item.baseline, 0);
-  const currentEmission = emissions.reduce((sum, item) => sum + item.current, 0);
-  const fertilizerAmountKg = areaRai * (group === "dan-chang" ? 38 : 43);
-  const fertilizerEmission = fertilizerAmountKg * 0.00245;
-  const machineEmission = areaRai * (group === "dan-chang" ? 0.0065 : 0.0074);
-  const yieldTon = areaRai * (group === "dan-chang" ? 0.064 : 0.057);
-  const kpi: OverviewKpi = {
-    ...sourceKpi,
-    baselineAvgEmission: Number(baselineAvgEmission.toFixed(2)),
-    currentEmission: Number(currentEmission.toFixed(2)),
-    machineEmission: Number(machineEmission.toFixed(2)),
-    inputEmission: Number((fertilizerEmission + machineEmission).toFixed(2)),
-    fertilizerAmountKg: Number(fertilizerAmountKg.toFixed(1)),
-    fertilizerEmission: Number(fertilizerEmission.toFixed(2)),
-    areaRai: Number(areaRai.toFixed(2)),
-    yieldTon: Number(yieldTon.toFixed(1)),
-    co2ePerTon: yieldTon ? Number((currentEmission / yieldTon).toFixed(2)) : 0,
-    farmers: Math.max(Math.round(plots.length * (group === "dan-chang" ? 0.72 : 0.66)), 1),
-    fields: plots.length,
-  };
-
-  return {
-    kpi,
-    inputs: buildGroupedInputs(areaRai, group),
-    trend: buildGroupedTrend(kpi.currentEmission, kpi.baselineAvgEmission, sourceTrend),
-    caneTypes: buildGroupedCaneTypes(kpi.areaRai, kpi.currentEmission, group),
-  };
-}
-
 export function CfOverviewPage() {
   const [selectedFarmGroup, setSelectedFarmGroup] = useState<OverviewFarmGroup>("all");
   const datasourceStatusVisible = useDatasourceStatusVisible();
-  const kpi = useAsyncData<OverviewKpi>(getOverviewKpi, emptyKpi);
-  const trend = useAsyncData<TrendPoint[]>(getTrend, []);
-  const inputs = useAsyncData<ProcessInputComparison[]>(getProcessInputComparisons, []);
-  const caneTypes = useAsyncData<CaneTypeSummary[]>(getCaneTypeSummaries, []);
+  const overviewFilter = selectedFarmGroup === "all"
+    ? undefined
+    : { level: "region" as const, id: selectedFarmGroup };
+  const kpi = useAsyncData<OverviewKpi>(() => getOverviewKpi(overviewFilter), emptyKpi, [selectedFarmGroup]);
+  const trend = useAsyncData<TrendPoint[]>(() => getTrend(overviewFilter), [], [selectedFarmGroup]);
+  const inputs = useAsyncData<ProcessInputComparison[]>(() => getProcessInputComparisons(overviewFilter), [], [selectedFarmGroup]);
+  const caneTypes = useAsyncData<CaneTypeSummary[]>(() => getCaneTypeSummaries(overviewFilter), [], [selectedFarmGroup]);
   const inputUsage = useAsyncData<InputUsageSummaryResponse>(getInputUsageSummary, emptyInputUsageSummary);
-  const groupedOverview = useMemo(
-    () => selectedFarmGroup === "all" ? null : buildGroupedOverview(selectedFarmGroup, kpi.data, trend.data),
-    [kpi.data, selectedFarmGroup, trend.data],
+
+  // Priority 2: ดึง SOC summary จริงจาก carbon-soc/summary API
+  const socSummary = useAsyncData<{ socTotalTco2e: number; fnfixTotalTn: number; landCount: number; missingInputCount: number }>(
+    async () => {
+      const res = await get<{ socTotalTco2e: number; fnfixTotalTn: number; landCount: number; missingInputCount: number }>("/carbon-soc/summary");
+      return {
+        data: res,
+        source: "api",
+        meta: {
+          route: "/carbon-soc/summary",
+          techniques: ["Prisma", "PostgreSQL"],
+          rowCount: 1,
+          datasourceStatus: "api_real",
+        },
+      };
+    },
+    { socTotalTco2e: 0, fnfixTotalTn: 0, landCount: 0, missingInputCount: 0 },
   );
-  const overviewKpi = groupedOverview?.kpi ?? kpi.data;
-  const overviewInputs = groupedOverview?.inputs ?? inputs.data;
-  const overviewTrend = groupedOverview?.trend ?? trend.data;
-  const overviewCaneTypes: DataResult<CaneTypeSummary[]> = groupedOverview
-    ? {
-      ...caneTypes,
-      data: groupedOverview.caneTypes,
-      source: "api",
-      meta: {
-        route: "frontend/farm-group-derived",
-        techniques: ["API baseline", "frontend scoped projection"],
-        rowCount: groupedOverview.caneTypes.length,
-        datasourceStatus: "api_partial",
-        note: "derived by selected farm group",
-      },
-    }
-    : caneTypes;
-  const overviewKpiSource: DataResult<OverviewKpi> = groupedOverview
-    ? {
-      data: overviewKpi,
-      source: "api",
-      meta: {
-        route: "frontend/farm-group-derived",
-        techniques: ["API baseline", "frontend scoped projection"],
-        rowCount: 1,
-        datasourceStatus: "api_partial",
-        note: "derived by selected farm group",
-      },
-    }
-    : kpi;
-  const overviewTrendSource = groupedOverview
-    ? {
-      source: "api" as const,
-      meta: {
-        route: "frontend/farm-group-trend",
-        techniques: ["API trend years", "frontend scoped projection"],
-        rowCount: overviewTrend.length,
-        datasourceStatus: "api_partial" as const,
-        note: "derived by selected farm group",
-      },
-      loading: trend.loading,
-    }
-    : trend;
-  const overviewResourceSource = groupedOverview
-    ? {
-      source: "api" as const,
-      meta: {
-        route: "frontend/farm-group-inputs",
-        techniques: ["API baseline", "frontend scoped projection"],
-        rowCount: overviewInputs.length,
-        datasourceStatus: "api_partial" as const,
-        note: "resource and SOC derived",
-      },
-      loading: inputs.loading,
-    }
-    : inputs;
+  const overviewKpi = kpi.data;
+  const overviewInputs = inputs.data;
+  const overviewTrend = trend.data;
+  const overviewCaneTypes: DataResult<CaneTypeSummary[]> = caneTypes;
+  const overviewKpiSource: DataResult<OverviewKpi> = kpi;
+  const overviewTrendSource = trend;
+  const overviewResourceSource = inputs;
+  const kpiSocTco2e = overviewKpi.socRemovalTco2e ?? 0;
+  const realSocTco2e = kpiSocTco2e > 0 ? kpiSocTco2e : socSummary.data.socTotalTco2e ?? 0;
+  const hasSocData = realSocTco2e > 0;
 
   const inputTotals = sumInputs(overviewInputs);
   const physicalResourceUsage = summarizeResourceUsage(inputUsage.data);
@@ -250,8 +101,12 @@ export function CfOverviewPage() {
   const n2oReduction = Math.max(n2oProject * fertilizerRatio - n2oProject, 0);
   const fuelProject = overviewKpi.machineEmission;
   const fuelReduction = Math.max(fuelProject * fuelRatio - fuelProject, 0);
-  const socRemoval = Math.max(overviewKpi.baselineAvgEmission - overviewKpi.currentEmission, 0) * 0.35;
-  const socBaseline = Math.max(overviewKpi.areaRai * 0.02, 0);
+
+  // Priority 2: ใช้ SOC จริงจาก carbon-soc/summary ถ้ามีข้อมูล
+  // fallback: (baseline - current) * 0.35 ถ้ายังไม่มีข้อมูลจริง
+  const socProxyRemoval = Math.max(overviewKpi.baselineAvgEmission - overviewKpi.currentEmission, 0) * 0.35;
+  const socRemoval = hasSocData ? realSocTco2e : socProxyRemoval;
+  const socBaseline = Math.max(overviewKpi.areaRai * 0.02, socRemoval * 0.6);
   const socProject = socBaseline + socRemoval;
   const socDiff = socProject - socBaseline;
 
@@ -259,31 +114,52 @@ export function CfOverviewPage() {
   const fuelDiffPercent = inputTotals.baselineFuelLiter ? (fuelDiff / inputTotals.baselineFuelLiter) * 100 : 0;
   const socDiffPercent = socBaseline ? (socDiff / socBaseline) * 100 : 0;
 
-  const creditTotal = n2oReduction + fuelReduction + socRemoval;
+  const persistedCreditTotal = overviewKpi.creditTotalTco2e ?? 0;
+  const hasPersistedCredit = persistedCreditTotal > 0;
+  const derivedCreditTotal = n2oReduction + fuelReduction + socRemoval;
+  const creditTotal = hasPersistedCredit ? persistedCreditTotal : derivedCreditTotal;
+  const componentBase = Math.max(n2oReduction, 0) + Math.max(fuelReduction, 0) + Math.max(socRemoval, 0);
+  const persistedOnlyCredit = hasPersistedCredit && componentBase <= 0;
+  const scalePersistedComponent = (value: number) => (
+    hasPersistedCredit && componentBase > 0
+      ? persistedCreditTotal * (Math.max(value, 0) / componentBase)
+      : value
+  );
+  const displayN2oReduction = persistedOnlyCredit ? persistedCreditTotal : scalePersistedComponent(n2oReduction);
+  const displayFuelReduction = scalePersistedComponent(fuelReduction);
+  const displaySocRemoval = scalePersistedComponent(socRemoval);
   const creditSources = [
     {
       key: "n2o",
-      label: "N2O Reduction",
-      description: "เครดิตจากการลดการปล่อยไนตรัสออกไซด์จากปุ๋ย",
-      value: n2oReduction,
+      label: persistedOnlyCredit ? "Credit Candidate" : "N2O Reduction",
+      description: persistedOnlyCredit
+        ? "ผล Carbon Credit ที่บันทึกไว้ในระบบ"
+        : hasPersistedCredit ? "สัดส่วนจากผล Credit Candidate ที่บันทึกแล้ว" : "เครดิตจากการลดการปล่อยไนตรัสออกไซด์จากปุ๋ย",
+      value: displayN2oReduction,
       color: "#22C55E",
-      basis: `ปุ๋ยลดลง ${formatNumber(Math.max(fertilizerDiff, 0), 1)} kg (${fertilizerDiffPercent >= 0 ? "↓" : "↑"}${Math.abs(fertilizerDiffPercent).toFixed(1)}%)`,
+      basis: persistedOnlyCredit
+        ? `บันทึกแล้ว ${overviewKpi.creditCalculatedRows ?? 0} row`
+        : `ปุ๋ยลดลง ${formatNumber(Math.max(fertilizerDiff, 0), 1)} kg (${fertilizerDiffPercent >= 0 ? "↓" : "↑"}${Math.abs(fertilizerDiffPercent).toFixed(1)}%)`,
     },
     {
       key: "fuel",
       label: "Fuel Reduction",
-      description: "เครดิตจากการลดการใช้น้ำมัน/เครื่องจักร",
-      value: fuelReduction,
+      description: hasPersistedCredit ? "สัดส่วนจากผล Credit Candidate ที่บันทึกแล้ว" : "เครดิตจากการลดการใช้น้ำมัน/เครื่องจักร",
+      value: displayFuelReduction,
       color: "#5BA4FF",
       basis: `น้ำมันลดลง ${formatNumber(Math.max(fuelDiff, 0), 1)} L (${fuelDiffPercent >= 0 ? "↓" : "↑"}${Math.abs(fuelDiffPercent).toFixed(1)}%)`,
     },
     {
       key: "soc",
       label: "SOC Removal",
-      description: "เครดิตจากคาร์บอนที่สะสมเพิ่มในดิน",
-      value: socRemoval,
+      description: hasSocData
+        ? `ค่า SOC จริงจากข้อมูลรายแปลง (${socSummary.data.landCount || overviewKpi.fields} แปลง)`
+        : "เครดิตจากคาร์บอนที่สะสมเพิ่มในดิน (ประมาณการ)",
+      value: displaySocRemoval,
       color: "#A855F7",
-      basis: `SOC เพิ่มขึ้น ${formatNumber(socDiff)} tCO2e (↑${socDiffPercent.toFixed(1)}%)`,
+      basis: hasSocData
+        ? `SOC รวม ${formatNumber(realSocTco2e)} tCO2e/ปี`
+        : `SOC เพิ่มขึ้น ${formatNumber(socDiff)} tCO2e (↑${socDiffPercent.toFixed(1)}%) [ประมาณการ]`,
     },
   ];
 
@@ -339,7 +215,7 @@ export function CfOverviewPage() {
           <div className="overview-kpi-row top">
             {[
               ["พื้นที่โครงการ", overviewKpi.areaRai.toLocaleString(), "ไร่", `${overviewKpi.fields.toLocaleString()} แปลง`],
-              ["Credit รวม", creditTotal.toFixed(0), "tCO2e", "รวม N2O + น้ำมัน + SOC"],
+              ["Credit รวม", creditTotal.toFixed(0), "tCO2e", hasPersistedCredit ? "ผล Credit Candidate ที่บันทึกแล้ว" : "รวม N2O + น้ำมัน + SOC"],
               ["ปีที่ดำเนินโครงการ", overviewKpi.currentYear, "Project year", `${overviewKpi.currentEmission.toLocaleString()} tCO2e`],
               ["ปีฐาน Baseline", baselineLabel, "Baseline years", `เฉลี่ย ${overviewKpi.baselineAvgEmission.toLocaleString()} tCO2e`],
             ].map(([label, value, unit, delta]) => {
@@ -351,7 +227,9 @@ export function CfOverviewPage() {
                 ? "Emission ปีฐาน Baseline"
                 : label;
               const displayDelta = label.includes("Credit")
-                ? "คำนวณจากส่วนต่าง emission"
+                ? hasPersistedCredit
+                  ? `บันทึกแล้ว ${overviewKpi.creditCalculatedRows ?? 0} row`
+                  : "คำนวณจากส่วนต่าง emission"
                 : unit === "Baseline years"
                 ? `เฉลี่ย ${overviewKpi.baselineAvgEmission.toLocaleString()} tCO2e`
                 : delta;

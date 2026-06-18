@@ -1,6 +1,6 @@
 # สรุปงานส่วน Carbon Dashboard และรายงาน Premium T-VER
 
-Last updated: 2026-06-16
+Last updated: 2026-06-17
 
 ผู้รับผิดชอบงานส่วนนี้: งานหน้าสรุปผล Carbon Dashboard, การแสดงผลเชิงวิเคราะห์, แผนที่สรุปพื้นที่ และรายงานสำหรับเตรียมยื่น Premium T-VER
 
@@ -9,6 +9,78 @@ Current local branch ตอน review เอกสารนี้: `kong_dev`
 Current local HEAD ตอน review เอกสารนี้: `8b212f4 Merge pull request #26 from JirayuKonG/idea`
 
 Commit ล่าสุดที่อัปขึ้น Git: `723cd3c เพิ่มแคมป์ผลงานการกักเก็บคาร์บอนในดิน`
+
+## อัปเดตงานประจำวันที่ 17 มิถุนายน 2569 - ย้าย Carbon Analytics เป็น Backend-First และใช้ปีการผลิตจริงจากฐานข้อมูล
+
+รอบนี้ทำตามแผน migration ของ `CARBON ANALYTICS` เพื่อคง UI เดิมทุกหน้าไว้ แต่เปลี่ยน source of truth ให้เป็น backend/API จริงให้มากที่สุด โดยเฉพาะเรื่อง `ปีการผลิต`, farm-group scope, และการหยุด fallback ไป mock dataset แบบเงียบ ๆ ใน production flow
+
+### 1. เปลี่ยน contract ปีการผลิตของ analytics ให้ใช้ label จริงจากฐานข้อมูล
+
+- เพิ่ม utility กลาง `backend/src/modules/activities/production-year.util.ts`
+- ใช้ `activities_productYear.act_productYear_name` เป็น label หลัก เช่น `63/64`
+- ถ้า row ไหนไม่มี `act_productYear_name` จะ fallback ไป derive จาก `activities_header_startDate`
+- backend analytics ใช้ label ปีชุดเดียวกันใน endpoint หลัก:
+  - `/api/analytics/cf-kpi`
+  - `/api/analytics/cf-trend`
+  - `/api/analytics/cf-process`
+  - `/api/analytics/cf-process-activities`
+  - `/api/analytics/cf-cane-types`
+  - `/api/analytics/cf-camps`
+  - `/api/analytics/cf-camp-fields`
+  - `/api/analytics/cf-spatial-nodes`
+  - `/api/analytics/cf-report-summary`
+- เพิ่มการรองรับ query แบบ `year=63/64` ที่ controller และ service ของ analytics
+
+### 2. ทำให้ backend analytics เป็น source of truth หลักของ dashboard
+
+- `backend/src/modules/analytics/analytics.service.ts`
+  - join ตาราง `activities_productYear`
+  - ส่ง production-year label และ sort key ออกมาจาก shared analytics row
+  - เปลี่ยน baseline/current year meta ให้ใช้ label ปีจริงแทนปีปฏิทิน
+  - ขยาย `cf-report-summary` ให้ส่ง `processInputs` จริงเพิ่ม เพื่อให้หน้า report ไม่ต้อง derive จาก dataset ฝั่ง frontend
+- `backend/src/modules/activities/activities.service.ts`
+  - รักษา contract `/api/activities/input-usage-summary` เดิม
+  - แต่เพิ่ม `yearLabel` และ `yearOptions` ให้หน้า dashboard กับหน้าสรุปปัจจัยใช้ label ปีจริงร่วมกันได้
+
+### 3. หยุด silent mock fallback ใน production flow
+
+- `frontend/src/features/cf-dashboard/services/dashboardApi.ts`
+  - ค่า default ของ `VITE_CF_ANALYTICS_SOURCE` คือ `api`
+  - ถ้า analytics API ไม่พร้อมใน production-style flow จะคืน `missing` หรือ empty state แทน
+  - อนุญาต fallback ไป `projectDashboardDataset` เฉพาะเมื่อ set env เป็น `demo` หรือ `mock` แบบ explicit เท่านั้น
+- `frontend/src/features/cf-dashboard/components/common/SourceBadge.tsx`
+  - ปรับ badge ให้แยกสถานะชัดขึ้น:
+    - `API real`
+    - `API partial`
+    - `Missing data`
+    - `Demo fallback`
+
+### 4. ปรับหน้าหลักใน Carbon Analytics ให้กินข้อมูลจริงมากขึ้นโดยไม่เปลี่ยน layout
+
+- `OverviewPage.tsx`
+  - KPI, trend, cane type, และ process input comparison ใช้ analytics API ตาม scope จริงของ farm group
+  - ไม่ใช้ frontend-derived grouped overview เป็น source หลักอีกแล้ว
+- `ProcessPage.tsx`
+  - physical resource usage filter เปลี่ยนมาอิง `yearLabel` จาก backend
+- `SpatialPage.tsx`
+  - field rows ใช้ `cf-camp-fields` เป็น source หลัก
+  - ไฟล์ `spatialProjectPlots.ts` เหลือบทบาทเป็นข้อมูลเสริมสำหรับ geometry / boundary / พิกัดบางส่วนเท่านั้น
+  - ถ้า SOC API ล้ม จะคง analytics field rows จริงไว้ ไม่ revert ไป dataset สมมุติ
+- `FootprintReportPage.tsx`
+  - resource usage scope ใช้ production-year label จริง
+  - datasource note แยก missing/fallback ได้ชัดขึ้น
+- `ReportPage.tsx`
+  - ใช้ `cf-report-summary` จาก backend เป็นหลัก และไม่สื่ออีกต่อไปว่ากำลังสร้างจากข้อมูลสมมุติ
+
+### 5. การตรวจสอบหลังแก้
+
+- รัน `npm run build --workspace=backend` ผ่าน
+- รัน `npm run build --workspace=frontend` ผ่าน
+- ผลลัพธ์ที่ตั้งใจได้:
+  - ปีการผลิตใน analytics รองรับ label จริงแบบ `63/64`
+  - production flow ไม่ fallback ไป mock แบบเงียบ ๆ
+  - frontend เหลือบทบาท render/filter/state display มากขึ้น
+  - backend เป็น source of truth หลักของข้อมูล CO2e analytics
 
 ## อัปเดตงานประจำวันที่ 16 มิถุนายน 2569 - เชื่อมข้อมูลจริงจากฐานข้อมูลเพื่อนและแก้ Data Quality Guard ของ Resource Consumption
 

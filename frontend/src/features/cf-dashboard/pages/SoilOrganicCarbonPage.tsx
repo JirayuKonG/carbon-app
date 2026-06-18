@@ -1,8 +1,8 @@
-import { type FormEvent, useMemo, useState } from 'react'
+import { type FormEvent, type ReactNode, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Calculator, Leaf, Pencil, Plus, RefreshCw, Save, Search, Sprout, Trash2 } from 'lucide-react'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import { DataTable, type Column } from '@/components/ui/DataTable'
+import { DataTable, ExpandableTextCell, type Column } from '@/components/ui/DataTable'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { useToast } from '@/components/ui/Toast'
 import { del, get, post, put } from '@/lib/api'
@@ -99,6 +99,34 @@ interface CarbonSocSummary {
   missingInputCount: number
   socMeasurementCount: number
   soilImprovementPlantCount: number
+}
+
+type LandAggregateRow = {
+  aggregateKey: string
+  primaryLabel: string
+  secondaryLabel: string
+  areaRai: number | null
+  landCount: number
+  socRecordCount: number
+  plantRecordCount: number
+  socTotalTco2e: number
+  socPerRaiPerYear: number | null
+  fnfixTotalTn: number
+  fnfixPerRai: number | null
+  plantNames: string
+}
+
+type LandSummaryMode = 'land' | 'group' | 'projectYear'
+
+type PlantTypeAggregateRow = {
+  resourceKey: string
+  plantName: string
+  recordCount: number
+  landCount: number
+  totalAreaRai: number | null
+  fnfixTotalTn: number
+  fnfixPerRai: number | null
+  landNames: string
 }
 
 type SocFormState = {
@@ -264,6 +292,7 @@ const payloadWithNumbers = (data: Record<string, unknown>) => {
 
 type FilteredLandSelectProps = {
   label: string
+  required?: boolean
   lands: Land[]
   campGroups: CampGroup[]
   value: string
@@ -277,6 +306,7 @@ type FilteredLandSelectProps = {
 
 function FilteredLandSelect({
   label,
+  required = false,
   lands,
   campGroups,
   value,
@@ -297,7 +327,10 @@ function FilteredLandSelect({
 
   return (
     <div className={className}>
-      <label className="label">{label}</label>
+      <label className="label">
+        {label}
+        {required && <span className="ml-1 text-red-500">*</span>}
+      </label>
       <div className="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.1fr)]">
         <select className="select" value={campGroupId} onChange={(event) => onCampGroupChange(event.target.value)}>
           <option value="">ทุกกลุ่มไร่</option>
@@ -316,7 +349,7 @@ function FilteredLandSelect({
             onChange={(event) => onFilterChange(event.target.value)}
           />
         </div>
-        <select className="select" required value={value} onChange={(event) => onChange(event.target.value)}>
+        <select className="select" required={required} value={value} onChange={(event) => onChange(event.target.value)}>
           <option value="">เลือกแปลง</option>
           {options.map((land) => (
             <option key={land.land_id} value={land.land_id}>
@@ -338,6 +371,15 @@ function FilteredLandSelect({
   )
 }
 
+function RequiredLabel({ children }: { children: ReactNode }) {
+  return (
+    <label className="label">
+      {children}
+      <span className="ml-1 text-red-500">*</span>
+    </label>
+  )
+}
+
 function StandardUnitStrip({ items }: { items: readonly (readonly [string, string])[] }) {
   return (
     <div className="flex flex-wrap gap-2 text-xs">
@@ -353,6 +395,7 @@ function StandardUnitStrip({ items }: { items: readonly (readonly [string, strin
 export function SoilOrganicCarbonPage() {
   const qc = useQueryClient()
   const toast = useToast()
+  const [landSummaryMode, setLandSummaryMode] = useState<LandSummaryMode>('land')
   const [socForm, setSocForm] = useState<SocFormState>(emptySocForm)
   const [plantForm, setPlantForm] = useState<SoilImprovementFormState>(emptySoilImprovementForm)
   const [socLandFilter, setSocLandFilter] = useState('')
@@ -432,6 +475,245 @@ export function SoilOrganicCarbonPage() {
       total: area * tNPerRai,
     }
   }, [plantForm.carbon_soilImprovementPlant_mc, plantForm.carbon_soilImprovementPlant_nc, selectedPlantLand])
+
+  const landSocProjectYearLookup = useMemo(() => {
+    const byLand = new Map<number, Set<string>>()
+
+    socRows.forEach((row) => {
+      if (!row.land_id) return
+      const yearLabel = row.carbon_soc_yearBeginPro?.trim()
+      if (!yearLabel) return
+      if (!byLand.has(row.land_id)) {
+        byLand.set(row.land_id, new Set<string>())
+      }
+      byLand.get(row.land_id)?.add(yearLabel)
+    })
+
+    return new Map<number, string>(
+      Array.from(byLand.entries()).map(([landId, years]) => {
+        const labels = Array.from(years)
+        return [landId, labels.length === 1 ? labels[0] : 'ไม่ระบุปีเริ่มโครงการ']
+      }),
+    )
+  }, [socRows])
+
+  const landAggregateRows = useMemo<LandAggregateRow[]>(() => {
+    const byAggregate = new Map<string, {
+      aggregateKey: string
+      primaryLabel: string
+      secondaryLabel: string
+      areaByLand: Map<number, number>
+      landIds: Set<number>
+      socRecordCount: number
+      plantRecordCount: number
+      socTotalTco2e: number
+      fnfixTotalTn: number
+      plantNames: Set<string>
+      campNames: Set<string>
+      groupNames: Set<string>
+    }>()
+
+    const buildSummaryIdentity = (
+      mode: LandSummaryMode,
+      input: {
+        landId?: number | null
+        land?: Land | null
+        projectYear?: string | null
+      },
+    ) => {
+      const land = input.land
+      const campName = land?.lands_camps?.land_camp_name || 'ไม่ระบุแคมป์'
+      const groupName = landCampGroupLabel(land)
+      const projectYear = input.projectYear?.trim() || 'ไม่ระบุปีเริ่มโครงการ'
+
+      if (mode === 'group') {
+        return {
+          aggregateKey: `group-${groupName}`,
+          primaryLabel: groupName,
+          secondaryLabel: campName,
+        }
+      }
+
+      if (mode === 'projectYear') {
+        return {
+          aggregateKey: `project-year-${projectYear}`,
+          primaryLabel: projectYear,
+          secondaryLabel: 'รวมข้อมูลตามปีเริ่มโครงการ',
+        }
+      }
+
+      return {
+        aggregateKey: `land-${input.landId ?? 'unknown'}`,
+        primaryLabel: landLabel(land),
+        secondaryLabel: `${campName} · ${groupName}`,
+      }
+    }
+
+    const ensureAggregateBucket = (
+      aggregateKey: string,
+      primaryLabel: string,
+      secondaryLabel: string,
+    ) => {
+      const existing = byAggregate.get(aggregateKey)
+      if (existing) return existing
+
+      const created = {
+        aggregateKey,
+        primaryLabel,
+        secondaryLabel,
+        areaByLand: new Map<number, number>(),
+        landIds: new Set<number>(),
+        socRecordCount: 0,
+        plantRecordCount: 0,
+        socTotalTco2e: 0,
+        fnfixTotalTn: 0,
+        plantNames: new Set<string>(),
+        campNames: new Set<string>(),
+        groupNames: new Set<string>(),
+      }
+
+      byAggregate.set(aggregateKey, created)
+      return created
+    }
+
+    const registerLandContext = (
+      bucket: ReturnType<typeof ensureAggregateBucket>,
+      landId?: number | null,
+      land?: Land | null,
+    ) => {
+      if (!landId) return
+      bucket.landIds.add(landId)
+      const area = landAreaRai(land)
+      if (area && area > 0 && !bucket.areaByLand.has(landId)) {
+        bucket.areaByLand.set(landId, area)
+      }
+      const campName = land?.lands_camps?.land_camp_name || 'ไม่ระบุแคมป์'
+      const groupName = landCampGroupLabel(land)
+      bucket.campNames.add(campName)
+      bucket.groupNames.add(groupName)
+    }
+
+    socRows.forEach((row) => {
+      if (!row.land_id) return
+      const identity = buildSummaryIdentity(landSummaryMode, {
+        landId: row.land_id,
+        land: row.lands,
+        projectYear: row.carbon_soc_yearBeginPro,
+      })
+      const bucket = ensureAggregateBucket(identity.aggregateKey, identity.primaryLabel, identity.secondaryLabel)
+      bucket.socRecordCount += 1
+      bucket.socTotalTco2e += numberOrZero(row.derived?.socTco2eTotal)
+      registerLandContext(bucket, row.land_id, row.lands)
+    })
+
+    plantRows.forEach((row) => {
+      if (!row.land_id) return
+      const identity = buildSummaryIdentity(landSummaryMode, {
+        landId: row.land_id,
+        land: row.lands,
+        projectYear: landSocProjectYearLookup.get(row.land_id) ?? 'ไม่ระบุปีเริ่มโครงการ',
+      })
+      const bucket = ensureAggregateBucket(identity.aggregateKey, identity.primaryLabel, identity.secondaryLabel)
+      bucket.plantRecordCount += 1
+      bucket.fnfixTotalTn += numberOrZero(row.derived?.fnfixTnTotal)
+      registerLandContext(bucket, row.land_id, row.lands)
+      const plantName = row.activities_resourceOther?.act_resourceOther_name?.trim()
+      if (plantName) {
+        bucket.plantNames.add(plantName)
+      }
+    })
+
+    return Array.from(byAggregate.values())
+      .map((row) => {
+        const areaRai = Array.from(row.areaByLand.values()).reduce((sum, value) => sum + value, 0)
+        const landCount = row.landIds.size
+        const campNames = Array.from(row.campNames).join(', ')
+        const groupNames = Array.from(row.groupNames).join(', ')
+
+        let secondaryLabel = row.secondaryLabel
+        if (landSummaryMode === 'group') {
+          secondaryLabel = `${landCount} แปลง · ${campNames || 'ไม่ระบุแคมป์'}`
+        } else if (landSummaryMode === 'projectYear') {
+          secondaryLabel = `${landCount} แปลง · กลุ่มไร่: ${groupNames || 'ไม่ระบุกลุ่มไร่'}`
+        }
+
+        return {
+        aggregateKey: row.aggregateKey,
+        primaryLabel: row.primaryLabel,
+        secondaryLabel,
+        areaRai: areaRai > 0 ? areaRai : null,
+        landCount,
+        socRecordCount: row.socRecordCount,
+        plantRecordCount: row.plantRecordCount,
+        socTotalTco2e: row.socTotalTco2e,
+        socPerRaiPerYear: areaRai > 0 ? row.socTotalTco2e / areaRai : null,
+        fnfixTotalTn: row.fnfixTotalTn,
+        fnfixPerRai: areaRai > 0 ? row.fnfixTotalTn / areaRai : null,
+        plantNames: row.plantNames.size > 0 ? Array.from(row.plantNames).join(', ') : '—',
+      }})
+      .sort((left, right) => (right.socTotalTco2e + right.fnfixTotalTn) - (left.socTotalTco2e + left.fnfixTotalTn))
+  }, [landSocProjectYearLookup, landSummaryMode, plantRows, socRows])
+
+  const plantTypeAggregateRows = useMemo<PlantTypeAggregateRow[]>(() => {
+    const byType = new Map<string, {
+      resourceKey: string
+      plantName: string
+      recordCount: number
+      fnfixTotalTn: number
+      landIds: Set<number>
+      areaByLand: Map<number, number>
+      landNames: Set<string>
+    }>()
+
+    plantRows.forEach((row) => {
+      const resourceKey = row.act_resourceOther_id
+        ? `resource-${row.act_resourceOther_id}`
+        : `unknown-${row.activities_resourceOther?.act_resourceOther_name || 'no-name'}`
+      const plantName = row.activities_resourceOther?.act_resourceOther_name?.trim() || 'ไม่ระบุชนิดพืช'
+
+      let bucket = byType.get(resourceKey)
+      if (!bucket) {
+        bucket = {
+          resourceKey,
+          plantName,
+          recordCount: 0,
+          fnfixTotalTn: 0,
+          landIds: new Set<number>(),
+          areaByLand: new Map<number, number>(),
+          landNames: new Set<string>(),
+        }
+        byType.set(resourceKey, bucket)
+      }
+
+      bucket.recordCount += 1
+      bucket.fnfixTotalTn += numberOrZero(row.derived?.fnfixTnTotal)
+
+      if (row.land_id) {
+        bucket.landIds.add(row.land_id)
+        bucket.landNames.add(landLabel(row.lands))
+        const area = landAreaRai(row.lands)
+        if (area && area > 0 && !bucket.areaByLand.has(row.land_id)) {
+          bucket.areaByLand.set(row.land_id, area)
+        }
+      }
+    })
+
+    return Array.from(byType.values())
+      .map((row) => {
+        const totalAreaRai = Array.from(row.areaByLand.values()).reduce((sum, value) => sum + value, 0)
+        return {
+          resourceKey: row.resourceKey,
+          plantName: row.plantName,
+          recordCount: row.recordCount,
+          landCount: row.landIds.size,
+          totalAreaRai: totalAreaRai > 0 ? totalAreaRai : null,
+          fnfixTotalTn: row.fnfixTotalTn,
+          fnfixPerRai: totalAreaRai > 0 ? row.fnfixTotalTn / totalAreaRai : null,
+          landNames: row.landNames.size > 0 ? Array.from(row.landNames).join(', ') : '—',
+        }
+      })
+      .sort((left, right) => right.fnfixTotalTn - left.fnfixTotalTn)
+  }, [plantRows])
 
   const invalidateSoc = () => {
     qc.invalidateQueries({ queryKey: ['carbon-soc-summary'] })
@@ -616,6 +898,118 @@ export function SoilOrganicCarbonPage() {
     },
   ]
 
+  const landAggregateColumns = useMemo<Column<LandAggregateRow>[]>(() => {
+    const primaryHeader = landSummaryMode === 'group'
+      ? 'กลุ่มไร่'
+      : landSummaryMode === 'projectYear'
+        ? 'ปีเริ่มโครงการ'
+        : 'แปลง / กลุ่มไร่'
+
+    const areaHeader = landSummaryMode === 'land' ? 'พื้นที่ไร่' : 'พื้นที่รวมไร่'
+    const plantTitle = landSummaryMode === 'land'
+      ? 'ชนิดพืชคลุมดินในแปลง'
+      : landSummaryMode === 'group'
+        ? 'ชนิดพืชคลุมดินในกลุ่มไร่'
+        : 'ชนิดพืชคลุมดินในปีเริ่มโครงการ'
+
+    const columns: Column<LandAggregateRow>[] = [
+      {
+        key: 'primaryLabel',
+        header: primaryHeader,
+        minWidth: '240px',
+        render: (row) => (
+          <div className="min-w-0">
+            <div className="font-medium text-surface-900">{row.primaryLabel}</div>
+            <div className="text-xs text-surface-500">{row.secondaryLabel}</div>
+          </div>
+        ),
+      },
+      { key: 'areaRai', header: areaHeader, render: (row) => formatNumber(row.areaRai, 2) },
+    ]
+
+    if (landSummaryMode !== 'land') {
+      columns.push({
+        key: 'landCount',
+        header: 'จำนวนแปลง',
+        render: (row) => formatNumber(row.landCount, 0),
+      })
+    }
+
+    columns.push(
+      {
+        key: 'socTotalTco2e',
+        header: 'SOC รวม/ปี',
+        render: (row) => (
+          <div>
+            <div className="font-semibold text-sky-700">{formatNumber(row.socTotalTco2e, 4)}</div>
+            <div className="text-xs text-surface-500">tCO2e/ปี</div>
+          </div>
+        ),
+      },
+      { key: 'socPerRaiPerYear', header: 'SOC ต่อไร่/ปี', render: (row) => formatNumber(row.socPerRaiPerYear, 4) },
+      {
+        key: 'fnfixTotalTn',
+        header: 'Fnfix รวม',
+        render: (row) => (
+          <div>
+            <div className="font-semibold text-emerald-700">{formatNumber(row.fnfixTotalTn, 4)}</div>
+            <div className="text-xs text-surface-500">tN</div>
+          </div>
+        ),
+      },
+      { key: 'fnfixPerRai', header: 'Fnfix ต่อไร่', render: (row) => formatNumber(row.fnfixPerRai, 6) },
+      {
+        key: 'plantNames',
+        header: 'ชนิดพืชที่พบ',
+        minWidth: '220px',
+        render: (row) => <ExpandableTextCell text={row.plantNames} title={plantTitle} previewChars={80} />,
+      },
+      {
+        key: 'counts',
+        header: 'จำนวน record',
+        render: (row) => (
+          <div className="text-xs text-surface-600">
+            <div>SOC: {formatNumber(row.socRecordCount, 0)}</div>
+            <div>พืช: {formatNumber(row.plantRecordCount, 0)}</div>
+          </div>
+        ),
+      },
+    )
+
+    return columns
+  }, [landSummaryMode])
+
+  const plantTypeAggregateColumns: Column<PlantTypeAggregateRow>[] = [
+    {
+      key: 'plantName',
+      header: 'ชนิดพืชคลุมดิน',
+      minWidth: '220px',
+      render: (row) => (
+        <div className="font-medium text-surface-900">{row.plantName}</div>
+      ),
+    },
+    { key: 'landCount', header: 'จำนวนแปลง', render: (row) => formatNumber(row.landCount, 0) },
+    { key: 'recordCount', header: 'จำนวน record', render: (row) => formatNumber(row.recordCount, 0) },
+    { key: 'totalAreaRai', header: 'พื้นที่รวมไร่', render: (row) => formatNumber(row.totalAreaRai, 2) },
+    {
+      key: 'fnfixTotalTn',
+      header: 'Fnfix รวม',
+      render: (row) => (
+        <div>
+          <div className="font-semibold text-emerald-700">{formatNumber(row.fnfixTotalTn, 4)}</div>
+          <div className="text-xs text-surface-500">tN</div>
+        </div>
+      ),
+    },
+    { key: 'fnfixPerRai', header: 'Fnfix ต่อไร่', render: (row) => formatNumber(row.fnfixPerRai, 6) },
+    {
+      key: 'landNames',
+      header: 'แปลงที่เกี่ยวข้อง',
+      minWidth: '220px',
+      render: (row) => <ExpandableTextCell text={row.landNames} title="แปลงที่ใช้พืชคลุมดินชนิดนี้" previewChars={84} />,
+    },
+  ]
+
   const queryIssues = [
     { label: 'SOC summary', error: summaryError },
     { label: 'SOC measurement', error: socError },
@@ -624,6 +1018,12 @@ export function SoilOrganicCarbonPage() {
     { label: 'กลุ่มไร่', error: campGroupsError },
     { label: 'resource other', error: resourceOthersError },
   ]
+
+  const landSummaryModeLabel = landSummaryMode === 'group'
+    ? 'รวมตามกลุ่มไร่'
+    : landSummaryMode === 'projectYear'
+      ? 'รวมตามปีเริ่มโครงการ'
+      : 'รวมตามแปลง'
 
   return (
     <div className="space-y-6">
@@ -673,6 +1073,95 @@ export function SoilOrganicCarbonPage() {
         </div>
       </div>
 
+      <section className="card space-y-5 border-t-4 border-t-violet-500">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-base font-semibold text-surface-900">
+              <Calculator size={18} className="text-violet-600" />
+              สรุปผลรวมที่พร้อมนำไปใช้ต่อ
+            </div>
+            <p className="mt-1 text-sm text-surface-500">ดูผลรวมแบบ {landSummaryModeLabel} และรวมผลพืชคลุมดินตามชนิด เพื่อใช้ต่อในงานวิเคราะห์หรือสรุปรายงาน</p>
+          </div>
+          <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700">
+            {formatNumber(landAggregateRows.length, 0)} กลุ่มสรุปผล
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="rounded-2xl border border-violet-200 bg-violet-50/80 p-4">
+            <div className="text-xs font-medium uppercase tracking-[0.18em] text-violet-700">Land Rollup</div>
+            <div className="mt-2 text-2xl font-semibold text-violet-950">{formatNumber(landAggregateRows.length, 0)}</div>
+            <div className="mt-1 text-sm text-violet-800">{landSummaryModeLabel}</div>
+          </div>
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4">
+            <div className="text-xs font-medium uppercase tracking-[0.18em] text-emerald-700">Plant Types</div>
+            <div className="mt-2 text-2xl font-semibold text-emerald-950">{formatNumber(plantTypeAggregateRows.length, 0)}</div>
+            <div className="mt-1 text-sm text-emerald-800">ชนิดพืชคลุมดินที่สรุปรวมได้</div>
+          </div>
+          <div className="rounded-2xl border border-sky-200 bg-sky-50/80 p-4">
+            <div className="text-xs font-medium uppercase tracking-[0.18em] text-sky-700">Records Ready</div>
+            <div className="mt-2 text-2xl font-semibold text-sky-950">
+              {formatNumber((summary?.socMeasurementCount ?? 0) + (summary?.soilImprovementPlantCount ?? 0), 0)}
+            </div>
+            <div className="mt-1 text-sm text-sky-800">จำนวน record รวมจากทั้งสองส่วน</div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+          <div className="rounded-2xl border border-surface-200 bg-white p-4">
+            <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-surface-900">สรุปผลรวมที่เลือกโหมดได้</h3>
+                <p className="mt-1 text-xs text-surface-500">สลับได้ระหว่างรวมตามแปลง, กลุ่มไร่, หรือปีเริ่มโครงการ โดยยังใช้ค่า SOC และ Fnfix จากข้อมูลชุดเดิม</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { value: 'land', label: 'รวมตามแปลง' },
+                  { value: 'group', label: 'รวมตามกลุ่มไร่' },
+                  { value: 'projectYear', label: 'รวมตามปีเริ่มโครงการ' },
+                ].map((mode) => (
+                  <button
+                    key={mode.value}
+                    type="button"
+                    className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                      landSummaryMode === mode.value
+                        ? 'border-violet-300 bg-violet-50 text-violet-700'
+                        : 'border-surface-200 bg-white text-surface-600 hover:border-surface-300 hover:text-surface-900'
+                    }`}
+                    onClick={() => setLandSummaryMode(mode.value as LandSummaryMode)}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <DataTable
+              data={landAggregateRows}
+              columns={landAggregateColumns}
+              rowKey={(row) => row.aggregateKey}
+              defaultPageSize={5}
+              searchPlaceholder={`ค้นหา${landSummaryModeLabel}...`}
+              emptyMessage={`ยังไม่มีข้อมูลสรุปแบบ ${landSummaryModeLabel}`}
+            />
+          </div>
+
+          <div className="rounded-2xl border border-surface-200 bg-white p-4">
+            <div className="mb-3">
+              <h3 className="text-sm font-semibold text-surface-900">สรุปพืชคลุมดินตามชนิด</h3>
+              <p className="mt-1 text-xs text-surface-500">ดูผลรวมเช่น ปอเทือง หรือชนิดอื่น ๆ ว่ามีผล Fnfix รวมเท่าไรและอยู่ในกี่แปลง</p>
+            </div>
+            <DataTable
+              data={plantTypeAggregateRows}
+              columns={plantTypeAggregateColumns}
+              rowKey={(row) => row.resourceKey}
+              defaultPageSize={5}
+              searchPlaceholder="ค้นหาชนิดพืชคลุมดิน..."
+              emptyMessage="ยังไม่มีข้อมูลสรุปตามชนิดพืชคลุมดิน"
+            />
+          </div>
+        </div>
+      </section>
+
       <section className="card space-y-5 border-t-4 border-t-emerald-500">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
@@ -691,6 +1180,7 @@ export function SoilOrganicCarbonPage() {
               <FilteredLandSelect
                 className="md:col-span-2"
                 label="แปลง"
+                required
                 lands={lands}
                 campGroups={campGroups}
                 value={plantForm.land_id}
@@ -701,9 +1191,9 @@ export function SoilOrganicCarbonPage() {
                 onChange={(value) => setPlantForm((prev) => ({ ...prev, land_id: value }))}
               />
               <div>
-                <label className="label">พืช/วัสดุ</label>
-                <select className="select" value={plantForm.act_resourceOther_id} onChange={(event) => setPlantForm((prev) => ({ ...prev, act_resourceOther_id: event.target.value }))}>
-                  <option value="">ไม่ระบุ</option>
+                <RequiredLabel>พืช/วัสดุ</RequiredLabel>
+                <select className="select" required value={plantForm.act_resourceOther_id} onChange={(event) => setPlantForm((prev) => ({ ...prev, act_resourceOther_id: event.target.value }))}>
+                  <option value="">เลือกพืช/วัสดุ</option>
                   {resourceOthers.map((resource) => (
                     <option key={resource.act_resourceOther_id} value={resource.act_resourceOther_id}>
                       {resource.act_resourceOther_name || `รายการ ${resource.act_resourceOther_id}`}
@@ -716,11 +1206,11 @@ export function SoilOrganicCarbonPage() {
                 <input className="input" value={plantForm.carbon_soilImprovementPlant_idCode} onChange={(event) => setPlantForm((prev) => ({ ...prev, carbon_soilImprovementPlant_idCode: event.target.value }))} />
               </div>
               <div>
-                <label className="label">mc dry matter (kg/ไร่)</label>
+                <RequiredLabel>mc dry matter (kg/ไร่)</RequiredLabel>
                 <input type="number" step="0.0001" min="0" className="input" required value={plantForm.carbon_soilImprovementPlant_mc} onChange={(event) => setPlantForm((prev) => ({ ...prev, carbon_soilImprovementPlant_mc: event.target.value }))} />
               </div>
               <div>
-                <label className="label">nc (%N)</label>
+                <RequiredLabel>nc (%N)</RequiredLabel>
                 <input type="number" step="0.0001" min="0" className="input" required value={plantForm.carbon_soilImprovementPlant_nc} onChange={(event) => setPlantForm((prev) => ({ ...prev, carbon_soilImprovementPlant_nc: event.target.value }))} />
               </div>
               <div className="md:col-span-3">
@@ -811,6 +1301,7 @@ export function SoilOrganicCarbonPage() {
               <FilteredLandSelect
                 className="md:col-span-2"
                 label="แปลง"
+                required
                 lands={lands}
                 campGroups={campGroups}
                 value={socForm.land_id}
@@ -829,15 +1320,15 @@ export function SoilOrganicCarbonPage() {
                 <input className="input" value={socForm.carbon_soc_yearBeginPro} onChange={(event) => setSocForm((prev) => ({ ...prev, carbon_soc_yearBeginPro: event.target.value }))} />
               </div>
               <div>
-                <label className="label">SOC sample (%)</label>
+                <RequiredLabel>SOC sample (%)</RequiredLabel>
                 <input type="number" step="0.0001" min="0" className="input" required value={socForm.carbon_soc_socSampleIT} onChange={(event) => setSocForm((prev) => ({ ...prev, carbon_soc_socSampleIT: event.target.value }))} />
               </div>
               <div>
-                <label className="label">Bulk density (g/cm3)</label>
+                <RequiredLabel>Bulk density (g/cm3)</RequiredLabel>
                 <input type="number" step="0.0001" min="0" className="input" required value={socForm.carbon_soc_bdSampleIt} onChange={(event) => setSocForm((prev) => ({ ...prev, carbon_soc_bdSampleIt: event.target.value }))} />
               </div>
               <div>
-                <label className="label">Depth (cm)</label>
+                <RequiredLabel>Depth (cm)</RequiredLabel>
                 <input type="number" step="0.0001" min="0" className="input" required value={socForm.carbon_soc_depSampleIT} onChange={(event) => setSocForm((prev) => ({ ...prev, carbon_soc_depSampleIT: event.target.value }))} />
               </div>
               <div>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { DataResult } from "../types/dashboard";
 
-export function useAsyncData<T>(loader: () => Promise<DataResult<T>>, fallback: T) {
+export function useAsyncData<T>(loader: () => Promise<DataResult<T>>, fallback: T, deps: ReadonlyArray<unknown> = []) {
   const [result, setResult] = useState<DataResult<T>>({ data: fallback, source: "api" });
   const [loading, setLoading] = useState(true);
 
@@ -28,7 +28,8 @@ export function useAsyncData<T>(loader: () => Promise<DataResult<T>>, fallback: 
     return () => {
       cancelled = true;
     };
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
 
   return { ...result, loading };
 }

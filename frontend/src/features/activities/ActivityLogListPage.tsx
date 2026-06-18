@@ -6,7 +6,8 @@ import { Column, DataTable } from '@/components/ui/DataTable'
 import { DashboardVisibilityMenu, useDashboardVisibility } from '@/components/ui/DashboardVisibilityMenu'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
-import { getActivityCalStatusBadgeClass, getActivityCalStatusKind, getActivityCalStatusLabel } from '@/features/activities/cal-status'
+import { ACTIVITY_CAL_STATUS_NAMES, getActivityCalStatusBadgeClass, getActivityCalStatusKind, getActivityCalStatusLabel } from '@/features/activities/cal-status'
+import { validateActivityDetailForm } from '@/features/activities/detail-form-validation'
 import { del, get, post, put } from '@/lib/api'
 import { formatBangkokDate } from '@/lib/datetime'
 
@@ -199,6 +200,7 @@ export function ActivityLogListPage() {
   const [trackMethod, setTrackMethod] = useState<'direct' | 'cascade'>('cascade')
   const [selectedCampId, setSelectedCampId] = useState<number | null>(null)
   const [selectedLandId, setSelectedLandId] = useState<number | null>(null)
+  const [detailFormError, setDetailFormError] = useState<string | null>(null)
   const [detailForm, setDetailForm] = useState<DetailForm>(emptyDetailForm)
   const [detailFilters, setDetailFilters] = useState<DetailFilters>(emptyDetailFilters)
 
@@ -367,6 +369,8 @@ export function ActivityLogListPage() {
   const visibleHeaders = selectedLandId ? headers.filter((header) => header.land_id === selectedLandId) : headers
 
   const setFormValue = (key: keyof DetailForm, value: string) => {
+    setDetailFormError(null)
+    createDetailMut.reset()
     setDetailForm((prev) => ({ ...prev, [key]: value }))
   }
 
@@ -387,11 +391,13 @@ export function ActivityLogListPage() {
   useEffect(() => {
     const landId = searchParams.get('land_id') ?? ''
     const campId = searchParams.get('camp_id') ?? ''
+    const productYearId = searchParams.get('productYearId') ?? ''
 
     setDetailFilters((prev) => ({
       ...prev,
       landId,
       campId,
+      productYearId,
     }))
   }, [searchParams])
 
@@ -407,6 +413,8 @@ export function ActivityLogListPage() {
   }, [detailFilters.campId, detailFilters.landId, lands])
 
   const setLandFilter = (landId: number | null) => {
+    setDetailFormError(null)
+    createDetailMut.reset()
     setSelectedLandId(landId)
     setFormValue('activities_header_id', '')
   }
@@ -419,6 +427,8 @@ export function ActivityLogListPage() {
       activities_header_id: header ? String(header.activities_header_id) : '',
       act_header_type_id: header?.act_header_type_id ? String(header.act_header_type_id) : '',
     })
+    setDetailFormError(null)
+    createDetailMut.reset()
     setSelectedLandId(header?.land_id ?? null)
     setSelectedCampId(selectedLand?.land_camp_id ?? null)
     setShowForm(true)
@@ -449,6 +459,8 @@ export function ActivityLogListPage() {
       log_act_detail_volumeAll: detail.log_act_detail_volumeAll != null ? String(detail.log_act_detail_volumeAll) : '',
       log_act_detail_areawork: detail.log_act_detail_areawork != null ? String(detail.log_act_detail_areawork) : '',
     })
+    setDetailFormError(null)
+    createDetailMut.reset()
     setShowForm(true)
   }
 
@@ -456,6 +468,8 @@ export function ActivityLogListPage() {
     setShowForm(false)
     setEditingDetail(null)
     setDetailForm(emptyDetailForm)
+    setDetailFormError(null)
+    createDetailMut.reset()
     setSelectedCampId(null)
     setSelectedLandId(null)
   }
@@ -464,6 +478,11 @@ export function ActivityLogListPage() {
 
   const submitDetailForm = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    const errors = validateActivityDetailForm(detailForm, { selectedLandId })
+    if (errors.length) {
+      setDetailFormError(errors[0])
+      return
+    }
     createDetailMut.mutate({
       activities_header_id: toNumberOrUndefined(detailForm.activities_header_id),
       act_productYear_id: toNumberOrUndefined(detailForm.act_productYear_id),
@@ -518,17 +537,19 @@ export function ActivityLogListPage() {
   const preparingCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'preparing').length
   const readyCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'ready').length
   const standardDoneCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'standardDone').length
+  const creditDoneCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'creditDone').length
   const standardCfpDoneCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'cfpDone').length
   const errorCount = details.filter((detail) => getActivityCalStatusKind(detail.log_act_detail_calStatus?.log_act_detail_calStatus_name, detail.log_act_detail_calStatus_id) === 'error').length
 
   const dashboardOptions = [
     { key: 'total', label: 'รายการทั้งหมด' },
-    { key: 'imported', label: 'นำเข้าข้อมูลแล้ว' },
-    { key: 'preparing', label: 'กำลังเตรียมข้อมูล' },
-    { key: 'ready', label: 'พร้อมคำนวณมาตรฐาน' },
-    { key: 'standardDone', label: 'คำนวณแล้ว(มาตรฐาน)' },
-    { key: 'cfpDone', label: 'คำนวณแล้ว(มาตรฐาน,C-credit)' },
-    { key: 'error', label: 'คำนวณผิดพลาด' },
+    { key: 'imported', label: ACTIVITY_CAL_STATUS_NAMES.imported },
+    { key: 'preparing', label: ACTIVITY_CAL_STATUS_NAMES.preparing },
+    { key: 'ready', label: ACTIVITY_CAL_STATUS_NAMES.ready },
+    { key: 'standardDone', label: ACTIVITY_CAL_STATUS_NAMES.standardDone },
+    { key: 'creditDone', label: ACTIVITY_CAL_STATUS_NAMES.creditDone },
+    { key: 'cfpDone', label: ACTIVITY_CAL_STATUS_NAMES.cfpDone },
+    { key: 'error', label: ACTIVITY_CAL_STATUS_NAMES.error },
   ]
 
   const {
@@ -566,28 +587,35 @@ export function ActivityLogListPage() {
     },
     {
       key: 'ready',
-      label: 'พร้อมคำนวณมาตรฐาน',
+      label: ACTIVITY_CAL_STATUS_NAMES.ready,
       icon: <Clock3 size={14} className="text-accent-500" />,
       value: readyCount,
       valueClassName: 'stat-value text-accent-600',
     },
     {
       key: 'standardDone',
-      label: 'คำนวณแล้ว(มาตรฐาน)',
+      label: ACTIVITY_CAL_STATUS_NAMES.standardDone,
       icon: <CheckCircle2 size={14} className="text-primary-500" />,
       value: standardDoneCount,
       valueClassName: 'stat-value text-primary-700',
     },
     {
+      key: 'creditDone',
+      label: ACTIVITY_CAL_STATUS_NAMES.creditDone,
+      icon: <CheckCircle2 size={14} className="text-purple-600" />,
+      value: creditDoneCount,
+      valueClassName: 'stat-value text-purple-700',
+    },
+    {
       key: 'cfpDone',
-      label: 'คำนวณแล้ว(มาตรฐาน,C-credit)',
+      label: ACTIVITY_CAL_STATUS_NAMES.cfpDone,
       icon: <CheckCircle2 size={14} className="text-cyan-600" />,
       value: standardCfpDoneCount,
       valueClassName: 'stat-value text-cyan-700',
     },
     {
       key: 'error',
-      label: 'คำนวณผิดพลาด',
+      label: ACTIVITY_CAL_STATUS_NAMES.error,
       icon: <CircleAlert size={14} className="text-red-500" />,
       value: errorCount,
       valueClassName: 'stat-value text-red-700',
@@ -756,15 +784,20 @@ export function ActivityLogListPage() {
               <div className="min-w-40">
                 <label className="label">การคำนวณ</label>
                 <div className="rounded-lg border border-surface-200 bg-surface-50 px-3 py-2 text-xs text-surface-600">
-                  ใช้เมนู <span className="font-medium text-primary-700">คำนวณ Carbon</span> สำหรับคำนวณมาตรฐานและ C-credit
+                  ใช้เมนู <span className="font-medium text-primary-700">คำนวณ Carbon</span> สำหรับคำนวณ CFP และ C-credit
                 </div>
               </div>
             </div>
 
             <form onSubmit={submitDetailForm} className="space-y-4">
+              {(detailFormError || createDetailMut.error?.message) && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {detailFormError ?? createDetailMut.error?.message}
+                </div>
+              )}
               <FormSection title="หัวข้อกิจกรรมและแปลง">
                 <div className="md:col-span-2">
-                  <label className="label">วิธีเลือกแปลง</label>
+                  <label className="label">วิธีเลือกแปลง *</label>
                   <div className="mb-3 grid grid-cols-2 gap-2">
                     <button
                       type="button"
@@ -810,9 +843,9 @@ export function ActivityLogListPage() {
                 </div>
 
                 <div>
-                  <label className="label">ปีการผลิต</label>
-                  <select className="select" value={detailForm.act_productYear_id} onChange={(e) => setFormValue('act_productYear_id', e.target.value)}>
-                    <option value="">— ไม่ระบุ —</option>
+                  <label className="label">ปีการผลิต *</label>
+                  <select className="select" required value={detailForm.act_productYear_id} onChange={(e) => setFormValue('act_productYear_id', e.target.value)}>
+                    <option value="">— เลือกปีการผลิต —</option>
                     {productYears.map((year) => (
                       <option key={year.act_productYear_id} value={year.act_productYear_id}>
                         {year.act_productYear_name ?? `#${year.act_productYear_id}`}
@@ -822,9 +855,10 @@ export function ActivityLogListPage() {
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="label">หัวข้อกิจกรรม</label>
+                  <label className="label">หัวข้อกิจกรรม *</label>
                   <select
                     className="select"
+                    required
                     value={detailForm.activities_header_id}
                     onChange={(e) => {
                       const header = headers.find((item) => item.activities_header_id === Number(e.target.value))
@@ -845,6 +879,7 @@ export function ActivityLogListPage() {
                   <label className="label">ประเภทกิจกรรม *</label>
                   <select
                     className="select"
+                    required
                     value={detailForm.act_header_type_id}
                     onChange={(e) => {
                       setFormValue('act_header_type_id', e.target.value)
@@ -856,18 +891,18 @@ export function ActivityLogListPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="label">ประเภทรายละเอียด</label>
-                  <select className="select" value={detailForm.act_header_detail_type_id} onChange={(e) => setFormValue('act_header_detail_type_id', e.target.value)}>
-                    <option value="">— ไม่ระบุ —</option>
+                  <label className="label">ประเภทรายละเอียด *</label>
+                  <select className="select" required value={detailForm.act_header_detail_type_id} onChange={(e) => setFormValue('act_header_detail_type_id', e.target.value)}>
+                    <option value="">— เลือกประเภทรายละเอียด —</option>
                     {detailTypes.map((type) => <option key={type.act_header_detail_type_id} value={type.act_header_detail_type_id}>{type.act_header_detail_type_name_th}</option>)}
                   </select>
                 </div>
               </FormSection>
 
-              <FormSection title="ปัจจัยการผลิต">
+              <FormSection title="ปัจจัยการผลิต (เลือกอย่างน้อย 1 รายการ)">
                 <div>
                   <label className="label">ประเภทปัจจัย *</label>
-                  <select className="select" value={detailForm.resource_used_type_id} onChange={(e) => setFormValue('resource_used_type_id', e.target.value)}>
+                  <select className="select" required value={detailForm.resource_used_type_id} onChange={(e) => setFormValue('resource_used_type_id', e.target.value)}>
                     <option value="">— เลือกประเภทปัจจัย —</option>
                     {resTypes.map((type) => <option key={type.resource_used_type_id} value={type.resource_used_type_id}>{type.resc_used_type_name}</option>)}
                   </select>
@@ -955,16 +990,16 @@ export function ActivityLogListPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="label">หน่วยนับ</label>
-                  <select className="select" value={detailForm.unit_id} onChange={(e) => setFormValue('unit_id', e.target.value)}>
-                    <option value="">— ไม่ระบุ —</option>
+                  <label className="label">หน่วยนับ *</label>
+                  <select className="select" required value={detailForm.unit_id} onChange={(e) => setFormValue('unit_id', e.target.value)}>
+                    <option value="">— เลือกหน่วยนับ —</option>
                     {units.map((unit) => <option key={unit.unit_id} value={unit.unit_id}>{unit.unit_name ?? unit.unit_initial ?? `#${unit.unit_id}`}</option>)}
                   </select>
                 </div>
-                <div><label className="label">ปริมาณ (จำนวน)</label><input type="number" step="0.001" className="input" value={detailForm.log_act_detail_quatity} onChange={(e) => setFormValue('log_act_detail_quatity', e.target.value)} /></div>
+                <div><label className="label">ปริมาณ (จำนวน) *</label><input type="number" step="0.001" className="input" required value={detailForm.log_act_detail_quatity} onChange={(e) => setFormValue('log_act_detail_quatity', e.target.value)} /></div>
                 <div><label className="label">ปริมาณ/หน่วย</label><input type="number" step="0.001" className="input" value={detailForm.log_act_detail_volumePerUnit} onChange={(e) => setFormValue('log_act_detail_volumePerUnit', e.target.value)} /></div>
-                <div><label className="label">ปริมาณรวม *</label><input type="number" step="0.001" className="input" required value={detailForm.log_act_detail_volumeAll} onChange={(e) => setFormValue('log_act_detail_volumeAll', e.target.value)} /></div>
-                <div><label className="label">พื้นที่ทำงาน (ไร่)</label><input type="number" step="0.01" className="input" value={detailForm.log_act_detail_areawork} onChange={(e) => setFormValue('log_act_detail_areawork', e.target.value)} /></div>
+                <div><label className="label">ปริมาณรวม</label><input type="number" step="0.001" className="input" value={detailForm.log_act_detail_volumeAll} onChange={(e) => setFormValue('log_act_detail_volumeAll', e.target.value)} /></div>
+                <div><label className="label">พื้นที่ทำงาน (ไร่) *</label><input type="number" step="0.01" className="input" required value={detailForm.log_act_detail_areawork} onChange={(e) => setFormValue('log_act_detail_areawork', e.target.value)} /></div>
               </FormSection>
 
               <div className="mt-5 flex gap-3">
