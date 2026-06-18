@@ -1061,3 +1061,13 @@ Follow-up Carbon Credit transaction fix on 2026-06-18:
 - Frontend result: `frontend/src/features/cf-dashboard/components/charts/ActivityGroupedBar.tsx` now formats process labels with a dedicated `01 - [01]` code line and wraps Thai process names by word segmentation when the browser supports it, instead of slicing raw characters.
 - Source of truth: `ActivityGroupedBar` is the shared bar chart used by the main process comparison chart and related process comparison panels.
 - Verification: `npm run build --workspace=frontend` passed. Frontend build still reports only the existing Vite chunk-size warning.
+
+## Recent Carbon Analytics API Timeout Hardening - 2026-06-18
+
+- Prompt summary: Carbon Analytics pages were showing many zeros/loading states during presentation prep even though some real API data existed.
+- Finding: the app was running on branch `idea` in real API mode, but several analytics endpoints were slow enough to exceed the frontend/proxy default timeout. A stale/competing backend process on port 3000 also caused repeated 500 responses until the backend was restarted cleanly.
+- Frontend result: `frontend/src/features/cf-dashboard/services/dashboardApi.ts` now uses a 120-second request timeout for Carbon Analytics API calls. If `/analytics/cf-report-summary` fails, the report page composes a usable report from the real smaller endpoints (`cf-kpi`, `cf-trend`, `cf-process`, `cf-process-inputs`, and `cf-spatial-nodes`) instead of dropping straight to an empty report.
+- Dev-server result: `frontend/vite.config.ts` now gives the `/api` proxy a 120-second timeout/proxyTimeout for heavy local analytics requests.
+- Overview hardening: `frontend/src/features/cf-dashboard/pages/OverviewPage.tsx` now treats `/carbon-soc/summary` failure as a SOC-only zero fallback so the whole overview can still show KPI/credit data from analytics.
+- Verification: `npm run build --workspace=frontend` passed. After restarting backend and Vite, `http://127.0.0.1:5173/api/analytics/cf-kpi`, `cf-spatial-nodes`, and `cf-report-summary` returned 200 with real data.
+- Remaining risk: analytics queries are still slow (roughly 20-35 seconds locally for some endpoints), so performance tuning should be a follow-up after the urgent presentation fix.

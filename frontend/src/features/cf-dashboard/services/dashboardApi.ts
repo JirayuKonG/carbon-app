@@ -22,6 +22,7 @@ import { emptyInputUsageSummary } from "../utils/resourceUsage";
 const ANALYTICS_SOURCE = import.meta.env.VITE_CF_ANALYTICS_SOURCE ?? "api";
 const ALLOW_DEMO_FALLBACK = ANALYTICS_SOURCE === "demo" || ANALYTICS_SOURCE === "mock";
 const USE_ANALYTICS_API = ANALYTICS_SOURCE !== "demo" && ANALYTICS_SOURCE !== "mock";
+const ANALYTICS_REQUEST_CONFIG = { timeout: 120_000 };
 
 const emptyOverviewKpi: OverviewKpi = {
   baselineAvgEmission: 0,
@@ -120,22 +121,22 @@ function missingResult<T>(route: string, data: T, note = "API unavailable or inc
 
 export async function getOverviewKpi(filter?: Partial<ReportFilter>): Promise<DataResult<OverviewKpi>> {
   const route = "/analytics/cf-kpi";
-  return apiOrFallback(route, () => get<OverviewKpi>(route, cleanParams(filter)), projectDashboardDataset.kpi, emptyOverviewKpi, hasUsableKpi);
+  return apiOrFallback(route, () => get<OverviewKpi>(route, cleanParams(filter), ANALYTICS_REQUEST_CONFIG), projectDashboardDataset.kpi, emptyOverviewKpi, hasUsableKpi);
 }
 
 export async function getTrend(filter?: Partial<ReportFilter>): Promise<DataResult<TrendPoint[]>> {
   const route = "/analytics/cf-trend";
-  return apiOrFallback(route, () => get<TrendPoint[]>(route, cleanParams(filter)), projectDashboardDataset.trend, [], hasTrendRows);
+  return apiOrFallback(route, () => get<TrendPoint[]>(route, cleanParams(filter), ANALYTICS_REQUEST_CONFIG), projectDashboardDataset.trend, [], hasTrendRows);
 }
 
 export async function getProcessEmissions(filter?: Partial<ReportFilter>): Promise<DataResult<ProcessEmission[]>> {
   const route = "/analytics/cf-process";
-  return apiOrFallback(route, () => get<ProcessEmission[]>(route, cleanParams(filter)), projectDashboardDataset.processEmissions, [], hasEmissionRows);
+  return apiOrFallback(route, () => get<ProcessEmission[]>(route, cleanParams(filter), ANALYTICS_REQUEST_CONFIG), projectDashboardDataset.processEmissions, [], hasEmissionRows);
 }
 
 export async function getTransportEmissions(filter?: Partial<ReportFilter>): Promise<DataResult<ProcessEmission[]>> {
   const route = "/analytics/cf-transport";
-  return apiOrFallback(route, () => get<ProcessEmission[]>(route, cleanParams(filter)), [], [], () => true);
+  return apiOrFallback(route, () => get<ProcessEmission[]>(route, cleanParams(filter), ANALYTICS_REQUEST_CONFIG), [], [], () => true);
 }
 
 export async function getProvinceMap(filter?: Partial<ReportFilter>): Promise<DataResult<SpatialSummaryNode[]>> {
@@ -148,23 +149,23 @@ export async function getCfProcessActivities(
 ): Promise<DataResult<ProcessActivityBreakdown[]>> {
   const route = "/analytics/cf-process-activities";
   const demoFallback = kind === "transport" ? [] : projectDashboardDataset.processActivities;
-  return apiOrFallback(route, () => get<ProcessActivityBreakdown[]>(route, cleanParams(filter, { kind })), demoFallback, [], kind === "transport" ? () => true : hasActivityRows);
+  return apiOrFallback(route, () => get<ProcessActivityBreakdown[]>(route, cleanParams(filter, { kind }), ANALYTICS_REQUEST_CONFIG), demoFallback, [], kind === "transport" ? () => true : hasActivityRows);
 }
 
 export async function getCfSpatialNodes(filter?: Partial<ReportFilter>): Promise<DataResult<SpatialSummaryNode[]>> {
   const route = "/analytics/cf-spatial-nodes";
-  return apiOrFallback(route, () => get<SpatialSummaryNode[]>(route, cleanParams(filter)), projectDashboardDataset.spatialNodes, [], hasSpatialRows);
+  return apiOrFallback(route, () => get<SpatialSummaryNode[]>(route, cleanParams(filter), ANALYTICS_REQUEST_CONFIG), projectDashboardDataset.spatialNodes, [], hasSpatialRows);
 }
 
 export async function getProcessInputComparisons(filter?: Partial<ReportFilter>): Promise<DataResult<ProcessInputComparison[]>> {
   const route = "/analytics/cf-process-inputs";
-  return apiOrFallback(route, () => get<ProcessInputComparison[]>(route, cleanParams(filter)), projectDashboardDataset.processInputComparisons, [], hasInputRows);
+  return apiOrFallback(route, () => get<ProcessInputComparison[]>(route, cleanParams(filter), ANALYTICS_REQUEST_CONFIG), projectDashboardDataset.processInputComparisons, [], hasInputRows);
 }
 
 export async function getInputUsageSummary(): Promise<DataResult<InputUsageSummaryResponse>> {
   const route = "/activities/input-usage-summary";
   try {
-    const data = await get<InputUsageSummaryResponse>(route);
+    const data = await get<InputUsageSummaryResponse>(route, undefined, ANALYTICS_REQUEST_CONFIG);
     return apiResult(route, data);
   } catch {
     return missingResult(route, emptyInputUsageSummary, "resource usage API unavailable");
@@ -182,7 +183,7 @@ export async function getCalculationSummary(params: CalculationSummaryParams = {
   const routeWithQuery = queryParts ? `${route}?${queryParts}` : route;
 
   try {
-    const data = await get<CalculationSummaryResponse>(route, Object.keys(cleanedParams).length ? cleanedParams : undefined);
+    const data = await get<CalculationSummaryResponse>(route, Object.keys(cleanedParams).length ? cleanedParams : undefined, ANALYTICS_REQUEST_CONFIG);
     return {
       data,
       source: "api",
@@ -204,14 +205,14 @@ export async function getCalculationSummary(params: CalculationSummaryParams = {
 
 export async function getCaneTypeSummaries(filter?: Partial<ReportFilter>): Promise<DataResult<CaneTypeSummary[]>> {
   const route = "/analytics/cf-cane-types";
-  return apiOrFallback(route, () => get<CaneTypeSummary[]>(route, cleanParams(filter)), projectDashboardDataset.caneTypeSummaries, [], hasCaneRows);
+  return apiOrFallback(route, () => get<CaneTypeSummary[]>(route, cleanParams(filter), ANALYTICS_REQUEST_CONFIG), projectDashboardDataset.caneTypeSummaries, [], hasCaneRows);
 }
 
 export async function getCampCarbonSummaries(filter?: Partial<ReportFilter>): Promise<DataResult<CampCarbonSummary[]>> {
   const route = "/analytics/cf-camps";
   const params = filter?.year ? { year: filter.year } : undefined;
   const routeWithQuery = filter?.year ? `${route}?year=${filter.year}` : route;
-  return apiOrFallback(routeWithQuery, () => get<CampCarbonSummary[]>(route, params), projectDashboardDataset.campSummaries, [], hasCampRows);
+  return apiOrFallback(routeWithQuery, () => get<CampCarbonSummary[]>(route, params, ANALYTICS_REQUEST_CONFIG), projectDashboardDataset.campSummaries, [], hasCampRows);
 }
 
 export async function getCampFieldCarbonDetails(filter?: Partial<ReportFilter>, campId?: number): Promise<DataResult<CampFieldCarbonDetail[]>> {
@@ -222,16 +223,18 @@ export async function getCampFieldCarbonDetails(filter?: Partial<ReportFilter>, 
   const queryParts = Object.entries(params).map(([k, v]) => `${k}=${v}`).join("&");
   const routeWithQuery = queryParts ? `${route}?${queryParts}` : route;
   const demoFallback = campId ? projectDashboardDataset.campFields.filter((field) => field.campId === campId) : projectDashboardDataset.campFields;
-  return apiOrFallback(routeWithQuery, () => get<CampFieldCarbonDetail[]>(route, Object.keys(params).length ? params : undefined), demoFallback, [], hasCampFieldRows);
+  return apiOrFallback(routeWithQuery, () => get<CampFieldCarbonDetail[]>(route, Object.keys(params).length ? params : undefined, ANALYTICS_REQUEST_CONFIG), demoFallback, [], hasCampFieldRows);
 }
 
 export async function getReportSummary(filter: ReportFilter): Promise<ReportSummary> {
   if (USE_ANALYTICS_API) {
     try {
-      const apiReport = await get<ReportSummary>("/analytics/cf-report-summary", cleanParams(filter));
+      const apiReport = await get<ReportSummary>("/analytics/cf-report-summary", cleanParams(filter), ANALYTICS_REQUEST_CONFIG);
       if (hasUsableKpi(apiReport.kpi) || hasSpatialRows(apiReport.spatialNodes ?? [])) return apiReport;
       if (!ALLOW_DEMO_FALLBACK) return emptyReportSummary(filter);
     } catch {
+      const apiReport = await buildReportSummaryFromParts(filter);
+      if (hasUsableKpi(apiReport.kpi) || hasSpatialRows(apiReport.spatialNodes ?? [])) return apiReport;
       if (!ALLOW_DEMO_FALLBACK) return emptyReportSummary(filter);
     }
   } else if (!ALLOW_DEMO_FALLBACK) {
@@ -295,6 +298,46 @@ export async function getReportSummary(filter: ReportFilter): Promise<ReportSumm
       lowProcess,
       topTransport: "ไม่รวมขนส่งในขอบเขต Carbon Analytics ชุดนี้",
       areaSummary: `มีแปลงเข้าร่วมโครงการ ${kpi.fields.toLocaleString()} แปลง รวมพื้นที่ ${kpi.areaRai.toLocaleString()} ไร่`,
+    },
+  };
+}
+
+async function buildReportSummaryFromParts(filter: ReportFilter): Promise<ReportSummary> {
+  const [kpiResult, trendResult, processResult, transportResult, processInputsResult, spatialResult] = await Promise.all([
+    getOverviewKpi(filter),
+    getTrend(filter),
+    getProcessEmissions(filter),
+    getTransportEmissions(filter),
+    getProcessInputComparisons(filter),
+    getCfSpatialNodes(filter),
+  ]);
+  const kpi = kpiResult.data;
+  const process = processResult.data;
+  const transport = transportResult.data;
+  const currentProcessRows = process.filter((item) => !item.isBaseline && item.year === kpi.currentYear);
+  const currentTransportRows = transport.filter((item) => !item.isBaseline && item.year === kpi.currentYear);
+  const topProcess = [...currentProcessRows].sort((a, b) => b.emission - a.emission)[0];
+  const lowProcess = [...currentProcessRows].filter((item) => item.emission > 0).sort((a, b) => a.emission - b.emission)[0];
+  const topTransport = [...currentTransportRows].sort((a, b) => b.emission - a.emission)[0];
+  const root = spatialResult.data.find((node) => node.level === "country") ?? spatialResult.data[0];
+  const diff = kpi.baselineAvgEmission - kpi.currentEmission;
+  const direction = diff >= 0 ? "reduced" : "increased";
+
+  return {
+    generatedAt: new Date().toISOString(),
+    filter,
+    kpi,
+    trend: trendResult.data,
+    process,
+    transport,
+    processInputs: processInputsResult.data,
+    spatialNodes: spatialResult.data,
+    analysis: {
+      headline: `Project year ${kpi.currentYear} ${direction} ${Math.abs(diff).toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e compared with baseline average`,
+      topProcess: topProcess ? `${topProcess.process} (${topProcess.emission.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e)` : "-",
+      lowProcess: lowProcess ? `${lowProcess.process} (${lowProcess.emission.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e)` : "-",
+      topTransport: topTransport ? `${topTransport.process} (${topTransport.emission.toLocaleString(undefined, { maximumFractionDigits: 2 })} tCO2e)` : "-",
+      areaSummary: root ? `${root.name}: ${root.fields.toLocaleString()} fields, ${root.areaRai.toLocaleString(undefined, { maximumFractionDigits: 2 })} rai` : "-",
     },
   };
 }
