@@ -1,6 +1,6 @@
 # Carbon Footprint System Setup Guide
 
-Last updated: 2026-05-30
+Last updated: 2026-06-11
 
 This guide is the step-by-step setup and runbook for the project. For the high-level overview, start with [README.md](README.md).
 
@@ -30,10 +30,10 @@ You can use either Aiven or a local PostgreSQL instance.
 
 1. Open your PostgreSQL service in Aiven.
 2. Copy the service URI.
-3. Import the schema:
+3. Import the repo SQL snapshot:
 
 ```bash
-psql "postgresql://avnadmin:PASSWORD@HOST:PORT/defaultdb?sslmode=require" -f managementDataSystem_forCalculate_1.3_05192026_postgres.sql
+psql "postgresql://avnadmin:PASSWORD@HOST:PORT/defaultdb?sslmode=require" -f managementDataSystem_forCalculate_2.0_06082026_postgres.sql
 ```
 
 4. Set `backend/.env` so `DATABASE_URL` ends with `&schema=public`.
@@ -48,7 +48,7 @@ DATABASE_URL="postgresql://avnadmin:PASSWORD@HOST:PORT/defaultdb?sslmode=require
 
 ```bash
 createdb managementDataSystem_forCalculate
-psql -d managementDataSystem_forCalculate -f managementDataSystem_forCalculate_1.3_05192026_postgres.sql
+psql -d managementDataSystem_forCalculate -f managementDataSystem_forCalculate_2.0_06082026_postgres.sql
 ```
 
 Example local `DATABASE_URL`:
@@ -63,6 +63,7 @@ PowerShell:
 
 ```powershell
 Copy-Item backend/.env.example backend/.env
+Copy-Item frontend/.env.example frontend/.env
 ```
 
 Required backend values:
@@ -74,6 +75,18 @@ NODE_ENV=development
 JWT_SECRET=change-this-secret
 JWT_EXPIRES_IN=7d
 ```
+
+Common frontend values:
+
+```dotenv
+VITE_API_BASE_URL=/api
+VITE_CF_API_URL=
+```
+
+Notes:
+
+- `frontend/src/lib/api.ts` currently reads `VITE_API_BASE_URL`.
+- `VITE_CF_API_URL` is optional and is only used by the benchmark page under Carbon Analytics.
 
 ## Generate Prisma Client
 
@@ -133,7 +146,7 @@ npm run build --workspace=backend
 
 ## Deploy To Production From `main`
 
-This repository can be deployed from the `main` branch without using the dev branch.
+This repository can be deployed from the `main` branch without using a separate dev branch.
 
 Recommended setup:
 
@@ -167,8 +180,7 @@ VITE_CF_API_URL=
 Notes:
 
 - `ALLOWED_ORIGINS` can contain multiple comma-separated domains if needed.
-- `VITE_CF_API_URL` is optional and is only needed for the benchmark page in Carbon Analytics.
-- The benchmark API is not part of this repository, so leaving `VITE_CF_API_URL` empty will keep the main app deployable while that page shows a configuration message.
+- The benchmark API is not part of this repository, so leaving `VITE_CF_API_URL` empty keeps the main app deployable while that page shows a configuration message.
 
 ## Local URLs
 
@@ -188,7 +200,7 @@ Notes:
 
 ### Backend starts but API calls fail
 
-- Confirm the database schema was imported from `managementDataSystem_forCalculate_1.3_05192026_postgres.sql`.
+- Confirm the database schema was imported from `managementDataSystem_forCalculate_2.0_06082026_postgres.sql`.
 - Review known backend data issues in [BUG_LOG.md](BUG_LOG.md).
 
 ### Frontend or backend command is missing
@@ -202,3 +214,4 @@ Notes:
 - Update `GUIDE.md` when setup steps or environment requirements change.
 - Update `COMPONENT_PJ.md` when routes, modules, or shared components move.
 - Update `BUG_LOG.md` when a bug is found, fixed, or re-tested.
+- Update `CONTEXT.md` when a change affects project memory or source-of-truth guidance.

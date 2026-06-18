@@ -10,6 +10,7 @@ import { WeatherModule }         from './modules/weather/weather.module'
 import { EmissionFactorsModule } from './modules/emission-factors/emission-factors.module'
 import { ActivitiesModule }      from './modules/activities/activities.module'
 import { AnalyticsModule }       from './modules/analytics/analytics.module'
+import { CarbonSocModule }       from './modules/carbon-soc/carbon-soc.module'
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { AnalyticsModule }       from './modules/analytics/analytics.module'
     EmissionFactorsModule,
     ActivitiesModule,
     AnalyticsModule,
+    CarbonSocModule,
   ],
 })
 export class AppModule {}

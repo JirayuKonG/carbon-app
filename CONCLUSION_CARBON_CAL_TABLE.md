@@ -1,6 +1,10 @@
 # CONCLUSION_CARBON_CAL_TABLE
 
-เอกสารนี้สรุปจากไฟล์ต้นทาง 6 ไฟล์ที่นำเข้ามาเพื่อใช้เป็นฐานคิดสำหรับทำระบบคำนวณ Carbon Footprint และ Carbon Credit บนเว็บ หลังจากสรุปแล้วระบบไม่ควรผูกกับไฟล์ Excel/PowerPoint เหล่านี้โดยตรง แต่ควรถอดข้อมูลสำคัญออกมาเป็นสูตร, constant, input schema, result schema และฐานข้อมูลที่ตรวจสอบย้อนหลังได้
+Last updated: 2026-06-15
+
+หมายเหตุ: เอกสารนี้เป็น design note สำหรับ logic การคำนวณและโครงสร้างข้อมูล ไม่ใช่สเปก schema ปัจจุบันแบบหนึ่งต่อหนึ่งกับ `backend/src/prisma/schema.prisma`
+
+เอกสารนี้สรุปจากไฟล์ต้นทาง 7 ไฟล์ที่นำเข้ามาเพื่อใช้เป็นฐานคิดสำหรับทำระบบคำนวณ Carbon Footprint และ Carbon Credit บนเว็บ หลังจากสรุปแล้วระบบไม่ควรผูกกับไฟล์ Excel/PowerPoint เหล่านี้โดยตรง แต่ควรถอดข้อมูลสำคัญออกมาเป็นสูตร, constant, input schema, result schema และฐานข้อมูลที่ตรวจสอบย้อนหลังได้
 
 ## 1. ไฟล์ที่นำมาสรุป
 
@@ -10,6 +14,7 @@
 | `2Jun26_คำนวณการปล่อยไนโตรเจนทางตรงและทางอ้อมตามสมการ_2.xlsx` | สูตรคำนวณ N2O จากปุ๋ยทางตรง/ทางอ้อม, baseline/project, RDC/RES, อ้อยปลูก/อ้อยตอ |
 | `2Jun26_ตัวอย่างไฟล์จากไร่บริษัท การใช้ปุ๋ย_Premium_TVER2.xlsx` | รูปแบบ raw data รายแปลง/รายปี/ชนิดอ้อย/สูตรปุ๋ย และการสรุปเป็นกก./ไร่ |
 | `2Jun26_ได้สูตรปุ๋ยจากไร่บริษัท MPIR มาสรุปปริมาณ_2.xlsx` | ตารางสรุปอัตราการใส่ปุ๋ยและปริมาณสัดส่วน N ต่อไร่ของ RDC/RES |
+| `ts_c2919cb957.xlsx` | template คำนวณ Carbon Footprint ของปุ๋ยเคมีแบบ product/activity level โดยแยก `การได้มา` และ `การใช้ปุ๋ย` พร้อม EF ของแม่ปุ๋ยและตัวอย่างค่าผลลัพธ์ต่อ 1 kg ปุ๋ย |
 | `สรุป สมการ SOC_2.pptx` | สมการ SOC ตาม T-VER-P-TOOL-01-12, การแปลง SOM เป็น SOC, การแปลง Ton C/rai เป็น Ton CO2e/rai |
 | `สรุปการคำนวณปริมาณการปล่อยก๊าซไนตรัสออก_2.pptx` | flow Input -> Process -> Output สำหรับ N2O, constant ที่ควรเก็บในระบบ, สูตร FSN/FON/FNfix/Direct/Indirect |
 
@@ -140,6 +145,153 @@ reduction_percent = reduction / baseline_average * 100
 
 ระบบควรเก็บ `scenario` และ `production_year` แยกกัน ไม่ควรเก็บเป็น column แบบ Excel เพราะอนาคตอาจมีปีเพิ่ม
 
+### 3.8 สูตร Carbon Footprint ของปุ๋ยเคมีจาก `ts_c2919cb957.xlsx`
+
+ไฟล์นี้ให้มุมมองอีกแบบหนึ่งจากชุดสูตร N2O เดิม โดยเน้นการคำนวณ `Carbon Footprint ของปุ๋ยเคมีต่อปริมาณปุ๋ยที่ใช้` แบบแยก 2 ส่วน:
+
+1. `การได้มา (upstream / cradle-to-gate ของการผลิตปุ๋ย)`
+2. `การใช้ปุ๋ย (use phase / N2O จากการใส่ปุ๋ย)`
+
+จุดสำคัญคือไฟล์นี้เหมาะเป็น reference สำหรับทำ `product/activity emission calculator` ของปุ๋ยในโปรแกรม ไม่ใช่แทนที่สูตร field-scale N2O แบบละเอียดใน section 3.6 แต่ควรเก็บเป็นอีก formula mode หรืออีก calculation template ที่ชัดเจน
+
+#### 3.8.1 สมมติฐานและ EF แม่ปุ๋ยจากไฟล์
+
+| องค์ประกอบ | EF | หน่วย | ความหมาย |
+|---|---:|---|---|
+| ยูเรีย `as N` | `3.3036` | `kgCO2eq/kg nutrient` | ใช้คำนวณส่วน N ของการผลิตปุ๋ย |
+| DAP `as P2O5` | `1.5716` | `kgCO2eq/kg nutrient` | ใช้คำนวณส่วน P ของการผลิตปุ๋ย |
+| โพแทสเซียมคลอไรด์ `as K2O` | `0.4974` | `kgCO2eq/kg nutrient` | ใช้คำนวณส่วน K ของการผลิตปุ๋ย |
+| Filler | `0` | `kgCO2eq/kg filler` | ไฟล์ตั้งสมมติฐานว่า filler ไม่มี EF |
+
+ข้อสังเกตที่ควรเก็บในโปรแกรม:
+
+- P ในสูตรปุ๋ยตีความเป็น `P2O5`
+- K ในสูตรปุ๋ยตีความเป็น `K2O`
+- สูตรนี้อิง `แม่ปุ๋ยหลักในประเทศไทย` ตามคำอธิบายในชีต `คำอธิบาย`
+- ถ้าภายหลังเปลี่ยนฐานข้อมูล EF ของแม่ปุ๋ย ต้องทำเป็น version ใหม่ ไม่ควร overwrite ของเดิม
+
+#### 3.8.2 สูตรการได้มา (การผลิตปุ๋ย)
+
+ให้คำนวณจากสัดส่วน N-P2O5-K2O-Filler ในปุ๋ยผสม
+
+```text
+fertilizer_upstream_kgco2e =
+  (n_fraction * EF_UREA_AS_N)
+  + (p2o5_fraction * EF_DAP_AS_P2O5)
+  + (k2o_fraction * EF_KCL_AS_K2O)
+  + (filler_fraction * EF_FILLER)
+```
+
+ถ้ามีปริมาณปุ๋ยที่ใช้มากกว่า 1 kg:
+
+```text
+fertilizer_upstream_total_kgco2e = fertilizer_mass_kg * fertilizer_upstream_kgco2e_per_kg
+```
+
+ตัวอย่างจากไฟล์ `15-15-15`, ปริมาณ `1 kg`
+
+```text
+N = 0.15
+P2O5 = 0.15
+K2O = 0.15
+Filler = 0.55
+
+upstream = (0.15 * 3.3036) + (0.15 * 1.5716) + (0.15 * 0.4974) + (0.55 * 0)
+         = 0.8059 kgCO2eq
+```
+
+#### 3.8.3 สูตรการใช้ปุ๋ย (use phase N2O)
+
+ไฟล์นี้ใช้แนวคิดแบบง่ายว่า `N ที่ใส่ลงดิน 1% กลายเป็น N2O-N` แล้วแปลงเป็น `N2O` ด้วยอัตราส่วนโมเลกุล `44/28` จากนั้นคูณ `GWP`
+
+```text
+n_applied_kg = fertilizer_mass_kg * n_fraction
+n2o_kg = n_applied_kg * 0.01 * (44 / 28)
+use_phase_kgco2e = n2o_kg * 298
+```
+
+ถ้าระบบจะเก็บเป็น constant set:
+
+| Key | Value | หมายเหตุ |
+|---|---:|---|
+| `EF_N_TO_N2O_N_SIMPLE` | `0.01` | เทียบเท่า 1% ของ N applied |
+| `MW_RATIO_N2O_N` | `44/28` | แปลง N2O-N เป็น N2O |
+| `GWP_N2O` | `298` | ตามค่าที่ใช้ในไฟล์ |
+
+ตัวอย่างจากไฟล์ `15-15-15`, ปริมาณ `1 kg`
+
+```text
+n_applied_kg = 1 * 0.15 = 0.15 kg N
+n2o_kg = 0.15 * 0.01 * (44/28) = 0.0024 kg N2O
+use_phase_kgco2e = 0.0024 * 298 = 0.7024 kgCO2eq
+```
+
+#### 3.8.4 สูตรรวม Carbon Footprint ของปุ๋ย
+
+```text
+fertilizer_total_kgco2e =
+  fertilizer_upstream_kgco2e
+  + use_phase_kgco2e
+```
+
+ตัวอย่างจากไฟล์ `15-15-15`, ปริมาณ `1 kg`
+
+```text
+total = 0.8059 + 0.7024 = 1.5083 kgCO2eq
+```
+
+#### 3.8.5 ค่าตัวอย่างสูตรปุ๋ยที่ไฟล์ให้มา
+
+| สูตรปุ๋ย | Total GHG | หน่วย |
+|---|---:|---|
+| `15-15-15` | `1.5083` | `kgCO2eq/kg fertilizer` |
+| `16-20-0` | `1.5922` | `kgCO2eq/kg fertilizer` |
+| `13-13-21` | `1.3470` | `kgCO2eq/kg fertilizer` |
+
+ตัวเลขชุดนี้เหมาะใช้เป็น `reference check` หรือ `unit test golden values` ตอน implement โปรแกรม
+
+#### 3.8.6 ข้อเสนอการนำไปใช้ในโปรแกรม
+
+ถ้าจะเอาสูตรจากไฟล์นี้ไปใช้จริงในระบบ ควรแยกเป็น formula ใหม่ ไม่ปนกับสูตร N2O field/project แบบ detailed
+
+เสนอชื่อ formula mode:
+
+```text
+fertilizer_cfp_simple
+```
+
+input ขั้นต่ำ:
+
+| Field | ความหมาย |
+|---|---|
+| `fertilizer_formula_label` | เช่น `15-15-15` |
+| `fertilizer_mass_kg` | ปริมาณปุ๋ยที่ใช้เป็น kg |
+| `n_percent` | %N |
+| `p2o5_percent` | %P2O5 |
+| `k2o_percent` | %K2O |
+| `filler_percent` | %Filler |
+| `constant_set_version` | version ของ EF และ GWP |
+
+output ที่ควรเก็บ:
+
+| Field | ความหมาย |
+|---|---|
+| `upstream_kgco2e` | การได้มาของปุ๋ย |
+| `use_phase_n2o_kg` | N2O จากการใช้ปุ๋ย |
+| `use_phase_kgco2e` | GHG จากการใช้ปุ๋ย |
+| `total_kgco2e` | ผลรวมทั้งหมด |
+| `result_unit` | ควรเป็น `kgCO2e` |
+
+#### 3.8.7 ข้อควรระวังเชิงวิธีวิทยา
+
+สูตรในไฟล์นี้เป็น `simple template` ที่ดีสำหรับเริ่มทำ feature ในโปรแกรม แต่มีข้อจำกัดที่ต้องระบุไว้ชัด
+
+1. มันใช้ค่า `EF = 1%` สำหรับการปล่อย N2O จาก N applied ซึ่งง่ายกว่า model detailed ใน section 3.6 ที่แยก Direct / ATD / Leaching
+2. มันคิดการได้มาของปุ๋ยจากแม่ปุ๋ย 3 ตัวหลักและ filler = 0 ซึ่งเป็น assumption ไม่ใช่ค่าที่ใช้ได้ทุกประเทศหรือทุก supplier
+3. มันเหมาะกับการคำนวณ `CF ของผลิตภัณฑ์ปุ๋ย/กิจกรรมใส่ปุ๋ย` มากกว่า `Carbon Credit baseline-project comparison`
+4. ถ้าจะใช้ในโปรแกรมร่วมกับสูตร N2O detailed ต้องมี field บอก `calculation_method` ชัดเจน เช่น `simple_cfp_template` กับ `ipcc_tver_detailed`
+5. สำหรับการพัฒนา phase ถัดไป ควรมีหน้าเปรียบเทียบผลของ `simple template` กับ `detailed field model` เพื่อไม่ให้ผู้ใช้สับสนว่าค่าทั้งสองชุดตั้งใจใช้คนละบริบท
+
 ## 4. สูตร Fnfix
 
 Fnfix คือปริมาณไนโตรเจนจากพืชตรึงไนโตรเจน ใช้เสริมเข้า Direct N2O
@@ -168,6 +320,15 @@ fnfix_tN_per_rai = dry_matter_ton_per_rai * n_fraction
 ปอเทือง 177 rai:
 fnfix = 177 * 1.296 * 0.0198 = 4.54 tN
 ```
+
+หน่วยมาตรฐานที่ระบบใช้ในหน้า Soil Organic Carbon:
+
+| ค่า | หน่วยมาตรฐาน |
+|---|---|
+| `dry_matter_kg_per_rai` / `mc` | `kg/ไร่` |
+| `n_percent` / `nc` | `%N` |
+| `fnfix_tN` | `tN` |
+| `fnfix_tN_per_rai` | `tN/ไร่` |
 
 ### 4.3 Input ที่ต้องมี
 
@@ -217,9 +378,22 @@ delta_soc_percent = delta_som_percent / 1.724
 
 ```text
 soc_tC_per_rai = soc_percent * bulk_density_g_cm3 * depth_cm * 0.16
-soc_tCO2e_per_rai = soc_tC_per_rai * (44/12)
+soc_tCO2e_per_rai = (soc_tC_per_rai * (44/12)) / 20
 soc_tCO2e_total = soc_tCO2e_per_rai * area_rai
 ```
+
+หมายเหตุ: ถ้าต้องการใช้แนวคิดเฉลี่ยการกักเก็บ/เสื่อมสภาพตลอดช่วงเวลา 20 ปี ให้หาร `20` หลังแปลงจาก `Ton C/rai` เป็น `Ton CO2e/rai` เพื่อให้ผลลัพธ์อยู่ในรูป `tCO2e/rai/ปี` และ `tCO2e/ปี` ระดับทั้งแปลง
+
+หน่วยมาตรฐานที่ระบบใช้ในหน้า Soil Organic Carbon:
+
+| ค่า | หน่วยมาตรฐาน |
+|---|---|
+| `soc_sample_percent` | `%` |
+| `bulk_density_g_cm3` | `g/cm3` |
+| `depth_cm` | `cm` |
+| `soc_tC_per_rai` | `Ton C/ไร่` |
+| `soc_tCO2e_per_rai` | `tCO2e/ไร่/ปี` |
+| `soc_tCO2e_total` | `tCO2e/ปี` |
 
 ตัวอย่างจากไฟล์
 
@@ -986,4 +1160,217 @@ emission_reduction = baseline_average_tCO2e - project_tCO2e
 หลัง implement ให้รัน:
 - backend: npm run build
 - frontend: npm run build
+```
+
+## 19. สถานะฐานข้อมูลจริงและ Prisma ล่าสุด ณ 2026-06-15
+
+ส่วนนี้เพิ่มไว้เพื่อช่วย agent หรือคนที่มาทำงานต่อให้แยกให้ออกระหว่าง:
+
+1. สิ่งที่เอกสารนี้ “เสนอให้ระบบควรมี”
+2. สิ่งที่ฐานข้อมูลจริง “มีแล้วใน snapshot ล่าสุด”
+3. สิ่งที่ Prisma “รองรับแล้วแต่ logic ยังไม่ได้ implement”
+
+### 19.1 Snapshot ที่ใช้อ้างอิงล่าสุด
+
+ฐานข้อมูล snapshot ล่าสุดที่ถูกนำมาเทียบกับโปรเจกต์คือ:
+
+```text
+managementDataSystem_forCalculate_3.0_06152026_postgres.sql
+```
+
+และ Prisma ในโปรเจกต์ถูกปรับตาม snapshot นี้แล้วที่:
+
+```text
+backend/src/prisma/schema.prisma
+```
+
+หมายความว่า ถ้างานถัดไปต้องอ้างอิงโครงสร้าง table จริง ควรดู `schema.prisma` คู่กับ snapshot `3.0_06152026` ไม่ควรอ้างอิง snapshot เก่าตัวเดียว
+
+### 19.2 สิ่งที่ฐานข้อมูลจริงมีเพิ่มแล้ว
+
+จาก snapshot ล่าสุด ฐานข้อมูลจริงมีโครงสร้างที่เกี่ยวกับงาน carbon เพิ่มขึ้นแล้วบางส่วน แม้หน้าเว็บและ service หลายตัวจะยังไม่ได้ใช้จริงครบทุก table
+
+#### 19.2.1 เทียบกับ snapshot ก่อนหน้าแบบสั้น
+
+เมื่อเทียบกับ snapshot เดิมในโปรเจกต์ (`managementDataSystem_forCalculate_2.0_06082026_postgres.sql`) รอบ `3.0_06152026`:
+
+- ไม่มีการลบ table เดิมออก
+- มีการเพิ่ม table ใหม่ 4 ตัว
+- มีการเพิ่ม foreign key / column สำคัญใน table เดิมบางตัว
+- direction ของ schema ชัดเจนขึ้นว่าเริ่มแยก `Carbon Credit / SOC / Fnfix / Production Year / Camp Group` ออกจาก flow activity เดิม
+
+| สิ่งที่มีในฐานข้อมูลจริง | ความหมายเชิงงาน |
+|---|---|
+| `activities_productYear` | มี master ปีการผลิตจริงใน DB แล้ว |
+| `log_activities_detail.act_productYear_id` | activity detail สามารถผูกกับปีการผลิตได้ตรงขึ้น |
+| `lands_camps_groups` | เริ่มมีโครงสร้าง group ของ camp |
+| `lands_camps.land_camp_group_id` | camp สามารถผูกเข้ากลุ่ม camp ได้ |
+| `carbon_soc` | มี table สำหรับข้อมูล SOC จริงระดับ DB แล้ว |
+| `carbon_soilImprovementPlants` | มี table สำหรับข้อมูลพืชปรับปรุงดิน/Fnfix จริงระดับ DB แล้ว |
+| `carbon_process_queue_resultValueCreditCalc` และ unit ของมัน | queue เริ่มแยกพื้นที่เก็บผลด้าน Carbon Credit ออกจาก result เดิมได้ |
+
+#### 19.2.2 รายละเอียดของ table/column ใหม่ที่ควรรู้
+
+1. `activities_productYear`
+
+ใช้เป็น master ปีการผลิตโดยตรง แทนการเดาปีจากชื่อหรือการเก็บแบบกระจาย
+
+field สำคัญ:
+- `act_productYear_id`
+- `act_productYear_name`
+- `act_productYear_info`
+- `act_productyear_create_at`
+- `act_productYear_update_at`
+- `act_productYear_update_uid`
+
+ผลเชิงระบบ:
+- งาน baseline/project และงานสรุปตามปีการผลิตเริ่มมีฐานข้อมูลรองรับชัดขึ้น
+- งาน activity import / summary / comparison ในอนาคตควรพยายาม map เข้าฟิลด์นี้แทนการเก็บปีแบบ free text
+
+2. `log_activities_detail.act_productYear_id`
+
+เป็นการต่อ relation จาก activity detail ไปยัง master ปีการผลิต
+
+ผลเชิงระบบ:
+- row ของ activity สามารถจัดกลุ่มตาม production year ได้ตรงขึ้น
+- เหมาะกับการเอาไปใช้ใน summary page, queue grouping และ baseline/project logic
+
+3. `lands_camps_groups` และ `lands_camps.land_camp_group_id`
+
+เป็นจุดเริ่มต้นของการมี “กลุ่ม camp” อย่างเป็นทางการในฐานข้อมูล
+
+field หลักของ group:
+- `land_camp_group_id`
+- `land_camp_group_idCode`
+- `land_camp_group_name`
+- `land_camp_group_update_at`
+
+ผลเชิงระบบ:
+- ในอนาคตสามารถทำ report หรือ comparison ระดับกลุ่ม camp ได้
+- ถ้าจะทำ dashboard, filter หรือ summary ตาม cluster ของพื้นที่ จุดนี้เป็นฐานที่ดี
+
+4. `carbon_soc`
+
+table นี้เป็นฐานเริ่มต้นของข้อมูล SOC ใน DB จริง
+
+field สำคัญที่มีแล้ว:
+- `land_id`
+- `carbon_soc_socSampleIT`
+- `carbon_soc_bdSampleIt`
+- `carbon_soc_depSampleIT`
+- `carbon_soc_socIT`
+- `carbon_soc_numLandSample`
+- `carbon_soc_numSample`
+- `carbon_soc_yearBeginPro`
+- unit fields ที่ผูกกับ `units`
+
+ผลเชิงระบบ:
+- DB เริ่มรองรับการเก็บค่า SOC, bulk density, depth, sample count และค่าที่เกี่ยวข้องจริง
+- แต่โครงสร้างนี้ยังเป็น “input/storage layer” มากกว่า “calculation audit layer”
+- ยังไม่มี sample event / before-after pair / formula snapshot / verification flow แบบเต็มตาม design ideal
+
+5. `carbon_soilImprovementPlants`
+
+table นี้เป็นฐานเริ่มต้นของข้อมูลพืชปรับปรุงดินและ Fnfix ใน DB จริง
+
+field สำคัญที่มีแล้ว:
+- `land_id`
+- `carbon_soilImprovementPlant_mc`
+- `carbon_soilImprovementPlant_nc`
+- `carbon_soilImprovementPlant_fnFix`
+- `unit_mc`
+- `unit_nc`
+- `unit_fnFix`
+- `act_resourceOther_id`
+
+ผลเชิงระบบ:
+- เริ่มมีที่เก็บ input สำคัญของ Fnfix เช่น biomass / N content / fnfix result
+- มีความเชื่อมกับ `activities_resourceOther` ซึ่งอาจใช้แทนชนิดพืชหรือ resource master ได้บางกรณี
+- แต่ยังไม่ได้แยก methodology, factor version หรือ detailed breakdown ตามสูตรใน design note
+
+6. `carbon_process_queue_resultValueCreditCalc` และหน่วยของมัน
+
+queue เดิมไม่ได้เก็บพื้นที่ผลลัพธ์ Carbon Credit แยกชัดจาก result หลัก แต่ snapshot ใหม่นี้เพิ่มแล้ว
+
+field ใหม่:
+- `carbon_process_queue_resultValueCreditCalc`
+- `unit_prefix_id_resultValueCreditCalc`
+- `unit_id_resultValueCreditCalc`
+
+ผลเชิงระบบ:
+- ในอนาคต queue row เดียวกันอาจเก็บได้ทั้งค่าฝั่ง Carbon Footprint และค่าฝั่ง Credit/Removal
+- ช่วยลดแรงกดดันที่จะต้องรีบสร้าง table ผลลัพธ์ใหม่ทันทีสำหรับทุกกรณี
+- แต่ถ้าจะทำ audit จริงจัง ยังควรมี result tables แยกใน phase ถัดไป
+
+### 19.3 สิ่งที่ Prisma รองรับแล้วหลังการ sync รอบนี้
+
+Prisma ถูกอัปเดตให้รองรับโครงสร้างด้านบนแล้ว เพื่อให้ agent ถัดไปสามารถเริ่มเขียน service/controller/query ได้โดยไม่ต้อง sync schema ซ้ำก่อน
+
+รายการสำคัญที่พร้อมใช้แล้วใน Prisma:
+
+- model `activities_productYear`
+- model `lands_camps_groups`
+- model `carbon_soc`
+- model `carbon_soilImprovementPlants`
+- field `act_productYear_id` ใน `log_activities_detail`
+- field `land_camp_group_id` ใน `lands_camps`
+- field กลุ่ม `resultValueCreditCalc` ใน `carbon_process_queue`
+- relation หลายจุดที่ผูก `units` และ `units_prefixs` สำหรับผลลัพธ์ Carbon Credit และข้อมูล SOC/Fnfix
+
+### 19.4 ข้อสำคัญ: มี table แล้ว ไม่ได้แปลว่า flow ใช้งานจริงครบแล้ว
+
+แม้ DB และ Prisma จะพร้อมขึ้น แต่ ณ ตอนนี้ logic ฝั่งแอปยังอยู่ประมาณนี้:
+
+| ส่วนงาน | สถานะ |
+|---|---|
+| `generic_ef` | ใช้งานได้แล้ว |
+| `fertilizer_n2o` / fertilizer CFP simple | ใช้งานได้แล้วบาง flow |
+| `fnfix_group` | ยังเป็นแผน/ยังไม่คำนวณจริง |
+| `soc_removal` | ยังเป็นแผน/ยังไม่คำนวณจริง |
+| `carbon_soc` table | มีใน DB/Prisma แล้ว แต่ยังไม่ได้ทำ service + UI flow จริง |
+| `carbon_soilImprovementPlants` table | มีใน DB/Prisma แล้ว แต่ยังไม่ได้ทำ service + UI flow จริง |
+
+ดังนั้น agent ถัดไปไม่ควรสรุปว่า “SOC ทำเสร็จแล้ว” หรือ “Fnfix ใช้งานได้แล้ว” เพียงเพราะเห็น table ใน schema
+
+### 19.5 การ map ระหว่าง design note นี้กับ table จริง
+
+เอกสารนี้เคยเสนอ table เชิง ideal เช่น:
+
+- `soil_sample_events`
+- `soil_sample_measurements`
+- `soc_calculation_results`
+- `nitrogen_fixation_records`
+- `carbon_calculation_runs`
+- `carbon_calculation_audit_logs`
+
+แต่ในฐานข้อมูลจริงล่าสุด ยังไม่ได้ออกมาในชื่อนี้ตรง ๆ ทั้งหมด
+
+สำหรับงานต่อจากนี้ให้ตีความแบบ practical ดังนี้:
+
+| แนวคิดในเอกสาร | table จริงที่อาจใช้เป็นฐานเริ่มต้น |
+|---|---|
+| SOC sample / SOC input | `carbon_soc` |
+| Soil improvement / nitrogen fixation input | `carbon_soilImprovementPlants` |
+| Production year | `activities_productYear` + `log_activities_detail.act_productYear_id` |
+| Credit result บางส่วน | `carbon_process_queue_resultValueCreditCalc` และ unit fields |
+
+แต่ถ้าจะทำ audit trail, sample event, formula snapshot, run history แบบครบตาม design จริง อาจยังต้องเพิ่ม table ใหม่ในระยะถัดไป
+
+### 19.6 คำแนะนำสำหรับ agent ที่มาทำต่อ
+
+ถ้าจะทำงานต่อในส่วน SOC / Fnfix / Carbon Credit ให้เริ่มตรวจ 4 จุดนี้ก่อน:
+
+1. อ่าน `backend/src/prisma/schema.prisma` ก่อนทุกครั้ง เพื่อดูโครงสร้างจริงล่าสุด
+2. แยกว่า task นั้นจะใช้ table ที่มีอยู่แล้ว (`carbon_soc`, `carbon_soilImprovementPlants`) หรือจะออกแบบ table audit/result เพิ่ม
+3. อย่าสรุปจากเอกสารนี้อย่างเดียวว่า schema ต้องเป็นแบบ ideal table names ใน section 7
+4. ถ้าทำ logic ใหม่ให้ระบุชัดว่าเป็น:
+   - ใช้ table จริงที่มีอยู่แล้ว
+   - หรือเพิ่ม phase ใหม่สำหรับ table audit/result ที่ยังไม่มี
+
+### 19.7 สรุปสั้นสำหรับการส่งต่องาน
+
+```text
+ตอนนี้ DB snapshot 3.0 และ Prisma พร้อมสำหรับเริ่มงาน SOC/Fnfix/Credit มากขึ้นแล้ว
+แต่ปัจจุบันพร้อมในระดับ schema/ORM เป็นหลัก
+ยังไม่พร้อมในระดับ service + endpoint + frontend workflow + audit flow แบบครบวงจร
 ```

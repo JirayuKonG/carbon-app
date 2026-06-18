@@ -38,13 +38,14 @@ export class ActivitiesController {
   @Get('details')
   @ApiQuery({ name: 'header_id', required: false, type: Number })
   getDetails(@Query('header_id') hid?: string) { return this.svc.getDetails(hid ? +hid : undefined) }
+  @Get('input-usage-summary') getInputUsageSummary() { return this.svc.getInputUsageSummary() }
   @Post('details') createDetail(@Body() b: any) { return this.svc.createDetail(b) }
   @Post('details/workflow-status/bulk')
-  moveDetailsToWorkflowStatusBulk(@Body() b: { ids: number[]; statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' }) {
+  moveDetailsToWorkflowStatusBulk(@Body() b: { ids: number[]; statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณ' }) {
     return this.svc.moveDetailsToWorkflowStatus(b.ids, b.statusName)
   }
   @Post('details/manual-status/bulk')
-  moveDetailsToManualStatusBulk(@Body() b: { ids: number[]; statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' | 'คำนวณแล้ว(มาตรฐาน)' }) {
+  moveDetailsToManualStatusBulk(@Body() b: { ids: number[]; statusName: 'นำเข้าข้อมูลแล้ว' | 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณ' | 'คำนวณแล้ว(CFP)' | 'คำนวณแล้ว(C-credit)' | 'คำนวณแล้ว(CFP,C-credit)' }) {
     return this.svc.moveDetailsToManualStatus(b.ids, b.statusName)
   }
   @Post('details/calculate/bulk')
@@ -54,14 +55,14 @@ export class ActivitiesController {
   @Post('details/:id/workflow-status')
   moveDetailToWorkflowStatus(
     @Param('id', ParseIntPipe) id: number,
-    @Body() b: { statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' },
+    @Body() b: { statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณ' },
   ) {
     return this.svc.moveDetailToWorkflowStatus(id, b.statusName)
   }
   @Post('details/:id/manual-status')
   moveDetailToManualStatus(
     @Param('id', ParseIntPipe) id: number,
-    @Body() b: { statusName: 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณมาตรฐาน' | 'คำนวณแล้ว(มาตรฐาน)' },
+    @Body() b: { statusName: 'นำเข้าข้อมูลแล้ว' | 'กำลังเตรียมข้อมูล' | 'พร้อมคำนวณ' | 'คำนวณแล้ว(CFP)' | 'คำนวณแล้ว(C-credit)' | 'คำนวณแล้ว(CFP,C-credit)' },
   ) {
     return this.svc.moveDetailToManualStatus(id, b.statusName)
   }
@@ -75,6 +76,28 @@ export class ActivitiesController {
   @Put('details/:id') updateDetail(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateDetail(id, b) }
   @Delete('details/:id') deleteDetail(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteDetail(id) }
 
+  // Carbon Credit calculation workflow
+  @Get('carbon-credit/workspace')
+  getCarbonCreditWorkspace(
+    @Query('years') years?: string,
+    @Query('scope') scope?: string,
+    @Query('campGroupId') campGroupId?: string,
+    @Query('campId') campId?: string,
+    @Query('landId') landId?: string,
+  ) {
+    return this.svc.getCarbonCreditWorkspace({ years, scope, campGroupId, campId, landId })
+  }
+
+  @Post('carbon-credit/preview')
+  previewCarbonCreditCalculation(@Body() body: any) {
+    return this.svc.previewCarbonCreditCalculation(body)
+  }
+
+  @Post('carbon-credit/calculate')
+  calculateCarbonCredit(@Body() body: any) {
+    return this.svc.calculateCarbonCredit(body)
+  }
+
   // Carbon process queue
   @Get('carbon-process-queue')
   getCarbonProcessQueue() {
@@ -87,8 +110,22 @@ export class ActivitiesController {
   }
 
   @Post('carbon-process-queue/:id/calculate')
-  calculateCarbonProcessQueueItem(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.calculateCarbonProcessQueueItem(id)
+  calculateCarbonProcessQueueItem(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() b: {
+      resultUnitId?: number
+      selectedEfId?: number
+      organicFertilizerMode?: 'manual_formula' | 'generic_ef' | 'skip_error'
+      fertilizerUreaEfId?: number
+      fertilizerDapEfId?: number
+      fertilizerKclEfId?: number
+      fertilizerGwpId?: number
+      manualFertilizerNPercent?: number
+      manualFertilizerP2O5Percent?: number
+      manualFertilizerK2OPercent?: number
+    },
+  ) {
+    return this.svc.calculateCarbonProcessQueueItem(id, b)
   }
 
   @Put('carbon-process-queue/:id/preparation')
@@ -102,7 +139,13 @@ export class ActivitiesController {
 
   // Reference lists
   @Get('header-types')    getHeaderTypes()   { return this.svc.getHeaderTypes() }
+  @Post('header-types')   createHeaderType(@Body() b: any) { return this.svc.createHeaderType(b) }
+  @Put('header-types/:id') updateHeaderType(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateHeaderType(id, b) }
+  @Delete('header-types/:id') deleteHeaderType(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteHeaderType(id) }
   @Get('detail-types')    getDetailTypes(@Query('header_type_id') htid?: string) { return this.svc.getDetailTypes(htid ? +htid : undefined) }
+  @Post('detail-types')   createDetailType(@Body() b: any) { return this.svc.createDetailType(b) }
+  @Put('detail-types/:id') updateDetailType(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateDetailType(id, b) }
+  @Delete('detail-types/:id') deleteDetailType(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteDetailType(id) }
   @Get('resource-types')  getResourceTypes() { return this.svc.getResourceTypes() }
   @Post('resource-types') createResourceType(@Body() b: any) { return this.svc.createResourceType(b) }
   @Put('resource-types/:id') updateResourceType(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateResourceType(id, b) }
@@ -116,10 +159,17 @@ export class ActivitiesController {
   @Put('equipments/:id')  updateEquipment(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateEquipment(id, b) }
   @Delete('equipments/:id') deleteEquipment(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteEquipment(id) }
   @Get('chemicals')       getChemicals()     { return this.svc.getChemicals() }
+  @Post('chemicals')      createChemical(@Body() b: any) { return this.svc.createChemical(b) }
+  @Put('chemicals/:id')   updateChemical(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateChemical(id, b) }
+  @Delete('chemicals/:id') deleteChemical(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteChemical(id) }
   @Get('resource-others') getResourceOthers(){ return this.svc.getResourceOthers() }
   @Post('resource-others') createResourceOther(@Body() b: any) { return this.svc.createResourceOther(b) }
   @Put('resource-others/:id') updateResourceOther(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateResourceOther(id, b) }
   @Delete('resource-others/:id') deleteResourceOther(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteResourceOther(id) }
+  @Get('product-years') getProductYears(){ return this.svc.getProductYears() }
+  @Post('product-years') createProductYear(@Body() b: any) { return this.svc.createProductYear(b) }
+  @Put('product-years/:id') updateProductYear(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateProductYear(id, b) }
+  @Delete('product-years/:id') deleteProductYear(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteProductYear(id) }
   @Get('sugarcane-types') getSugarCaneTypes(){ return this.svc.getSugarCaneTypes() }
   @Get('land-types')      getLandTypes()     { return this.svc.getLandTypes() }
   @Get('cal-statuses')    getCalStatuses()   { return this.svc.getCalStatuses() }

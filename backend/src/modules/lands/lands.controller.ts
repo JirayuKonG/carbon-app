@@ -18,8 +18,15 @@ export class LandsController {
   // camps
   @Get('camps')              getCamps()                                          { return this.svc.getCamps() }
   @Post('camps')             createCamp(@Body() b: any)                         { return this.svc.createCamp(b) }
+  @Put('camps/bulk-group')   bulkUpdateCampGroup(@Body() b: any)                { return this.svc.bulkUpdateCampGroup(b) }
   @Put('camps/:id')          updateCamp(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateCamp(id, b) }
   @Delete('camps/:id')       deleteCamp(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteCamp(id) }
+
+  // camp groups
+  @Get('camp-groups')        getCampGroups()                                     { return this.svc.getCampGroups() }
+  @Post('camp-groups')       createCampGroup(@Body() b: any)                    { return this.svc.createCampGroup(b) }
+  @Put('camp-groups/:id')    updateCampGroup(@Param('id', ParseIntPipe) id: number, @Body() b: any) { return this.svc.updateCampGroup(id, b) }
+  @Delete('camp-groups/:id') deleteCampGroup(@Param('id', ParseIntPipe) id: number) { return this.svc.deleteCampGroup(id) }
 
   // landmaps
   @Get('landmaps')           getLandmaps()               { return this.svc.getLandmaps() }
@@ -39,6 +46,11 @@ export class LandsController {
   @ApiQuery({ name: 'landmap_id', required: false, type: Number })
   getMappings(@Query('land_id') lid?: string, @Query('landmap_id') mid?: string) {
     return this.svc.getMappings(lid ? +lid : undefined, mid ? +mid : undefined)
+  }
+
+  @Put('bulk/subdistrict')
+  bulkUpdateLandSubdistrict(@Body() b: any) {
+    return this.svc.bulkUpdateLandSubdistrict(b)
   }
 
   @Get(':id')    getLandById(@Param('id', ParseIntPipe) id: number)  { return this.svc.getLandById(id) }

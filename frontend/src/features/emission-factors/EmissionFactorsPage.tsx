@@ -2,10 +2,10 @@ import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
-import { Column, DataTable } from '@/components/ui/DataTable'
+import { Column, DataTable, ExpandableTextCell } from '@/components/ui/DataTable'
 import { formatBangkokDateTime } from '@/lib/datetime'
 import { del, get, post, put } from '@/lib/api'
-import { FlaskConical, Pencil, Plus, Trash2 } from 'lucide-react'
+import { FlaskConical, Heart, Pencil, Plus, Trash2 } from 'lucide-react'
 
 interface Ef {
   coefficient_emission_factor_id: number
@@ -85,7 +85,9 @@ interface UnitPrefix {
   unit_prefix_value?: number | null
 }
 
-type TabKey = 'ef' | 'gwp' | 'cf-types' | 'groups' | 'units'
+type TabKey = 'ef' | 'gwp' | 'cf-types' | 'groups' | 'units' | 'favorites'
+type FavoriteKind = 'ef' | 'gwp' | 'unit'
+type FavoriteStore = Record<FavoriteKind, number[]>
 type DeleteTarget =
   | { type: 'ef'; id: number; name: string }
   | { type: 'gwp'; id: number; name: string }
@@ -94,14 +96,52 @@ type DeleteTarget =
   | { type: 'unit'; id: number; name: string }
   | { type: 'unit-prefix'; id: number; name: string }
 
+const FAVORITE_STORAGE_KEY = 'carbon-app:emission-factors-favorites:v1'
+const EMPTY_FAVORITES: FavoriteStore = { ef: [], gwp: [], unit: [] }
+
 function formatText(value?: string | null) {
   const text = value?.trim()
   return text ? text : '—'
 }
 
+function expandableText(value?: string | null, title?: string) {
+  return <ExpandableTextCell text={value} title={title} />
+}
+
 function formatNumber(value?: number | null) {
   if (value == null || Number.isNaN(value)) return '—'
   return value.toLocaleString('en-US', { maximumFractionDigits: 6 })
+}
+
+function sanitizeFavoriteIds(value: unknown) {
+  if (!Array.isArray(value)) return []
+
+  const seen = new Set<number>()
+  const ids: number[] = []
+
+  value.forEach((item) => {
+    const parsed = Number(item)
+    if (!Number.isInteger(parsed) || parsed <= 0 || seen.has(parsed)) return
+    seen.add(parsed)
+    ids.push(parsed)
+  })
+
+  return ids
+}
+
+function parseFavoriteStore(rawValue: string | null): FavoriteStore {
+  if (!rawValue) return { ...EMPTY_FAVORITES }
+
+  try {
+    const parsed = JSON.parse(rawValue) as Partial<Record<FavoriteKind, unknown>>
+    return {
+      ef: sanitizeFavoriteIds(parsed?.ef),
+      gwp: sanitizeFavoriteIds(parsed?.gwp),
+      unit: sanitizeFavoriteIds(parsed?.unit),
+    }
+  } catch {
+    return { ...EMPTY_FAVORITES }
+  }
 }
 
 function toOptionalNumber(value: FormDataEntryValue | null) {
@@ -137,6 +177,54 @@ function efText(value: React.ReactNode, className: string) {
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return <label className="label">{children}</label>
+}
+
+function FavoriteToggleButton({
+  active,
+  onToggle,
+  label,
+}: {
+  active: boolean
+  onToggle: () => void
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={active}
+      title={label}
+      className={`inline-flex items-center justify-center rounded-full border p-2 transition ${
+        active
+          ? 'border-rose-200 bg-rose-50 text-rose-600'
+          : 'border-surface-200 bg-white text-surface-400 hover:border-rose-200 hover:text-rose-500'
+      }`}
+      onClick={(event) => {
+        event.stopPropagation()
+        onToggle()
+      }}
+    >
+      <Heart size={14} className={active ? 'fill-current' : ''} />
+    </button>
+  )
+}
+
+function FavoriteSummaryCard({
+  title,
+  count,
+  description,
+}: {
+  title: string
+  count: number
+  description: string
+}) {
+  return (
+    <div className="rounded-2xl border border-surface-200 bg-white p-4 shadow-sm">
+      <p className="text-xs font-medium uppercase tracking-[0.12em] text-surface-500">{title}</p>
+      <p className="mt-2 text-2xl font-semibold text-surface-900">{count.toLocaleString('en-US')}</p>
+      <p className="mt-1 text-xs text-surface-500">{description}</p>
+    </div>
+  )
 }
 
 function ModalShell({
@@ -252,6 +340,10 @@ function EmissionMetricCard({
 export function EmissionFactorsPage() {
   const qc = useQueryClient()
   const [tab, setTab] = useState<TabKey>('ef')
+  const [favorites, setFavorites] = useState<FavoriteStore>(() => {
+    if (typeof window === 'undefined') return { ...EMPTY_FAVORITES }
+    return parseFavoriteStore(window.localStorage.getItem(FAVORITE_STORAGE_KEY))
+  })
 
   const [showEfModal, setShowEfModal] = useState(false)
   const [showGwpModal, setShowGwpModal] = useState(false)
@@ -272,6 +364,9 @@ export function EmissionFactorsPage() {
   const [efFilterCfTypeId, setEfFilterCfTypeId] = useState('')
   const [efFilterGroupId, setEfFilterGroupId] = useState('')
   const [efFilterUnitId, setEfFilterUnitId] = useState('')
+  const [showFavoriteEfsOnly, setShowFavoriteEfsOnly] = useState(false)
+  const [showFavoriteGwpsOnly, setShowFavoriteGwpsOnly] = useState(false)
+  const [showFavoriteUnitsOnly, setShowFavoriteUnitsOnly] = useState(false)
 
   const { data: efs = [], isLoading: efLoad, error: efsError } = useQuery({
     queryKey: ['efs'],
@@ -366,6 +461,72 @@ export function EmissionFactorsPage() {
       && (!efFilterUnitId || item.unit_id === Number(efFilterUnitId))
     )
   ), [efs, efFilterCfTypeId, efFilterGroupId, efFilterUnitId])
+
+  const favoriteIdSets = useMemo(() => ({
+    ef: new Set(favorites.ef),
+    gwp: new Set(favorites.gwp),
+    unit: new Set(favorites.unit),
+  }), [favorites])
+
+  const favoriteEfRows = useMemo(
+    () => efs.filter((item) => favoriteIdSets.ef.has(item.coefficient_emission_factor_id)),
+    [efs, favoriteIdSets],
+  )
+
+  const favoriteGwpRows = useMemo(
+    () => gwps.filter((item) => favoriteIdSets.gwp.has(item.coefficients_emissions_factors_gwp_id)),
+    [gwps, favoriteIdSets],
+  )
+
+  const favoriteUnitRows = useMemo(
+    () => units.filter((item) => favoriteIdSets.unit.has(item.unit_id)),
+    [units, favoriteIdSets],
+  )
+
+  const visibleEfs = useMemo(
+    () => (showFavoriteEfsOnly
+      ? filteredEfs.filter((item) => favoriteIdSets.ef.has(item.coefficient_emission_factor_id))
+      : filteredEfs),
+    [favoriteIdSets, filteredEfs, showFavoriteEfsOnly],
+  )
+
+  const visibleGwps = useMemo(
+    () => (showFavoriteGwpsOnly
+      ? gwps.filter((item) => favoriteIdSets.gwp.has(item.coefficients_emissions_factors_gwp_id))
+      : gwps),
+    [favoriteIdSets, gwps, showFavoriteGwpsOnly],
+  )
+
+  const visibleUnits = useMemo(
+    () => (showFavoriteUnitsOnly
+      ? units.filter((item) => favoriteIdSets.unit.has(item.unit_id))
+      : units),
+    [favoriteIdSets, showFavoriteUnitsOnly, units],
+  )
+
+  const favoriteTotalCount = favoriteEfRows.length + favoriteGwpRows.length + favoriteUnitRows.length
+
+  const toggleFavorite = (kind: FavoriteKind, id: number) => {
+    setFavorites((prev) => {
+      const items = prev[kind]
+      const hasId = items.includes(id)
+      return {
+        ...prev,
+        [kind]: hasId ? items.filter((item) => item !== id) : [id, ...items],
+      }
+    })
+  }
+
+  const isFavorite = (kind: FavoriteKind, id: number) => favoriteIdSets[kind].has(id)
+
+  const efFavoriteLabel = (row: Ef) => row.coef_em_factor_name?.trim() || row.coef_em_factor_idCode?.trim() || `EF #${row.coefficient_emission_factor_id}`
+  const gwpFavoriteLabel = (row: Gwp) => row.coef_em_factor_gwp_name?.trim() || row.coef_em_factor_gwp_name_en?.trim() || `GWP #${row.coefficients_emissions_factors_gwp_id}`
+  const unitFavoriteLabel = (row: Unit) => row.unit_name?.trim() || row.unit_initial?.trim() || `Unit #${row.unit_id}`
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(FAVORITE_STORAGE_KEY, JSON.stringify(favorites))
+  }, [favorites])
 
   useEffect(() => {
     if (!showEfModal) return
@@ -492,6 +653,7 @@ export function EmissionFactorsPage() {
   })
 
   const openCreateModal = () => {
+    if (tab === 'favorites') return
     if (tab === 'ef') {
       setEditingEf(null)
       setEfFormCfTypeId('')
@@ -533,6 +695,19 @@ export function EmissionFactorsPage() {
   )
 
   const efCols: Column<Ef>[] = [
+    {
+      key: 'favorite',
+      header: 'ถูกใจ',
+      width: '76px',
+      minWidth: '76px',
+      render: (row) => (
+        <FavoriteToggleButton
+          active={isFavorite('ef', row.coefficient_emission_factor_id)}
+          onToggle={() => toggleFavorite('ef', row.coefficient_emission_factor_id)}
+          label={`${isFavorite('ef', row.coefficient_emission_factor_id) ? 'เลิกถูกใจ' : 'ถูกใจ'} ${efFavoriteLabel(row)}`}
+        />
+      ),
+    },
     { key: 'coef_em_factor_idCode', header: 'รหัส EF', sortable: true, render: (row) => formatText(row.coef_em_factor_idCode) },
     {
       key: 'carbonfootprint_type_id',
@@ -550,9 +725,20 @@ export function EmissionFactorsPage() {
       key: 'coef_em_factor_name',
       header: efHeaderChip('ชื่อ EF', 'bg-fuchsia-100 text-fuchsia-800 ring-1 ring-fuchsia-200'),
       sortable: true,
-      render: (row) => efText(formatText(row.coef_em_factor_name), 'font-medium text-fuchsia-800'),
+      width: '240px',
+      minWidth: '180px',
+      resizable: true,
+      render: (row) => <div className="font-medium text-fuchsia-800"><ExpandableTextCell text={row.coef_em_factor_name} title="ชื่อ EF" previewChars={72} /></div>,
     },
-    { key: 'coef_em_factor_info', header: 'รายละเอียด', sortable: true, render: (row) => formatText(row.coef_em_factor_info) },
+    {
+      key: 'coef_em_factor_info',
+      header: 'รายละเอียด',
+      sortable: true,
+      width: '300px',
+      minWidth: '220px',
+      resizable: true,
+      render: (row) => expandableText(row.coef_em_factor_info, 'รายละเอียด EF'),
+    },
     {
       key: 'unit_prefix_id',
       header: efHeaderChip('Prefix ตั้งต้น', 'bg-amber-100 text-amber-800 ring-1 ring-amber-200'),
@@ -663,10 +849,23 @@ export function EmissionFactorsPage() {
   ]
 
   const gwpCols: Column<Gwp>[] = [
-    { key: 'coef_em_factor_gwp_name', header: 'ชื่อ GWP', sortable: true, render: (row) => formatText(row.coef_em_factor_gwp_name) },
-    { key: 'coef_em_factor_gwp_name_en', header: 'Name (EN)', sortable: true, render: (row) => formatText(row.coef_em_factor_gwp_name_en) },
+    {
+      key: 'favorite',
+      header: 'ถูกใจ',
+      width: '76px',
+      minWidth: '76px',
+      render: (row) => (
+        <FavoriteToggleButton
+          active={isFavorite('gwp', row.coefficients_emissions_factors_gwp_id)}
+          onToggle={() => toggleFavorite('gwp', row.coefficients_emissions_factors_gwp_id)}
+          label={`${isFavorite('gwp', row.coefficients_emissions_factors_gwp_id) ? 'เลิกถูกใจ' : 'ถูกใจ'} ${gwpFavoriteLabel(row)}`}
+        />
+      ),
+    },
+    { key: 'coef_em_factor_gwp_name', header: 'ชื่อ GWP', sortable: true, width: '220px', minWidth: '180px', resizable: true, render: (row) => expandableText(row.coef_em_factor_gwp_name, 'ชื่อ GWP') },
+    { key: 'coef_em_factor_gwp_name_en', header: 'Name (EN)', sortable: true, width: '220px', minWidth: '180px', resizable: true, render: (row) => expandableText(row.coef_em_factor_gwp_name_en, 'ชื่อ GWP ภาษาอังกฤษ') },
     { key: 'coef_em_factor_gwp_value', header: 'ค่า GWP', sortable: true, render: (row) => <span className="font-mono font-semibold text-accent-700">{formatNumber(row.coef_em_factor_gwp_value)}</span> },
-    { key: 'coef_em_factor_gwp_info', header: 'รายละเอียด', sortable: true, render: (row) => formatText(row.coef_em_factor_gwp_info) },
+    { key: 'coef_em_factor_gwp_info', header: 'รายละเอียด', sortable: true, width: '300px', minWidth: '220px', resizable: true, render: (row) => expandableText(row.coef_em_factor_gwp_info, 'รายละเอียด GWP') },
     { key: 'coef_em_factor_gwp_ref', header: 'Ref', sortable: true, render: (row) => row.coef_em_factor_gwp_ref ?? '—' },
     { key: 'coef_em_factor_gwp_update_uid', header: 'ผู้แก้ไขล่าสุด', sortable: true, render: (row) => row.coef_em_factor_gwp_update_uid ?? '—' },
     { key: 'coef_em_factor_gwp_create_at', header: 'สร้างเมื่อ', sortable: true, render: (row) => formatBangkokDateTime(row.coef_em_factor_gwp_create_at) },
@@ -674,30 +873,43 @@ export function EmissionFactorsPage() {
   ]
 
   const cfTypeCols: Column<CfType>[] = [
-    { key: 'cf_type_name_short', header: 'ชื่อย่อ', sortable: true, render: (row) => formatText(row.cf_type_name_short) },
-    { key: 'cf_type_name_th', header: 'ชื่อ (ไทย)', sortable: true, render: (row) => formatText(row.cf_type_name_th) },
-    { key: 'cf_type_name_en', header: 'ชื่อ (EN)', sortable: true, render: (row) => formatText(row.cf_type_name_en) },
+    { key: 'cf_type_name_short', header: 'ชื่อย่อ', sortable: true, width: '180px', minWidth: '150px', resizable: true, render: (row) => expandableText(row.cf_type_name_short, 'ชื่อย่อ CF Type') },
+    { key: 'cf_type_name_th', header: 'ชื่อ (ไทย)', sortable: true, width: '220px', minWidth: '180px', resizable: true, render: (row) => expandableText(row.cf_type_name_th, 'ชื่อ CF Type (ไทย)') },
+    { key: 'cf_type_name_en', header: 'ชื่อ (EN)', sortable: true, width: '220px', minWidth: '180px', resizable: true, render: (row) => expandableText(row.cf_type_name_en, 'ชื่อ CF Type (EN)') },
     { key: 'cf_type_create_at', header: 'สร้างเมื่อ', sortable: true, render: (row) => formatBangkokDateTime(row.cf_type_create_at) },
     { key: 'cf_type_update_at', header: 'อัปเดตเมื่อ', sortable: true, render: (row) => formatBangkokDateTime(row.cf_type_update_at) },
   ]
 
   const groupCols: Column<EfGroup>[] = [
     { key: 'group_emission_factor_idCode', header: 'รหัส', sortable: true, render: (row) => formatText(row.group_emission_factor_idCode) },
-    { key: 'group_emission_factor_name_short', header: 'ชื่อย่อ', sortable: true, render: (row) => formatText(row.group_emission_factor_name_short) },
-    { key: 'group_emission_factor_name', header: 'ชื่อกลุ่ม EF', sortable: true, render: (row) => formatText(row.group_emission_factor_name) },
-    { key: 'group_emission_factor_info', header: 'รายละเอียด', sortable: true, render: (row) => formatText(row.group_emission_factor_info) },
+    { key: 'group_emission_factor_name_short', header: 'ชื่อย่อ', sortable: true, width: '180px', minWidth: '150px', resizable: true, render: (row) => expandableText(row.group_emission_factor_name_short, 'ชื่อย่อกลุ่ม EF') },
+    { key: 'group_emission_factor_name', header: 'ชื่อกลุ่ม EF', sortable: true, width: '240px', minWidth: '180px', resizable: true, render: (row) => expandableText(row.group_emission_factor_name, 'ชื่อกลุ่ม EF') },
+    { key: 'group_emission_factor_info', header: 'รายละเอียด', sortable: true, width: '300px', minWidth: '220px', resizable: true, render: (row) => expandableText(row.group_emission_factor_info, 'รายละเอียดกลุ่ม EF') },
     { key: 'carbonfootprint_type_id', header: 'CF Type', sortable: true, render: (row) => row.carbonfootprint_type_id ? (cfTypeMap[row.carbonfootprint_type_id] ?? `#${row.carbonfootprint_type_id}`) : '—' },
   ]
 
   const unitCols: Column<Unit>[] = [
-    { key: 'unit_name', header: 'ชื่อหน่วย', sortable: true, render: (row) => formatText(row.unit_name) },
+    {
+      key: 'favorite',
+      header: 'ถูกใจ',
+      width: '76px',
+      minWidth: '76px',
+      render: (row) => (
+        <FavoriteToggleButton
+          active={isFavorite('unit', row.unit_id)}
+          onToggle={() => toggleFavorite('unit', row.unit_id)}
+          label={`${isFavorite('unit', row.unit_id) ? 'เลิกถูกใจ' : 'ถูกใจ'} ${unitFavoriteLabel(row)}`}
+        />
+      ),
+    },
+    { key: 'unit_name', header: 'ชื่อหน่วย', sortable: true, width: '220px', minWidth: '180px', resizable: true, render: (row) => expandableText(row.unit_name, 'ชื่อหน่วย') },
     { key: 'unit_initial', header: 'ตัวย่อ', sortable: true, render: (row) => formatText(row.unit_initial) },
     { key: 'unit_updated_uid', header: 'ผู้แก้ไขล่าสุด', sortable: true, render: (row) => row.unit_updated_uid ?? '—' },
     { key: 'unit_updated_at', header: 'อัปเดตเมื่อ', sortable: true, render: (row) => formatBangkokDateTime(row.unit_updated_at) },
   ]
 
   const unitPfxCols: Column<UnitPrefix>[] = [
-    { key: 'unit_prefix_name', header: 'ชื่อ Prefix', sortable: true, render: (row) => formatText(row.unit_prefix_name) },
+    { key: 'unit_prefix_name', header: 'ชื่อ Prefix', sortable: true, width: '220px', minWidth: '180px', resizable: true, render: (row) => expandableText(row.unit_prefix_name, 'ชื่อ Prefix') },
     { key: 'unit_prefix_initial', header: 'ตัวย่อ', sortable: true, render: (row) => formatText(row.unit_prefix_initial) },
     { key: 'unit_prefix_value', header: 'ค่าตัวคูณ', sortable: true, render: (row) => <span className="font-mono">{formatNumber(row.unit_prefix_value)}</span> },
     { key: 'unit_prefix_updated_uid', header: 'ผู้แก้ไขล่าสุด', sortable: true, render: (row) => row.unit_prefix_updated_uid ?? '—' },
@@ -710,9 +922,10 @@ export function EmissionFactorsPage() {
     { key: 'cf-types', label: 'CF Types', count: cfTypes.length },
     { key: 'groups', label: 'กลุ่ม EF', count: efGroups.length },
     { key: 'units', label: 'หน่วย', count: units.length },
+    { key: 'favorites', label: 'รายการโปรด', count: favoriteTotalCount },
   ]
 
-  const addLabel: Record<TabKey, string> = {
+  const addLabel: Record<Exclude<TabKey, 'favorites'>, string> = {
     ef: 'เพิ่ม EF',
     gwp: 'เพิ่ม GWP',
     'cf-types': 'เพิ่ม CF Type',
@@ -833,11 +1046,13 @@ export function EmissionFactorsPage() {
           <h1 className="page-title flex items-center gap-2">
             <FlaskConical size={20} className="text-primary-600" /> EF / GWP / หน่วย / CF Type
           </h1>
-          <p className="page-subtitle">จัดการ emission factor, ค่า GWP, กลุ่มข้อมูลอ้างอิง และหน่วยวัดให้ครบตามฐานข้อมูล</p>
+          <p className="page-subtitle">จัดการ emission factor, ค่า GWP, กลุ่มข้อมูลอ้างอิง, หน่วยวัด และทำรายการโปรดสำหรับ row ที่ใช้บ่อย</p>
         </div>
-        <button className="btn-primary" onClick={openCreateModal}>
-          <Plus size={14} /> {addLabel[tab]}
-        </button>
+        {tab !== 'favorites' && (
+          <button className="btn-primary" onClick={openCreateModal}>
+            <Plus size={14} /> {addLabel[tab]}
+          </button>
+        )}
       </div>
 
       <DatabaseConnectionNotice
@@ -859,6 +1074,7 @@ export function EmissionFactorsPage() {
               <span className="badge-gray">CF Type {cfTypes.length}</span>
               <span className="badge-gray">กลุ่ม EF {efGroups.length}</span>
               <span className="badge-gray">หน่วย {units.length + unitPfxs.length}</span>
+              <span className="badge-gray">ถูกใจ {favoriteTotalCount}</span>
             </div>
           </div>
 
@@ -917,17 +1133,31 @@ export function EmissionFactorsPage() {
                   <h3 className="text-sm font-semibold text-surface-900">ตัวกรอง Emission Factors</h3>
                   <p className="text-xs text-surface-500">กรองข้อมูลตาม CF Type, กลุ่ม EF และหน่วยตั้งต้น</p>
                 </div>
-                <button
-                  type="button"
-                  className="btn-ghost btn-sm"
-                  onClick={() => {
-                    setEfFilterCfTypeId('')
-                    setEfFilterGroupId('')
-                    setEfFilterUnitId('')
-                  }}
-                >
-                  ล้างตัวกรอง
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className={`rounded-xl px-3 py-2 text-xs font-medium transition ${
+                      showFavoriteEfsOnly
+                        ? 'bg-rose-50 text-rose-700 ring-1 ring-rose-200'
+                        : 'bg-surface-100 text-surface-600 hover:bg-surface-200'
+                    }`}
+                    onClick={() => setShowFavoriteEfsOnly((prev) => !prev)}
+                  >
+                    {showFavoriteEfsOnly ? 'แสดงทั้งหมด' : `เฉพาะรายการโปรด (${favoriteEfRows.length})`}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-ghost btn-sm"
+                    onClick={() => {
+                      setEfFilterCfTypeId('')
+                      setEfFilterGroupId('')
+                      setEfFilterUnitId('')
+                      setShowFavoriteEfsOnly(false)
+                    }}
+                  >
+                    ล้างตัวกรอง
+                  </button>
+                </div>
               </div>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <div>
@@ -966,19 +1196,20 @@ export function EmissionFactorsPage() {
                 <div>
                   <FieldLabel>จำนวนที่แสดง</FieldLabel>
                   <div className="rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm text-surface-700">
-                    {filteredEfs.length.toLocaleString('en-US')} รายการ
+                    {visibleEfs.length.toLocaleString('en-US')} รายการ
                   </div>
                 </div>
               </div>
             </div>
 
             <DataTable
-              data={filteredEfs}
+              data={visibleEfs}
               columns={efCols}
               isLoading={efLoad}
               rowKey={(row) => row.coefficient_emission_factor_id}
               defaultPageSize={10}
               searchPlaceholder="ค้นหา EF, กลุ่ม EF, CF Type หรือค่า factor..."
+              emptyMessage={showFavoriteEfsOnly ? 'ยังไม่มี EF ที่ถูกใจในชุดตัวกรองนี้' : 'ไม่พบข้อมูล'}
               actions={actionButtons<Ef>(
                 (row) => {
                   setEditingEf(row)
@@ -993,18 +1224,39 @@ export function EmissionFactorsPage() {
         )}
 
         {tab === 'gwp' && (
-          <DataTable
-            data={gwps}
-            columns={gwpCols}
-            isLoading={gwpLoad}
-            rowKey={(row) => row.coefficients_emissions_factors_gwp_id}
-            defaultPageSize={10}
-            searchPlaceholder="ค้นหา GWP..."
-            actions={actionButtons<Gwp>(
-              (row) => { setEditingGwp(row); setShowGwpModal(true) },
-              (row) => setDeleteTarget({ type: 'gwp', id: row.coefficients_emissions_factors_gwp_id, name: row.coef_em_factor_gwp_name?.trim() || `GWP #${row.coefficients_emissions_factors_gwp_id}` }),
-            )}
-          />
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-surface-200 bg-white p-4">
+              <div>
+                <h3 className="text-sm font-semibold text-surface-900">รายการ GWP</h3>
+                <p className="text-xs text-surface-500">กดหัวใจเพื่อเก็บค่า GWP ที่ใช้บ่อยไว้ในรายการโปรด</p>
+              </div>
+              <button
+                type="button"
+                className={`rounded-xl px-3 py-2 text-xs font-medium transition ${
+                  showFavoriteGwpsOnly
+                    ? 'bg-rose-50 text-rose-700 ring-1 ring-rose-200'
+                    : 'bg-surface-100 text-surface-600 hover:bg-surface-200'
+                }`}
+                onClick={() => setShowFavoriteGwpsOnly((prev) => !prev)}
+              >
+                {showFavoriteGwpsOnly ? 'แสดงทั้งหมด' : `เฉพาะรายการโปรด (${favoriteGwpRows.length})`}
+              </button>
+            </div>
+
+            <DataTable
+              data={visibleGwps}
+              columns={gwpCols}
+              isLoading={gwpLoad}
+              rowKey={(row) => row.coefficients_emissions_factors_gwp_id}
+              defaultPageSize={10}
+              searchPlaceholder="ค้นหา GWP..."
+              emptyMessage={showFavoriteGwpsOnly ? 'ยังไม่มี GWP ที่ถูกใจ' : 'ไม่พบข้อมูล'}
+              actions={actionButtons<Gwp>(
+                (row) => { setEditingGwp(row); setShowGwpModal(true) },
+                (row) => setDeleteTarget({ type: 'gwp', id: row.coefficients_emissions_factors_gwp_id, name: row.coef_em_factor_gwp_name?.trim() || `GWP #${row.coefficients_emissions_factors_gwp_id}` }),
+              )}
+            />
+          </div>
         )}
 
         {tab === 'cf-types' && (
@@ -1043,19 +1295,33 @@ export function EmissionFactorsPage() {
               <div className="mb-4 flex flex-col gap-3 border-b border-surface-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 className="text-sm font-semibold text-surface-900">หน่วยวัด (units)</h3>
-                  <p className="text-xs text-surface-500">จัดการรายการหน่วยหลักที่ใช้ผูกกับ emission factor</p>
+                  <p className="text-xs text-surface-500">จัดการรายการหน่วยหลักที่ใช้ผูกกับ emission factor และกดหัวใจเก็บหน่วยที่ใช้บ่อย</p>
                 </div>
-                <button className="btn-primary btn-sm" onClick={() => { setEditingUnit(null); setShowUnitModal(true) }}>
-                  <Plus size={13} /> เพิ่ม Unit
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className={`rounded-xl px-3 py-2 text-xs font-medium transition ${
+                      showFavoriteUnitsOnly
+                        ? 'bg-rose-50 text-rose-700 ring-1 ring-rose-200'
+                        : 'bg-surface-100 text-surface-600 hover:bg-surface-200'
+                    }`}
+                    onClick={() => setShowFavoriteUnitsOnly((prev) => !prev)}
+                  >
+                    {showFavoriteUnitsOnly ? 'แสดงทั้งหมด' : `เฉพาะรายการโปรด (${favoriteUnitRows.length})`}
+                  </button>
+                  <button className="btn-primary btn-sm" onClick={() => { setEditingUnit(null); setShowUnitModal(true) }}>
+                    <Plus size={13} /> เพิ่ม Unit
+                  </button>
+                </div>
               </div>
               <DataTable
-                data={units}
+                data={visibleUnits}
                 columns={unitCols}
                 isLoading={uLoad}
                 rowKey={(row) => row.unit_id}
                 defaultPageSize={10}
                 searchPlaceholder="ค้นหาหน่วย..."
+                emptyMessage={showFavoriteUnitsOnly ? 'ยังไม่มี Unit ที่ถูกใจ' : 'ไม่พบข้อมูล'}
                 actions={actionButtons<Unit>(
                   (row) => { setEditingUnit(row); setShowUnitModal(true) },
                   (row) => setDeleteTarget({ type: 'unit', id: row.unit_id, name: row.unit_name?.trim() || row.unit_initial?.trim() || `Unit #${row.unit_id}` }),
@@ -1086,6 +1352,106 @@ export function EmissionFactorsPage() {
                 )}
               />
             </div>
+          </div>
+        )}
+
+        {tab === 'favorites' && (
+          <div className="space-y-6">
+            <div className="rounded-2xl border border-surface-200 bg-[linear-gradient(180deg,#fff8fb,#fff)] p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-surface-900">รายการโปรดที่ใช้บ่อย</h3>
+                  <p className="text-xs text-surface-500">รายการนี้รวมเฉพาะ EF, GWP และ Unit ที่กดหัวใจไว้ โดยเก็บใน browser ของเครื่องนี้ ไม่ได้บันทึกลงฐานข้อมูล</p>
+                </div>
+                <div className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs text-rose-700">
+                  รวม {favoriteTotalCount.toLocaleString('en-US')} รายการ
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <FavoriteSummaryCard title="Emission Factors" count={favoriteEfRows.length} description="EF ที่ทำเครื่องหมายไว้" />
+              <FavoriteSummaryCard title="GWP" count={favoriteGwpRows.length} description="ค่า GWP ที่ใช้บ่อย" />
+              <FavoriteSummaryCard title="Units" count={favoriteUnitRows.length} description="หน่วยหลักที่ใช้งานประจำ" />
+            </div>
+
+            {favoriteTotalCount === 0 && (
+              <div className="rounded-2xl border border-dashed border-surface-300 bg-surface-50 px-6 py-10 text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white text-rose-500 shadow-sm">
+                  <Heart size={20} />
+                </div>
+                <h3 className="mt-4 text-base font-semibold text-surface-900">ยังไม่มีรายการโปรด</h3>
+                <p className="mt-2 text-sm text-surface-500">กลับไปที่ tab EF, GWP หรือ หน่วย แล้วกดหัวใจใน row ที่อยากเก็บไว้ใช้ซ้ำได้เลย</p>
+              </div>
+            )}
+
+            {favoriteEfRows.length > 0 && (
+              <div className="rounded-2xl border border-surface-200 bg-white p-4 sm:p-5">
+                <div className="mb-4 border-b border-surface-200 pb-3">
+                  <h3 className="text-sm font-semibold text-surface-900">Emission Factors ที่ถูกใจ</h3>
+                  <p className="text-xs text-surface-500">ค้นหาและเปิดแก้ไข EF ที่ใช้งานประจำได้จากตารางนี้โดยตรง</p>
+                </div>
+                <DataTable
+                  data={favoriteEfRows}
+                  columns={efCols}
+                  isLoading={efLoad}
+                  rowKey={(row) => row.coefficient_emission_factor_id}
+                  defaultPageSize={10}
+                  searchPlaceholder="ค้นหา EF ที่ถูกใจ..."
+                  actions={actionButtons<Ef>(
+                    (row) => {
+                      setEditingEf(row)
+                      setEfFormCfTypeId(row.carbonfootprint_type_id ? String(row.carbonfootprint_type_id) : '')
+                      setEfFormGroupId(row.group_emission_factor_id ? String(row.group_emission_factor_id) : '')
+                      setShowEfModal(true)
+                    },
+                    (row) => setDeleteTarget({ type: 'ef', id: row.coefficient_emission_factor_id, name: efFavoriteLabel(row) }),
+                  )}
+                />
+              </div>
+            )}
+
+            {favoriteGwpRows.length > 0 && (
+              <div className="rounded-2xl border border-surface-200 bg-white p-4 sm:p-5">
+                <div className="mb-4 border-b border-surface-200 pb-3">
+                  <h3 className="text-sm font-semibold text-surface-900">GWP ที่ถูกใจ</h3>
+                  <p className="text-xs text-surface-500">รวมค่า GWP ที่หยิบใช้บ่อยไว้ในที่เดียว</p>
+                </div>
+                <DataTable
+                  data={favoriteGwpRows}
+                  columns={gwpCols}
+                  isLoading={gwpLoad}
+                  rowKey={(row) => row.coefficients_emissions_factors_gwp_id}
+                  defaultPageSize={10}
+                  searchPlaceholder="ค้นหา GWP ที่ถูกใจ..."
+                  actions={actionButtons<Gwp>(
+                    (row) => { setEditingGwp(row); setShowGwpModal(true) },
+                    (row) => setDeleteTarget({ type: 'gwp', id: row.coefficients_emissions_factors_gwp_id, name: gwpFavoriteLabel(row) }),
+                  )}
+                />
+              </div>
+            )}
+
+            {favoriteUnitRows.length > 0 && (
+              <div className="rounded-2xl border border-surface-200 bg-white p-4 sm:p-5">
+                <div className="mb-4 border-b border-surface-200 pb-3">
+                  <h3 className="text-sm font-semibold text-surface-900">Units ที่ถูกใจ</h3>
+                  <p className="text-xs text-surface-500">แสดงเฉพาะ master unit ที่กดหัวใจไว้ ส่วน prefix ยังจัดการจาก tab หน่วยตามเดิม</p>
+                </div>
+                <DataTable
+                  data={favoriteUnitRows}
+                  columns={unitCols}
+                  isLoading={uLoad}
+                  rowKey={(row) => row.unit_id}
+                  defaultPageSize={10}
+                  searchPlaceholder="ค้นหา Unit ที่ถูกใจ..."
+                  actions={actionButtons<Unit>(
+                    (row) => { setEditingUnit(row); setShowUnitModal(true) },
+                    (row) => setDeleteTarget({ type: 'unit', id: row.unit_id, name: unitFavoriteLabel(row) }),
+                  )}
+                />
+              </div>
+            )}
           </div>
         )}
       </div>

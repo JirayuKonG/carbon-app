@@ -1,15 +1,20 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common'
+import { Injectable, BadRequestException, HttpException, Logger } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { Co2eEngineService } from './co2e-engine.service'
+import {
+  buildProductionYearLabelFromDate,
+  parseProductionYearSortYear,
+} from './production-year.util'
 
 export interface ColumnMapping { targetKey: string; sourceKey: string | null }
 
 const CAL_STATUS_NAMES = {
   imported: 'นำเข้าข้อมูลแล้ว',
   preparing: 'กำลังเตรียมข้อมูล',
-  ready: 'พร้อมคำนวณมาตรฐาน',
-  standardDone: 'คำนวณแล้ว(มาตรฐาน)',
-  cfpDone: 'คำนวณแล้ว(มาตรฐาน,CFP)',
+  ready: 'พร้อมคำนวณ',
+  standardDone: 'คำนวณแล้ว(CFP)',
+  creditDone: 'คำนวณแล้ว(C-credit)',
+  cfpDone: 'คำนวณแล้ว(CFP,C-credit)',
   error: 'คำนวณผิดพลาด',
 } as const
 
@@ -30,6 +35,7 @@ type ActivityHeaderPayload = {
 }
 
 type ActivityDetailPayload = {
+  act_productYear_id?: number | string | null
   activities_header_id?: number | string | null
   act_header_type_id?: number | string | null
   act_header_detail_type_id?: number | string | null
@@ -48,6 +54,7 @@ type ActivityDetailPayload = {
   log_act_detail_create_at?: Date | string | null
   // log_act_detail_create_at is used to date, such as 2024-07-01, but it is not used to time
   calcMode?: 'standard' | 'tver'
+  skipRequiredValidation?: boolean
 }
 
 type FertilizerPayload = {
@@ -62,6 +69,13 @@ type EquipmentPayload = {
   resource_used_type_id?: number | string | null
 }
 
+type ChemicalPayload = {
+  act_chemiscal_name?: string | null
+  act_chemiscal_info?: string | null
+  resource_used_type_id?: number | string | null
+  act_chemiscal_update_uid?: number | string | null
+}
+
 type ResourceOtherPayload = {
   act_resourceOther_name?: string | null
   act_resourceOther_info?: string | null
@@ -74,11 +88,41 @@ type ResourceTypePayload = {
   resc_used_type_info?: string | null
 }
 
+type HeaderTypePayload = {
+  act_header_type_idCode?: string | null
+  act_header_type_name_th?: string | null
+  act_header_type_name_en?: string | null
+  act_header_type_update_uid?: number | string | null
+}
+
+type DetailTypePayload = {
+  act_header_type_id?: number | string | null
+  act_header_detail_type_name_th?: string | null
+}
+
 type ImportFilePayload = {
   activities_fileNameUse_name?: string | null
   activities_fileNameUse_rowCount?: number | string | null
   activities_fileNameUse_columnCount?: number | string | null
   activities_fileNameUse_update_uid?: number | string | null
+}
+
+type ProductYearPayload = {
+  act_productYear_name?: string | null
+  act_productYear_info?: string | null
+  act_productYear_update_uid?: number | string | null
+}
+
+type ProductYearListItem = {
+  act_productYear_id: number
+  act_productYear_name?: string | null
+  act_productYear_info?: string | null
+  act_productyear_create_at?: Date | null
+  act_productYear_update_at?: Date | null
+  act_productYear_update_uid?: number | null
+  detailCount: number
+  queueCount: number
+  canDelete: boolean
 }
 
 type CarbonPreparationPayload = {
@@ -134,19 +178,220 @@ type GenericEfCalculationResult = {
 type CarbonQueueCalculationPayload = {
   resultUnitId?: number | string | null
   selectedEfId?: number | string | null
+  organicFertilizerMode?: 'manual_formula' | 'generic_ef' | 'skip_error' | string | null
+  fertilizerUreaEfId?: number | string | null
+  fertilizerDapEfId?: number | string | null
+  fertilizerKclEfId?: number | string | null
+  fertilizerGwpId?: number | string | null
+  manualFertilizerNPercent?: number | string | null
+  manualFertilizerP2O5Percent?: number | string | null
+  manualFertilizerK2OPercent?: number | string | null
+}
+
+type CarbonCreditScope = 'all' | 'camp_group' | 'camp' | 'land'
+type CarbonCreditScenario = 'baseline' | 'project' | 'outside_scope'
+
+type CarbonCreditWorkspaceQuery = {
+  years?: string
+  scope?: string
+  campGroupId?: string | number
+  campId?: string | number
+  landId?: string | number
+}
+
+type CarbonCreditEfSelection = CarbonQueueCalculationPayload
+
+type CarbonCreditCalculationRequest = {
+  baselineYears: string[]
+  projectYear: string
+  scope: CarbonCreditScope
+  campGroupId?: number
+  campId?: number
+  landId?: number
+  selectedQueueIds: number[]
+  includeSocRemoval: boolean
+  efSelections: Record<number, CarbonCreditEfSelection>
+}
+
+type CarbonCreditQueueRow = {
+  queueId: number
+  activityDetailId: number | null
+  productionYearLabel: string
+  productionYearSortYear: number | null
+  scenario: CarbonCreditScenario
+  campGroupId: number | null
+  campGroupLabel: string
+  campId: number | null
+  campLabel: string
+  landId: number | null
+  landLabel: string
+  areaRai: number
+  resourceName: string
+  formulaMode: CarbonFormulaMode
+  preparedAmount: number | null
+  preparedUnitId: number | null
+  preparedUnitPrefixId: number | null
+  preparedUnitLabel: string | null
+  cfpResultValue: number | null
+  cfpResultUnitLabel: string | null
+  cfpResultTco2e: number | null
+  creditResultValue: number | null
+  creditResultUnitLabel: string | null
+  creditResultTco2e: number | null
+  needsFootprintCalculation: boolean
+  footprintError: string | null
+  statusName: string | null
+  errorMessage: string | null
+  selected: boolean
+  calculationInfo: Record<string, unknown>
+}
+
+type CarbonCreditBlockedRow = {
+  id: string
+  kind: 'row' | 'land'
+  queueId?: number
+  landId?: number | null
+  landLabel?: string
+  scenario?: CarbonCreditScenario
+  reason: string
+}
+
+type CarbonCreditWritePlanItem = {
+  queueId: number
+  landId: number
+  landLabel: string
+  productionYearLabel: string
+  resourceName: string
+  projectEmissionTco2e: number
+  allocatedCreditTco2e: number
+  allocationShare: number
+  allocationMethod: 'project_emission_share' | 'equal_project_rows'
+  snapshot: Record<string, unknown>
 }
 
 type FootprintResultUnitKind = 'kgco2e' | 'tco2e'
 
-const FERTILIZER_N2O_CONSTANTS = {
-  EF_DIRECT: 0.005,
+type InputUsageBucket = 'fertilizer' | 'fuel' | 'other'
+type InputUsageFertilizerKind = 'chemical' | 'organic' | 'unknown'
+type InputUsageAmountSource = 'prepared' | 'activity'
+
+type InputUsageUnitRef = {
+  unit_name?: string | null
+  unit_initial?: string | null
+}
+
+type InputUsagePrefixRef = {
+  unit_prefix_name?: string | null
+  unit_prefix_initial?: string | null
+}
+
+type InputUsageSummaryRow = {
+  id: string
+  bucket: InputUsageBucket
+  year: number | null
+  yearLabel: string
+  caneTypeName?: string
+  campId: number | null
+  campName: string
+  landId: number | null
+  landCode: string
+  landName: string
+  landLabel: string
+  activityNames: string[]
+  itemName: string
+  resourceTypeName: string
+  fertilizerKind?: InputUsageFertilizerKind
+  fertilizerFormula?: string | null
+  amount: number
+  unit: string
+  areaRai: number
+  recordCount: number
+  sourcePreparedCount: number
+  warningCount: number
+  warnings: string[]
+}
+
+type InputUsageComparisonTarget = {
+  id: string
+  type: 'camp' | 'land'
+  label: string
+  campId: number | null
+  campName: string
+  landId?: number | null
+  landLabel?: string
+  areaRai: number
+  recordCount: number
+  fertilizerKg: number
+  fuelLiter: number
+  otherRecordCount: number
+  topFertilizer: string
+  topFuel: string
+  warningCount: number
+}
+
+type InputUsageYearFilterOption = {
+  value: string
+  label: string
+  sortYear: number | null
+}
+
+type InputUsageSourceDetail = {
+  log_act_detail_id: number
+  act_productYear_id?: number | null
+  act_header_type_id?: number | null
+  act_header_detail_type_id?: number | null
+  log_act_detail_quatity?: number | null
+  log_act_detail_volumePerUnit?: number | null
+  log_act_detail_volumeAll?: number | null
+  log_act_detail_areawork?: number | null
+  log_act_detail_create_at?: Date | null
+  activities_productYear?: { act_productYear_name?: string | null } | null
+  activities_header?: {
+    activities_header_startDate?: Date | null
+    land_id?: number | null
+    activities_header_typeSugarCane?: {
+      act_header_typeSugarCane_name?: string | null
+    } | null
+    lands?: {
+      land_id?: number | null
+      land_code?: string | null
+      name?: string | null
+      land_camp_id?: number | null
+      area_size?: number | null
+      land_size?: number | null
+      lands_camps?: {
+        land_camp_name?: string | null
+      } | null
+    } | null
+  } | null
+  activities_fertilizers?: { act_fertilizer_name?: string | null } | null
+  activities_equipments?: { act_equipment_name?: string | null } | null
+  activities_chemiscals?: { act_chemiscal_name?: string | null } | null
+  activities_resourceOther?: { act_resourceOther_name?: string | null } | null
+  resource_used_type?: { resc_used_type_name?: string | null } | null
+  log_act_detail_calStatus?: { log_act_detail_calStatus_name?: string | null } | null
+  units?: InputUsageUnitRef | null
+  units_prefixs?: (InputUsagePrefixRef & { unit_prefix_value?: number | null }) | null
+  carbon_process_queue?: {
+    carbon_process_queue_id: number
+    carbon_process_queue_info?: string | null
+  } | null
+}
+
+type InputUsageResolvedAmount = {
+  amount: number
+  unitLabel: string
+  source: InputUsageAmountSource
+}
+
+const FERTILIZER_CFP_SIMPLE_CONSTANTS = {
+  EF_UREA_AS_N: 3.3036,
+  EF_DAP_AS_P2O5: 1.5716,
+  EF_KCL_AS_K2O: 0.4974,
+  EF_FILLER: 0,
+  EF_N_TO_N2O_N_SIMPLE: 0.01,
   GWP_N2O: 298,
   MW_RATIO_N2O_N: 44 / 28,
-  FRAC_GASF: 0.11,
-  FRAC_GASM: 0.21,
-  FRAC_LEACH: 0.24,
-  EF_ATD: 0.01,
-  EF_LEACH: 0.011,
 } as const
 
 @Injectable()
@@ -180,6 +425,14 @@ export class ActivitiesService {
     return num
   }
 
+  private toNullableNumber(value: unknown) {
+    if (value === undefined) return undefined
+    if (value === null || value === '') return null
+    const num = Number(value)
+    if (Number.isNaN(num)) throw new BadRequestException(`Invalid number: ${String(value)}`)
+    return num
+  }
+
   private toOptionalDate(value: unknown) {
     if (value === undefined || value === null || value === '') return undefined
     const date = value instanceof Date ? value : new Date(String(value))
@@ -197,6 +450,25 @@ export class ActivitiesService {
     const text = this.toOptionalText(value)
     if (!text) throw new BadRequestException(`${fieldName} is required`)
     return text
+  }
+
+  private normalizeTextKey(value?: string | null) {
+    return value?.trim().replace(/\s+/g, ' ').toLowerCase() ?? ''
+  }
+
+  private sanitizeDetailTypeName(value?: string | null) {
+    return (value ?? '')
+      .replace(/^\uFEFF/, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^\d+\s*[-–—:]\s*/, '')
+      .replace(/\s*[-–—:]\s*(?:น้ำ|นํ้า|water)\s*\d+\s*$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
+  private normalizeDetailTypeKey(value?: string | null) {
+    return this.sanitizeDetailTypeName(value).toLowerCase()
   }
 
   private normalizeHeaderPayload(data: ActivityHeaderPayload, withCreateAt = false) {
@@ -220,6 +492,7 @@ export class ActivitiesService {
 
   private normalizeDetailPayload(data: ActivityDetailPayload) {
     return {
+      act_productYear_id:                this.toOptionalNumber(data.act_productYear_id),
       activities_header_id:              this.toOptionalNumber(data.activities_header_id),
       act_header_type_id:                this.toOptionalNumber(data.act_header_type_id),
       act_header_detail_type_id:         this.toOptionalNumber(data.act_header_detail_type_id),
@@ -240,10 +513,56 @@ export class ActivitiesService {
     }
   }
 
+  private hasSelectedDetailResource(normalized: ReturnType<ActivitiesService['normalizeDetailPayload']>) {
+    return normalized.act_fertilizer_id != null
+      || normalized.act_equipment_id != null
+      || normalized.act_chemiscal_id != null
+      || normalized.act_resourceOther_id != null
+  }
+
+  private validateRequiredDetailPayload(
+    data: ActivityDetailPayload,
+    normalized: ReturnType<ActivitiesService['normalizeDetailPayload']>,
+  ) {
+    if (data.skipRequiredValidation) return
+
+    if (normalized.activities_header_id == null) {
+      throw new BadRequestException('กรุณาเลือกหัวข้อกิจกรรมของแปลงที่ต้องการบันทึก')
+    }
+
+    if (normalized.act_productYear_id == null) {
+      throw new BadRequestException('กรุณาเลือกปีการผลิต')
+    }
+
+    if (normalized.act_header_detail_type_id == null) {
+      throw new BadRequestException('กรุณาเลือกประเภทรายละเอียดกิจกรรม')
+    }
+
+    if (!this.hasSelectedDetailResource(normalized)) {
+      throw new BadRequestException('กรุณาเลือกอย่างน้อย 1 รายการจาก ปุ๋ย / อุปกรณ์ / สารเคมี / รายการอื่น ๆ')
+    }
+
+    if (normalized.unit_id == null) {
+      throw new BadRequestException('กรุณาเลือกหน่วยนับ')
+    }
+
+    if (normalized.log_act_detail_quatity == null) {
+      throw new BadRequestException('กรุณากรอกจำนวน')
+    }
+
+    if (normalized.log_act_detail_areawork == null) {
+      throw new BadRequestException('กรุณากรอกพื้นที่ทำงาน')
+    }
+  }
+
   private cleanData<T extends Record<string, unknown>>(data: T) {
     return Object.fromEntries(
       Object.entries(data).filter(([, value]) => value !== undefined && value !== ''),
     )
+  }
+
+  private collapseWhitespace(value: string) {
+    return value.replace(/\s+/g, ' ').trim()
   }
 
   private normalizeImportFilePayload(data: ImportFilePayload) {
@@ -255,6 +574,121 @@ export class ActivitiesService {
       activities_fileNameUse_rowCount: this.toOptionalNumber(data.activities_fileNameUse_rowCount),
       activities_fileNameUse_columnCount: this.toOptionalNumber(data.activities_fileNameUse_columnCount),
       activities_fileNameUse_update_uid: this.toOptionalNumber(data.activities_fileNameUse_update_uid),
+    }
+  }
+
+  private normalizeProductYearPayload(data: ProductYearPayload) {
+    const name = this.collapseWhitespace(
+      this.toRequiredText(data.act_productYear_name, 'act_productYear_name'),
+    )
+
+    if (!name) {
+      throw new BadRequestException('act_productYear_name is required')
+    }
+
+    return {
+      act_productYear_name: name,
+      act_productYear_info: data.act_productYear_info == null
+        ? undefined
+        : this.collapseWhitespace(String(data.act_productYear_info)),
+      act_productYear_update_uid: this.toOptionalNumber(data.act_productYear_update_uid),
+    }
+  }
+
+  private async buildProductYearListItems(tx: any): Promise<ProductYearListItem[]> {
+    const [years, detailCounts, queueRows] = await Promise.all([
+      tx.activities_productYear.findMany({
+        orderBy: { act_productYear_id: 'asc' },
+      }),
+      tx.log_activities_detail.groupBy({
+        by: ['act_productYear_id'],
+        where: { act_productYear_id: { not: null } },
+        _count: { _all: true },
+      }),
+      tx.carbon_process_queue.findMany({
+        where: {
+          log_activities_detail: {
+            act_productYear_id: { not: null },
+          },
+        },
+        select: {
+          log_activities_detail: {
+            select: {
+              act_productYear_id: true,
+            },
+          },
+        },
+      }),
+    ])
+
+    const detailCountMap = new Map<number, number>()
+    detailCounts.forEach((item: { act_productYear_id: number | null; _count: { _all: number } }) => {
+      if (item.act_productYear_id == null) return
+      detailCountMap.set(item.act_productYear_id, item._count._all)
+    })
+
+    const queueCountMap = new Map<number, number>()
+    queueRows.forEach((row: { log_activities_detail?: { act_productYear_id?: number | null } | null }) => {
+      const productYearId = row.log_activities_detail?.act_productYear_id
+      if (productYearId == null) return
+      queueCountMap.set(productYearId, (queueCountMap.get(productYearId) ?? 0) + 1)
+    })
+
+    return years.map((year: {
+      act_productYear_id: number
+      act_productYear_name?: string | null
+      act_productYear_info?: string | null
+      act_productyear_create_at?: Date | null
+      act_productYear_update_at?: Date | null
+      act_productYear_update_uid?: number | null
+    }) => {
+      const detailCount = detailCountMap.get(year.act_productYear_id) ?? 0
+      const queueCount = queueCountMap.get(year.act_productYear_id) ?? 0
+      return {
+        ...year,
+        detailCount,
+        queueCount,
+        canDelete: detailCount === 0,
+      }
+    })
+  }
+
+  private async findDuplicateProductYear(tx: any, name: string, excludeId?: number) {
+    const items = await tx.activities_productYear.findMany({
+      select: {
+        act_productYear_id: true,
+        act_productYear_name: true,
+      },
+    })
+
+    const targetKey = this.normalizeTextKey(name)
+    return items.find((item: { act_productYear_id: number; act_productYear_name?: string | null }) => (
+      item.act_productYear_id !== excludeId
+      && this.normalizeTextKey(item.act_productYear_name) === targetKey
+    ))
+  }
+
+  private normalizeHeaderTypePayload(data: HeaderTypePayload) {
+    return {
+      act_header_type_idCode: this.toOptionalText(data.act_header_type_idCode),
+      act_header_type_name_th: this.toRequiredText(data.act_header_type_name_th, 'act_header_type_name_th'),
+      act_header_type_name_en: this.toOptionalText(data.act_header_type_name_en),
+      act_header_type_update_uid: this.toOptionalNumber(data.act_header_type_update_uid),
+    }
+  }
+
+  private normalizeDetailTypePayload(data: DetailTypePayload) {
+    const sanitizedName = this.sanitizeDetailTypeName(
+      this.toRequiredText(data.act_header_detail_type_name_th, 'act_header_detail_type_name_th'),
+    )
+
+    if (!sanitizedName) {
+      throw new BadRequestException('act_header_detail_type_name_th is required')
+    }
+
+    return {
+      act_header_type_id: this.toNullableNumber(data.act_header_type_id),
+      act_header_detail_type_name_th: sanitizedName,
     }
   }
 
@@ -326,11 +760,19 @@ export class ActivitiesService {
     const rawName = (name ?? '').trim()
     const normalized = rawName.toLowerCase()
 
-    const chemicalFormulaMatch = rawName.match(/(\d+(?:\.\d+)?)\s*[-xX]\s*\d+(?:\.\d+)?\s*[-xX]\s*\d+(?:\.\d+)?/)
+    const chemicalFormulaMatch = rawName.match(/(\d+(?:\.\d+)?)\s*[-xX]\s*(\d+(?:\.\d+)?)\s*[-xX]\s*(\d+(?:\.\d+)?)/)
     if (chemicalFormulaMatch) {
+      const nPercent = Number(chemicalFormulaMatch[1])
+      const p2o5Percent = Number(chemicalFormulaMatch[2])
+      const k2oPercent = Number(chemicalFormulaMatch[3])
       return {
         kind: 'chemical' as const,
-        value: Number(chemicalFormulaMatch[1]),
+        value: nPercent,
+        nPercent,
+        p2o5Percent,
+        k2oPercent,
+        fillerPercent: Math.max(0, 100 - nPercent - p2o5Percent - k2oPercent),
+        formulaLabel: chemicalFormulaMatch[0],
       }
     }
 
@@ -349,12 +791,62 @@ export class ActivitiesService {
       return {
         kind: 'organic' as const,
         value: null,
+        nPercent: null,
+        p2o5Percent: null,
+        k2oPercent: null,
+        fillerPercent: null,
+        formulaLabel: null,
       }
     }
 
     return {
       kind: 'unknown' as const,
       value: undefined,
+      nPercent: undefined,
+      p2o5Percent: undefined,
+      k2oPercent: undefined,
+      fillerPercent: undefined,
+      formulaLabel: undefined,
+    }
+  }
+
+  private resolveManualFertilizerFormulaInput(payload?: {
+    manualFertilizerNPercent?: number | string | null
+    manualFertilizerP2O5Percent?: number | string | null
+    manualFertilizerK2OPercent?: number | string | null
+  }) {
+    const rawValues = [
+      payload?.manualFertilizerNPercent,
+      payload?.manualFertilizerP2O5Percent,
+      payload?.manualFertilizerK2OPercent,
+    ]
+
+    const hasAnyValue = rawValues.some((value) => value !== undefined && value !== null && String(value).trim() !== '')
+    if (!hasAnyValue) return null
+
+    const nPercent = this.toOptionalNumber(payload?.manualFertilizerNPercent)
+    const p2o5Percent = this.toOptionalNumber(payload?.manualFertilizerP2O5Percent)
+    const k2oPercent = this.toOptionalNumber(payload?.manualFertilizerK2OPercent)
+
+    if (nPercent == null || p2o5Percent == null || k2oPercent == null) {
+      throw new BadRequestException('กรุณากรอกค่า N, P2O5 และ K2O ให้ครบ')
+    }
+
+    if ([nPercent, p2o5Percent, k2oPercent].some((value) => value < 0)) {
+      throw new BadRequestException('ค่า N, P2O5 และ K2O ต้องไม่ติดลบ')
+    }
+
+    const totalPercent = nPercent + p2o5Percent + k2oPercent
+    if (totalPercent > 100) {
+      throw new BadRequestException('ผลรวม N + P2O5 + K2O ต้องไม่เกิน 100')
+    }
+
+    return {
+      nPercent,
+      p2o5Percent,
+      k2oPercent,
+      fillerPercent: 100 - totalPercent,
+      formulaLabel: `${nPercent.toFixed(4)}-${p2o5Percent.toFixed(4)}-${k2oPercent.toFixed(4)}`,
     }
   }
 
@@ -372,9 +864,11 @@ export class ActivitiesService {
     })
 
     const legacyAliases: Partial<Record<CalStatusName, string[]>> = {
-      [CAL_STATUS_NAMES.ready]: ['ยังไม่คำนวณ/รอการคำนวณมาตรฐาน', 'รอคำนวณค่ามาตรฐาน'],
-      [CAL_STATUS_NAMES.cfpDone]: ['คำนวณแล้ว(มาตรฐาน+CFP)'],
-      [CAL_STATUS_NAMES.error]: ['ผิดพลาด'],
+      [CAL_STATUS_NAMES.ready]: ['พร้อมคำนวณมาตรฐาน', 'ยังไม่คำนวณ/รอการคำนวณมาตรฐาน', 'รอคำนวณค่ามาตรฐาน'],
+      [CAL_STATUS_NAMES.standardDone]: ['คำนวณแล้ว(มาตรฐาน)'],
+      [CAL_STATUS_NAMES.creditDone]: ['คำนวณแล้ว(มาตรฐาน,CFP)', 'คำนวณแล้ว(มาตรฐาน+CFP)'],
+      [CAL_STATUS_NAMES.cfpDone]: ['คำนวณแล้ว(มาตรฐาน,C-credit)'],
+      [CAL_STATUS_NAMES.error]: ['ผิดพลาด', 'คำนวณผิดผลาด'],
     }
 
     const map: Record<CalStatusName, number> = {} as Record<CalStatusName, number>
@@ -435,20 +929,7 @@ export class ActivitiesService {
   private async getDetailForWorkflow(id: number) {
     const detail = await this.prisma.log_activities_detail.findUnique({
       where: { log_act_detail_id: id },
-      include: {
-        log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
-        activities_header: {
-          select: {
-            activities_header_startDate: true,
-            land_id: true,
-            lands: {
-              select: {
-                land_camp_id: true,
-              },
-            },
-          },
-        },
-      },
+      include: this.getDetailForWorkflowInclude(),
     })
 
     if (!detail) {
@@ -458,12 +939,47 @@ export class ActivitiesService {
     return detail
   }
 
+  private getDetailForWorkflowInclude() {
+    return {
+      log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
+      activities_header: {
+        select: {
+          activities_header_startDate: true,
+          land_id: true,
+          lands: {
+            select: {
+              land_camp_id: true,
+            },
+          },
+        },
+      },
+    } as const
+  }
+
+  private async getDetailsForWorkflow(ids: number[]) {
+    const details = await this.prisma.log_activities_detail.findMany({
+      where: {
+        log_act_detail_id: { in: ids },
+      },
+      include: this.getDetailForWorkflowInclude(),
+    })
+
+    const detailById = new Map(details.map((detail) => [detail.log_act_detail_id, detail]))
+    const missingIds = ids.filter((id) => !detailById.has(id))
+    if (missingIds.length > 0) {
+      throw new BadRequestException(`Details not found: ${missingIds.join(', ')}`)
+    }
+
+    return ids.map((id) => detailById.get(id)!)
+  }
+
   private canTransitionWorkflowStatus(currentStatusName: string, nextStatusName: string) {
     if (nextStatusName === CAL_STATUS_NAMES.preparing) {
       return (
         currentStatusName === CAL_STATUS_NAMES.imported
         || currentStatusName === CAL_STATUS_NAMES.ready
         || currentStatusName === CAL_STATUS_NAMES.standardDone
+        || currentStatusName === CAL_STATUS_NAMES.creditDone
         || currentStatusName === CAL_STATUS_NAMES.cfpDone
         || currentStatusName === CAL_STATUS_NAMES.error
       )
@@ -485,6 +1001,7 @@ export class ActivitiesService {
       return (
         currentStatusName === CAL_STATUS_NAMES.preparing
         || currentStatusName === CAL_STATUS_NAMES.ready
+        || currentStatusName === CAL_STATUS_NAMES.creditDone
         || currentStatusName === CAL_STATUS_NAMES.error
       )
     }
@@ -492,6 +1009,23 @@ export class ActivitiesService {
     if (nextStatusName === CAL_STATUS_NAMES.standardDone) {
       return (
         currentStatusName === CAL_STATUS_NAMES.ready
+        || currentStatusName === CAL_STATUS_NAMES.creditDone
+        || currentStatusName === CAL_STATUS_NAMES.standardDone
+        || currentStatusName === CAL_STATUS_NAMES.cfpDone
+      )
+    }
+
+    if (nextStatusName === CAL_STATUS_NAMES.creditDone) {
+      return (
+        currentStatusName === CAL_STATUS_NAMES.standardDone
+        || currentStatusName === CAL_STATUS_NAMES.cfpDone
+      )
+    }
+
+    if (nextStatusName === CAL_STATUS_NAMES.cfpDone) {
+      return (
+        currentStatusName === CAL_STATUS_NAMES.standardDone
+        || currentStatusName === CAL_STATUS_NAMES.creditDone
         || currentStatusName === CAL_STATUS_NAMES.cfpDone
       )
     }
@@ -608,14 +1142,19 @@ export class ActivitiesService {
   private async handleUnchangedWorkflowStatus(
     detail: any,
     statusName:
+      | typeof CAL_STATUS_NAMES.imported
       | typeof CAL_STATUS_NAMES.preparing
       | typeof CAL_STATUS_NAMES.ready
-      | typeof CAL_STATUS_NAMES.standardDone,
+      | typeof CAL_STATUS_NAMES.standardDone
+      | typeof CAL_STATUS_NAMES.creditDone
+      | typeof CAL_STATUS_NAMES.cfpDone,
     statusId: number,
     tx: any = this.prisma,
   ) {
     if (statusName === CAL_STATUS_NAMES.preparing) {
       await this.ensureCarbonProcessQueueForDetail(detail, statusId, tx)
+    } else if (statusName === CAL_STATUS_NAMES.imported) {
+      await this.syncCarbonProcessQueueStatus(detail.log_act_detail_id, statusId, tx)
     } else {
       await this.syncCarbonProcessQueueStatus(detail.log_act_detail_id, statusId, tx)
     }
@@ -626,6 +1165,130 @@ export class ActivitiesService {
         log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
       },
     })
+  }
+
+  private async syncCarbonProcessQueueStatusBulk(detailIds: number[], statusId: number, tx: any = this.prisma) {
+    if (!detailIds.length) return { count: 0 }
+
+    return tx.carbon_process_queue.updateMany({
+      where: {
+        log_act_detail_id: { in: detailIds },
+      },
+      data: {
+        log_act_detail_calStatus_id: statusId,
+        carbon_process_queue_updated_at: new Date(),
+      },
+    })
+  }
+
+  private async ensureCarbonProcessQueueForDetailsBulk(details: any[], statusId: number, tx: any = this.prisma) {
+    if (!details.length) return { created: 0, updated: 0 }
+
+    const detailIds = details.map((detail) => detail.log_act_detail_id)
+    const existingQueues = await tx.carbon_process_queue.findMany({
+      where: {
+        log_act_detail_id: { in: detailIds },
+      },
+      select: {
+        carbon_process_queue_id: true,
+        log_act_detail_id: true,
+      },
+    })
+
+    const existingDetailIdSet = new Set(
+      existingQueues
+        .map((queue: { log_act_detail_id: number | null }) => queue.log_act_detail_id)
+        .filter((value: number | null): value is number => value != null),
+    )
+
+    const now = new Date()
+    const detailsToCreate = details.filter((detail) => !existingDetailIdSet.has(detail.log_act_detail_id))
+
+    let created = 0
+    if (detailsToCreate.length > 0) {
+      const last = await tx.carbon_process_queue.aggregate({
+        _max: { carbon_process_queue_id: true },
+      })
+      let nextQueueId = (last._max.carbon_process_queue_id ?? 0) + 1
+
+      await tx.carbon_process_queue.createMany({
+        data: detailsToCreate.map((detail) => ({
+          carbon_process_queue_id: nextQueueId++,
+          log_act_detail_id: detail.log_act_detail_id,
+          log_act_detail_calStatus_id: statusId,
+          land_id: detail.activities_header?.land_id ?? undefined,
+          land_camp_id: detail.activities_header?.lands?.land_camp_id ?? undefined,
+          carbon_process_queue_dateWork: detail.log_act_detail_create_at ?? detail.activities_header?.activities_header_startDate ?? undefined,
+          carbon_process_queue_create_at: now,
+          carbon_process_queue_updated_at: now,
+        })),
+      })
+      created = detailsToCreate.length
+    }
+
+    const updatedResult = await this.syncCarbonProcessQueueStatusBulk(detailIds, statusId, tx)
+
+    return {
+      created,
+      updated: updatedResult.count,
+    }
+  }
+
+  private async moveDetailsToStatusBulk(
+    ids: number[],
+    statusName:
+      | typeof CAL_STATUS_NAMES.imported
+      | typeof CAL_STATUS_NAMES.preparing
+      | typeof CAL_STATUS_NAMES.ready
+      | typeof CAL_STATUS_NAMES.standardDone
+      | typeof CAL_STATUS_NAMES.creditDone
+      | typeof CAL_STATUS_NAMES.cfpDone,
+    transitionMode: 'workflow' | 'manual',
+  ) {
+    if (!ids.length) throw new BadRequestException('No detail IDs provided')
+
+    const uniqueIds = Array.from(new Set(ids))
+    const details = await this.getDetailsForWorkflow(uniqueIds)
+    const statusId = await this.getCalStatusId(statusName as CalStatusName)
+
+    const canTransition = transitionMode === 'workflow'
+      ? this.canTransitionWorkflowStatus.bind(this)
+      : this.canTransitionManualStatus.bind(this)
+
+    const invalidDetail = details.find((detail) => {
+      const currentStatusName = this.getDetailStatusName(detail)
+      return currentStatusName !== statusName && !canTransition(currentStatusName, statusName)
+    })
+
+    if (invalidDetail) {
+      const currentStatusName = this.getDetailStatusName(invalidDetail)
+      throw new BadRequestException(
+        `Cannot move detail ${invalidDetail.log_act_detail_id} from "${currentStatusName || '—'}" to "${statusName}"`,
+      )
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.log_activities_detail.updateMany({
+        where: {
+          log_act_detail_id: { in: uniqueIds },
+        },
+        data: {
+          log_act_detail_calStatus_id: statusId,
+        },
+      })
+
+      if (statusName === CAL_STATUS_NAMES.preparing) {
+        await this.ensureCarbonProcessQueueForDetailsBulk(details, statusId, tx)
+        return
+      }
+
+      await this.syncCarbonProcessQueueStatusBulk(uniqueIds, statusId, tx)
+    })
+
+    return {
+      updated: uniqueIds.length,
+      ids: uniqueIds,
+    }
   }
 
   async createHeader(data: ActivityHeaderPayload) {
@@ -658,6 +1321,564 @@ export class ActivitiesService {
 
   deleteHeader(id: number) {
     return this.prisma.activities_header.delete({ where: { activities_header_id: id } })
+  }
+
+  private toFiniteNumberOrNull(value: unknown) {
+    if (value === undefined || value === null || value === '') return null
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  private roundUsageValue(value: number, digits = 3) {
+    return Number(value.toFixed(digits))
+  }
+
+  private compactText(value?: string | null) {
+    return (value ?? '').trim()
+  }
+
+  private normalizeInputUsageUnitText(value: string) {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '')
+      .replace(/³/g, '3')
+  }
+
+  private isInputUsagePackageUnit(unitLabel: string) {
+    const unit = this.normalizeInputUsageUnitText(unitLabel)
+    return /^(sck|sack|sacks|bag|bags)$|กระสอบ|ถุง/.test(unit)
+  }
+
+  private isInputUsageLiterUnit(unitLabel: string) {
+    const unit = this.normalizeInputUsageUnitText(unitLabel)
+    const plain = unitLabel.trim().toLowerCase()
+    const lettersOnly = plain.replace(/[^a-z]/g, '')
+    return /^(l|lt|ltr|liter|litre|liters|litres)$|ลิตร/.test(unit)
+      || /^(l|lt|ltr|liter|litre|liters|litres)$/.test(plain)
+      || /^(l|lt|ltr|liter|litre|liters|litres)$/.test(lettersOnly)
+  }
+
+  private parseInputUsagePackageKg(text: string) {
+    const normalized = text.toLowerCase()
+    const direct = normalized.match(/(\d+(?:\.\d+)?)\s*(?:kg|kgs|kilogram|kilograms|กก|กิโลกรัม|กิโล)\s*(?:\/|per)?\s*(?:bag|sack|bags|sacks|ถุง|กระสอบ)/)
+      ?? normalized.match(/(?:bag|sack|bags|sacks|ถุง|กระสอบ)\s*(?:ละ|per)?\s*(\d+(?:\.\d+)?)\s*(?:kg|kgs|kilogram|kilograms|กก|กิโลกรัม|กิโล)/)
+    const parsed = direct ? Number(direct[1]) : null
+    if (parsed != null && Number.isFinite(parsed) && parsed > 0) return parsed
+
+    if (/sck|sack|sacks|bag|bags|กระสอบ|ถุง/.test(normalized)) return 50
+    return null
+  }
+
+  private unitLabel(unit?: InputUsageUnitRef | null, prefix?: InputUsagePrefixRef | null) {
+    const prefixLabel = this.compactText(prefix?.unit_prefix_initial) || this.compactText(prefix?.unit_prefix_name)
+    const unitText = this.compactText(unit?.unit_initial) || this.compactText(unit?.unit_name)
+    return [prefixLabel, unitText].filter(Boolean).join(' ').trim() || 'ไม่ระบุหน่วย'
+  }
+
+  private getDetailItemName(detail: InputUsageSourceDetail) {
+    return this.compactText(detail.activities_fertilizers?.act_fertilizer_name)
+      || this.compactText(detail.activities_equipments?.act_equipment_name)
+      || this.compactText(detail.activities_chemiscals?.act_chemiscal_name)
+      || this.compactText(detail.activities_resourceOther?.act_resourceOther_name)
+      || 'ไม่ระบุรายการ'
+  }
+
+  private classifyInputUsageBucket(detail: InputUsageSourceDetail): InputUsageBucket {
+    const text = [
+      detail.resource_used_type?.resc_used_type_name,
+      detail.activities_fertilizers?.act_fertilizer_name,
+      detail.activities_equipments?.act_equipment_name,
+      detail.activities_chemiscals?.act_chemiscal_name,
+      detail.activities_resourceOther?.act_resourceOther_name,
+    ].filter(Boolean).join(' ').toLowerCase()
+
+    if (
+      detail.activities_fertilizers
+      || /ปุ๋ย|fertilizer|compost|manure|organic|อินทรีย์|ปุ๋ยหมัก|วัสดุอินทรีย์|filter\s*cake|ฟิลเตอร์เค้ก|กากตะกอน/.test(text)
+    ) {
+      return 'fertilizer'
+    }
+
+    if (/น้ำมัน|เชื้อเพลิง|fuel|diesel|ดีเซล|gasohol|benzene|เบนซิน|ไบโอดีเซล/.test(text)) {
+      return 'fuel'
+    }
+
+    return 'other'
+  }
+
+  private getFertilizerProfile(name: string): {
+    kind: InputUsageFertilizerKind
+    formula: string | null
+  } {
+    const formulaMatch = name.match(/(\d+(?:\.\d+)?)\s*[-xX]\s*(\d+(?:\.\d+)?)\s*[-xX]\s*(\d+(?:\.\d+)?)/)
+    if (formulaMatch) {
+      return { kind: 'chemical', formula: formulaMatch[0] }
+    }
+
+    const normalized = name.toLowerCase()
+    if (/อินทรีย์|organic|compost|manure|ปุ๋ยหมัก|วัสดุอินทรีย์|filter\s*cake|ฟิลเตอร์เค้ก|กากตะกอน|มูล/.test(normalized)) {
+      return { kind: 'organic', formula: null }
+    }
+
+    return { kind: 'unknown', formula: null }
+  }
+
+  private normalizeInputUsageAmount(bucket: InputUsageBucket, amount: number, unitLabel: string, contextText = '') {
+    const unit = this.normalizeInputUsageUnitText(unitLabel)
+
+    if (bucket === 'fertilizer') {
+      if (this.isInputUsagePackageUnit(unitLabel)) {
+        const packageKg = this.parseInputUsagePackageKg(`${contextText} ${unitLabel}`)
+        if (packageKg != null) return { amount: this.roundUsageValue(amount * packageKg), unit: 'kg', warning: null as string | null }
+      }
+      if (/kg|กก|กิโลกรัม|กิโล/.test(unit)) return { amount: this.roundUsageValue(amount), unit: 'kg', warning: null as string | null }
+      if (/ตัน|ton|tonne/.test(unit)) return { amount: this.roundUsageValue(amount * 1000), unit: 'kg', warning: null as string | null }
+      if (/กรัม|gram|^g$/.test(unit)) return { amount: this.roundUsageValue(amount / 1000), unit: 'kg', warning: null as string | null }
+      if (this.isInputUsageLiterUnit(unitLabel)) return { amount: this.roundUsageValue(amount), unit: 'L', warning: null as string | null }
+      return { amount: 0, unit: 'kg', warning: `ไม่สามารถแปลงหน่วย "${unitLabel}" เป็น kg` }
+    }
+
+    if (bucket === 'fuel') {
+      if (this.isInputUsageLiterUnit(unitLabel)) return { amount: this.roundUsageValue(amount), unit: 'L', warning: null as string | null }
+      if (/ml|มล|มิลลิลิตร|cc|ซีซี/.test(unit)) return { amount: this.roundUsageValue(amount / 1000), unit: 'L', warning: null as string | null }
+      if (/m3|ลบ\.?ม|ลูกบาศก์เมตร/.test(unit)) return { amount: this.roundUsageValue(amount * 1000), unit: 'L', warning: null as string | null }
+      return { amount: 0, unit: 'L', warning: `ไม่สามารถแปลงหน่วย "${unitLabel}" เป็น L` }
+    }
+
+    return { amount: this.roundUsageValue(amount), unit: unitLabel || 'ไม่ระบุหน่วย', warning: null as string | null }
+  }
+
+  private getInputUsageAmount(
+    detail: InputUsageSourceDetail,
+    unitById: Record<number, InputUsageUnitRef>,
+    prefixById: Record<number, InputUsagePrefixRef>,
+  ): InputUsageResolvedAmount | null {
+    const info = this.parseCarbonPreparationInfo(detail.carbon_process_queue?.carbon_process_queue_info)
+    const preparedAmount = this.toFiniteNumberOrNull(info.preparedVolumeAll)
+    const sourceVolumeAll = this.toFiniteNumberOrNull(detail.log_act_detail_volumeAll)
+    const sourceQuantity = this.toFiniteNumberOrNull(detail.log_act_detail_quatity)
+    const sourceVolumePerUnit = this.toFiniteNumberOrNull(detail.log_act_detail_volumePerUnit)
+    const sourceAmount = sourceVolumeAll != null && sourceVolumeAll > 0
+      ? sourceVolumeAll
+      : (
+        sourceQuantity != null && sourceVolumePerUnit != null && sourceVolumePerUnit > 0
+          ? sourceQuantity * sourceVolumePerUnit
+          : sourceQuantity
+      )
+
+    const sourceUnitLabel = this.unitLabel(detail.units, detail.units_prefixs)
+    if (preparedAmount != null) {
+      const preparedUnitId = this.toFiniteNumberOrNull(info.preparedUnitId)
+      const preparedPrefixId = this.toFiniteNumberOrNull(info.preparedUnitPrefixId)
+      const preparedUnitLabel = this.unitLabel(
+        preparedUnitId != null ? unitById[preparedUnitId] : undefined,
+        preparedPrefixId != null ? prefixById[preparedPrefixId] : undefined,
+      )
+
+      return {
+        amount: preparedAmount,
+        unitLabel: preparedUnitLabel === 'ไม่ระบุหน่วย' ? sourceUnitLabel : preparedUnitLabel,
+        source: 'prepared',
+      }
+    }
+
+    if (sourceAmount == null) return null
+
+    return {
+      amount: sourceAmount,
+      unitLabel: sourceUnitLabel,
+      source: 'activity',
+    }
+  }
+
+  private getInputUsageYear(detail: InputUsageSourceDetail) {
+    const productionYear = this.parseProductionYearNumber(detail.activities_productYear?.act_productYear_name)
+    if (productionYear != null) return productionYear
+
+    const date = detail.activities_header?.activities_header_startDate ?? detail.log_act_detail_create_at
+    if (!date) return null
+    const parsed = date instanceof Date ? date : new Date(date)
+    if (Number.isNaN(parsed.getTime())) return null
+    return parsed.getFullYear()
+  }
+
+  private getInputUsageYearLabel(detail: InputUsageSourceDetail, year: number | null) {
+    const productionYearLabel = this.compactText(detail.activities_productYear?.act_productYear_name)
+    if (productionYearLabel) return productionYearLabel
+    const derivedLabel = buildProductionYearLabelFromDate(
+      detail.activities_header?.activities_header_startDate ?? detail.log_act_detail_create_at,
+    )
+    if (derivedLabel) return derivedLabel
+    if (year != null) return String(year)
+    return 'ไม่ระบุปีการผลิต'
+  }
+
+  private parseProductionYearNumber(value?: string | null) {
+    return parseProductionYearSortYear(value)
+  }
+
+  private buildInputUsageYearFilterOptions(details: InputUsageSourceDetail[]): InputUsageYearFilterOption[] {
+    const options = new Map<string, InputUsageYearFilterOption>()
+
+    details.forEach((detail) => {
+      const year = this.getInputUsageYear(detail)
+      const label = this.getInputUsageYearLabel(detail, year)
+      if (!label) return
+
+      const existing = options.get(label)
+      if (!existing) {
+        options.set(label, {
+          value: label,
+          label,
+          sortYear: year,
+        })
+        return
+      }
+
+      if (existing.sortYear == null || (year != null && year < existing.sortYear)) {
+        existing.sortYear = year
+      }
+    })
+
+    return Array.from(options.values()).sort((left, right) => {
+      const leftYear = left.sortYear ?? Number.MAX_SAFE_INTEGER
+      const rightYear = right.sortYear ?? Number.MAX_SAFE_INTEGER
+      if (leftYear !== rightYear) return leftYear - rightYear
+      return left.label.localeCompare(right.label, 'th')
+    })
+  }
+
+  private addInputUsageRow(map: Map<string, InputUsageSummaryRow>, row: InputUsageSummaryRow) {
+    const existing = map.get(row.id)
+    if (!existing) {
+      map.set(row.id, row)
+      return
+    }
+
+    existing.amount = this.roundUsageValue(existing.amount + row.amount)
+    existing.areaRai = Math.max(existing.areaRai, row.areaRai)
+    existing.recordCount += row.recordCount
+    existing.sourcePreparedCount += row.sourcePreparedCount
+    existing.warningCount += row.warningCount
+    row.activityNames.forEach((activityName) => {
+      if (!existing.activityNames.includes(activityName)) existing.activityNames.push(activityName)
+    })
+    row.warnings.forEach((warning) => {
+      if (!existing.warnings.includes(warning)) existing.warnings.push(warning)
+    })
+  }
+
+  private buildInputUsageTotals(rows: InputUsageSummaryRow[]) {
+    const campIds = new Set<number>()
+    const landIds = new Set<number>()
+    const landAreas = new Map<string, number>()
+
+    rows.forEach((row) => {
+      if (row.campId != null) campIds.add(row.campId)
+      if (row.landId != null) landIds.add(row.landId)
+      const areaKey = row.landId != null ? String(row.landId) : `${row.campId ?? 'none'}:${row.landLabel}`
+      landAreas.set(areaKey, Math.max(landAreas.get(areaKey) ?? 0, row.areaRai))
+    })
+
+    return {
+      campCount: campIds.size,
+      landCount: landIds.size,
+      recordCount: rows.reduce((sum, row) => sum + row.recordCount, 0),
+      areaRai: this.roundUsageValue(Array.from(landAreas.values()).reduce((sum, area) => sum + area, 0), 2),
+      fertilizerKg: this.roundUsageValue(rows.filter((row) => row.bucket === 'fertilizer' && row.unit === 'kg').reduce((sum, row) => sum + row.amount, 0)),
+      fuelLiter: this.roundUsageValue(rows.filter((row) => row.bucket === 'fuel').reduce((sum, row) => sum + row.amount, 0)),
+      otherRecordCount: rows.filter((row) => row.bucket === 'other').reduce((sum, row) => sum + row.recordCount, 0),
+      unknownUnitCount: rows.reduce((sum, row) => sum + row.warningCount, 0),
+    }
+  }
+
+  private buildInputUsageComparisonTargets(rows: InputUsageSummaryRow[]) {
+    type InternalTarget = InputUsageComparisonTarget & {
+      landAreas: Map<string, number>
+      fertilizerItems: Map<string, number>
+      fuelItems: Map<string, number>
+    }
+
+    const targets = new Map<string, InternalTarget>()
+    const ensureTarget = (row: InputUsageSummaryRow, type: 'camp' | 'land') => {
+      const id = type === 'camp'
+        ? `camp:${row.campId ?? 'unknown'}`
+        : `land:${row.landId ?? 'unknown'}`
+      const existing = targets.get(id)
+      if (existing) return existing
+
+      const target: InternalTarget = {
+        id,
+        type,
+        label: type === 'camp' ? row.campName : row.landLabel,
+        campId: row.campId,
+        campName: row.campName,
+        landId: type === 'land' ? row.landId : undefined,
+        landLabel: type === 'land' ? row.landLabel : undefined,
+        areaRai: 0,
+        recordCount: 0,
+        fertilizerKg: 0,
+        fuelLiter: 0,
+        otherRecordCount: 0,
+        topFertilizer: '—',
+        topFuel: '—',
+        warningCount: 0,
+        landAreas: new Map<string, number>(),
+        fertilizerItems: new Map<string, number>(),
+        fuelItems: new Map<string, number>(),
+      }
+      targets.set(id, target)
+      return target
+    }
+
+    rows.forEach((row) => {
+      const selectedTargets = [
+        row.campId != null ? ensureTarget(row, 'camp') : null,
+        row.landId != null ? ensureTarget(row, 'land') : null,
+      ].filter((target): target is InternalTarget => Boolean(target))
+
+      selectedTargets.forEach((target) => {
+        target.recordCount += row.recordCount
+        target.warningCount += row.warningCount
+        const areaKey = row.landId != null ? String(row.landId) : row.landLabel
+        target.landAreas.set(areaKey, Math.max(target.landAreas.get(areaKey) ?? 0, row.areaRai))
+
+        if (row.bucket === 'fertilizer' && row.unit === 'kg') {
+          target.fertilizerKg = this.roundUsageValue(target.fertilizerKg + row.amount)
+          target.fertilizerItems.set(row.itemName, (target.fertilizerItems.get(row.itemName) ?? 0) + row.amount)
+        } else if (row.bucket === 'fuel') {
+          target.fuelLiter = this.roundUsageValue(target.fuelLiter + row.amount)
+          target.fuelItems.set(row.itemName, (target.fuelItems.get(row.itemName) ?? 0) + row.amount)
+        } else {
+          target.otherRecordCount += row.recordCount
+        }
+      })
+    })
+
+    return Array.from(targets.values())
+      .map((target) => {
+        const topFertilizer = Array.from(target.fertilizerItems.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—'
+        const topFuel = Array.from(target.fuelItems.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—'
+
+        return {
+          id: target.id,
+          type: target.type,
+          label: target.label,
+          campId: target.campId,
+          campName: target.campName,
+          landId: target.landId,
+          landLabel: target.landLabel,
+          areaRai: this.roundUsageValue(Array.from(target.landAreas.values()).reduce((sum, area) => sum + area, 0), 2),
+          recordCount: target.recordCount,
+          fertilizerKg: target.fertilizerKg,
+          fuelLiter: target.fuelLiter,
+          otherRecordCount: target.otherRecordCount,
+          topFertilizer,
+          topFuel,
+          warningCount: target.warningCount,
+        }
+      })
+      .sort((a, b) => a.type.localeCompare(b.type) || a.label.localeCompare(b.label, 'th'))
+  }
+
+  async getInputUsageSummary() {
+    const [details, units, prefixes, headerTypes, detailTypes] = await Promise.all([
+      this.prisma.log_activities_detail.findMany({
+        include: {
+          activities_header: {
+            select: {
+              activities_header_startDate: true,
+              land_id: true,
+              activities_header_typeSugarCane: {
+                select: {
+                  act_header_typeSugarCane_name: true,
+                },
+              },
+              lands: {
+                select: {
+                  land_id: true,
+                  land_code: true,
+                  name: true,
+                  land_camp_id: true,
+                  area_size: true,
+                  land_size: true,
+                  lands_camps: {
+                    select: {
+                      land_camp_name: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          activities_fertilizers: { select: { act_fertilizer_name: true } },
+          activities_equipments: { select: { act_equipment_name: true } },
+          activities_chemiscals: { select: { act_chemiscal_name: true } },
+          activities_resourceOther: { select: { act_resourceOther_name: true } },
+          activities_productYear: { select: { act_productYear_name: true } },
+          resource_used_type: { select: { resc_used_type_name: true } },
+          log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
+          units: { select: { unit_name: true, unit_initial: true } },
+          units_prefixs: { select: { unit_prefix_name: true, unit_prefix_initial: true, unit_prefix_value: true } },
+          carbon_process_queue: {
+            select: {
+              carbon_process_queue_id: true,
+              carbon_process_queue_info: true,
+            },
+          },
+        },
+        orderBy: { log_act_detail_id: 'asc' },
+      }),
+      this.prisma.units.findMany({ select: { unit_id: true, unit_name: true, unit_initial: true } }),
+      this.prisma.units_prefixs.findMany({ select: { unit_prefix_id: true, unit_prefix_name: true, unit_prefix_initial: true } }),
+      this.prisma.activities_header_type.findMany({ select: { act_header_type_id: true, act_header_type_name_th: true } }),
+      this.prisma.activities_header_detail_type.findMany({ select: { act_header_detail_type_id: true, act_header_detail_type_name_th: true } }),
+    ])
+
+    const unitById = units.reduce<Record<number, InputUsageUnitRef>>((map, unit) => {
+      map[unit.unit_id] = unit
+      return map
+    }, {})
+    const prefixById = prefixes.reduce<Record<number, InputUsagePrefixRef>>((map, prefix) => {
+      map[prefix.unit_prefix_id] = prefix
+      return map
+    }, {})
+    const headerTypeNameById = headerTypes.reduce<Record<number, string>>((map, item) => {
+      const label = this.compactText(item.act_header_type_name_th)
+      if (label) map[item.act_header_type_id] = label
+      return map
+    }, {})
+    const detailTypeNameById = detailTypes.reduce<Record<number, string>>((map, item) => {
+      const label = this.compactText(item.act_header_detail_type_name_th)
+      if (label) map[item.act_header_detail_type_id] = label
+      return map
+    }, {})
+
+    const fertilizerMap = new Map<string, InputUsageSummaryRow>()
+    const fuelMap = new Map<string, InputUsageSummaryRow>()
+    const otherMap = new Map<string, InputUsageSummaryRow>()
+
+    details.forEach((detail) => {
+      const amountInput = this.getInputUsageAmount(detail, unitById, prefixById)
+      if (!amountInput) return
+
+      const bucket = this.classifyInputUsageBucket(detail)
+      const itemName = this.getDetailItemName(detail)
+      const resourceTypeName = this.compactText(detail.resource_used_type?.resc_used_type_name) || 'ไม่ระบุประเภท'
+      const normalized = this.normalizeInputUsageAmount(
+        bucket,
+        amountInput.amount,
+        amountInput.unitLabel,
+        `${itemName} ${resourceTypeName}`,
+      )
+      const fertilizerProfile = bucket === 'fertilizer'
+        ? this.getFertilizerProfile(`${itemName} ${resourceTypeName}`)
+        : null
+      const year = this.getInputUsageYear(detail)
+      const yearLabel = this.getInputUsageYearLabel(detail, year)
+      const caneTypeName = this.compactText(detail.activities_header?.activities_header_typeSugarCane?.act_header_typeSugarCane_name) || '—'
+      const headerTypeName = detail.act_header_type_id != null
+        ? (headerTypeNameById[detail.act_header_type_id] ?? '')
+        : ''
+      const detailTypeName = detail.act_header_detail_type_id != null
+        ? (detailTypeNameById[detail.act_header_detail_type_id] ?? '')
+        : ''
+      const activityName = detailTypeName
+        ? (headerTypeName && headerTypeName !== detailTypeName ? `${headerTypeName} / ${detailTypeName}` : detailTypeName)
+        : (headerTypeName || 'ไม่ระบุกิจกรรม')
+      const land = detail.activities_header?.lands
+      const landId = land?.land_id ?? detail.activities_header?.land_id ?? null
+      const landCode = this.compactText(land?.land_code) || (landId != null ? `#${landId}` : 'ไม่ระบุแปลง')
+      const landName = this.compactText(land?.name)
+      const landLabel = landName ? `${landCode} - ${landName}` : landCode
+      const campId = land?.land_camp_id ?? null
+      const campName = this.compactText(land?.lands_camps?.land_camp_name) || (campId != null ? `ไร่ #${campId}` : 'ไม่ระบุไร่')
+      const areaRai = this.toFiniteNumberOrNull(land?.area_size)
+        ?? this.toFiniteNumberOrNull(land?.land_size)
+        ?? this.toFiniteNumberOrNull(detail.log_act_detail_areawork)
+        ?? 0
+      const unit = bucket === 'other' ? amountInput.unitLabel : normalized.unit
+      const warning = normalized.warning
+      const key = [
+        bucket,
+        year ?? 'unknown-year',
+        caneTypeName,
+        campId ?? 'unknown-camp',
+        landId ?? 'unknown-land',
+        itemName,
+        fertilizerProfile?.kind ?? 'none',
+        unit,
+      ].join('|')
+
+      const row: InputUsageSummaryRow = {
+        id: key,
+        bucket,
+        year,
+        yearLabel,
+        caneTypeName,
+        campId,
+        campName,
+        landId,
+        landCode,
+        landName: landName || '—',
+        landLabel,
+        activityNames: [activityName],
+        itemName,
+        resourceTypeName,
+        ...(fertilizerProfile ? {
+          fertilizerKind: fertilizerProfile.kind,
+          fertilizerFormula: fertilizerProfile.formula,
+        } : {}),
+        amount: normalized.amount,
+        unit,
+        areaRai,
+        recordCount: 1,
+        sourcePreparedCount: amountInput.source === 'prepared' ? 1 : 0,
+        warningCount: warning ? 1 : 0,
+        warnings: warning ? [warning] : [],
+      }
+
+      if (bucket === 'fertilizer') this.addInputUsageRow(fertilizerMap, row)
+      else if (bucket === 'fuel') this.addInputUsageRow(fuelMap, row)
+      else this.addInputUsageRow(otherMap, row)
+    })
+
+    const fertilizer = Array.from(fertilizerMap.values()).sort((a, b) => b.amount - a.amount)
+    const fuel = Array.from(fuelMap.values()).sort((a, b) => b.amount - a.amount)
+    const other = Array.from(otherMap.values()).sort((a, b) => b.recordCount - a.recordCount || b.amount - a.amount)
+    const allRows = [...fertilizer, ...fuel, ...other]
+    const yearOptions = this.buildInputUsageYearFilterOptions(details)
+    const campOptions = new Map<number, { id: number; label: string }>()
+    const landOptions = new Map<number, { id: number; label: string; campId: number | null; campLabel: string }>()
+
+    allRows.forEach((row) => {
+      if (row.campId != null && !campOptions.has(row.campId)) {
+        campOptions.set(row.campId, { id: row.campId, label: row.campName })
+      }
+      if (row.landId != null && !landOptions.has(row.landId)) {
+        landOptions.set(row.landId, {
+          id: row.landId,
+          label: row.landLabel,
+          campId: row.campId,
+          campLabel: row.campName,
+        })
+      }
+    })
+
+    return {
+      filters: {
+        years: Array.from(new Set(allRows.map((row) => row.year).filter((year): year is number => year != null))).sort((a, b) => a - b),
+        yearOptions,
+        camps: Array.from(campOptions.values()).sort((a, b) => a.label.localeCompare(b.label, 'th')),
+        lands: Array.from(landOptions.values()).sort((a, b) => a.label.localeCompare(b.label, 'th')),
+      },
+      totals: this.buildInputUsageTotals(allRows),
+      fertilizer,
+      fuel,
+      other,
+      comparisonTargets: this.buildInputUsageComparisonTargets(allRows),
+    }
   }
 
   // ── Details ────────────────────────────────────────────────
@@ -701,6 +1922,7 @@ export class ActivitiesService {
         activities_equipments:  { select: { act_equipment_name: true } },
         activities_chemiscals:  { select: { act_chemiscal_name: true } },
         activities_resourceOther: { select: { act_resourceOther_name: true } },
+        activities_productYear: { select: { act_productYear_name: true } },
         resource_used_type:     { select: { resc_used_type_name: true } },
         log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
         units: { select: { unit_name: true, unit_initial: true } },
@@ -712,6 +1934,7 @@ export class ActivitiesService {
 
   async createDetail(data: ActivityDetailPayload) {
     const normalized = this.normalizeDetailPayload(data)
+    this.validateRequiredDetailPayload(data, normalized)
     const calStatusId = await this.getCalStatusId(CAL_STATUS_NAMES.imported)
     const createdAt = normalized.log_act_detail_create_at ?? new Date()
 
@@ -732,6 +1955,7 @@ export class ActivitiesService {
 
   async updateDetail(id: number, data: ActivityDetailPayload) {
     const normalized = this.normalizeDetailPayload(data)
+    this.validateRequiredDetailPayload(data, normalized)
     const currentDetail = await this.getDetailForWorkflow(id)
     const currentStatusName = this.getDetailStatusName(currentDetail)
     const nextStatusName: CalStatusName = (
@@ -840,25 +2064,18 @@ export class ActivitiesService {
     ids: number[],
     statusName: typeof CAL_STATUS_NAMES.preparing | typeof CAL_STATUS_NAMES.ready,
   ) {
-    if (!ids.length) throw new BadRequestException('No detail IDs provided')
-
-    const updated = []
-    for (const id of ids) {
-      updated.push(await this.moveDetailToWorkflowStatus(id, statusName))
-    }
-
-    return {
-      updated: updated.length,
-      ids: updated.map((item) => item.log_act_detail_id),
-    }
+    return this.moveDetailsToStatusBulk(ids, statusName, 'workflow')
   }
 
   async moveDetailToManualStatus(
     id: number,
     statusName:
+      | typeof CAL_STATUS_NAMES.imported
       | typeof CAL_STATUS_NAMES.preparing
       | typeof CAL_STATUS_NAMES.ready
-      | typeof CAL_STATUS_NAMES.standardDone,
+      | typeof CAL_STATUS_NAMES.standardDone
+      | typeof CAL_STATUS_NAMES.creditDone
+      | typeof CAL_STATUS_NAMES.cfpDone,
   ) {
     const detail = await this.getDetailForWorkflow(id)
     const currentStatusName = this.getDetailStatusName(detail)
@@ -890,21 +2107,14 @@ export class ActivitiesService {
   async moveDetailsToManualStatus(
     ids: number[],
     statusName:
+      | typeof CAL_STATUS_NAMES.imported
       | typeof CAL_STATUS_NAMES.preparing
       | typeof CAL_STATUS_NAMES.ready
-      | typeof CAL_STATUS_NAMES.standardDone,
+      | typeof CAL_STATUS_NAMES.standardDone
+      | typeof CAL_STATUS_NAMES.creditDone
+      | typeof CAL_STATUS_NAMES.cfpDone,
   ) {
-    if (!ids.length) throw new BadRequestException('No detail IDs provided')
-
-    const updated = []
-    for (const id of ids) {
-      updated.push(await this.moveDetailToManualStatus(id, statusName))
-    }
-
-    return {
-      updated: updated.length,
-      ids: updated.map((item) => item.log_act_detail_id),
-    }
+    return this.moveDetailsToStatusBulk(ids, statusName, 'manual')
   }
 
   async calculateDetail(id: number, calcMode: 'standard' | 'tver' = 'standard') {
@@ -912,15 +2122,16 @@ export class ActivitiesService {
     const currentStatusName = this.getDetailStatusName(detail)
 
     if (calcMode === 'standard' && currentStatusName !== CAL_STATUS_NAMES.ready) {
-      throw new BadRequestException(`Detail ${id} must be "${CAL_STATUS_NAMES.ready}" before standard calculation`)
+      throw new BadRequestException(`Detail ${id} must be "${CAL_STATUS_NAMES.ready}" before CFP calculation`)
     }
 
     if (
       calcMode === 'tver'
       && currentStatusName !== CAL_STATUS_NAMES.standardDone
+      && currentStatusName !== CAL_STATUS_NAMES.creditDone
       && currentStatusName !== CAL_STATUS_NAMES.cfpDone
     ) {
-      throw new BadRequestException(`Detail ${id} must be "${CAL_STATUS_NAMES.standardDone}" before CFP calculation`)
+      throw new BadRequestException(`Detail ${id} must be "${CAL_STATUS_NAMES.standardDone}" before C-credit calculation`)
     }
 
     return this.triggerCalc(
@@ -1029,9 +2240,36 @@ export class ActivitiesService {
     return this.normalizeSearchText(this.getCarbonQueueResourceNames(queue).join(' '))
   }
 
+  private isLiquidUnitText(value?: string | null) {
+    const normalized = this.normalizeInputUsageUnitText(value ?? '')
+    if (!normalized) return false
+    return /^(l|lit|liter|litre|litter|ลิตร)$/.test(normalized)
+      || /^(ml|milliliter|millilitre|มิลลิลิตร|cc|ซีซี)$/.test(normalized)
+      || /^(m3|cubicmeter|cubicmetre|ลูกบาศก์เมตร)$/.test(normalized)
+  }
+
+  private isLiquidFertilizerQueue(queue: any) {
+    const detail = queue?.log_activities_detail
+    const resourceText = this.getCarbonQueueResourceText(queue)
+    const info = this.parseCarbonPreparationInfo(queue?.carbon_process_queue_info)
+    const preparationType = String(info.fertilizerPrepareType ?? '').trim().toLowerCase()
+    const unitText = this.unitLabel(detail?.units, detail?.units_prefixs)
+    const normalizedUnitText = this.normalizeInputUsageUnitText(unitText)
+    const isFertilizerResource = detail?.act_fertilizer_id != null || /ปุ๋ย|fertilizer/.test(resourceText)
+
+    if (!isFertilizerResource) return false
+    if (preparationType === 'liquid_fertilizer') return true
+    if (!normalizedUnitText || /sck|sack|bag|กระสอบ/.test(normalizedUnitText)) return false
+    return this.isLiquidUnitText(unitText)
+  }
+
   private resolveCarbonFormulaMode(queue: any): CarbonFormulaMode {
     const detail = queue?.log_activities_detail
     const resourceText = this.getCarbonQueueResourceText(queue)
+
+    if (this.isLiquidFertilizerQueue(queue)) {
+      return 'generic_ef'
+    }
 
     if (
       detail?.act_fertilizer_id != null
@@ -1306,14 +2544,23 @@ export class ActivitiesService {
       .map((value) => this.normalizeSearchText(value).replace(/\s+/g, ''))
       .filter(Boolean)
 
-    if (normalized.some((value) => ['kgco2e', 'kilogramco2e', 'กิโลกรัมco2e'].includes(value))) return 'kgco2e'
-    if (normalized.some((value) => ['tco2e', 'tonco2e', 'tonneco2e', 'ตันco2e'].includes(value))) return 'tco2e'
+    if (normalized.some((value) => (
+      ['kgco2e', 'kilogramco2e', 'กิโลกรัมco2e'].includes(value)
+      || value.includes('kgco2e')
+      || value.includes('กิโลกรัมco2e')
+    ))) return 'kgco2e'
+    if (normalized.some((value) => (
+      ['tco2e', 'tonco2e', 'tonneco2e', 'ตันco2e'].includes(value)
+      || value.includes('tco2e')
+      || value.includes('ตันco2e')
+      || value.includes('ตันคาร์บอนไดออกไซด์')
+    ))) return 'tco2e'
     return null
   }
 
   private getDefaultFootprintResultUnitKind(formulaMode: CarbonFormulaMode): FootprintResultUnitKind | null {
     if (formulaMode === 'generic_ef') return 'kgco2e'
-    if (formulaMode === 'fertilizer_n2o') return 'tco2e'
+    if (formulaMode === 'fertilizer_n2o') return 'kgco2e'
     return null
   }
 
@@ -1399,8 +2646,8 @@ export class ActivitiesService {
       return {
         formulaMode: 'generic_ef',
         resultValue,
-        resultUnitId: ef.unit_id_total ?? await this.findResultUnitId(['kgCO2e', 'kg CO2e', 'กิโลกรัม CO2e']),
-        resultUnitPrefixId: ef.unit_prefix_id_total ?? null,
+        resultUnitId: await this.findResultUnitId(['kgCO2e', 'kg CO2e', 'กิโลกรัม CO2e']),
+        resultUnitPrefixId: null,
         breakdown: {
           formulaMode: 'generic_ef',
           formula: 'activity_amount * EF_total',
@@ -1408,6 +2655,7 @@ export class ActivitiesService {
           inputUnitId: amountInput.unitId,
           efId: ef.coefficient_emission_factor_id,
           efTotal: ef.coef_em_factor_value_total,
+          efResultUnitId: ef.unit_id_total ?? null,
           resultValue,
         },
       }
@@ -1424,14 +2672,15 @@ export class ActivitiesService {
     return {
       formulaMode: 'generic_ef',
       resultValue,
-      resultUnitId: ef.unit_id_total ?? await this.findResultUnitId(['kgCO2e', 'kg CO2e', 'กิโลกรัม CO2e']),
-      resultUnitPrefixId: ef.unit_prefix_id_total ?? null,
+      resultUnitId: await this.findResultUnitId(['kgCO2e', 'kg CO2e', 'กิโลกรัม CO2e']),
+      resultUnitPrefixId: null,
       breakdown: {
         formulaMode: 'generic_ef',
         formula: '(CO2 * GWP_CO2) + (CH4 * GWP_CH4) + (N2O * GWP_N2O)',
         amount: amountInput.amount,
         inputUnitId: amountInput.unitId,
         efId: ef.coefficient_emission_factor_id,
+        efResultUnitId: ef.unit_id_total ?? null,
         gwp,
         co2Contrib,
         ch4Contrib,
@@ -1441,65 +2690,201 @@ export class ActivitiesService {
     }
   }
 
-  private resolveFertilizerType(queue: any) {
-    const info = this.parseCarbonPreparationInfo(queue?.carbon_process_queue_info)
-    const preparedType = this.normalizeSearchText(String(info.fertilizerPrepareType ?? ''))
-    if (/chemical|เคมี/.test(preparedType)) return 'chemical' as const
-    if (/organic|อินทรีย์/.test(preparedType)) return 'organic' as const
+  private async resolveFertilizerSelectedEfValue(selectedEfId: number | undefined, defaultValue: number, label: string) {
+    if (selectedEfId == null) {
+      return { value: defaultValue, selectedEf: null as any }
+    }
 
-    const inferred = this.inferFertilizerNitrogenFromName(
-      queue?.log_activities_detail?.activities_fertilizers?.act_fertilizer_name,
-    )
-    return inferred.kind
+    const selectedEf = await this.prisma.coefficients_emissions_factors.findUnique({
+      where: { coefficient_emission_factor_id: selectedEfId },
+      select: {
+        coefficient_emission_factor_id: true,
+        coef_em_factor_idCode: true,
+        coef_em_factor_name: true,
+        coef_em_factor_value_total: true,
+      },
+    })
+
+    if (!selectedEf) {
+      throw new BadRequestException(`ไม่พบ EF ที่เลือกสำหรับ ${label} (#${selectedEfId})`)
+    }
+
+    if (selectedEf.coef_em_factor_value_total == null) {
+      throw new BadRequestException(`EF "${selectedEf.coef_em_factor_name ?? selectedEf.coef_em_factor_idCode ?? selectedEf.coefficient_emission_factor_id}" ยังไม่มีค่า EF_total สำหรับ ${label}`)
+    }
+
+    return { value: Number(selectedEf.coef_em_factor_value_total), selectedEf }
   }
 
-  private async calculateFertilizerN2OForQueue(queue: any, amountInput: QueueAmountInput): Promise<GenericEfCalculationResult> {
+  private async resolveFertilizerSelectedGwpValue(selectedGwpId?: number) {
+    if (selectedGwpId == null) {
+      return { value: FERTILIZER_CFP_SIMPLE_CONSTANTS.GWP_N2O, selectedGwp: null as any }
+    }
+
+    const selectedGwp = await this.prisma.coefficients_emissions_factors_gwp.findUnique({
+      where: { coefficients_emissions_factors_gwp_id: selectedGwpId },
+      select: {
+        coefficients_emissions_factors_gwp_id: true,
+        coef_em_factor_gwp_name: true,
+        coef_em_factor_gwp_name_en: true,
+        coef_em_factor_gwp_value: true,
+      },
+    })
+
+    if (!selectedGwp) {
+      throw new BadRequestException(`ไม่พบ GWP ที่เลือก (#${selectedGwpId})`)
+    }
+
+    if (selectedGwp.coef_em_factor_gwp_value == null) {
+      throw new BadRequestException(`GWP "${selectedGwp.coef_em_factor_gwp_name ?? selectedGwp.coef_em_factor_gwp_name_en ?? selectedGwp.coefficients_emissions_factors_gwp_id}" ยังไม่มีค่าให้ใช้คำนวณ`)
+    }
+
+    return { value: Number(selectedGwp.coef_em_factor_gwp_value), selectedGwp }
+  }
+
+  private async calculateFertilizerCfpSimpleBreakdown(queue: any, fertilizerKg: number, options?: {
+    fertilizerUreaEfId?: number
+    fertilizerDapEfId?: number
+    fertilizerKclEfId?: number
+    fertilizerGwpId?: number
+    manualFertilizerNPercent?: number | string | null
+    manualFertilizerP2O5Percent?: number | string | null
+    manualFertilizerK2OPercent?: number | string | null
+  }) {
+    const fertilizerProfile = this.inferFertilizerNitrogenFromName(
+      queue?.log_activities_detail?.activities_fertilizers?.act_fertilizer_name,
+    )
+    const manualFormula = this.resolveManualFertilizerFormulaInput(options)
+    const resolvedFormula = (
+      fertilizerProfile.kind === 'chemical'
+      && fertilizerProfile.nPercent != null
+      && fertilizerProfile.p2o5Percent != null
+      && fertilizerProfile.k2oPercent != null
+      && fertilizerProfile.fillerPercent != null
+    )
+      ? {
+        nPercent: fertilizerProfile.nPercent,
+        p2o5Percent: fertilizerProfile.p2o5Percent,
+        k2oPercent: fertilizerProfile.k2oPercent,
+        fillerPercent: fertilizerProfile.fillerPercent,
+        formulaLabel: fertilizerProfile.formulaLabel ?? null,
+        formulaSource: 'parsed' as const,
+      }
+      : (
+        manualFormula
+          ? {
+            ...manualFormula,
+            formulaSource: 'manual' as const,
+          }
+          : null
+      )
+
+    if (!resolvedFormula) {
+      throw new BadRequestException('สูตร Carbon Footprint ปุ๋ยนี้ต้องมีสูตร N-P2O5-K2O ในชื่อรายการ หรือกรอกค่า N, P2O5, K2O เอง')
+    }
+
+    const [
+      ureaEf,
+      dapEf,
+      kclEf,
+      selectedGwp,
+    ] = await Promise.all([
+      this.resolveFertilizerSelectedEfValue(options?.fertilizerUreaEfId, FERTILIZER_CFP_SIMPLE_CONSTANTS.EF_UREA_AS_N, 'ยูเรีย as N'),
+      this.resolveFertilizerSelectedEfValue(options?.fertilizerDapEfId, FERTILIZER_CFP_SIMPLE_CONSTANTS.EF_DAP_AS_P2O5, 'DAP as P2O5'),
+      this.resolveFertilizerSelectedEfValue(options?.fertilizerKclEfId, FERTILIZER_CFP_SIMPLE_CONSTANTS.EF_KCL_AS_K2O, 'โพแทสเซียมคลอไรด์ as K2O'),
+      this.resolveFertilizerSelectedGwpValue(options?.fertilizerGwpId),
+    ])
+
+    const constants = {
+      ...FERTILIZER_CFP_SIMPLE_CONSTANTS,
+      EF_UREA_AS_N: ureaEf.value,
+      EF_DAP_AS_P2O5: dapEf.value,
+      EF_KCL_AS_K2O: kclEf.value,
+      GWP_N2O: selectedGwp.value,
+    }
+    const nFraction = resolvedFormula.nPercent / 100
+    const p2o5Fraction = resolvedFormula.p2o5Percent / 100
+    const k2oFraction = resolvedFormula.k2oPercent / 100
+    const fillerFraction = resolvedFormula.fillerPercent / 100
+    const upstreamPerKg = (
+      (nFraction * constants.EF_UREA_AS_N)
+      + (p2o5Fraction * constants.EF_DAP_AS_P2O5)
+      + (k2oFraction * constants.EF_KCL_AS_K2O)
+      + (fillerFraction * constants.EF_FILLER)
+    )
+    const upstreamKgco2e = fertilizerKg * upstreamPerKg
+    const nAppliedKg = fertilizerKg * nFraction
+    const n2oKg = nAppliedKg * constants.EF_N_TO_N2O_N_SIMPLE * constants.MW_RATIO_N2O_N
+    const usePhaseKgco2e = n2oKg * constants.GWP_N2O
+    const totalKgco2e = upstreamKgco2e + usePhaseKgco2e
+
+    return {
+      fertilizerProfile,
+      resolvedFormula,
+      fertilizerKg,
+      selectedUreaEf: ureaEf.selectedEf,
+      selectedDapEf: dapEf.selectedEf,
+      selectedKclEf: kclEf.selectedEf,
+      selectedGwp: selectedGwp.selectedGwp,
+      nFraction,
+      p2o5Fraction,
+      k2oFraction,
+      fillerFraction,
+      upstreamPerKg,
+      upstreamKgco2e,
+      nAppliedKg,
+      n2oKg,
+      usePhaseKgco2e,
+      totalKgco2e,
+      constants,
+    }
+  }
+
+  private async calculateFertilizerN2OForQueue(queue: any, amountInput: QueueAmountInput, options?: {
+    fertilizerUreaEfId?: number
+    fertilizerDapEfId?: number
+    fertilizerKclEfId?: number
+    fertilizerGwpId?: number
+    manualFertilizerNPercent?: number | string | null
+    manualFertilizerP2O5Percent?: number | string | null
+    manualFertilizerK2OPercent?: number | string | null
+  }): Promise<GenericEfCalculationResult> {
     if (!await this.isKgUnit(amountInput.unitId)) {
-      throw new BadRequestException('สูตรปุ๋ย/N2O ต้องใช้ปริมาณหลังเตรียมเป็นหน่วย kg ก่อนคำนวณ')
+      throw new BadRequestException('สูตร Carbon Footprint ปุ๋ยต้องใช้ปริมาณหลังเตรียมเป็นหน่วย kg ก่อนคำนวณ')
     }
-
-    const info = this.parseCarbonPreparationInfo(queue?.carbon_process_queue_info)
-    const nPercent = this.toFiniteNumberOrUndefined(queue?.N) ?? this.toFiniteNumberOrUndefined(info.soilN)
-    if (nPercent == null) {
-      throw new BadRequestException('ปุ๋ยรายการนี้ยังไม่มีค่า N จึงยังคำนวณ N2O ไม่ได้')
-    }
-
-    const fertilizerType = this.resolveFertilizerType(queue)
-    if (fertilizerType !== 'chemical' && fertilizerType !== 'organic') {
-      throw new BadRequestException('ยังไม่ทราบประเภทปุ๋ย กรุณายืนยันว่าเป็นปุ๋ยเคมีหรือปุ๋ยอินทรีย์ก่อนคำนวณ')
-    }
-
-    const fertilizerNTon = amountInput.amount * (nPercent / 100) / 1000
-    const fsn = fertilizerType === 'chemical' ? fertilizerNTon : 0
-    const fon = fertilizerType === 'organic' ? fertilizerNTon : 0
-    const fnfix = 0
-    const constants = FERTILIZER_N2O_CONSTANTS
-    const n2oDirect = (fsn + fon + fnfix) * constants.EF_DIRECT * constants.MW_RATIO_N2O_N * constants.GWP_N2O
-    const n2oAtd = ((fsn * constants.FRAC_GASF) + (fon * constants.FRAC_GASM)) * constants.EF_ATD * constants.MW_RATIO_N2O_N * constants.GWP_N2O
-    const n2oLeaching = (fsn + fon) * constants.FRAC_LEACH * constants.EF_LEACH * constants.MW_RATIO_N2O_N * constants.GWP_N2O
-    const n2oIndirect = n2oAtd + n2oLeaching
-    const resultValue = n2oDirect + n2oIndirect
+    const breakdown = await this.calculateFertilizerCfpSimpleBreakdown(queue, amountInput.amount, options)
+    const resultValue = breakdown.totalKgco2e
 
     return {
       formulaMode: 'fertilizer_n2o',
       resultValue,
-      resultUnitId: await this.findResultUnitId(['tCO2e', 'tonCO2e', 'ton CO2e', 'ตัน CO2e']),
+      resultUnitId: await this.findResultUnitId(['kgCO2e', 'kg CO2e', 'กิโลกรัม CO2e']),
       resultUnitPrefixId: null,
       breakdown: {
         formulaMode: 'fertilizer_n2o',
-        fertilizerType,
+        calculationMethod: 'fertilizer_cfp_simple',
+        fertilizerFormulaLabel: breakdown.resolvedFormula.formulaLabel ?? null,
+        fertilizerFormulaSource: breakdown.resolvedFormula.formulaSource,
         fertilizerKg: amountInput.amount,
-        nPercent,
-        fertilizerNTon,
-        fsn,
-        fon,
-        fnfix,
-        n2oDirect,
-        n2oAtd,
-        n2oLeaching,
-        n2oIndirect,
+        fertilizerUreaEfId: breakdown.selectedUreaEf?.coefficient_emission_factor_id ?? null,
+        fertilizerUreaEfName: breakdown.selectedUreaEf?.coef_em_factor_name ?? breakdown.selectedUreaEf?.coef_em_factor_idCode ?? null,
+        fertilizerDapEfId: breakdown.selectedDapEf?.coefficient_emission_factor_id ?? null,
+        fertilizerDapEfName: breakdown.selectedDapEf?.coef_em_factor_name ?? breakdown.selectedDapEf?.coef_em_factor_idCode ?? null,
+        fertilizerKclEfId: breakdown.selectedKclEf?.coefficient_emission_factor_id ?? null,
+        fertilizerKclEfName: breakdown.selectedKclEf?.coef_em_factor_name ?? breakdown.selectedKclEf?.coef_em_factor_idCode ?? null,
+        fertilizerGwpId: breakdown.selectedGwp?.coefficients_emissions_factors_gwp_id ?? null,
+        fertilizerGwpName: breakdown.selectedGwp?.coef_em_factor_gwp_name ?? breakdown.selectedGwp?.coef_em_factor_gwp_name_en ?? null,
+        nPercent: breakdown.resolvedFormula.nPercent,
+        p2o5Percent: breakdown.resolvedFormula.p2o5Percent,
+        k2oPercent: breakdown.resolvedFormula.k2oPercent,
+        fillerPercent: breakdown.resolvedFormula.fillerPercent,
+        upstreamPerKg: breakdown.upstreamPerKg,
+        upstreamKgco2e: breakdown.upstreamKgco2e,
+        nAppliedKg: breakdown.nAppliedKg,
+        n2oKg: breakdown.n2oKg,
+        usePhaseKgco2e: breakdown.usePhaseKgco2e,
         resultValue,
-        constants,
+        constants: breakdown.constants,
       },
     }
   }
@@ -1509,9 +2894,42 @@ export class ActivitiesService {
     const amountInput = this.resolveQueueAmountInput(queue)
     const requestedResultUnitId = this.toOptionalNumber(payload?.resultUnitId)
     const selectedEfId = this.toOptionalNumber(payload?.selectedEfId)
+    const organicFertilizerMode = typeof payload?.organicFertilizerMode === 'string'
+      ? payload.organicFertilizerMode.trim().toLowerCase()
+      : ''
+    const fertilizerUreaEfId = this.toOptionalNumber(payload?.fertilizerUreaEfId)
+    const fertilizerDapEfId = this.toOptionalNumber(payload?.fertilizerDapEfId)
+    const fertilizerKclEfId = this.toOptionalNumber(payload?.fertilizerKclEfId)
+    const fertilizerGwpId = this.toOptionalNumber(payload?.fertilizerGwpId)
+    const manualFertilizerNPercent = this.toOptionalNumber(payload?.manualFertilizerNPercent)
+    const manualFertilizerP2O5Percent = this.toOptionalNumber(payload?.manualFertilizerP2O5Percent)
+    const manualFertilizerK2OPercent = this.toOptionalNumber(payload?.manualFertilizerK2OPercent)
 
     if (formulaMode === 'fertilizer_n2o') {
-      const result = await this.calculateFertilizerN2OForQueue(queue, amountInput)
+      const fertilizerProfile = this.inferFertilizerNitrogenFromName(
+        queue?.log_activities_detail?.activities_fertilizers?.act_fertilizer_name,
+      )
+
+      if (fertilizerProfile.kind === 'organic') {
+        if (organicFertilizerMode === 'skip_error') {
+          throw new BadRequestException('ผู้ใช้เลือกให้ปุ๋ยอินทรีย์รายการนี้ยังไม่คำนวณ และย้ายไปสถานะคำนวณผิดพลาด')
+        }
+
+        if (organicFertilizerMode === 'generic_ef') {
+          const result = await this.calculateGenericEfForQueue(queue, amountInput, { selectedEfId })
+          return this.applyRequestedFootprintResultUnit(result, requestedResultUnitId)
+        }
+      }
+
+      const result = await this.calculateFertilizerN2OForQueue(queue, amountInput, {
+        fertilizerUreaEfId,
+        fertilizerDapEfId,
+        fertilizerKclEfId,
+        fertilizerGwpId,
+        manualFertilizerNPercent,
+        manualFertilizerP2O5Percent,
+        manualFertilizerK2OPercent,
+      })
       return this.applyRequestedFootprintResultUnit(result, requestedResultUnitId)
     }
 
@@ -1598,6 +3016,18 @@ export class ActivitiesService {
       const result = await this.calculateCarbonQueueResult(queue, payload)
       const nextStatusId = await this.getCalStatusId(CAL_STATUS_NAMES.standardDone)
       const endedAt = new Date()
+      const previousInfo = this.parseCarbonPreparationInfo(queue?.carbon_process_queue_info)
+      const calculationInfo = JSON.stringify({
+        ...previousInfo,
+        calculation: {
+          formulaMode: result.formulaMode,
+          resultValue: this.roundNumber(result.resultValue, 4),
+          resultUnitId: result.resultUnitId ?? null,
+          resultUnitPrefixId: result.resultUnitPrefixId ?? null,
+          calculatedAt: endedAt.toISOString(),
+          ...result.breakdown,
+        },
+      })
 
       return this.prisma.$transaction(async (tx) => {
         if (queue?.log_act_detail_id != null) {
@@ -1614,6 +3044,7 @@ export class ActivitiesService {
             carbon_process_queue_resultValue: this.roundNumber(result.resultValue, 4),
             unit_id_resultValue: result.resultUnitId ?? null,
             unit_prefix_id_resultValue: result.resultUnitPrefixId ?? null,
+            carbon_process_queue_info: calculationInfo,
             carbon_process_queue_error_message: null,
             carbon_process_queue_started_at: startedAt,
             carbon_process_queue_ended_at: endedAt,
@@ -1658,13 +3089,732 @@ export class ActivitiesService {
     }
   }
 
+  private carbonCreditScope(value?: string): CarbonCreditScope {
+    return value === 'camp_group' || value === 'camp' || value === 'land' ? value : 'all'
+  }
+
+  private csvValues(value?: string | null) {
+    return String(value ?? '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+
+  private queueProductionYearLabel(queue: any) {
+    const detail = queue?.log_activities_detail
+    const header = detail?.activities_header
+    const fallbackDate = header?.activities_header_startDate
+      ?? detail?.log_act_detail_create_at
+      ?? queue?.carbon_process_queue_dateWork
+      ?? queue?.carbon_process_queue_create_at
+    return this.compactText(detail?.activities_productYear?.act_productYear_name)
+      || buildProductionYearLabelFromDate(fallbackDate)
+      || 'ไม่ระบุปีการผลิต'
+  }
+
+  private queueProductionYearSortYear(queue: any) {
+    const detail = queue?.log_activities_detail
+    const header = detail?.activities_header
+    const label = detail?.activities_productYear?.act_productYear_name
+    const fallbackDate = header?.activities_header_startDate
+      ?? detail?.log_act_detail_create_at
+      ?? queue?.carbon_process_queue_dateWork
+      ?? queue?.carbon_process_queue_create_at
+    return parseProductionYearSortYear(label) ?? parseProductionYearSortYear(buildProductionYearLabelFromDate(fallbackDate))
+  }
+
+  private queueLandContext(queue: any) {
+    const detailLand = queue?.log_activities_detail?.activities_header?.lands
+    const land = queue?.lands ?? detailLand
+    const camp = land?.lands_camps ?? queue?.lands_camps
+    const group = camp?.lands_camps_groups
+    const landId = land?.land_id ?? queue?.land_id ?? queue?.log_activities_detail?.activities_header?.land_id ?? null
+    const campId = camp?.land_camp_id ?? queue?.land_camp_id ?? land?.land_camp_id ?? null
+    const campGroupId = group?.land_camp_group_id ?? camp?.land_camp_group_id ?? null
+    const code = this.compactText(land?.land_code)
+    const name = this.compactText(land?.name)
+
+    return {
+      land,
+      camp,
+      group,
+      landId,
+      campId,
+      campGroupId,
+      landLabel: code && name ? `${code} - ${name}` : code || name || (landId ? `แปลง #${landId}` : 'ไม่ระบุแปลง'),
+      campLabel: this.compactText(camp?.land_camp_name) || (campId ? `ไร่ / แคมป์ #${campId}` : 'ไม่ระบุไร่ / แคมป์'),
+      campGroupLabel: this.compactText(group?.land_camp_group_name) || (campGroupId ? `กลุ่มไร่ #${campGroupId}` : 'ไม่ระบุกลุ่มไร่'),
+      areaRai: this.toFiniteNumberOrUndefined(land?.land_size) ?? this.toFiniteNumberOrUndefined(land?.area_size) ?? 0,
+    }
+  }
+
+  private queueMatchesCarbonCreditScope(queue: any, scope: CarbonCreditScope, ids: { campGroupId?: number; campId?: number; landId?: number }) {
+    const context = this.queueLandContext(queue)
+    if (scope === 'camp_group') return ids.campGroupId != null && context.campGroupId === ids.campGroupId
+    if (scope === 'camp') return ids.campId != null && context.campId === ids.campId
+    if (scope === 'land') return ids.landId != null && context.landId === ids.landId
+    return true
+  }
+
+  private carbonCreditScenario(yearLabel: string, baselineYears: string[], projectYear: string): CarbonCreditScenario {
+    if (yearLabel === projectYear) return 'project'
+    if (baselineYears.includes(yearLabel)) return 'baseline'
+    return 'outside_scope'
+  }
+
+  private normalizeCarbonCreditRequest(body: any): CarbonCreditCalculationRequest {
+    const baselineYears = Array.isArray(body?.baselineYears)
+      ? body.baselineYears.map((year: unknown) => String(year ?? '').trim()).filter(Boolean)
+      : this.csvValues(body?.baselineYears)
+    const projectYear = String(body?.projectYear ?? '').trim()
+    if (baselineYears.length !== 4) throw new BadRequestException('กรุณาเลือกปีฐานการผลิตให้ครบ 4 ปี')
+    if (new Set(baselineYears).size !== baselineYears.length) throw new BadRequestException('ปีฐานการผลิตทั้ง 4 ปีต้องไม่ซ้ำกัน')
+    if (!projectYear) throw new BadRequestException('กรุณาเลือกปีโครงการ')
+    if (baselineYears.includes(projectYear)) throw new BadRequestException('ปีโครงการต้องไม่ซ้ำกับปีฐานการผลิต')
+
+    const selectedQueueIds = Array.isArray(body?.selectedQueueIds)
+      ? body.selectedQueueIds.map((id: unknown) => Number(id)).filter((id: number) => Number.isInteger(id))
+      : []
+    if (!selectedQueueIds.length) throw new BadRequestException('กรุณาเลือกรายการ queue อย่างน้อย 1 รายการ')
+
+    const rawEfSelections = body?.efSelections && typeof body.efSelections === 'object' ? body.efSelections : {}
+    const efSelections: Record<number, CarbonCreditEfSelection> = {}
+    Object.entries(rawEfSelections).forEach(([key, value]) => {
+      const queueId = Number(key)
+      if (Number.isInteger(queueId) && value && typeof value === 'object') {
+        efSelections[queueId] = value as CarbonCreditEfSelection
+      }
+    })
+
+    return {
+      baselineYears,
+      projectYear,
+      scope: this.carbonCreditScope(body?.scope),
+      campGroupId: this.toFiniteNumberOrUndefined(body?.campGroupId),
+      campId: this.toFiniteNumberOrUndefined(body?.campId),
+      landId: this.toFiniteNumberOrUndefined(body?.landId),
+      selectedQueueIds,
+      includeSocRemoval: Boolean(body?.includeSocRemoval),
+      efSelections,
+    }
+  }
+
+  private carbonResultToTco2e(
+    value: unknown,
+    unit?: { unit_name?: string | null; unit_initial?: string | null } | null,
+    fallbackMode?: CarbonFormulaMode,
+  ): number | null {
+    if (value === undefined || value === null || value === '') return null
+    const amount = Number(value)
+    if (!Number.isFinite(amount)) return null
+    const kind = this.resolveFootprintResultUnitKindFromNames([unit?.unit_name, unit?.unit_initial])
+      ?? (fallbackMode ? this.getDefaultFootprintResultUnitKind(fallbackMode) : null)
+    if (!kind) return null
+    return this.convertFootprintResultUnitValue(amount, kind, 'tco2e')
+  }
+
+  private async previewFootprintTco2eForCredit(queue: any, payload?: CarbonQueueCalculationPayload) {
+    const result = await this.calculateCarbonQueueResult(queue, payload)
+    const sourceKind = await this.resolveFootprintResultUnitKindFromUnitId(result.resultUnitId, result.formulaMode)
+    if (!sourceKind) throw new BadRequestException('ไม่สามารถระบุหน่วยผลลัพธ์ CFP จากสูตรนี้ได้')
+    return this.convertFootprintResultUnitValue(result.resultValue, sourceKind, 'tco2e')
+  }
+
+  private preparedAmountForCreditRow(queue: any) {
+    const info = this.parseCarbonPreparationInfo(queue?.carbon_process_queue_info)
+    return this.toFiniteNumberOrUndefined(info.preparedVolumeAll)
+      ?? this.toFiniteNumberOrUndefined(queue?.log_activities_detail?.log_act_detail_volumeAll)
+      ?? null
+  }
+
+  private preparedUnitLabelForCreditRow(queue: any) {
+    const info = this.parseCarbonPreparationInfo(queue?.carbon_process_queue_info)
+    const named = [info.preparedUnitInitial, info.preparedUnitName]
+      .map((value) => typeof value === 'string' ? value.trim() : '')
+      .find(Boolean)
+    if (named) return named
+    return this.unitLabel(queue?.log_activities_detail?.units, queue?.log_activities_detail?.units_prefixs)
+  }
+
+  private buildCreditFilters(queues: any[]) {
+    const yearMap = new Map<string, number | null>()
+    const campGroups = new Map<number, { id: number; label: string }>()
+    const camps = new Map<number, { id: number; label: string; groupId?: number | null }>()
+    const lands = new Map<number, { id: number; label: string; campId?: number | null; groupId?: number | null }>()
+
+    queues.forEach((queue) => {
+      const year = this.queueProductionYearLabel(queue)
+      const sortYear = this.queueProductionYearSortYear(queue)
+      const currentSortYear = yearMap.get(year)
+      if (currentSortYear === undefined || (sortYear != null && (currentSortYear == null || sortYear < currentSortYear))) {
+        yearMap.set(year, sortYear)
+      }
+
+      const context = this.queueLandContext(queue)
+      if (context.campGroupId != null) campGroups.set(context.campGroupId, { id: context.campGroupId, label: context.campGroupLabel })
+      if (context.campId != null) camps.set(context.campId, { id: context.campId, label: context.campLabel, groupId: context.campGroupId })
+      if (context.landId != null) lands.set(context.landId, {
+        id: context.landId,
+        label: context.landLabel,
+        campId: context.campId,
+        groupId: context.campGroupId,
+      })
+    })
+
+    const sortOptions = <T extends { label: string }>(items: T[]) => (
+      items.sort((left, right) => left.label.localeCompare(right.label, ['th', 'en'], { numeric: true, sensitivity: 'base' }))
+    )
+
+    return {
+      yearOptions: Array.from(yearMap.entries())
+        .map(([label, sortYear]) => ({ label, value: label, sortYear }))
+        .sort((left, right) => {
+          const leftSort = left.sortYear ?? Number.MAX_SAFE_INTEGER
+          const rightSort = right.sortYear ?? Number.MAX_SAFE_INTEGER
+          if (leftSort !== rightSort) return leftSort - rightSort
+          return left.label.localeCompare(right.label, ['th', 'en'], { numeric: true })
+        }),
+      campGroups: sortOptions(Array.from(campGroups.values())),
+      camps: sortOptions(Array.from(camps.values())),
+      lands: sortOptions(Array.from(lands.values())),
+    }
+  }
+
+  private async buildCarbonCreditQueueRow(
+    queue: any,
+    scenario: CarbonCreditScenario,
+    selected: boolean,
+    request?: CarbonCreditCalculationRequest,
+    allowFootprintPreview = false,
+  ): Promise<CarbonCreditQueueRow> {
+    const context = this.queueLandContext(queue)
+    const formulaMode = this.resolveCarbonFormulaMode(queue)
+    const info = this.parseCarbonPreparationInfo(queue?.carbon_process_queue_info)
+    const existingCfpTco2e = this.carbonResultToTco2e(queue?.carbon_process_queue_resultValue, queue?.units, formulaMode)
+    let cfpResultTco2e = existingCfpTco2e
+    let footprintError: string | null = null
+    let needsFootprintCalculation = cfpResultTco2e == null
+
+    if (
+      selected
+      && needsFootprintCalculation
+      && scenario !== 'outside_scope'
+      && allowFootprintPreview
+    ) {
+      try {
+        cfpResultTco2e = await this.previewFootprintTco2eForCredit(queue, request?.efSelections[queue.carbon_process_queue_id])
+      } catch (error) {
+        footprintError = this.getErrorMessage(error)
+      }
+    }
+
+    return {
+      queueId: queue?.carbon_process_queue_id,
+      activityDetailId: queue?.log_act_detail_id ?? queue?.log_activities_detail?.log_act_detail_id ?? null,
+      productionYearLabel: this.queueProductionYearLabel(queue),
+      productionYearSortYear: this.queueProductionYearSortYear(queue),
+      scenario,
+      campGroupId: context.campGroupId,
+      campGroupLabel: context.campGroupLabel,
+      campId: context.campId,
+      campLabel: context.campLabel,
+      landId: context.landId,
+      landLabel: context.landLabel,
+      areaRai: this.roundNumber(context.areaRai, 2),
+      resourceName: this.getDetailItemName(queue?.log_activities_detail ?? {}),
+      formulaMode,
+      preparedAmount: this.preparedAmountForCreditRow(queue),
+      preparedUnitId: this.toFiniteNumberOrUndefined(info.preparedUnitId) ?? this.toFiniteNumberOrUndefined(queue?.log_activities_detail?.unit_id) ?? null,
+      preparedUnitPrefixId: this.toFiniteNumberOrUndefined(info.preparedUnitPrefixId) ?? this.toFiniteNumberOrUndefined(queue?.log_activities_detail?.unit_prefix_id) ?? null,
+      preparedUnitLabel: this.preparedUnitLabelForCreditRow(queue),
+      cfpResultValue: queue?.carbon_process_queue_resultValue == null ? null : Number(queue.carbon_process_queue_resultValue),
+      cfpResultUnitLabel: this.unitLabel(queue?.units, queue?.units_prefixs),
+      cfpResultTco2e: cfpResultTco2e == null ? null : this.roundNumber(cfpResultTco2e, 6),
+      creditResultValue: queue?.carbon_process_queue_resultValueCreditCalc == null ? null : Number(queue.carbon_process_queue_resultValueCreditCalc),
+      creditResultUnitLabel: this.unitLabel(queue?.units_creditResultValue, queue?.units_prefixs_creditResultValue),
+      creditResultTco2e: this.carbonResultToTco2e(queue?.carbon_process_queue_resultValueCreditCalc, queue?.units_creditResultValue),
+      needsFootprintCalculation,
+      footprintError,
+      statusName: queue?.log_act_detail_calStatus?.log_act_detail_calStatus_name
+        ?? queue?.log_activities_detail?.log_act_detail_calStatus?.log_act_detail_calStatus_name
+        ?? null,
+      errorMessage: queue?.carbon_process_queue_error_message ?? null,
+      selected,
+      calculationInfo: info,
+    }
+  }
+
+  private async getSocRemovalByLand(landIds: number[]) {
+    if (!landIds.length) return { socByLand: new Map<number, number>(), missingCount: 0 }
+    const rows = await this.prisma.carbon_soc.findMany({
+      where: { land_id: { in: landIds } },
+      include: {
+        units_socIT: { select: { unit_name: true, unit_initial: true } },
+      },
+    })
+    const socByLand = new Map<number, number>()
+    let missingCount = 0
+    rows.forEach((row) => {
+      if (row.land_id == null) return
+      const value = this.carbonResultToTco2e(row.carbon_soc_socIT, row.units_socIT)
+      if (value == null) {
+        if (row.carbon_soc_socIT != null) missingCount += 1
+        return
+      }
+      socByLand.set(row.land_id, (socByLand.get(row.land_id) ?? 0) + value)
+    })
+    return { socByLand, missingCount }
+  }
+
+  private async countFnfixRowsByLand(landIds: number[]) {
+    if (!landIds.length) return 0
+    return this.prisma.carbon_soilImprovementPlants.count({
+      where: {
+        land_id: { in: landIds },
+        carbon_soilImprovementPlant_fnFix: { not: null },
+      },
+    })
+  }
+
+  private buildCarbonCreditNotes(includeSocRemoval: boolean, socMissingCount: number, fnfixCount: number) {
+    const notes = [
+      'ผลลัพธ์หน้านี้เป็น Credit Candidate สำหรับตรวจสอบและประเมินต่อ ยังไม่ใช่ผลรับรองอย่างเป็นทางการ',
+      'Carbon Credit v1 คำนวณจากค่าเฉลี่ยปีฐาน เทียบปีโครงการ และรวม SOC เมื่อเปิดใช้งาน',
+      'Fnfix แสดงเป็นข้อมูลประกอบเท่านั้นใน v1 และยังไม่บวกเป็นเครดิตโดยตรง',
+    ]
+    if (includeSocRemoval) {
+      notes.push('SOC ถูกนำมารวมเป็น carbon removal ตามแปลงเท่าที่มีข้อมูลพร้อมใช้งาน')
+    }
+    if (socMissingCount > 0) {
+      notes.push(`พบข้อมูล SOC ${socMissingCount.toLocaleString('th-TH')} รายการที่ยังแปลงหน่วยเป็น tCO2e ไม่ได้`)
+    }
+    if (fnfixCount > 0) {
+      notes.push(`พบข้อมูล Fnfix ${fnfixCount.toLocaleString('th-TH')} รายการในแปลงที่เลือก แต่ยังไม่บวกเป็น credit source ตรง ๆ`)
+    }
+    return notes
+  }
+
+  private async buildCarbonCreditPreview(
+    request: CarbonCreditCalculationRequest,
+    options: { allowFootprintPreview: boolean },
+  ) {
+    const allQueues = await this.prisma.carbon_process_queue.findMany({
+      include: this.getCarbonProcessQueueInclude(),
+      orderBy: [
+        { carbon_process_queue_updated_at: 'desc' },
+        { carbon_process_queue_id: 'desc' },
+      ],
+    })
+    const selectedIds = new Set(request.selectedQueueIds)
+    const scopedQueues = allQueues.filter((queue) => this.queueMatchesCarbonCreditScope(queue, request.scope, request))
+    const selectedQueues = scopedQueues.filter((queue) => selectedIds.has(queue.carbon_process_queue_id))
+    const filters = this.buildCreditFilters(scopedQueues)
+
+    const rows = await Promise.all(selectedQueues.map((queue) => {
+      const scenario = this.carbonCreditScenario(this.queueProductionYearLabel(queue), request.baselineYears, request.projectYear)
+      return this.buildCarbonCreditQueueRow(queue, scenario, true, request, options.allowFootprintPreview)
+    }))
+
+    const projectLandIds = new Set(
+      rows
+        .filter((row) => row.scenario === 'project' && row.landId != null)
+        .map((row) => row.landId as number),
+    )
+    const baselineLandIds = new Set(
+      rows
+        .filter((row) => row.scenario === 'baseline' && row.landId != null)
+        .map((row) => row.landId as number),
+    )
+    const blockedRows: CarbonCreditBlockedRow[] = []
+    rows.forEach((row) => {
+      if (row.scenario === 'outside_scope') {
+        blockedRows.push({
+          id: `row:${row.queueId}:outside`,
+          kind: 'row',
+          queueId: row.queueId,
+          landId: row.landId,
+          landLabel: row.landLabel,
+          scenario: row.scenario,
+          reason: 'รายการนี้อยู่นอกปีฐาน/ปีโครงการที่เลือก',
+        })
+      }
+      if (row.scenario !== 'outside_scope' && row.landId == null) {
+        blockedRows.push({
+          id: `row:${row.queueId}:land`,
+          kind: 'row',
+          queueId: row.queueId,
+          scenario: row.scenario,
+          reason: 'รายการนี้ยังไม่เชื่อมกับแปลง จึงคำนวณ credit รายแปลงไม่ได้',
+        })
+      }
+      const landHasProjectYear = row.landId != null && projectLandIds.has(row.landId)
+      const landHasBaselineYear = row.landId != null && baselineLandIds.has(row.landId)
+      if (row.scenario !== 'outside_scope' && landHasProjectYear && landHasBaselineYear && row.cfpResultTco2e == null) {
+        blockedRows.push({
+          id: `row:${row.queueId}:cfp`,
+          kind: 'row',
+          queueId: row.queueId,
+          landId: row.landId,
+          landLabel: row.landLabel,
+          scenario: row.scenario,
+          reason: row.footprintError || 'รายการนี้ยังไม่มีผล Carbon Footprint สำหรับใช้เป็นฐานคำนวณ credit',
+        })
+      }
+    })
+
+    const landIds = Array.from(new Set(rows.map((row) => row.landId).filter((id): id is number => id != null)))
+    const [{ socByLand, missingCount: socMissingCount }, fnfixCount] = await Promise.all([
+      request.includeSocRemoval ? this.getSocRemovalByLand(landIds) : Promise.resolve({ socByLand: new Map<number, number>(), missingCount: 0 }),
+      this.countFnfixRowsByLand(landIds),
+    ])
+
+    const rowsByLand = new Map<number, CarbonCreditQueueRow[]>()
+    rows
+      .filter((row) => row.landId != null && row.scenario !== 'outside_scope')
+      .forEach((row) => {
+        const key = row.landId!
+        if (!rowsByLand.has(key)) rowsByLand.set(key, [])
+        rowsByLand.get(key)!.push(row)
+      })
+
+    const landGroups: any[] = []
+    const writePlan: CarbonCreditWritePlanItem[] = []
+    rowsByLand.forEach((landRows, landId) => {
+      const sample = landRows[0]
+      const baselineTotals = request.baselineYears.map((year) => {
+        const total = landRows
+          .filter((row) => row.productionYearLabel === year)
+          .reduce((sum, row) => sum + (row.cfpResultTco2e ?? 0), 0)
+        const queueIds = landRows
+          .filter((row) => row.productionYearLabel === year)
+          .map((row) => row.queueId)
+        return { year, totalTco2e: this.roundNumber(total, 6), queueIds }
+      })
+      const projectRows = landRows.filter((row) => row.productionYearLabel === request.projectYear)
+      const missingBaselineYears = baselineTotals.filter((item) => item.queueIds.length === 0).map((item) => item.year)
+      const availableBaselineTotals = baselineTotals.filter((item) => item.queueIds.length > 0)
+      const missingProject = projectRows.length === 0
+      const hasMissingCfp = landRows.some((row) => row.cfpResultTco2e == null)
+      const skipMissingReasons = [
+        ...(missingProject ? ['ไม่มีข้อมูลปีโครงการ'] : []),
+        ...(!availableBaselineTotals.length ? ['ไม่มีข้อมูลปีฐานที่ใช้เฉลี่ยได้'] : []),
+      ]
+      const skippedReason = skipMissingReasons.length
+        ? `${skipMissingReasons.join(' และ ')} จึงไม่รวมแปลงนี้ในการคำนวณรอบนี้`
+        : null
+      const landBlockedReasons: string[] = []
+
+      if (!skippedReason) {
+        if (hasMissingCfp) landBlockedReasons.push('มีรายการที่ยังไม่มีผล Carbon Footprint')
+      }
+
+      const baselineAverageTco2e = availableBaselineTotals.length
+        ? availableBaselineTotals.reduce((sum, item) => sum + item.totalTco2e, 0) / availableBaselineTotals.length
+        : 0
+      const projectEmissionTco2e = projectRows.reduce((sum, row) => sum + (row.cfpResultTco2e ?? 0), 0)
+      const emissionReductionTco2e = baselineAverageTco2e - projectEmissionTco2e
+      const socRemovalTco2e = request.includeSocRemoval ? (socByLand.get(landId) ?? 0) : 0
+      const creditCandidateTco2e = missingProject ? 0 : Math.max(0, emissionReductionTco2e + socRemovalTco2e)
+      const allocationMethod = projectEmissionTco2e > 0 ? 'project_emission_share' as const : 'equal_project_rows' as const
+
+      if (landBlockedReasons.length) {
+        blockedRows.push({
+          id: `land:${landId}:blocked`,
+          kind: 'land',
+          landId,
+          landLabel: sample.landLabel,
+          reason: landBlockedReasons.join(' · '),
+        })
+      } else {
+        const projectRowCount = Math.max(projectRows.length, 1)
+        projectRows.forEach((row) => {
+          const share = allocationMethod === 'project_emission_share'
+            ? (row.cfpResultTco2e ?? 0) / projectEmissionTco2e
+            : 1 / projectRowCount
+          const allocatedCreditTco2e = creditCandidateTco2e * share
+          const snapshot = {
+            method: 'baseline_project_credit_v1',
+            version: '1.0.0',
+            baselineYears: request.baselineYears,
+            projectYear: request.projectYear,
+            baselineTotals,
+            baselineAverageTco2e: this.roundNumber(baselineAverageTco2e, 6),
+            projectEmissionTco2e: this.roundNumber(projectEmissionTco2e, 6),
+            emissionReductionTco2e: this.roundNumber(emissionReductionTco2e, 6),
+            socRemovalTco2e: this.roundNumber(socRemovalTco2e, 6),
+            landCreditTotalTco2e: this.roundNumber(creditCandidateTco2e, 6),
+            allocatedCreditTco2e: this.roundNumber(allocatedCreditTco2e, 6),
+            allocationShare: this.roundNumber(share, 8),
+            allocationMethod,
+            baselineQueueIds: baselineTotals.flatMap((item) => item.queueIds),
+            projectQueueIds: projectRows.map((item) => item.queueId),
+            calculatedAt: new Date().toISOString(),
+            warnings: [
+              ...(missingBaselineYears.length ? [`ปีฐานที่ไม่มีข้อมูลในแปลงนี้: ${missingBaselineYears.join(', ')}`] : []),
+              ...(allocationMethod === 'equal_project_rows' ? ['project emission รวมเป็น 0 จึงแบ่ง credit เท่า ๆ กันตาม project row'] : []),
+            ],
+          }
+          writePlan.push({
+            queueId: row.queueId,
+            landId,
+            landLabel: row.landLabel,
+            productionYearLabel: row.productionYearLabel,
+            resourceName: row.resourceName,
+            projectEmissionTco2e: this.roundNumber(row.cfpResultTco2e ?? 0, 6),
+            allocatedCreditTco2e: this.roundNumber(allocatedCreditTco2e, 6),
+            allocationShare: this.roundNumber(share, 8),
+            allocationMethod,
+            snapshot,
+          })
+        })
+      }
+
+      landGroups.push({
+        landId,
+        landLabel: sample.landLabel,
+        campLabel: sample.campLabel,
+        campGroupLabel: sample.campGroupLabel,
+        areaRai: sample.areaRai,
+        baselineTotals,
+        baselineAverageTco2e: this.roundNumber(baselineAverageTco2e, 6),
+        projectEmissionTco2e: this.roundNumber(projectEmissionTco2e, 6),
+        emissionReductionTco2e: this.roundNumber(emissionReductionTco2e, 6),
+        socRemovalTco2e: this.roundNumber(socRemovalTco2e, 6),
+        creditCandidateTco2e: this.roundNumber(creditCandidateTco2e, 6),
+        projectQueueIds: projectRows.map((row) => row.queueId),
+        baselineQueueIds: baselineTotals.flatMap((item) => item.queueIds),
+        baselineYearCount: availableBaselineTotals.length,
+        missingBaselineYears,
+        status: skippedReason ? 'skipped' : landBlockedReasons.length ? 'blocked' : 'ready',
+        blockedReason: skippedReason || landBlockedReasons.join(' · ') || null,
+      })
+    })
+
+    const notes = this.buildCarbonCreditNotes(request.includeSocRemoval, socMissingCount, fnfixCount)
+    const skippedLands = landGroups.filter((item) => item.status === 'skipped').length
+    const totals = {
+      selectedRows: rows.length,
+      readyLands: landGroups.filter((item) => item.status === 'ready').length,
+      skippedLands,
+      blockedRows: blockedRows.length,
+      projectRowsToUpdate: writePlan.length,
+      creditCandidateTco2e: this.roundNumber(writePlan.reduce((sum, item) => sum + item.allocatedCreditTco2e, 0), 6),
+    }
+
+    return {
+      datasourceStatus: rows.length ? (blockedRows.length || skippedLands ? 'api_partial' : 'api_real') : 'missing',
+      notes,
+      filters,
+      rows,
+      landGroups: landGroups.sort((left, right) => (right.creditCandidateTco2e ?? 0) - (left.creditCandidateTco2e ?? 0)),
+      blockedRows,
+      writePlan,
+      totals,
+    }
+  }
+
+  async getCarbonCreditWorkspace(query: CarbonCreditWorkspaceQuery = {}) {
+    const scope = this.carbonCreditScope(String(query.scope ?? 'all'))
+    const scopeIds = {
+      campGroupId: this.toFiniteNumberOrUndefined(query.campGroupId),
+      campId: this.toFiniteNumberOrUndefined(query.campId),
+      landId: this.toFiniteNumberOrUndefined(query.landId),
+    }
+    const yearSet = new Set(this.csvValues(query.years))
+    const queues = await this.prisma.carbon_process_queue.findMany({
+      include: this.getCarbonProcessQueueInclude(),
+      orderBy: [
+        { carbon_process_queue_updated_at: 'desc' },
+        { carbon_process_queue_id: 'desc' },
+      ],
+    })
+    const scopedQueues = queues
+      .filter((queue) => this.queueMatchesCarbonCreditScope(queue, scope, scopeIds))
+      .filter((queue) => !yearSet.size || yearSet.has(this.queueProductionYearLabel(queue)))
+    const rows = await Promise.all(scopedQueues.map((queue) => (
+      this.buildCarbonCreditQueueRow(queue, 'outside_scope', false, undefined, false)
+    )))
+    return {
+      datasourceStatus: rows.length ? 'api_real' : 'missing',
+      notes: this.buildCarbonCreditNotes(false, 0, 0),
+      filters: this.buildCreditFilters(queues),
+      rows,
+      landGroups: [],
+      blockedRows: [],
+      writePlan: [],
+      totals: {
+        selectedRows: 0,
+        readyLands: 0,
+        skippedLands: 0,
+        blockedRows: 0,
+        projectRowsToUpdate: 0,
+        creditCandidateTco2e: 0,
+      },
+    }
+  }
+
+  async previewCarbonCreditCalculation(body: any) {
+    const request = this.normalizeCarbonCreditRequest(body)
+    return this.buildCarbonCreditPreview(request, { allowFootprintPreview: true })
+  }
+
+  private async findRequiredCreditResultUnitId() {
+    const unitId = await this.findResultUnitId(['tCO2e', 't CO2e', 'ton CO2e', 'ตัน CO2e', 'ตันคาร์บอนไดออกไซด์เทียบเท่า'])
+    if (!unitId) {
+      throw new BadRequestException('ไม่พบหน่วยผลลัพธ์ tCO2e ในระบบ จึงยังบันทึก Carbon Credit ไม่ได้')
+    }
+    return unitId
+  }
+
+  async calculateCarbonCredit(body: any) {
+    try {
+      const request = this.normalizeCarbonCreditRequest(body)
+      const firstPreview = await this.buildCarbonCreditPreview(request, { allowFootprintPreview: true })
+      const activeLandIds = new Set(
+        firstPreview.landGroups
+          .filter((group: any) => group.status !== 'skipped' && group.landId != null)
+          .map((group: any) => Number(group.landId)),
+      )
+      const rowsNeedingFootprint = firstPreview.rows.filter((row: CarbonCreditQueueRow) => (
+        row.selected
+        && row.landId != null
+        && activeLandIds.has(row.landId)
+        && row.scenario !== 'outside_scope'
+        && row.needsFootprintCalculation
+        && !row.footprintError
+      ))
+
+      for (const row of rowsNeedingFootprint) {
+        await this.calculateCarbonProcessQueueItem(row.queueId, request.efSelections[row.queueId])
+      }
+
+      const finalPreview = await this.buildCarbonCreditPreview(request, { allowFootprintPreview: false })
+      if (finalPreview.blockedRows.length) {
+        const reason = finalPreview.blockedRows[0]?.reason ?? 'ยังมีรายการที่คำนวณ Carbon Credit ไม่ได้'
+        throw new BadRequestException(reason)
+      }
+
+      if (!finalPreview.writePlan.length) {
+        return {
+          ...finalPreview,
+          datasourceStatus: finalPreview.totals?.skippedLands ? 'api_partial' : finalPreview.datasourceStatus,
+          calculated: {
+            updated: 0,
+            footprintCalculated: rowsNeedingFootprint.length,
+          },
+        }
+      }
+
+      const creditUnitId = await this.findRequiredCreditResultUnitId()
+      const cfpDoneStatusId = await this.getCalStatusId(CAL_STATUS_NAMES.cfpDone)
+      const now = new Date()
+      const queueMap = new Map<number, any>()
+      const projectQueues = await this.prisma.carbon_process_queue.findMany({
+        where: { carbon_process_queue_id: { in: finalPreview.writePlan.map((item: CarbonCreditWritePlanItem) => item.queueId) } },
+        include: this.getCarbonProcessQueueInclude(),
+      })
+      projectQueues.forEach((queue) => queueMap.set(queue.carbon_process_queue_id, queue))
+
+      let updatedCount = 0
+      for (const item of finalPreview.writePlan as CarbonCreditWritePlanItem[]) {
+        const queue = queueMap.get(item.queueId)
+        if (!queue) {
+          throw new BadRequestException(`ไม่พบ Queue #${item.queueId} สำหรับบันทึก Carbon Credit`)
+        }
+
+        const previousInfo = this.parseCarbonPreparationInfo(queue.carbon_process_queue_info)
+        const info = JSON.stringify({
+          ...previousInfo,
+          creditCalculation: item.snapshot,
+        })
+        const operations: any[] = []
+        if (queue.log_act_detail_id != null) {
+          operations.push(this.prisma.log_activities_detail.update({
+            where: { log_act_detail_id: queue.log_act_detail_id },
+            data: { log_act_detail_calStatus_id: cfpDoneStatusId },
+          }))
+        }
+        operations.push(this.prisma.carbon_process_queue.update({
+          where: { carbon_process_queue_id: item.queueId },
+          data: {
+            log_act_detail_calStatus_id: cfpDoneStatusId,
+            carbon_process_queue_resultValueCreditCalc: this.roundNumber(item.allocatedCreditTco2e, 4),
+            unit_id_resultValueCreditCalc: creditUnitId,
+            unit_prefix_id_resultValueCreditCalc: null,
+            carbon_process_queue_info: info,
+            carbon_process_queue_error_message: null,
+            carbon_process_queue_updated_at: now,
+          },
+        }))
+
+        try {
+          await this.prisma.$transaction(operations)
+          updatedCount += 1
+        } catch (error) {
+          const message = this.getErrorMessage(error)
+          throw new BadRequestException(`บันทึก Carbon Credit ไม่สำเร็จที่ Queue #${item.queueId}: ${message}`)
+        }
+      }
+
+      return {
+        ...finalPreview,
+        datasourceStatus: 'api_real',
+        calculated: {
+          updated: updatedCount,
+          footprintCalculated: rowsNeedingFootprint.length,
+        },
+      }
+    } catch (error) {
+      if (error instanceof HttpException) throw error
+      const message = this.getErrorMessage(error)
+      this.logger.error(`Carbon Credit calculation failed: ${message}`, error instanceof Error ? error.stack : undefined)
+      throw new BadRequestException(`คำนวณ Carbon Credit ไม่สำเร็จ: ${message}`)
+    }
+  }
+
   private getCarbonProcessQueueInclude() {
     return {
       log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
-      lands: { select: { land_code: true, name: true } },
-      lands_camps: { select: { land_camp_name: true } },
+      lands: {
+        select: {
+          land_id: true,
+          land_code: true,
+          name: true,
+          land_size: true,
+          area_size: true,
+          land_camp_id: true,
+          lands_camps: {
+            select: {
+              land_camp_id: true,
+              land_camp_name: true,
+              land_camp_group_id: true,
+              lands_camps_groups: {
+                select: {
+                  land_camp_group_id: true,
+                  land_camp_group_name: true,
+                },
+              },
+            },
+          },
+        },
+      },
+      lands_camps: {
+        select: {
+          land_camp_id: true,
+          land_camp_name: true,
+          land_camp_group_id: true,
+          lands_camps_groups: {
+            select: {
+              land_camp_group_id: true,
+              land_camp_group_name: true,
+            },
+          },
+        },
+      },
       units: { select: { unit_name: true, unit_initial: true } },
+      units_creditResultValue: { select: { unit_name: true, unit_initial: true } },
       units_prefixs: { select: { unit_prefix_name: true, unit_prefix_initial: true, unit_prefix_value: true } },
+      units_prefixs_creditResultValue: { select: { unit_prefix_name: true, unit_prefix_initial: true, unit_prefix_value: true } },
       log_activities_detail: {
         include: {
           activities_header: {
@@ -1675,12 +3825,23 @@ export class ActivitiesService {
               land_id: true,
               lands: {
                 select: {
+                  land_id: true,
                   land_code: true,
                   name: true,
+                  land_size: true,
+                  area_size: true,
                   land_camp_id: true,
                   lands_camps: {
                     select: {
+                      land_camp_id: true,
                       land_camp_name: true,
+                      land_camp_group_id: true,
+                      lands_camps_groups: {
+                        select: {
+                          land_camp_group_id: true,
+                          land_camp_group_name: true,
+                        },
+                      },
                     },
                   },
                 },
@@ -1691,6 +3852,7 @@ export class ActivitiesService {
           activities_equipments: { select: { act_equipment_name: true } },
           activities_chemiscals: { select: { act_chemiscal_name: true } },
           activities_resourceOther: { select: { act_resourceOther_name: true } },
+          activities_productYear: { select: { act_productYear_name: true } },
           resource_used_type: { select: { resc_used_type_name: true } },
           log_act_detail_calStatus: { select: { log_act_detail_calStatus_name: true } },
           units: { select: { unit_name: true, unit_initial: true } },
@@ -1809,13 +3971,257 @@ export class ActivitiesService {
   }
 
   // ── Reference lists ────────────────────────────────────────
-  getHeaderTypes() { 
-    return this.prisma.activities_header_type.findMany({ 
-      orderBy: { act_header_type_id: 'asc' } }) 
+  async getHeaderTypes() {
+    const rows = await this.prisma.activities_header_type.findMany({
+      orderBy: { act_header_type_id: 'asc' },
+      include: {
+        _count: {
+          select: {
+            activities_header_detail_type: true,
+            activities_header: true,
+            log_activities_detail: true,
+          },
+        },
+      },
+    })
+
+    return rows.map(({ _count, ...row }) => ({
+      ...row,
+      detailTypeCount: _count.activities_header_detail_type,
+      activityHeaderCount: _count.activities_header,
+      logDetailCount: _count.log_activities_detail,
+    }))
   }
+
   getDetailTypes(headerTypeId?: number) {
     return this.prisma.activities_header_detail_type.findMany({
       where: headerTypeId ? { act_header_type_id: headerTypeId } : undefined,
+      orderBy: { act_header_detail_type_id: 'asc' },
+      include: {
+        activities_header_type: {
+          select: {
+            act_header_type_id: true,
+            act_header_type_name_th: true,
+            act_header_type_name_en: true,
+          },
+        },
+        _count: {
+          select: {
+            log_activities_detail: true,
+          },
+        },
+      },
+    }).then((rows) => rows.map(({ _count, ...row }) => ({
+      ...row,
+      logDetailCount: _count.log_activities_detail,
+    })))
+  }
+
+  async createHeaderType(data: HeaderTypePayload) {
+    const normalized = this.normalizeHeaderTypePayload(data)
+    const nameKey = this.normalizeTextKey(normalized.act_header_type_name_th)
+    const now = new Date()
+
+    return this.prisma.$transaction(async (tx) => {
+      const [existingRows, last] = await Promise.all([
+        tx.activities_header_type.findMany({
+          select: { act_header_type_id: true, act_header_type_name_th: true },
+        }),
+        tx.activities_header_type.aggregate({ _max: { act_header_type_id: true } }),
+      ])
+
+      const duplicate = existingRows.find((row) => this.normalizeTextKey(row.act_header_type_name_th) === nameKey)
+      if (duplicate) {
+        throw new BadRequestException(`กิจกรรมหลัก "${normalized.act_header_type_name_th}" มีอยู่แล้ว`)
+      }
+
+      return tx.activities_header_type.create({
+        data: {
+          act_header_type_id: (last._max.act_header_type_id ?? 0) + 1,
+          ...this.cleanData(normalized),
+          act_header_type_create_at: now,
+        },
+      })
+    })
+  }
+
+  async updateHeaderType(id: number, data: HeaderTypePayload) {
+    const normalized = this.normalizeHeaderTypePayload(data)
+    const nameKey = this.normalizeTextKey(normalized.act_header_type_name_th)
+
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.activities_header_type.findUnique({
+        where: { act_header_type_id: id },
+        select: { act_header_type_id: true },
+      })
+      if (!existing) {
+        throw new BadRequestException(`ไม่พบกิจกรรมหลัก #${id}`)
+      }
+
+      const existingRows = await tx.activities_header_type.findMany({
+        select: { act_header_type_id: true, act_header_type_name_th: true },
+      })
+      const duplicate = existingRows.find((row) => (
+        row.act_header_type_id !== id
+        && this.normalizeTextKey(row.act_header_type_name_th) === nameKey
+      ))
+      if (duplicate) {
+        throw new BadRequestException(`กิจกรรมหลัก "${normalized.act_header_type_name_th}" มีอยู่แล้ว`)
+      }
+
+      return tx.activities_header_type.update({
+        where: { act_header_type_id: id },
+        data: this.cleanData(normalized),
+      })
+    })
+  }
+
+  async deleteHeaderType(id: number) {
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.activities_header_type.findUnique({
+        where: { act_header_type_id: id },
+        select: { act_header_type_id: true },
+      })
+      if (!existing) {
+        throw new BadRequestException(`ไม่พบกิจกรรมหลัก #${id}`)
+      }
+
+      const [activityHeaderCount, detailTypeCount, logDetailCount] = await Promise.all([
+        tx.activities_header.count({ where: { act_header_type_id: id } }),
+        tx.activities_header_detail_type.count({ where: { act_header_type_id: id } }),
+        tx.log_activities_detail.count({ where: { act_header_type_id: id } }),
+      ])
+
+      if (activityHeaderCount > 0 || detailTypeCount > 0 || logDetailCount > 0) {
+        throw new BadRequestException(
+          `ลบกิจกรรมหลักไม่ได้ เพราะยังถูกใช้อยู่: header ${activityHeaderCount} รายการ, กิจกรรมย่อย ${detailTypeCount} รายการ, log ${logDetailCount} รายการ`,
+        )
+      }
+
+      return tx.activities_header_type.delete({
+        where: { act_header_type_id: id },
+      })
+    })
+  }
+
+  async createDetailType(data: DetailTypePayload) {
+    const normalized = this.normalizeDetailTypePayload(data)
+    const nameKey = this.normalizeDetailTypeKey(normalized.act_header_detail_type_name_th)
+
+    return this.prisma.$transaction(async (tx) => {
+      if (normalized.act_header_type_id != null) {
+        const parent = await tx.activities_header_type.findUnique({
+          where: { act_header_type_id: normalized.act_header_type_id },
+          select: { act_header_type_id: true },
+        })
+        if (!parent) {
+          throw new BadRequestException(`ไม่พบกิจกรรมหลัก #${normalized.act_header_type_id}`)
+        }
+      }
+
+      const [existingRows, last] = await Promise.all([
+        tx.activities_header_detail_type.findMany({
+          select: { act_header_detail_type_id: true, act_header_detail_type_name_th: true },
+        }),
+        tx.activities_header_detail_type.aggregate({ _max: { act_header_detail_type_id: true } }),
+      ])
+
+      const duplicate = existingRows.find((row) => (
+        this.normalizeDetailTypeKey(row.act_header_detail_type_name_th) === nameKey
+      ))
+      if (duplicate) {
+        throw new BadRequestException(`กิจกรรมย่อย "${normalized.act_header_detail_type_name_th}" มีอยู่แล้ว`)
+      }
+
+      return tx.activities_header_detail_type.create({
+        data: {
+          act_header_detail_type_id: (last._max.act_header_detail_type_id ?? 0) + 1,
+          ...this.cleanData(normalized),
+        },
+        include: {
+          activities_header_type: {
+            select: {
+              act_header_type_id: true,
+              act_header_type_name_th: true,
+              act_header_type_name_en: true,
+            },
+          },
+        },
+      })
+    })
+  }
+
+  async updateDetailType(id: number, data: DetailTypePayload) {
+    const normalized = this.normalizeDetailTypePayload(data)
+    const nameKey = this.normalizeDetailTypeKey(normalized.act_header_detail_type_name_th)
+
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.activities_header_detail_type.findUnique({
+        where: { act_header_detail_type_id: id },
+        select: { act_header_detail_type_id: true },
+      })
+      if (!existing) {
+        throw new BadRequestException(`ไม่พบกิจกรรมย่อย #${id}`)
+      }
+
+      if (normalized.act_header_type_id != null) {
+        const parent = await tx.activities_header_type.findUnique({
+          where: { act_header_type_id: normalized.act_header_type_id },
+          select: { act_header_type_id: true },
+        })
+        if (!parent) {
+          throw new BadRequestException(`ไม่พบกิจกรรมหลัก #${normalized.act_header_type_id}`)
+        }
+      }
+
+      const existingRows = await tx.activities_header_detail_type.findMany({
+        select: { act_header_detail_type_id: true, act_header_detail_type_name_th: true },
+      })
+      const duplicate = existingRows.find((row) => (
+        row.act_header_detail_type_id !== id
+        && this.normalizeDetailTypeKey(row.act_header_detail_type_name_th) === nameKey
+      ))
+      if (duplicate) {
+        throw new BadRequestException(`กิจกรรมย่อย "${normalized.act_header_detail_type_name_th}" มีอยู่แล้ว`)
+      }
+
+      return tx.activities_header_detail_type.update({
+        where: { act_header_detail_type_id: id },
+        data: this.cleanData(normalized),
+        include: {
+          activities_header_type: {
+            select: {
+              act_header_type_id: true,
+              act_header_type_name_th: true,
+              act_header_type_name_en: true,
+            },
+          },
+        },
+      })
+    })
+  }
+
+  async deleteDetailType(id: number) {
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.activities_header_detail_type.findUnique({
+        where: { act_header_detail_type_id: id },
+        select: { act_header_detail_type_id: true },
+      })
+      if (!existing) {
+        throw new BadRequestException(`ไม่พบกิจกรรมย่อย #${id}`)
+      }
+
+      const logDetailCount = await tx.log_activities_detail.count({
+        where: { act_header_detail_type_id: id },
+      })
+
+      if (logDetailCount > 0) {
+        throw new BadRequestException(`ลบกิจกรรมย่อยไม่ได้ เพราะยังถูกใช้ใน log ${logDetailCount} รายการ`)
+      }
+
+      return tx.activities_header_detail_type.delete({
+        where: { act_header_detail_type_id: id },
+      })
     })
   }
 
@@ -1845,7 +4251,14 @@ export class ActivitiesService {
       orderBy: { act_equipment_id: 'asc' },
     })
   }
-  getChemicals()     { return this.prisma.activities_chemiscals.findMany({ orderBy: { act_chemiscal_id: 'asc' } }) }
+  getChemicals()     {
+    return this.prisma.activities_chemiscals.findMany({
+      include: {
+        resource_used_type: { select: { resc_used_type_name: true } },
+      },
+      orderBy: { act_chemiscal_id: 'asc' },
+    })
+  }
   getResourceOthers() {
     return this.prisma.activities_resourceOther.findMany({
       include: {
@@ -1854,12 +4267,100 @@ export class ActivitiesService {
       orderBy: { act_resourceOther_id: 'asc' },
     })
   }
+  getProductYears() {
+    return this.buildProductYearListItems(this.prisma)
+  }
   getSugarCaneTypes(){ return this.prisma.activities_header_typeSugarCane.findMany() }
   getLandTypes()     { return this.prisma.activities_header_typeLand.findMany() }
   async getCalStatuses() {
     await this.ensureCalStatusMap()
     return this.prisma.log_act_detail_calStatus.findMany({
       orderBy: { log_act_detail_calStatus_id: 'asc' },
+    })
+  }
+
+  createProductYear(data: ProductYearPayload) {
+    const normalized = this.normalizeProductYearPayload(data)
+    const now = new Date()
+
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await this.findDuplicateProductYear(tx, normalized.act_productYear_name)
+      if (existing) {
+        throw new BadRequestException(`ปีการผลิต "${normalized.act_productYear_name}" มีอยู่แล้วในระบบ`)
+      }
+
+      const last = await tx.activities_productYear.aggregate({ _max: { act_productYear_id: true } })
+      await tx.activities_productYear.create({
+        data: {
+          act_productYear_id: (last._max.act_productYear_id ?? 0) + 1,
+          ...this.cleanData(normalized),
+          act_productyear_create_at: now,
+          act_productYear_update_at: now,
+        },
+      })
+
+      const items = await this.buildProductYearListItems(tx)
+      return items[items.length - 1]
+    })
+  }
+
+  async updateProductYear(id: number, data: ProductYearPayload) {
+    const normalized = this.normalizeProductYearPayload(data)
+
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.activities_productYear.findUnique({
+        where: { act_productYear_id: id },
+      })
+
+      if (!existing) {
+        throw new BadRequestException(`ไม่พบปีการผลิต #${id}`)
+      }
+
+      const duplicate = await this.findDuplicateProductYear(tx, normalized.act_productYear_name, id)
+      if (duplicate) {
+        throw new BadRequestException(`ปีการผลิต "${normalized.act_productYear_name}" มีอยู่แล้วในระบบ`)
+      }
+
+      await tx.activities_productYear.update({
+        where: { act_productYear_id: id },
+        data: {
+          act_productYear_name: normalized.act_productYear_name,
+          act_productYear_info: normalized.act_productYear_info || null,
+          act_productYear_update_uid: normalized.act_productYear_update_uid,
+          act_productYear_update_at: new Date(),
+        },
+      })
+
+      const items = await this.buildProductYearListItems(tx)
+      const updated = items.find((item) => item.act_productYear_id === id)
+      if (!updated) {
+        throw new BadRequestException(`ไม่พบปีการผลิต #${id}`)
+      }
+      return updated
+    })
+  }
+
+  async deleteProductYear(id: number) {
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.activities_productYear.findUnique({
+        where: { act_productYear_id: id },
+      })
+
+      if (!existing) {
+        throw new BadRequestException(`ไม่พบปีการผลิต #${id}`)
+      }
+
+      const detailCount = await tx.log_activities_detail.count({
+        where: { act_productYear_id: id },
+      })
+
+      if (detailCount > 0) {
+        throw new BadRequestException('ปีการผลิตนี้ยังถูกใช้งานในข้อมูลกิจกรรม จึงยังลบไม่ได้')
+      }
+
+      return tx.activities_productYear.delete({
+        where: { act_productYear_id: id },
+      })
     })
   }
 
@@ -2039,6 +4540,63 @@ export class ActivitiesService {
     })
   }
 
+  createChemical(data: ChemicalPayload) {
+    const act_chemiscal_name = this.toRequiredText(data.act_chemiscal_name, 'act_chemiscal_name')
+    const act_chemiscal_info = this.toOptionalText(data.act_chemiscal_info)
+    const resource_used_type_id = this.toOptionalNumber(data.resource_used_type_id)
+    const act_chemiscal_update_uid = this.toOptionalNumber(data.act_chemiscal_update_uid)
+    const now = new Date()
+
+    return this.prisma.$transaction(async (tx) => {
+      const last = await tx.activities_chemiscals.aggregate({ _max: { act_chemiscal_id: true } })
+      const actChemiscalId = (last._max.act_chemiscal_id ?? 0) + 1
+
+      return tx.activities_chemiscals.create({
+        data: {
+          act_chemiscal_id: actChemiscalId,
+          act_chemiscal_name,
+          act_chemiscal_info,
+          resource_used_type_id,
+          act_chemiscal_update_uid,
+          act_chemiscal_date_add: now,
+          act_chemiscal_update_at: now,
+        },
+        include: {
+          resource_used_type: { select: { resc_used_type_name: true } },
+        },
+      })
+    })
+  }
+
+  updateChemical(id: number, data: ChemicalPayload) {
+    return this.prisma.activities_chemiscals.update({
+      where: { act_chemiscal_id: id },
+      data: {
+        act_chemiscal_name: this.toRequiredText(data.act_chemiscal_name, 'act_chemiscal_name'),
+        act_chemiscal_info: this.toOptionalText(data.act_chemiscal_info),
+        resource_used_type_id: this.toOptionalNumber(data.resource_used_type_id),
+        act_chemiscal_update_uid: this.toOptionalNumber(data.act_chemiscal_update_uid),
+        act_chemiscal_update_at: new Date(),
+      },
+      include: {
+        resource_used_type: { select: { resc_used_type_name: true } },
+      },
+    })
+  }
+
+  deleteChemical(id: number) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.log_activities_detail.updateMany({
+        where: { act_chemiscal_id: id },
+        data: { act_chemiscal_id: null },
+      })
+
+      return tx.activities_chemiscals.delete({
+        where: { act_chemiscal_id: id },
+      })
+    })
+  }
+
   createResourceOther(data: ResourceOtherPayload) {
     const act_resourceOther_name = this.toRequiredText(data.act_resourceOther_name, 'act_resourceOther_name')
     const act_resourceOther_info = this.toOptionalText(data.act_resourceOther_info)
@@ -2186,6 +4744,7 @@ export class ActivitiesService {
       units,
       landTypes,
       sugarCaneTypes,
+      productYears,
       existingHeaders,
     ] = await this.prisma.$transaction([
       this.prisma.lands_camps.findMany({ select: { land_camp_id: true, land_camp_name: true } }),
@@ -2200,6 +4759,7 @@ export class ActivitiesService {
       this.prisma.units.findMany({ select: { unit_id: true, unit_name: true, unit_initial: true } }),
       this.prisma.activities_header_typeLand.findMany({ select: { act_header_typeLand_id: true, act_header_typeLand_name: true } }),
       this.prisma.activities_header_typeSugarCane.findMany({ select: { act_header_typeSugarCane_id: true, act_header_typeSugarCane_name: true } }),
+      this.prisma.activities_productYear.findMany({ select: { act_productYear_id: true, act_productYear_name: true } }),
       this.prisma.activities_header.findMany({
         select: {
           activities_header_id: true,
@@ -2213,7 +4773,15 @@ export class ActivitiesService {
     ])
 
     const normalizeKey = (value?: string) => value?.trim().toLowerCase() ?? ''
-    const normalizeDetailTypeKey = (value?: string) => normalizeKey(value).replace(/^0.{1,3}-(?=.+)/, '')
+    const sanitizeDetailTypeName = (value?: string) => (value ?? '')
+      .replace(/^\uFEFF/, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^\d+\s*[-–—:]\s*/, '')
+      .replace(/\s*[-–—:]\s*(?:น้ำ|นํ้า|water)\s*\d+\s*$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    const normalizeDetailTypeKey = (value?: string) => sanitizeDetailTypeName(value).toLowerCase()
 
     const byName = {
       camp:         Object.fromEntries(camps.map(c => [c.land_camp_name?.toLowerCase() ?? '', c.land_camp_id])),
@@ -2239,6 +4807,10 @@ export class ActivitiesService {
       sugarCaneType: Object.fromEntries(sugarCaneTypes.flatMap(t => [
         [String(t.act_header_typeSugarCane_id), t.act_header_typeSugarCane_id],
         [t.act_header_typeSugarCane_name?.toLowerCase() ?? '', t.act_header_typeSugarCane_id],
+      ])),
+      productYear: Object.fromEntries(productYears.flatMap(y => [
+        [String(y.act_productYear_id), y.act_productYear_id],
+        [y.act_productYear_name?.toLowerCase() ?? '', y.act_productYear_id],
       ])),
       unit: Object.fromEntries(units.flatMap(u => [
         [u.unit_name?.toLowerCase() ?? '', u.unit_id],
@@ -2325,8 +4897,8 @@ export class ActivitiesService {
     }
 
     const ensureDetailTypeId = async (name?: string, headerTypeId?: number) => {
-      const trimmedName = name?.trim()
-      const key = normalizeDetailTypeKey(trimmedName)
+      const canonicalName = sanitizeDetailTypeName(name)
+      const key = normalizeDetailTypeKey(canonicalName)
       if (!key) return undefined
       if (byName.detailType[key]) return byName.detailType[key]
 
@@ -2334,11 +4906,11 @@ export class ActivitiesService {
         data: {
           act_header_detail_type_id: await nextDetailTypeId(),
           ...(headerTypeId ? { act_header_type_id: headerTypeId } : {}),
-          act_header_detail_type_name_th: trimmedName,
+          act_header_detail_type_name_th: canonicalName,
         },
       })
 
-      byName.detailType[normalizeKey(trimmedName)] = created.act_header_detail_type_id
+      byName.detailType[normalizeKey(canonicalName)] = created.act_header_detail_type_id
       byName.detailType[key] = created.act_header_detail_type_id
       return created.act_header_detail_type_id
     }
@@ -2401,6 +4973,36 @@ export class ActivitiesService {
       byName.sugarCaneType[String(created.act_header_typeSugarCane_id)] = created.act_header_typeSugarCane_id
       byName.sugarCaneType[key] = created.act_header_typeSugarCane_id
       return created.act_header_typeSugarCane_id
+    }
+
+    const nextProductYearId = async () => {
+      const current = await this.prisma.activities_productYear.aggregate({ _max: { act_productYear_id: true } })
+      return (current._max.act_productYear_id ?? 0) + 1
+    }
+
+    const ensureProductYearId = async (value?: string) => {
+      const trimmedValue = value?.trim()
+      const key = normalizeKey(trimmedValue)
+      if (!key) return undefined
+
+      if (byName.productYear[key]) return byName.productYear[key]
+
+      if (/^\d+$/.test(trimmedValue ?? '') && byName.productYear[trimmedValue ?? '']) {
+        return byName.productYear[trimmedValue ?? '']
+      }
+
+      const created = await this.prisma.activities_productYear.create({
+        data: {
+          act_productYear_id: await nextProductYearId(),
+          act_productYear_name: trimmedValue,
+          act_productyear_create_at: new Date(),
+          act_productYear_update_at: new Date(),
+        },
+      })
+
+      byName.productYear[String(created.act_productYear_id)] = created.act_productYear_id
+      byName.productYear[key] = created.act_productYear_id
+      return created.act_productYear_id
     }
 
     const nextFertilizerId = async () => {
@@ -2654,6 +5256,7 @@ export class ActivitiesService {
         const actTypeId = await ensureHeaderTypeId(actTypeName)
         const actHeaderTypeLandId = resolveMappedReferenceId(get('act_header_typeLand_id'), byName.landType)
         const actHeaderTypeSugarCaneId = await ensureSugarCaneTypeId(get('act_header_typeSugarCane_id'))
+        const actProductYearId = await ensureProductYearId(get('act_productYear_name'))
 
         let activitiesHeaderId = headerCache.get(landId)?.activities_header_id
         if (!activitiesHeaderId) {
@@ -2717,6 +5320,7 @@ export class ActivitiesService {
         const areawork      = parseFloat(get('log_act_detail_areawork'))   || undefined
 
         await this.createDetail({
+          act_productYear_id:        actProductYearId,
           activities_header_id:      activitiesHeaderId,
           act_header_type_id:        actTypeId,
           act_header_detail_type_id: detailTypeId,
@@ -2731,6 +5335,7 @@ export class ActivitiesService {
           log_act_detail_volumeAll:  volumeAll,
           log_act_detail_areawork:   areawork,
           log_act_detail_create_at:  activityDate,
+          skipRequiredValidation:    true,
         })
 
         results.inserted++

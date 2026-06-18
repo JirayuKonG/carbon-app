@@ -11,20 +11,24 @@ import {
   getCfSpatialNodes,
   getCfProcessActivities,
   getOverviewKpi,
+  getInputUsageSummary,
   getProcessInputComparisons,
 } from "../services/dashboardApi";
 import { sortProcessLabels } from "../components/charts/ChartRegistry";
+import { SourceBadge } from "../components/common/SourceBadge";
 import type {
   CampCarbonSummary,
   CampFieldCarbonDetail,
   CaneTypeSummary,
   DataResult,
+  InputUsageSummaryResponse,
   OverviewKpi,
   ProcessActivityBreakdown,
   ProcessInputComparison,
   SpatialLevel,
   SpatialSummaryNode,
 } from "../types/dashboard";
+import { emptyInputUsageSummary, summarizeResourceUsage } from "../utils/resourceUsage";
 import "../cf-dashboard.css";
 
 type ScopeValue = "all" | `camp-${number}`;
@@ -33,6 +37,10 @@ type FootprintPreviewTab = "pdf" | "word" | "excel";
 type FootprintAreaLevel = Exclude<SpatialLevel, "country">;
 
 const footprintAreaOrder: FootprintAreaLevel[] = ["region", "province", "district", "subdistrict", "field"];
+const farmGroupFilterOptions = [
+  { value: "dan-chang", label: "ไร่ด่านช้าง" },
+  { value: "isan", label: "ไร่อีสาน" },
+] as const;
 
 function emptyFootprintAreaPath(): Record<FootprintAreaLevel, string> {
   return { region: "", province: "", district: "", subdistrict: "", field: "" };
@@ -103,14 +111,12 @@ function socValues(baselineTotal: number, currentTotal: number, areaRai: number)
   return { socBaseline, socProject, socIncrease, netEmission };
 }
 
-function socPracticeValues(socIncrease: number) {
-  return {
-    vinasse: socIncrease * 0.34,
-    filterCake: socIncrease * 0.28,
-    greenManure: socIncrease * 0.22,
-    trashRetention: socIncrease * 0.16,
-  };
-}
+const organicMaterialRows = [
+  { key: "organicFertilizer", label: "ปุ๋ยอินทรีย์/ปุ๋ยหมัก", share: 0.34 },
+  { key: "filterCake", label: "ฟิลเตอร์เค้ก", share: 0.28 },
+  { key: "vinasse", label: "Vinasse", share: 0.22 },
+  { key: "trashRetention", label: "ใบอ้อยคลุมดิน", share: 0.16 },
+] as const;
 
 function caneTypeSummaryRows(caneRows: CaneProcessReportRow[]) {
   const grouped = new Map<string, { caneType: string; area: number; baseline: number; project: number; reduction: number }>();
@@ -128,6 +134,29 @@ function caneTypeSummaryRows(caneRows: CaneProcessReportRow[]) {
     grouped.set(row.cane.name, current);
   });
   return Array.from(grouped.values());
+}
+
+function socMaterialSummaryRows(
+  caneRows: CaneProcessReportRow[],
+  fallback: { caneType: string; area: number; baseline: number; project: number; reduction: number },
+  totalAreaRai: number,
+) {
+  const rows = caneTypeSummaryRows(caneRows);
+  return (rows.length ? rows : [fallback]).flatMap((row) => {
+    const baseline = Math.max(row.baseline * 0.35, 0);
+    const increase = Math.max(row.reduction, 0) * 0.35;
+    const project = baseline + increase;
+    const areaPercent = totalAreaRai ? (row.area / totalAreaRai) * 100 : 0;
+    return organicMaterialRows.map((material) => ({
+      caneType: row.caneType,
+      areaPercent,
+      areaRai: row.area,
+      materialType: material.label,
+      socBaseline: baseline * material.share,
+      socProject: project * material.share,
+      socIncrease: increase * material.share,
+    }));
+  });
 }
 
 function sumEmission(rows: ProcessActivityBreakdown[]) {
@@ -272,8 +301,14 @@ function reportSections() {
 
 function buildFootprintExcelSheets(report: FootprintReportSnapshot): ExcelPreviewSheet[] {
   const reportSoc = socValues(report.baselineTotal, report.currentTotal, report.kpi.areaRai);
-  const reportPractice = socPracticeValues(reportSoc.socIncrease);
   const reportCaneTypeRows = caneTypeSummaryRows(report.caneRows);
+  const reportMaterialRows = socMaterialSummaryRows(report.caneRows, {
+    caneType: report.caneLabel,
+    area: report.kpi.areaRai,
+    baseline: report.baselineTotal,
+    project: report.currentTotal,
+    reduction: report.reduction.diff,
+  }, report.kpi.areaRai);
 
   return [
     {
@@ -345,22 +380,22 @@ function buildFootprintExcelSheets(report: FootprintReportSnapshot): ExcelPrevie
       }))),
     },
     {
-      name: "SOC Summary",
-      rows: rowsForSheet([{
-        "SOC Baseline": reportSoc.socBaseline,
-        "SOC Project": reportSoc.socProject,
-        "SOC Increase": reportSoc.socIncrease,
-        Vinasse: reportPractice.vinasse,
-        "Filter Cake": reportPractice.filterCake,
-        "Green Manure": reportPractice.greenManure,
-        "Trash Retention": reportPractice.trashRetention,
-      }]),
+      name: "SOC Material Summary",
+      rows: rowsForSheet(reportMaterialRows.map((row) => ({
+        "ประเภทอ้อย": row.caneType,
+        "สัดส่วนพื้นที่": `${row.areaPercent.toFixed(1)}%`,
+        "พื้นที่ (ไร่)": row.areaRai,
+        "ประเภทวัสดุอินทรีย์": row.materialType,
+        "SOC Before": row.socBaseline,
+        "SOC After": row.socProject,
+        "SOC Increase": row.socIncrease,
+      }))),
     },
     {
       name: "Net Carbon Result",
       rows: rowsForSheet([{
         "Gross Emission": report.currentTotal,
-        "SOC Offset": reportSoc.socIncrease,
+        "SOC Increase": reportSoc.socIncrease,
         "Net Emission": reportSoc.netEmission,
       }]),
     },
@@ -404,7 +439,6 @@ function footprintWordHtml({
   kpi: OverviewKpi;
 }) {
   const { socBaseline, socProject, socIncrease, netEmission } = socValues(baselineTotal, currentTotal, kpi.areaRai);
-  const practice = socPracticeValues(socIncrease);
   const generatedDate = new Date().toLocaleString();
   const processHtml = processRows.map((row) => `
     <tr>
@@ -437,6 +471,16 @@ function footprintWordHtml({
       <td>${formatNumber(row.currentFertilizerKg, 1)}</td>
       <td>${formatNumber(row.baselineFuelLiter, 1)}</td>
       <td>${formatNumber(row.currentFuelLiter, 1)}</td>
+    </tr>
+  `).join("");
+  const materialHtml = organicMaterialRows.map((material) => `
+    <tr>
+      <td>${escapeHtml(caneLabel)}</td>
+      <td>${caneLabel === "รวมทุกประเภทอ้อย" ? "100%" : "-"}</td>
+      <td>${escapeHtml(material.label)}</td>
+      <td>${formatNumber(socBaseline * material.share)} tCO2e</td>
+      <td>${formatNumber(socProject * material.share)} tCO2e</td>
+      <td>${formatNumber(socIncrease * material.share)} tCO2e</td>
     </tr>
   `).join("");
 
@@ -483,19 +527,15 @@ function footprintWordHtml({
 
         <h2>5. ปัจจัยกิจกรรมหลัก</h2>
         <table><thead><tr><th>กระบวนการ</th><th>ปุ๋ยปีฐาน kg</th><th>ปุ๋ยปีรายงาน kg</th><th>น้ำมันปีฐาน L</th><th>น้ำมันปีรายงาน L</th></tr></thead><tbody>${inputHtml}</tbody></table>
-        <h2>6. SOC Section</h2>
+        <h2>6. สัดส่วนการใช้วัสดุอินทรีย์แยกตามประเภท</h2>
         <table>
-          <tr><th>SOC Baseline</th><th>SOC Project</th><th>SOC Increase</th></tr>
-          <tr><td>${formatNumber(socBaseline)} tCO2e</td><td>${formatNumber(socProject)} tCO2e</td><td>${formatNumber(socIncrease)} tCO2e</td></tr>
-        </table>
-        <table>
-          <tr><th>Vinasse</th><th>Filter Cake</th><th>Green Manure</th><th>Trash Retention</th></tr>
-          <tr><td>${formatNumber(practice.vinasse)} tCO2e</td><td>${formatNumber(practice.filterCake)} tCO2e</td><td>${formatNumber(practice.greenManure)} tCO2e</td><td>${formatNumber(practice.trashRetention)} tCO2e</td></tr>
+          <thead><tr><th>ประเภทอ้อย</th><th>สัดส่วนพื้นที่</th><th>ประเภทวัสดุอินทรีย์</th><th>SOC Before</th><th>SOC After</th><th>SOC Increase</th></tr></thead>
+          <tbody>${materialHtml}</tbody>
         </table>
 
         <h2>7. Net Result Section</h2>
         <table>
-          <tr><th>Gross Emission</th><th>SOC Offset</th><th>Net Emission</th></tr>
+          <tr><th>Gross Emission</th><th>SOC Increase</th><th>Net Emission</th></tr>
           <tr><td>${formatNumber(currentTotal)} tCO2e</td><td>${formatNumber(socIncrease)} tCO2e</td><td>${formatNumber(netEmission)} tCO2e</td></tr>
         </table>
 
@@ -524,6 +564,131 @@ function footprintWordHtml({
   `;
 }
 
+const pdfChartColors = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
+
+function PdfMetricCard({ label, value, sub, tone = "blue" }: { label: string; value: string; sub?: string; tone?: "blue" | "green" | "red" | "amber" }) {
+  return (
+    <article className={`footprint-pdf-metric ${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      {sub && <small>{sub}</small>}
+    </article>
+  );
+}
+
+function PdfGroupedBarChart({
+  title,
+  subtitle,
+  rows,
+}: {
+  title: string;
+  subtitle?: string;
+  rows: Array<{ label: string; baseline: number; project: number; reduction?: number }>;
+}) {
+  const maxValue = Math.max(...rows.flatMap((row) => [row.baseline, row.project]), 1);
+  return (
+    <section className="footprint-pdf-panel">
+      <div className="footprint-pdf-panel-head">
+        <div>
+          <span>BAR CHART</span>
+          <strong>{title}</strong>
+        </div>
+        {subtitle && <small>{subtitle}</small>}
+      </div>
+      <div className="footprint-pdf-legend">
+        <span><i className="baseline" /> ปีฐาน</span>
+        <span><i className="project" /> ปีดำเนินการ</span>
+      </div>
+      <div className="footprint-grouped-bars">
+        {rows.map((row) => (
+          <div className="footprint-grouped-bar-row" key={row.label}>
+            <div className="footprint-bar-label">{row.label}</div>
+            <div className="footprint-bar-pair">
+              <div className="footprint-bar-track"><span className="baseline" style={{ width: `${Math.max((row.baseline / maxValue) * 100, 2)}%` }} /></div>
+              <div className="footprint-bar-track"><span className="project" style={{ width: `${Math.max((row.project / maxValue) * 100, 2)}%` }} /></div>
+            </div>
+            <div className="footprint-bar-values">
+              <b>{formatNumber(row.project)} tCO2e</b>
+              {row.reduction !== undefined && <small className={row.reduction >= 0 ? "green-text" : "red-text"}>{row.reduction >= 0 ? "ลดลง" : "เพิ่มขึ้น"} {formatNumber(Math.abs(row.reduction))}</small>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PdfHotspotChart({ rows }: { rows: FootprintProcessReportRow[] }) {
+  const maxValue = Math.max(...rows.map((row) => row.currentEmission), 1);
+  return (
+    <section className="footprint-pdf-panel">
+      <div className="footprint-pdf-panel-head">
+        <div>
+          <span>PROCESS HOTSPOT</span>
+          <strong>จุดปล่อยก๊าซสูงสุดรายกิจกรรม</strong>
+        </div>
+        <small>เรียงจากปีดำเนินการสูงสุด</small>
+      </div>
+      <div className="footprint-hotspot-bars">
+        {rows.map((row, index) => (
+          <div className="footprint-hotspot-row" key={row.process}>
+            <div>
+              <b>{index + 1}. {row.process}</b>
+              <small>{row.activity}</small>
+            </div>
+            <div className="footprint-hotspot-track">
+              <span style={{ width: `${Math.max((row.currentEmission / maxValue) * 100, 4)}%`, background: pdfChartColors[index % pdfChartColors.length] }} />
+            </div>
+            <strong>{formatNumber(row.currentEmission)} tCO2e</strong>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PdfNetCarbonPanel({
+  currentTotal,
+  socBaseline,
+  socProject,
+  socIncrease,
+  netEmission,
+}: {
+  currentTotal: number;
+  socBaseline: number;
+  socProject: number;
+  socIncrease: number;
+  netEmission: number;
+}) {
+  const maxValue = Math.max(currentTotal, socProject, netEmission, 1);
+  return (
+    <section className="footprint-pdf-panel">
+      <div className="footprint-pdf-panel-head">
+        <div>
+          <span>NET CARBON RESULT</span>
+          <strong>การปล่อย การกักเก็บ และผลลัพธ์สุทธิ</strong>
+        </div>
+        <small>ใช้สูตรเดียวกับตัวเลขบนหน้าเว็บ</small>
+      </div>
+      <div className="footprint-net-flow">
+        {[
+          { label: "Gross Emission", value: currentTotal, color: "#ef4444" },
+          { label: "SOC Before", value: socBaseline, color: "#64748b" },
+          { label: "SOC After", value: socProject, color: "#16a34a" },
+          { label: "SOC Increase", value: socIncrease, color: "#22c55e" },
+          { label: "Net Emission", value: netEmission, color: "#2563eb" },
+        ].map((item) => (
+          <div className="footprint-net-flow-row" key={item.label}>
+            <span>{item.label}</span>
+            <div><i style={{ width: `${Math.max((item.value / maxValue) * 100, 3)}%`, background: item.color }} /></div>
+            <strong>{formatNumber(item.value)} tCO2e</strong>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function FootprintReportDocument({
   scopeLabel,
   currentYear,
@@ -550,9 +715,124 @@ function FootprintReportDocument({
   const topRows = processRows.slice(0, 4);
   const { socBaseline, socProject, socIncrease, netEmission } = socValues(baselineTotal, currentTotal, kpi.areaRai);
   const generatedDate = new Date();
+  const docCaneSummaryRows = caneTypeSummaryRows(caneRows);
+  const fallbackCaneSummary = { caneType: caneLabel, area: kpi.areaRai, baseline: baselineTotal, project: currentTotal, reduction: reduction.diff };
+  const caneChartRows = (docCaneSummaryRows.length ? docCaneSummaryRows : [fallbackCaneSummary]).slice(0, 5);
+  const docMaterialRows = socMaterialSummaryRows(caneRows, fallbackCaneSummary, kpi.areaRai);
+  const topMaterialRows = docMaterialRows.slice(0, 12);
+  const resourceRows = inputs.slice(0, 4);
 
   return (
-    <div className="pdd-paper footprint-paper">
+    <div className="pdd-paper footprint-paper footprint-executive-paper">
+      <section className="footprint-pdf-page">
+        <div className="footprint-pdf-cover">
+          <div>
+            <span>Carbon Footprint Report</span>
+            <h1>รายงานคาร์บอนฟุตพริ้นท์ ไร่บริษัทกลุ่มมิตรผล</h1>
+            <p>{scopeLabel} · {caneLabel} · ปีดำเนินการ {currentYear}</p>
+          </div>
+          <div className="footprint-pdf-cover-meta">
+            <span>Generated</span>
+            <strong>{generatedDate.toLocaleDateString()}</strong>
+            <small>Carbon Analytics Dashboard</small>
+          </div>
+        </div>
+
+        <div className="footprint-pdf-kpi-grid">
+          <PdfMetricCard label="ปีฐาน" value={`${formatNumber(baselineTotal)} tCO2e`} sub="Baseline emission" />
+          <PdfMetricCard label={`ปีดำเนินการ ${currentYear}`} value={`${formatNumber(currentTotal)} tCO2e`} sub="Project year emission" tone="red" />
+          <PdfMetricCard label="SOC Increase" value={`${formatNumber(socIncrease)} tCO2e`} sub="Carbon sequestration" tone="green" />
+          <PdfMetricCard label="Net Emission" value={`${formatNumber(netEmission)} tCO2e`} sub="Gross emission - SOC increase" tone="blue" />
+          <PdfMetricCard label="พื้นที่รวม" value={`${formatNumber(kpi.areaRai, 1)} ไร่`} sub={`${formatNumber(kpi.fields, 0)} แปลง`} tone="amber" />
+        </div>
+
+        <div className="footprint-pdf-two-col">
+          <PdfGroupedBarChart
+            title="Cane Type Analysis"
+            subtitle="เปรียบเทียบปีฐานกับปีดำเนินการตามประเภทอ้อย"
+            rows={caneChartRows.map((row) => ({
+              label: row.caneType,
+              baseline: row.baseline,
+              project: row.project,
+              reduction: row.reduction,
+            }))}
+          />
+          <PdfHotspotChart rows={topRows} />
+        </div>
+      </section>
+
+      <section className="footprint-pdf-page">
+        <PdfNetCarbonPanel
+          currentTotal={currentTotal}
+          socBaseline={socBaseline}
+          socProject={socProject}
+          socIncrease={socIncrease}
+          netEmission={netEmission}
+        />
+
+        <div className="footprint-pdf-two-col">
+          <section className="footprint-pdf-panel">
+            <div className="footprint-pdf-panel-head">
+              <div>
+                <span>SOC MATERIAL</span>
+                <strong>สัดส่วนการใช้วัสดุอินทรีย์แยกตามประเภท</strong>
+              </div>
+              <small>แสดงสูงสุด 12 รายการแรกสำหรับหน้า PDF</small>
+            </div>
+            <table className="report-table compact-report-table">
+              <thead>
+                <tr><th>ประเภทอ้อย</th><th>วัสดุอินทรีย์</th><th>SOC Increase</th></tr>
+              </thead>
+              <tbody>
+                {topMaterialRows.map((row) => (
+                  <tr key={`doc-soc-material-summary-${row.caneType}-${row.materialType}`}>
+                    <td>{row.caneType}<br /><small>{row.areaPercent.toFixed(1)}% · {formatNumber(row.areaRai, 1)} ไร่</small></td>
+                    <td>{row.materialType}</td>
+                    <td>{formatNumber(row.socIncrease)} tCO2e</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+
+          <section className="footprint-pdf-panel">
+            <div className="footprint-pdf-panel-head">
+              <div>
+                <span>RESOURCE EFFICIENCY</span>
+                <strong>ปัจจัยกิจกรรมหลัก</strong>
+              </div>
+              <small>ใช้ประกอบการตรวจสอบหลักฐาน</small>
+            </div>
+            <div className="footprint-resource-list">
+              {resourceRows.map((row) => (
+                <div key={`resource-${row.process}`}>
+                  <strong>{row.process}</strong>
+                  <span>ปุ๋ย {formatNumber(row.baselineFertilizerKg, 1)} → {formatNumber(row.currentFertilizerKg, 1)} kg</span>
+                  <span>น้ำมัน {formatNumber(row.baselineFuelLiter, 1)} → {formatNumber(row.currentFuelLiter, 1)} L</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        <section className="footprint-pdf-panel">
+          <div className="footprint-pdf-panel-head">
+            <div>
+              <span>SUMMARY TABLE</span>
+              <strong>ผลลัพธ์สุทธิสำหรับตรวจทาน</strong>
+            </div>
+            <small>ตัวเลขชุดเดียวกับหน้าเว็บ</small>
+          </div>
+          <table className="report-table">
+            <tbody>
+              <tr><th>Gross Emission</th><td>{formatNumber(currentTotal)} tCO2e</td><th>SOC Before</th><td>{formatNumber(socBaseline)} tCO2e</td></tr>
+              <tr><th>SOC After</th><td>{formatNumber(socProject)} tCO2e</td><th>SOC Increase</th><td>{formatNumber(socIncrease)} tCO2e</td></tr>
+              <tr><th>Net Emission</th><td>{formatNumber(netEmission)} tCO2e</td><th>Reduction</th><td>{reduction.text}</td></tr>
+            </tbody>
+          </table>
+        </section>
+      </section>
+
       <div className="pdd-doc-header">
         <div>Carbon Footprint Report</div>
         <div>รายงานคาร์บอนฟุตพริ้นท์ ไร่บริษัทกลุ่มมิตรผล</div>
@@ -647,14 +927,41 @@ function FootprintReportDocument({
 
       <h2>Carbon Sequestration & Net Carbon Result</h2>
       <div className="footprint-doc-block-grid">
-        <div><span>SOC Baseline</span><strong>{formatNumber(socBaseline)} tCO2e</strong></div>
-        <div><span>SOC Project</span><strong>{formatNumber(socProject)} tCO2e</strong></div>
-        <div><span>SOC Increase / Offset</span><strong>{formatNumber(socIncrease)} tCO2e</strong></div>
+        <div><span>SOC Before</span><strong>{formatNumber(socBaseline)} tCO2e</strong></div>
+        <div><span>SOC After</span><strong>{formatNumber(socProject)} tCO2e</strong></div>
+        <div><span>SOC Increase</span><strong>{formatNumber(socIncrease)} tCO2e</strong></div>
         <div><span>Net Emission</span><strong>{formatNumber(netEmission)} tCO2e</strong></div>
       </div>
+      <table className="report-table compact-report-table">
+        <thead>
+          <tr><th>ประเภทอ้อย</th><th>สัดส่วนพื้นที่</th><th>ประเภทวัสดุอินทรีย์</th><th>SOC Before</th><th>SOC After</th><th>SOC Increase</th></tr>
+        </thead>
+        <tbody>
+          {docMaterialRows.map((row, index, rows) => {
+            const isFirstCaneRow = index === 0 || rows[index - 1].caneType !== row.caneType;
+            const rowSpan = rows.filter((item) => item.caneType === row.caneType).length;
+            return (
+              <tr key={`doc-soc-material-${row.caneType}-${row.materialType}`}>
+                {isFirstCaneRow && (
+                  <>
+                    <td rowSpan={rowSpan} className="rowspan-cell cane-rowspan-name">{row.caneType}</td>
+                    <td rowSpan={rowSpan}>{row.areaPercent.toFixed(1)}% · {formatNumber(row.areaRai, 1)} ไร่</td>
+                  </>
+                )}
+                <td>{row.materialType}</td>
+                <td>{formatNumber(row.socBaseline)} tCO2e</td>
+                <td>{formatNumber(row.socProject)} tCO2e</td>
+                <td className={row.socIncrease >= 0 ? "green-text" : "red-text"}>
+                  {row.socIncrease >= 0 ? "เพิ่มขึ้น" : "ลดลง"} {formatNumber(Math.abs(row.socIncrease))} tCO2e
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
       <table className="report-table">
         <tbody>
-          <tr><th>Gross Emission</th><td>{formatNumber(currentTotal)} tCO2e</td><th>SOC Offset</th><td>{formatNumber(socIncrease)} tCO2e</td></tr>
+          <tr><th>Gross Emission</th><td>{formatNumber(currentTotal)} tCO2e</td><th>SOC Increase</th><td>{formatNumber(socIncrease)} tCO2e</td></tr>
           <tr><th>Net Emission</th><td>{formatNumber(netEmission)} tCO2e</td><th>Carbon Result</th><td>{netEmission <= currentTotal ? "Improved after SOC offset" : "No SOC offset applied"}</td></tr>
         </tbody>
       </table>
@@ -677,11 +984,16 @@ export function CfFootprintReportPage() {
   const [kpi, setKpi] = useState<DataResult<OverviewKpi>>({ data: emptyKpi, source: "mock" });
   const [activities, setActivities] = useState<ProcessActivityBreakdown[]>([]);
   const [inputs, setInputs] = useState<ProcessInputComparison[]>([]);
+  const [activityResult, setActivityResult] = useState<DataResult<ProcessActivityBreakdown[]>>({ data: [], source: "mock" });
+  const [inputResult, setInputResult] = useState<DataResult<ProcessInputComparison[]>>({ data: [], source: "mock" });
+  const [inputUsageResult, setInputUsageResult] = useState<DataResult<InputUsageSummaryResponse>>({ data: emptyInputUsageSummary, source: "api" });
   const [campResult, setCampResult] = useState<DataResult<CampCarbonSummary[]>>({ data: [], source: "mock" });
   const [fieldResult, setFieldResult] = useState<DataResult<CampFieldCarbonDetail[]>>({ data: [], source: "mock" });
   const [caneTypeResult, setCaneTypeResult] = useState<DataResult<CaneTypeSummary[]>>({ data: [], source: "mock" });
   const [spatialNodes, setSpatialNodes] = useState<SpatialSummaryNode[]>([]);
+  const [spatialResult, setSpatialResult] = useState<DataResult<SpatialSummaryNode[]>>({ data: [], source: "mock" });
   const [areaPath, setAreaPath] = useState<Record<FootprintAreaLevel, string>>(emptyFootprintAreaPath);
+  const [period, setPeriod] = useState<string>("project");
   const [scope, setScope] = useState<ScopeValue>("all");
   const [selectedFieldId, setSelectedFieldId] = useState("all");
   const [caneFilter, setCaneFilter] = useState<CaneFilter>("all");
@@ -699,19 +1011,24 @@ export function CfFootprintReportPage() {
       getOverviewKpi(),
       getCfProcessActivities("process"),
       getProcessInputComparisons(),
+      getInputUsageSummary(),
       getCampCarbonSummaries(),
       getCampFieldCarbonDetails(),
       getCaneTypeSummaries(),
       getCfSpatialNodes(),
     ])
-      .then(([kpiResult, activityResult, inputResult, campSummaryResult, fieldDetailResult, caneSummaryResult, spatialResult]) => {
+      .then(([kpiResult, activityResult, inputResult, inputUsageResult, campSummaryResult, fieldDetailResult, caneSummaryResult, spatialResult]) => {
         setKpi(kpiResult);
         setActivities(activityResult.data);
         setInputs(inputResult.data);
+        setActivityResult(activityResult);
+        setInputResult(inputResult);
+        setInputUsageResult(inputUsageResult);
         setCampResult(campSummaryResult);
         setFieldResult(fieldDetailResult);
         setCaneTypeResult(caneSummaryResult);
         setSpatialNodes(spatialResult.data);
+        setSpatialResult(spatialResult);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "โหลดข้อมูลรายงานไม่สำเร็จ"));
   }, []);
@@ -725,7 +1042,12 @@ export function CfFootprintReportPage() {
     setGenerateNotice("เลือกแคมป์จากหน้า Carbon Footprint แล้ว กดสร้างเอกสารเมื่อพร้อม");
   }, [campResult.data, searchParams]);
 
-  const currentYear = currentYearFrom(activities) || kpi.data.currentYear;
+  const defaultCurrentYear = currentYearFrom(activities) || kpi.data.currentYear;
+  const currentYear = period === "project" ? defaultCurrentYear : period;
+  const availableYears = Array.from(new Set([
+    ...(kpi.data.years ?? []),
+    ...activities.map((item) => item.year),
+  ].filter((year) => year && year !== "baseline_avg"))).sort();
   const selectedCampId = scope === "all" ? undefined : Number(scope.replace("camp-", ""));
   const rootNode = spatialNodes.find((node) => !node.parentId);
   const selectedAreaId = [...footprintAreaOrder].reverse().map((level) => areaPath[level]).find(Boolean) || rootNode?.id;
@@ -754,6 +1076,12 @@ export function CfFootprintReportPage() {
     ? aggregateActivityRows(aggregateCamps, "currentProcessActivities")
     : activities.filter((item) => item.year === currentYear);
   const processInputRows = selectedField ? scaleInputsForField(inputs, selectedField) : selectedCamp ? selectedCamp.processInputComparisons : aggregateCamps.length ? aggregateInputRows(aggregateCamps.map((camp) => camp.processInputComparisons)) : inputs;
+  const selectedFieldLandId = selectedField?.id.match(/^field-(\d+)$/)?.[1];
+  const resourceUsage = summarizeResourceUsage(inputUsageResult.data, {
+    campId: selectedField?.campId ?? selectedCamp?.campId,
+    landId: selectedFieldLandId ? Number(selectedFieldLandId) : undefined,
+    yearLabel: currentYear,
+  });
   const baselineTotal = sumEmission(baselineRows);
   const currentTotal = sumEmission(currentRows);
   const reduction = diffLabel(baselineTotal, currentTotal);
@@ -789,6 +1117,23 @@ export function CfFootprintReportPage() {
       };
   const selectedCaneTypes = caneTypeResult.data.filter((item) => caneFilter === "all" || item.name === caneFilter);
   const selectedCanePercent = selectedCaneTypes.reduce((sum, item) => sum + item.percent, 0);
+  const reportSources = [kpi, activityResult, inputResult, inputUsageResult, campResult, fieldResult, caneTypeResult, spatialResult];
+  const hasFallbackReportSource = reportSources.some((result) => result.source === "mock" || result.meta?.datasourceStatus === "fallback");
+  const hasMissingReportSource = reportSources.some((result) => result.meta?.datasourceStatus === "missing");
+  const reportDatasource = {
+    source: hasFallbackReportSource ? "mock" as const : "api" as const,
+    meta: {
+      route: "frontend/footprint-report-compose",
+      techniques: ["Carbon Analytics endpoints", "frontend report layout"],
+      rowCount: reportSources.reduce((sum, result) => sum + (result.meta?.rowCount ?? 0), 0),
+      datasourceStatus: hasFallbackReportSource ? "fallback" as const : hasMissingReportSource ? "missing" as const : "api_partial" as const,
+      note: hasFallbackReportSource
+        ? "some sections use demo fallback"
+        : hasMissingReportSource
+        ? "some sections are missing real API data"
+        : "report is composed in frontend",
+    },
+  };
 
   const caneProcessRows = useMemo(() => {
     const selectedNames = new Set(selectedCaneTypes.map((item) => item.name));
@@ -836,18 +1181,20 @@ export function CfFootprintReportPage() {
     });
   const hotspotRows = [...processRows].sort((a, b) => b.currentEmission - a.currentEmission);
   const { socBaseline, socProject, socIncrease, netEmission } = socValues(baselineTotal, currentTotal, scopedKpi.areaRai);
-  const socContributionRows = caneProcessRows.map((row) => {
-    const increase = Math.max(row.diff, 0) * 0.35;
-    const baseline = Math.max(row.baselineEmission * 0.35, 0);
-    return {
-      caneType: row.cane.name,
-      canePercent: row.cane.percent,
-      caneAreaRai: row.cane.areaRai,
-      practice: row.activity,
-      socBaseline: baseline,
-      socProject: baseline + increase,
-      socIncrease: increase,
-    };
+  const socContributionRows = selectedCaneTypes.flatMap((cane) => {
+    const caneRowsForType = caneProcessRows.filter((row) => row.cane.name === cane.name);
+    const baseline = caneRowsForType.reduce((sum, row) => sum + Math.max(row.baselineEmission * 0.35, 0), 0);
+    const increase = caneRowsForType.reduce((sum, row) => sum + Math.max(row.diff, 0) * 0.35, 0);
+    const project = baseline + increase;
+    return organicMaterialRows.map((material) => ({
+      caneType: cane.name,
+      canePercent: cane.percent,
+      caneAreaRai: cane.areaRai,
+      materialType: material.label,
+      socBaseline: baseline * material.share,
+      socProject: project * material.share,
+      socIncrease: increase * material.share,
+    }));
   });
   const shouldLazyScopeRows = !areaPath.region && scope === "all" && selectedFieldId === "all";
   const footprintScopeRows = selectedField
@@ -940,24 +1287,20 @@ export function CfFootprintReportPage() {
     setGeneratingPreview(true);
     const timer = window.setTimeout(() => {
       if (!reportPaperRef.current) return;
-      html2canvas(reportPaperRef.current, { scale: 1.8, backgroundColor: "#ffffff" }).then((canvas) => {
+      const pages = Array.from(reportPaperRef.current.querySelectorAll<HTMLElement>(".footprint-pdf-page"));
+      const renderTargets = pages.length ? pages : [reportPaperRef.current];
+      Promise.all(renderTargets.map((page) => html2canvas(page, { scale: 1.8, backgroundColor: "#ffffff" }))).then((canvases) => {
         const pdf = new jsPDF("p", "mm", "a4");
         const width = pdf.internal.pageSize.getWidth();
         const height = pdf.internal.pageSize.getHeight();
         const margin = 8;
-        const imageWidth = width - margin * 2;
-        const imageHeight = (canvas.height * imageWidth) / canvas.width;
-        const image = canvas.toDataURL("image/png");
-        let position = margin;
-
-        pdf.addImage(image, "PNG", margin, position, imageWidth, imageHeight);
-        let remainingHeight = imageHeight - (height - margin * 2);
-        while (remainingHeight > 0) {
-          position = remainingHeight - imageHeight + margin;
-          pdf.addPage();
-          pdf.addImage(image, "PNG", margin, position, imageWidth, imageHeight);
-          remainingHeight -= height - margin * 2;
-        }
+        canvases.forEach((canvas, index) => {
+          if (index > 0) pdf.addPage();
+          const imageWidth = width - margin * 2;
+          const imageHeight = Math.min((canvas.height * imageWidth) / canvas.width, height - margin * 2);
+          const image = canvas.toDataURL("image/png");
+          pdf.addImage(image, "PNG", margin, margin, imageWidth, imageHeight);
+        });
 
         const url = URL.createObjectURL(pdf.output("blob"));
         setPdfUrl((old) => {
@@ -1080,7 +1423,18 @@ export function CfFootprintReportPage() {
     markFilterChanged();
   };
 
-  const scopeSelectValue = selectedField ? `field:${selectedField.id}` : scope;
+  const selectFieldScope = (fieldId: string) => {
+    if (fieldId === "all") {
+      setSelectedFieldId("all");
+      markFilterChanged();
+      return;
+    }
+    const field = fieldsInArea.find((item) => item.id === fieldId);
+    setScope(field ? `camp-${field.campId}` : scope);
+    setSelectedFieldId(fieldId);
+    markFilterChanged();
+  };
+
   const renderKpiCard = (label: string, value: ReactNode, meta: ReactNode, primary = false) => (
     <article key={label} className={`footprint-kpi-card${primary ? " footprint-kpi-card--primary" : ""}`}>
       <span className="footprint-kpi-card__label">{label}</span>
@@ -1124,14 +1478,27 @@ export function CfFootprintReportPage() {
           style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", alignItems: "end", overflow: "hidden" }}
         >
           <div style={{ gridColumn: "1 / -1", minWidth: 0 }}>
-            <div className="card-title">ตัวกรองรายงาน</div>
-            <p className="muted">เลือกพื้นที่ตามลำดับ แล้วเลือกแคมป์หรือรายแปลงก่อนกดสร้างเอกสาร ประเภทอ้อยเลือกได้ทุกระดับฟิลเตอร์</p>
+            <div className="card-title-row">
+              <div className="card-title">ตัวกรองรายงาน</div>
+              <SourceBadge source={reportDatasource.source} meta={reportDatasource.meta} />
+            </div>
+            <p className="muted text-xs font-normal" style={{ fontSize: "0.85em", opacity: 0.6 }}>กรุณาระบุกลุ่มไร่หลักและพื้นที่เป้าหมาย รวมถึงประเภทอ้อย เพื่อใช้เป็นเงื่อนไขในการจัดทำเอกสารรายงาน</p>
           </div>
           <label style={{ minWidth: 0 }}>
-            ภาค
+            ปีดำเนินการ
+            <select value={period} onChange={(event) => {
+              setPeriod(event.target.value);
+              markFilterChanged();
+            }}>
+              <option value="project">ปีดำเนินการ {defaultCurrentYear || "-"}</option>
+              {availableYears.map((year) => <option key={year} value={year}>ปี {year}</option>)}
+            </select>
+          </label>
+          <label style={{ minWidth: 0 }}>
+            กลุ่มไร่หลัก
             <select value={areaPath.region} onChange={(event) => selectAreaPath("region", event.target.value)}>
-              <option value="">ทั้งหมด</option>
-              {areaOptionsFor("region", rootNode?.id).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+              <option value="">ทุกกลุ่มไร่หลัก</option>
+              {farmGroupFilterOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
           <label style={{ minWidth: 0 }}>
@@ -1142,43 +1509,64 @@ export function CfFootprintReportPage() {
             </select>
           </label>
           <label style={{ minWidth: 0 }}>
-            อำเภอ
+            อำเภอ / เขต
             <select value={areaPath.district} onChange={(event) => selectAreaPath("district", event.target.value)} disabled={!areaPath.province}>
-              <option value="">ทุกอำเภอ</option>
+              <option value="">ทุกอำเภอ/เขต</option>
               {areaOptionsFor("district", areaPath.province).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
             </select>
           </label>
           <label style={{ minWidth: 0 }}>
-            ตำบล
+            ตำบล / แขวง
             <select value={areaPath.subdistrict} onChange={(event) => selectAreaPath("subdistrict", event.target.value)} disabled={!areaPath.district}>
-              <option value="">ทุกตำบล</option>
+              <option value="">ทุกตำบล/แขวง</option>
               {areaOptionsFor("subdistrict", areaPath.district).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
             </select>
           </label>
-          <label style={{ minWidth: 0 }}>
-            แปลง
-            <select value={areaPath.field} onChange={(event) => selectAreaPath("field", event.target.value)} disabled={!areaPath.subdistrict}>
-              <option value="">ทุกแปลง</option>
-              {areaOptionsFor("field", areaPath.subdistrict).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+          <label className="filter-level-camp" style={{ minWidth: 0 }}>
+            แคมป์
+            <select value={scope} onChange={(event) => selectScopeValue(event.target.value)}>
+              <option value="all">ภาพรวมตามพื้นที่ที่เลือก</option>
+              {campsInArea.map((camp) => <option key={camp.campId} value={`camp-${camp.campId}`}>{camp.campName}</option>)}
             </select>
           </label>
-          <label style={{ minWidth: 0 }}>
-            รายแปลงในแคมป์
-            <select value={scopeSelectValue} onChange={(event) => selectScopeValue(event.target.value)}>
-              <option value="all">ภาพรวมตามพื้นที่/แปลงที่เลือก</option>
-              {campsInArea.map((camp) => <option key={camp.campId} value={`camp-${camp.campId}`}>{camp.campName}</option>)}
-              {(selectedCamp ? fieldsInCamp : fieldsInArea).map((field) => <option key={field.id} value={`field:${field.id}`}>{field.fieldCode} · {field.fieldName}</option>)}
+          <label className="filter-level-field" style={{ minWidth: 0 }}>
+            แปลง
+            <select value={selectedFieldId} onChange={(event) => selectFieldScope(event.target.value)} disabled={!areaPath.subdistrict && !selectedCamp}>
+              <option value="all">{selectedCamp ? "ทุกแปลงในแคมป์" : "ทุกแปลงตามพื้นที่"}</option>
+              {(selectedCamp ? fieldsInCamp : fieldsInArea).map((field) => <option key={field.id} value={field.id}>{field.fieldCode} · {field.fieldName}</option>)}
             </select>
           </label>
         </section>
 
         <section className="footprint-report-right-column">
+          {scopedKpi.calProgress && scopedKpi.calProgress.total > 0 && (
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-surface-200 mb-4">
+              <div className="flex justify-between items-end mb-2">
+                <div className="font-semibold text-surface-800 text-sm">ความคืบหน้าการคำนวณ</div>
+                <div className="text-xs text-surface-500">ทั้งหมด {scopedKpi.calProgress.total} รายการ</div>
+              </div>
+              <div className="w-full h-3 bg-surface-100 rounded-full overflow-hidden flex">
+                <div className="bg-emerald-500 h-full" style={{ width: `${(scopedKpi.calProgress.calculated / scopedKpi.calProgress.total) * 100}%` }} title={`คำนวณแล้ว ${scopedKpi.calProgress.calculated} รายการ`} />
+                <div className="bg-amber-400 h-full" style={{ width: `${(scopedKpi.calProgress.pending / scopedKpi.calProgress.total) * 100}%` }} title={`รอคำนวณ ${scopedKpi.calProgress.pending} รายการ`} />
+                <div className="bg-rose-500 h-full" style={{ width: `${(scopedKpi.calProgress.error / scopedKpi.calProgress.total) * 100}%` }} title={`ข้อผิดพลาด ${scopedKpi.calProgress.error} รายการ`} />
+              </div>
+              <div className="flex flex-col gap-1 mt-3 text-xs">
+                <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span><span className="text-surface-600 truncate">คำนวณแล้ว {((scopedKpi.calProgress.calculated / scopedKpi.calProgress.total) * 100).toFixed(1)}%</span></div>
+                <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span><span className="text-surface-600 truncate">รอคำนวณ {((scopedKpi.calProgress.pending / scopedKpi.calProgress.total) * 100).toFixed(1)}%</span></div>
+                <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-rose-500 shrink-0"></span><span className="text-surface-600 truncate">ข้อผิดพลาด {((scopedKpi.calProgress.error / scopedKpi.calProgress.total) * 100).toFixed(1)}%</span></div>
+              </div>
+            </div>
+          )}
+
           <section className="card report-toolbar footprint-report-toolbar">
             <div>
-              <div className="card-title">เอกสารรายงาน</div>
-              <p className="muted">เลือกตัวกรองให้เรียบร้อย แล้วกดสร้างเอกสารใหม่เพื่อ Render PDF, Word และ Excel สำหรับ preview/download</p>
+              <div className="card-title-row">
+                <div className="card-title">เอกสารรายงาน</div>
+                <SourceBadge source={reportDatasource.source} meta={reportDatasource.meta} />
+              </div>
+              <p className="muted text-xs font-normal" style={{ fontSize: "0.85em", opacity: 0.6 }}>กรุณากำหนดเงื่อนไขที่ต้องการ และกดสร้างเอกสารใหม่เพื่อประมวลผลไฟล์ PDF, Word และ Excel สำหรับการแสดงผลและการดาวน์โหลด</p>
             </div>
-            <button className="run-all-btn report-generate-btn" type="button" onClick={generateReportPreview} disabled={!processRows.length || generatingPreview}>
+            <button className="run-all-btn report-generate-btn" type="button" onClick={generateReportPreview} disabled={!processRows.length || generatingPreview} style={{ marginTop: "auto", marginBottom: "1rem" }}>
               สร้างเอกสารใหม่ (Generate Report)
             </button>
             <div className="report-download-actions">
@@ -1194,14 +1582,15 @@ export function CfFootprintReportPage() {
             <div className="report-preview-header">
               <div>
                 <div className="card-title">Preview & Download</div>
-                <p className="muted">
+                <p className="muted text-xs font-normal" style={{ fontSize: "0.85em", opacity: 0.6 }}>
                   {generatedReport
                     ? previewIsCurrent
-                      ? `ตัวอย่างล่าสุด: ${generatedReport.scopeLabel} · ${generatedReport.caneLabel}`
-                      : "ตัวอย่างเอกสารยังเป็นชุดเดิม กด Generate Report เพื่ออัปเดตตามตัวกรองปัจจุบัน"
-                    : "ยังไม่มีตัวอย่างเอกสาร กดสร้างเอกสารใหม่เพื่อ Render PDF / Word / Excel"}
+                      ? `ข้อมูลฉบับร่างล่าสุด: ${generatedReport.scopeLabel} · ${generatedReport.caneLabel}`
+                      : "ข้อมูลฉบับร่างยังไม่อัปเดตตามเงื่อนไขปัจจุบัน กรุณากด Generate Report เพื่อสร้างเอกสารใหม่"
+                    : "ยังไม่มีข้อมูลฉบับร่างในระบบ กรุณากดสร้างเอกสารใหม่เพื่อประมวลผลข้อมูล PDF / Word / Excel"}
                 </p>
               </div>
+              <SourceBadge source={reportDatasource.source} meta={reportDatasource.meta} />
               <div className="report-preview-tabs" role="tablist" aria-label="Carbon Footprint report preview tabs">
                 {[
                   ["pdf", "PDF"],
@@ -1344,7 +1733,7 @@ export function CfFootprintReportPage() {
               <p className="muted">
                 {shouldLazyScopeRows
                   ? "เลือกทั้งหมดจะแสดงแคมป์ 10 รายการแรกก่อน แล้วกดดูเพิ่มเติมเมื่อจำเป็น"
-                  : "ข้อมูลตารางเปลี่ยนตามภาค จังหวัด อำเภอ ตำบล แปลง และรายแปลงในแคมป์ที่เลือก"}
+                  : "ข้อมูลตารางเปลี่ยนตามกลุ่มไร่หลัก จังหวัด อำเภอ/เขต ตำบล/แขวง แคมป์ และแปลงที่เลือก"}
               </p>
             </div>
             <strong>{formatNumber(footprintScopeRows.length, 0)} รายการ</strong>
@@ -1397,6 +1786,53 @@ export function CfFootprintReportPage() {
             </div>
           )}
         </section>
+
+        <section className="card full-span footprint-filtered-data-block">
+          <div className="section-head">
+            <div>
+              <div className="card-title">Resource Consumption & Data Quality</div>
+              <p className="muted">แสดงปริมาณปัจจัยการผลิตจริงจาก /activities/input-usage-summary เพื่อประกอบรายงาน ยังไม่ใช้แทนค่า CO2e หลักจนกว่าจะคำนวณผ่าน co2e-engine.service.ts</p>
+            </div>
+            <SourceBadge source={inputUsageResult.source} meta={inputUsageResult.meta} />
+          </div>
+          <div className="mini-stat-grid resource-reduction-grid">
+            <div><strong>{resourceUsage.fertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong><span>kg ปุ๋ยรวม</span></div>
+            <div><strong>{resourceUsage.fuelLiter.toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong><span>L น้ำมันรวม</span></div>
+            <div><strong>{resourceUsage.sourcePreparedCount.toLocaleString()} / {resourceUsage.recordCount.toLocaleString()}</strong><span>prepared rows</span></div>
+            <div><strong className={resourceUsage.warningCount ? "red-text" : "green-text"}>{resourceUsage.warningCount.toLocaleString()}</strong><span>Data Quality warnings</span></div>
+          </div>
+          <div className="summary-list resource-raw-list">
+            <div><span>Top fertilizer</span><strong>{resourceUsage.topFertilizer}</strong></div>
+            <div><span>Top fuel</span><strong>{resourceUsage.topFuel}</strong></div>
+            <div><span>Chemical fertilizer</span><strong>{resourceUsage.chemicalFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg</strong></div>
+            <div><span>Organic fertilizer</span><strong>{resourceUsage.organicFertilizerKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg</strong></div>
+            {resourceUsage.liquidFertilizerLiter > 0 && (
+              <div><span>Liquid fertilizer</span><strong>{resourceUsage.liquidFertilizerLiter.toLocaleString(undefined, { maximumFractionDigits: 1 })} L</strong></div>
+            )}
+          </div>
+          {resourceUsage.warnings.length > 0 && (
+            <div className="error-panel">Data quality guard: {resourceUsage.warnings.join(" | ")}</div>
+          )}
+        </section>
+
+        {scopedKpi.calProgress && scopedKpi.calProgress.total > 0 && (
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-surface-200 mb-4 col-span-full mx-6 mt-4">
+            <div className="flex justify-between items-end mb-2">
+              <div className="font-semibold text-surface-800 text-sm">ความคืบหน้าการคำนวณคาร์บอนฟุตพริ้นท์</div>
+              <div className="text-xs text-surface-500">ทั้งหมด {scopedKpi.calProgress.total} รายการ</div>
+            </div>
+            <div className="w-full h-3 bg-surface-100 rounded-full overflow-hidden flex">
+              <div className="bg-emerald-500 h-full" style={{ width: `${(scopedKpi.calProgress.calculated / scopedKpi.calProgress.total) * 100}%` }} title={`คำนวณแล้ว ${scopedKpi.calProgress.calculated} รายการ`} />
+              <div className="bg-amber-400 h-full" style={{ width: `${(scopedKpi.calProgress.pending / scopedKpi.calProgress.total) * 100}%` }} title={`รอคำนวณ ${scopedKpi.calProgress.pending} รายการ`} />
+              <div className="bg-rose-500 h-full" style={{ width: `${(scopedKpi.calProgress.error / scopedKpi.calProgress.total) * 100}%` }} title={`ข้อผิดพลาด ${scopedKpi.calProgress.error} รายการ`} />
+            </div>
+            <div className="flex gap-4 mt-2 text-xs">
+              <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500"></span><span className="text-surface-600">คำนวณแล้ว {((scopedKpi.calProgress.calculated / scopedKpi.calProgress.total) * 100).toFixed(1)}%</span></div>
+              <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span><span className="text-surface-600">รอคำนวณ {((scopedKpi.calProgress.pending / scopedKpi.calProgress.total) * 100).toFixed(1)}%</span></div>
+              <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-500"></span><span className="text-surface-600">ข้อผิดพลาด {((scopedKpi.calProgress.error / scopedKpi.calProgress.total) * 100).toFixed(1)}%</span></div>
+            </div>
+          </div>
+        )}
 
         <section className="footprint-report-left-column">
           <section className="card full-span footprint-kpi-section footprint-context-grid">
@@ -1505,16 +1941,16 @@ export function CfFootprintReportPage() {
         </section>
 
         <section className="card full-span footprint-soc-contribution-block">
-          <div className="card-title">SOC Contribution Analysis</div>
+          <div className="card-title">สัดส่วนการใช้วัสดุอินทรีย์แยกตามประเภท</div>
           <div className="input-table-wrap">
             <table className="input-table">
               <thead>
                 <tr>
                   <th>ประเภทอ้อย</th>
                   <th>สัดส่วนพื้นที่</th>
-                  <th>Practice</th>
-                  <th>SOC Baseline</th>
-                  <th>SOC Project</th>
+                  <th>ประเภทวัสดุอินทรีย์</th>
+                  <th>SOC Before</th>
+                  <th>SOC After</th>
                   <th>SOC Increase</th>
                 </tr>
               </thead>
@@ -1523,22 +1959,24 @@ export function CfFootprintReportPage() {
                   const isFirstCaneRow = index === 0 || rows[index - 1].caneType !== row.caneType;
                   const rowSpan = rows.filter((item) => item.caneType === row.caneType).length;
                   return (
-                  <tr key={`${row.caneType}-${row.practice}-${index}`}>
+                  <tr key={`${row.caneType}-${row.materialType}-${index}`}>
                     {isFirstCaneRow && (
                       <>
                         <td rowSpan={rowSpan} className="rowspan-cell cane-rowspan-name">{row.caneType}</td>
                         <td rowSpan={rowSpan} className="rowspan-cell">{row.canePercent.toFixed(1)}% · {formatNumber(row.caneAreaRai, 1)} ไร่</td>
                       </>
                     )}
-                    <td className="process-name-cell">{row.practice}</td>
+                    <td className="process-name-cell">{row.materialType}</td>
                     <td>{formatNumber(row.socBaseline)} tCO2e</td>
                     <td>{formatNumber(row.socProject)} tCO2e</td>
-                    <td className="green-text">{formatNumber(row.socIncrease)} tCO2e</td>
+                    <td className={row.socIncrease >= 0 ? "green-text" : "red-text"}>
+                      {row.socIncrease >= 0 ? "เพิ่มขึ้น" : "ลดลง"} {formatNumber(Math.abs(row.socIncrease))} tCO2e
+                    </td>
                   </tr>
                   );
                 })}
                 {!socContributionRows.length && (
-                  <tr><td colSpan={6}>ไม่พบข้อมูล SOC Contribution ตามตัวกรองนี้</td></tr>
+                  <tr><td colSpan={6}>ไม่พบข้อมูลสัดส่วนวัสดุอินทรีย์ตามตัวกรองนี้</td></tr>
                 )}
               </tbody>
             </table>

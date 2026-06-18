@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { ActivitySquare, ArrowRight, Calculator, CheckCircle2, ChevronDown, ChevronUp, CircleAlert, Clock3, Edit3, Leaf, LoaderCircle, X } from 'lucide-react'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { DashboardVisibilityMenu, useDashboardVisibility } from '@/components/ui/DashboardVisibilityMenu'
+import { useToast } from '@/components/ui/Toast'
 import { CarbonFootprintQueuePage } from '@/features/cf-dashboard/pages/CarbonFootprintQueuePage'
 import {
   ACTIVITY_CAL_STATUS_NAMES,
@@ -33,11 +35,13 @@ interface DetailHeaderLocation {
 interface LogDetail {
   log_act_detail_id: number
   activities_header_id?: number
+  act_productYear_id?: number
   act_header_type_id: number
   act_header_detail_type_id?: number
   act_equipment_id?: number
   act_fertilizer_id?: number
   act_chemiscal_id?: number
+  act_resourceOther_id?: number
   resource_used_type_id: number
   unit_id?: number
   log_act_detail_quatity?: number
@@ -49,6 +53,8 @@ interface LogDetail {
   activities_fertilizers?: { act_fertilizer_name?: string }
   activities_equipments?: { act_equipment_name?: string }
   activities_chemiscals?: { act_chemiscal_name?: string }
+  activities_resourceOther?: { act_resourceOther_name?: string }
+  activities_productYear?: { act_productYear_name?: string }
   resource_used_type?: { resc_used_type_name?: string }
   log_act_detail_calStatus?: { log_act_detail_calStatus_name?: string }
   units?: { unit_name?: string; unit_initial?: string }
@@ -60,6 +66,7 @@ interface HeaderType { act_header_type_id: number; act_header_type_name_th: stri
 interface DetailType { act_header_detail_type_id: number; act_header_detail_type_name_th: string }
 interface ResourceType { resource_used_type_id: number; resc_used_type_name: string }
 interface CalStatus { log_act_detail_calStatus_id: number; log_act_detail_calStatus_name: string }
+interface ProductYear { act_productYear_id: number; act_productYear_name?: string }
 
 type ManualStatusName = 'กำลังเตรียมข้อมูล'
 
@@ -72,6 +79,8 @@ type CalculateRow = {
   id: number
   checked: boolean
   dateLabel: string
+  productYearId: string
+  productYearLabel: string
   headerLabel: string
   activityTypeName: string
   detailTypeName: string
@@ -117,13 +126,18 @@ function getDetailUnitLabel(detail: LogDetail) {
 
 export function CfCalculatePage() {
   const qc = useQueryClient()
+  const toast = useToast()
+  const [searchParams] = useSearchParams()
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [statusFilter, setStatusFilter] = useState('')
+  const [hasInitializedStatusFilter, setHasInitializedStatusFilter] = useState(false)
+  const [productYearFilter, setProductYearFilter] = useState('')
   const [activityTypeFilter, setActivityTypeFilter] = useState('')
   const [resourceTypeFilters, setResourceTypeFilters] = useState<string[]>([])
   const [resourceTypeFilterExpanded, setResourceTypeFilterExpanded] = useState(false)
   const [landScopeFilter, setLandScopeFilter] = useState<'actual' | 'all' | 'camp-only'>('actual')
   const [statusPopup, setStatusPopup] = useState<StatusPopupState>({ kind: 'hidden' })
+  const statusToastIdRef = useRef<string | null>(null)
 
   const { data: details = [], isLoading, error: detailsError } = useQuery({
     queryKey: ['activity-details-calculate'],
@@ -145,6 +159,19 @@ export function CfCalculatePage() {
     queryKey: ['resource-types-calculate'],
     queryFn: () => get<ResourceType[]>('/activities/resource-types'),
   })
+  const { data: productYears = [], error: productYearsError } = useQuery({
+    queryKey: ['activity-product-years-calculate'],
+    queryFn: () => get<ProductYear[]>('/activities/product-years'),
+  })
+
+  const importedStatusFilterValue = useMemo(
+    () => String(
+      calStatuses.find((status) =>
+        getActivityCalStatusKind(status.log_act_detail_calStatus_name, status.log_act_detail_calStatus_id) === 'imported'
+      )?.log_act_detail_calStatus_id ?? '',
+    ),
+    [calStatuses],
+  )
 
   const pageQueryItems = [
     { label: 'รายการสำหรับคำนวณ', error: detailsError },
@@ -152,11 +179,13 @@ export function CfCalculatePage() {
     { label: 'ประเภทกิจกรรม', error: headerTypesError },
     { label: 'รายละเอียดกิจกรรม', error: detailTypesError },
     { label: 'ประเภทปัจจัย', error: resourceTypesError },
+    { label: 'ปีการผลิต', error: productYearsError },
   ]
 
   const headerTypeMap = Object.fromEntries(headerTypes.map((item) => [item.act_header_type_id, item.act_header_type_name_th]))
   const detailTypeMap = Object.fromEntries(detailTypes.map((item) => [item.act_header_detail_type_id, item.act_header_detail_type_name_th]))
   const resourceTypeMap = Object.fromEntries(resourceTypes.map((item) => [item.resource_used_type_id, item.resc_used_type_name]))
+  const productYearMap = Object.fromEntries(productYears.map((year) => [year.act_productYear_id, year.act_productYear_name ?? `#${year.act_productYear_id}`]))
   const selectedResourceTypeLabels = resourceTypes
     .filter((type) => resourceTypeFilters.includes(String(type.resource_used_type_id)))
     .map((type) => type.resc_used_type_name)
@@ -170,6 +199,11 @@ export function CfCalculatePage() {
     detail.activities_fertilizers?.act_fertilizer_name
     ?? detail.activities_equipments?.act_equipment_name
     ?? detail.activities_chemiscals?.act_chemiscal_name
+    ?? detail.activities_resourceOther?.act_resourceOther_name
+    ?? '—'
+  const getDetailProductYearLabel = (detail: LogDetail) =>
+    detail.activities_productYear?.act_productYear_name
+    ?? productYearMap[detail.act_productYear_id ?? 0]
     ?? '—'
 
   const rows = useMemo<CalculateRow[]>(() => details.map((detail) => {
@@ -178,6 +212,8 @@ export function CfCalculatePage() {
       id: detail.log_act_detail_id,
       checked: selectedIds.includes(detail.log_act_detail_id),
       dateLabel: formatBangkokDate(detail.log_act_detail_create_at ?? detail.activities_header?.activities_header_startDate),
+      productYearId: detail.act_productYear_id != null ? String(detail.act_productYear_id) : '',
+      productYearLabel: getDetailProductYearLabel(detail),
       headerLabel: detail.activities_header?.activities_header_idCode ?? (detail.activities_header_id != null ? `#${detail.activities_header_id}` : '—'),
       activityTypeName: headerTypeMap[detail.act_header_type_id] ?? String(detail.act_header_type_id ?? '—'),
       detailTypeName: detailTypeMap[detail.act_header_detail_type_id ?? 0] ?? (detail.act_header_detail_type_id != null ? String(detail.act_header_detail_type_id) : '—'),
@@ -190,10 +226,11 @@ export function CfCalculatePage() {
       statusRawName,
       original: detail,
     }
-  }), [calStatuses, detailTypeMap, details, headerTypeMap, resourceTypeMap, selectedIds])
+  }), [calStatuses, detailTypeMap, details, headerTypeMap, productYearMap, resourceTypeMap, selectedIds])
 
   const filteredRows = rows.filter((row) =>
     (!statusFilter || row.original.log_act_detail_calStatus_id === Number(statusFilter))
+    && (!productYearFilter || row.productYearId === productYearFilter)
     && (!activityTypeFilter || row.original.act_header_type_id === Number(activityTypeFilter))
     && (!resourceTypeFilters.length || resourceTypeFilters.includes(String(row.original.resource_used_type_id)))
     && (
@@ -221,7 +258,8 @@ export function CfCalculatePage() {
 
   const clearSelectedRows = () => setSelectedIds([])
   const clearFilters = () => {
-    setStatusFilter('')
+    setStatusFilter(importedStatusFilterValue)
+    setProductYearFilter('')
     setActivityTypeFilter('')
     setResourceTypeFilters([])
     setResourceTypeFilterExpanded(false)
@@ -237,6 +275,17 @@ export function CfCalculatePage() {
   }
 
   useEffect(() => {
+    if (hasInitializedStatusFilter || !calStatuses.length) return
+    setStatusFilter(importedStatusFilterValue)
+    setHasInitializedStatusFilter(true)
+  }, [calStatuses.length, hasInitializedStatusFilter, importedStatusFilterValue])
+
+  useEffect(() => {
+    const productYearId = searchParams.get('productYearId') ?? ''
+    setProductYearFilter((prev) => (prev === productYearId ? prev : productYearId))
+  }, [searchParams])
+
+  useEffect(() => {
     if (statusPopup.kind !== 'success') return undefined
 
     const timer = window.setTimeout(() => {
@@ -250,13 +299,21 @@ export function CfCalculatePage() {
     return () => window.clearTimeout(timer)
   }, [statusPopup])
 
+  useEffect(() => () => {
+    if (statusToastIdRef.current) {
+      toast.dismiss(statusToastIdRef.current)
+      statusToastIdRef.current = null
+    }
+  }, [toast])
+
   const statusMut = useMutation({
     mutationFn: ({ ids, statusName }: { ids: number[]; statusName: ManualStatusName }) => (
       ids.length === 1
-        ? post(`/activities/details/${ids[0]}/manual-status`, { statusName })
-        : post('/activities/details/manual-status/bulk', { ids, statusName })
+        ? post(`/activities/details/${ids[0]}/manual-status`, { statusName }, { timeout: 2 * 60_000 })
+        : post('/activities/details/manual-status/bulk', { ids, statusName }, { timeout: 10 * 60_000 })
     ),
     onMutate: ({ ids }) => {
+      statusToastIdRef.current = toast.loading('กำลังส่งรายการเข้า Carbon Queue', `กำลังย้าย ${ids.length.toLocaleString('th-TH')} รายการไปสถานะกำลังเตรียมข้อมูล`)
       setStatusPopup({ kind: 'loading', itemCount: ids.length })
     },
     onSuccess: async (_data, variables) => {
@@ -265,6 +322,11 @@ export function CfCalculatePage() {
         qc.invalidateQueries({ queryKey: ['activity-details'] }),
         qc.invalidateQueries({ queryKey: ['carbon-process-queue'] }),
       ])
+      if (statusToastIdRef.current) {
+        toast.dismiss(statusToastIdRef.current)
+      }
+      statusToastIdRef.current = null
+      toast.success('ส่งเข้า Carbon Queue แล้ว', `${variables.ids.length.toLocaleString('th-TH')} รายการพร้อมไปเตรียมข้อมูลต่อ`)
       setSelectedIds([])
       setStatusPopup({
         kind: 'success',
@@ -272,7 +334,12 @@ export function CfCalculatePage() {
         countdown: 4,
       })
     },
-    onError: () => {
+    onError: (error) => {
+      if (statusToastIdRef.current) {
+        toast.dismiss(statusToastIdRef.current)
+      }
+      statusToastIdRef.current = null
+      toast.error('ส่งเข้า Carbon Queue ไม่สำเร็จ', error instanceof Error ? error.message : undefined)
       setStatusPopup({ kind: 'hidden' })
     },
   })
@@ -289,17 +356,19 @@ export function CfCalculatePage() {
   const preparingCount = rows.filter((row) => getKind(row) === 'preparing').length
   const readyCount = rows.filter((row) => getKind(row) === 'ready').length
   const standardDoneCount = rows.filter((row) => getKind(row) === 'standardDone').length
+  const creditDoneCount = rows.filter((row) => getKind(row) === 'creditDone').length
   const cfpDoneCount = rows.filter((row) => getKind(row) === 'cfpDone').length
   const errorCount = rows.filter((row) => getKind(row) === 'error').length
 
   const dashboardOptions = [
     { key: 'total', label: 'รายการทั้งหมด' },
-    { key: 'imported', label: 'นำเข้าข้อมูลแล้ว' },
-    { key: 'preparing', label: 'กำลังเตรียมข้อมูล' },
-    { key: 'ready', label: 'พร้อมคำนวณมาตรฐาน' },
-    { key: 'standardDone', label: 'คำนวณแล้ว(มาตรฐาน)' },
-    { key: 'cfpDone', label: 'คำนวณแล้ว(มาตรฐาน,CFP)' },
-    { key: 'error', label: 'คำนวณผิดพลาด' },
+    { key: 'imported', label: ACTIVITY_CAL_STATUS_NAMES.imported },
+    { key: 'preparing', label: ACTIVITY_CAL_STATUS_NAMES.preparing },
+    { key: 'ready', label: ACTIVITY_CAL_STATUS_NAMES.ready },
+    { key: 'standardDone', label: ACTIVITY_CAL_STATUS_NAMES.standardDone },
+    { key: 'creditDone', label: ACTIVITY_CAL_STATUS_NAMES.creditDone },
+    { key: 'cfpDone', label: ACTIVITY_CAL_STATUS_NAMES.cfpDone },
+    { key: 'error', label: ACTIVITY_CAL_STATUS_NAMES.error },
   ]
 
   const {
@@ -343,7 +412,7 @@ export function CfCalculatePage() {
     },
     {
       key: 'ready',
-      label: 'พร้อมคำนวณมาตรฐาน',
+      label: ACTIVITY_CAL_STATUS_NAMES.ready,
       icon: <Clock3 size={14} className="text-accent-500" />,
       value: readyCount,
       valueClassName: 'stat-value text-accent-600',
@@ -352,7 +421,7 @@ export function CfCalculatePage() {
     },
     {
       key: 'standardDone',
-      label: 'คำนวณแล้ว(มาตรฐาน)',
+      label: ACTIVITY_CAL_STATUS_NAMES.standardDone,
       icon: <CheckCircle2 size={14} className="text-primary-500" />,
       value: standardDoneCount,
       valueClassName: 'stat-value text-primary-700',
@@ -360,8 +429,17 @@ export function CfCalculatePage() {
       cardClassName: 'border-[#d9e7f2]',
     },
     {
+      key: 'creditDone',
+      label: ACTIVITY_CAL_STATUS_NAMES.creditDone,
+      icon: <CheckCircle2 size={14} className="text-purple-600" />,
+      value: creditDoneCount,
+      valueClassName: 'stat-value text-purple-700',
+      accentClassName: 'bg-gradient-to-r from-violet-300 via-purple-400 to-fuchsia-300',
+      cardClassName: 'border-[#ddd4f6]',
+    },
+    {
       key: 'cfpDone',
-      label: 'คำนวณแล้ว(มาตรฐาน,CFP)',
+      label: ACTIVITY_CAL_STATUS_NAMES.cfpDone,
       icon: <Leaf size={14} className="text-cyan-600" />,
       value: cfpDoneCount,
       valueClassName: 'stat-value text-cyan-700',
@@ -370,7 +448,7 @@ export function CfCalculatePage() {
     },
     {
       key: 'error',
-      label: 'คำนวณผิดพลาด',
+      label: ACTIVITY_CAL_STATUS_NAMES.error,
       icon: <CircleAlert size={14} className="text-red-500" />,
       value: errorCount,
       valueClassName: 'stat-value text-red-700',
@@ -393,6 +471,7 @@ export function CfCalculatePage() {
       ),
     },
     { key: 'dateLabel', header: 'วันที่ปฏิบัติ', sortable: true },
+    { key: 'productYearLabel', header: 'ปีการผลิต', sortable: true },
     { key: 'headerLabel', header: 'หัวข้อกิจกรรม', sortable: true },
     { key: 'activityTypeName', header: 'กิจกรรม', sortable: true },
     { key: 'detailTypeName', header: 'รายละเอียด', sortable: true },
@@ -533,7 +612,18 @@ export function CfCalculatePage() {
           </div>
 
           <div className="mb-4 rounded-[20px] border border-[#d9e7f2] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(243,247,251,0.96))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
+              <div>
+                <label className="label">ปีการผลิต</label>
+                <select className="select" value={productYearFilter} onChange={(event) => setProductYearFilter(event.target.value)}>
+                  <option value="">ทั้งหมด</option>
+                  {productYears.map((year) => (
+                    <option key={year.act_productYear_id} value={year.act_productYear_id}>
+                      {year.act_productYear_name ?? `#${year.act_productYear_id}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div>
                 <label className="label">สถานะ</label>
                 <select className="select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
@@ -679,7 +769,25 @@ export function CfCalculatePage() {
           />
         </div>
 
-        <CarbonFootprintQueuePage mode="preparation" embedded />
+        <section className="mt-6 rounded-[28px] border border-[#d8c08d] bg-[linear-gradient(180deg,rgba(255,251,242,0.98),rgba(247,240,223,0.94))] p-4 shadow-[0_20px_48px_rgba(120,94,38,0.10)]">
+          <div className="mb-4 flex flex-col gap-3 border-b border-[#e6d7b5] pb-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-[#d8c08d] bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#7a6331]">
+                <Clock3 size={13} />
+                คิวเตรียมข้อมูลทั้งหมด
+              </div>
+              <h2 className="mt-3 text-lg font-semibold text-[#46371a]">Preparation Queue Workspace</h2>
+              <p className="mt-1 text-sm text-[#6d5a31]">
+                ส่วนนี้ใช้จัดการรายการที่ถูกส่งเข้า queue แล้ว เพื่อเตรียมหน่วย ปรับปริมาณ และเปลี่ยนสถานะก่อนเข้าสู่การคำนวณจริง
+              </p>
+            </div>
+            <div className="rounded-2xl border border-[#e6d7b5] bg-white/70 px-4 py-3 text-sm text-[#6d5a31] shadow-sm">
+              แยกจากบล็อกด้านบนเพื่อให้มองออกทันทีว่าเป็นพื้นที่ทำงานของ queue
+            </div>
+          </div>
+
+          <CarbonFootprintQueuePage mode="preparation" embedded />
+        </section>
 
         {statusPopup.kind !== 'hidden' && (
           <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">

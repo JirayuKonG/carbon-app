@@ -1,5 +1,6 @@
 import type { CaneTypeSummary, DataResult } from "../../types/dashboard";
 import { SourceBadge } from "./SourceBadge";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 
 const caneColors = ["#5BA4FF", "#72D6C9", "#FFB86B"];
 
@@ -24,14 +25,16 @@ export function CaneTypeSummaryPanel({
 }) {
   const totalArea = result.data.reduce((sum, item) => sum + item.areaRai, 0);
   const totalCo2e = result.data.reduce((sum, item) => sum + (item.co2eTotal ?? 0), 0);
+  const footprintUnit = "kgCO2e";
+  const footprintValue = (value = 0) => value * 1000;
   const showCreditBreakdown = creditTotal != null;
   const showFootprintBreakdown = mode === "footprint" && !showCreditBreakdown;
   const byName = new Map(result.data.map((item) => [item.name, item]));
   const planted = byName.get("อ้อยปลูก");
   const ratoon = byName.get("อ้อยตอ");
   const fallow = byName.get("พื้นที่พักดิน");
-  const valueFor = (item?: CaneTypeSummary) => showFootprintBreakdown ? (item?.co2eTotal ?? 0) : (item?.areaRai ?? 0);
-  const unitLabel = showFootprintBreakdown ? "tCO2e" : "ไร่";
+  const valueFor = (item?: CaneTypeSummary) => showFootprintBreakdown ? footprintValue(item?.co2eTotal ?? 0) : (item?.areaRai ?? 0);
+  const unitLabel = showFootprintBreakdown ? footprintUnit : "ไร่";
 
   return (
     <section className="card full-span cane-summary-panel">
@@ -53,17 +56,28 @@ export function CaneTypeSummaryPanel({
         <div><strong>{formatRai(valueFor(planted))}</strong><span>{unitLabel} อ้อยปลูก · {planted?.percent.toFixed(1) ?? "0.0"}%</span></div>
         <div><strong>{formatRai(valueFor(ratoon))}</strong><span>{unitLabel} อ้อยตอ · {ratoon?.percent.toFixed(1) ?? "0.0"}%</span></div>
         <div><strong>{formatRai(valueFor(fallow))}</strong><span>{unitLabel} พื้นที่พักดิน · {fallow?.percent.toFixed(1) ?? "0.0"}%</span></div>
-        <div><strong>{formatRai(showFootprintBreakdown ? totalCo2e : totalArea)}</strong><span>{showFootprintBreakdown ? "tCO2e รวม" : "ไร่รวม"}</span></div>
+        <div><strong>{formatRai(showFootprintBreakdown ? footprintValue(totalCo2e) : totalArea)}</strong><span>{showFootprintBreakdown ? `${footprintUnit} รวม` : "ไร่รวม"}</span></div>
       </div>
 
-      <div className="cane-share-bar" aria-label="สัดส่วนประเภทอ้อย">
-        {result.data.map((item, index) => (
-          <span
-            key={item.name}
-            style={{ width: `${item.percent}%`, background: caneColors[index % caneColors.length] }}
-            title={`${item.name} ${item.percent.toFixed(1)}%`}
-          />
-        ))}
+      <div style={{ width: '100%', height: 280, margin: '1.5rem 0' }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={result.data}
+              cx="50%"
+              cy="50%"
+              outerRadius={110}
+              dataKey="percent"
+              nameKey="name"
+              label={({ name, percent }) => `${name} ${percent.toFixed(1)}%`}
+            >
+              {result.data.map((_, index) => (
+                <Cell key={`cell-${index}`} fill={caneColors[index % caneColors.length]} />
+              ))}
+            </Pie>
+            <Tooltip formatter={(value) => `${Number(value).toFixed(1)}%`} />
+          </PieChart>
+        </ResponsiveContainer>
       </div>
 
       <div className="cane-legend-grid">
@@ -75,7 +89,7 @@ export function CaneTypeSummaryPanel({
               {showCreditBreakdown
                 ? `เครดิตที่คาดว่าจะได้ ${formatCredit((creditTotal ?? 0) * (item.percent / 100))} tCO2e`
                 : showFootprintBreakdown
-                ? `Carbon Footprint ${formatCredit(item.co2eTotal ?? 0)} tCO2e · ${item.percent.toFixed(1)}%`
+                ? `Carbon Footprint ${formatCredit(footprintValue(item.co2eTotal ?? 0))} ${footprintUnit} · ${item.percent.toFixed(1)}%`
                 : `${formatRai(item.areaRai)} ไร่ · ${item.percent.toFixed(1)}%${item.co2eTotal != null ? ` · ${item.co2eTotal.toLocaleString()} tCO2e` : ""}`}
             </small>
           </div>
@@ -85,7 +99,7 @@ export function CaneTypeSummaryPanel({
       {!result.data.length && <div className="empty-state">ยังไม่มีข้อมูลประเภทอ้อยสำหรับสรุป</div>}
       {!showCreditBreakdown && totalCo2e > 0 && (
         <div className="cane-total-note">
-          Carbon รวมตามประเภทอ้อย {totalCo2e.toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO2e
+          Carbon รวมตามประเภทอ้อย {footprintValue(totalCo2e).toLocaleString(undefined, { maximumFractionDigits: 1 })} {footprintUnit}
         </div>
       )}
     </section>

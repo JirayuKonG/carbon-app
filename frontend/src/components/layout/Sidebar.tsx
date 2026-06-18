@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   Map, Factory, Users, Tractor,
-  Layers, CloudRain, FlaskConical, ActivitySquare, Settings2,
+  Layers, CloudRain, FlaskConical, ActivitySquare, Settings2, BarChart3,
   // KONGJIRAYU05JUNE2026
   //   Leaf, ChevronDown, ChevronRight, X, Sprout, MapPin, Calculator, // idea foarm               
-  Leaf, ChevronDown, ChevronRight, X, Sprout, MapPin, Calculator, // kong form    
+  Leaf, ChevronDown, ChevronRight, X, Sprout, MapPin, Calculator, CalendarRange, // kong form    
   // KONGJIRAYU05JUNE2026
   Coins, BadgeCheck, FileCheck2, Footprints, ClipboardList,
+  GitBranch,
   
   // main form
   // Leaf, ChevronDown, ChevronRight, X, BarChart3, Sprout, MapPin, FileText, Calculator,
@@ -74,8 +75,11 @@ const NAV_GROUPS: NavGroup[] = [
         icon: <Calculator size={17} />,
         children: [
           { path: '/calculate/prepare', label: 'เตรียมข้อมูล Carbon', labelEn: 'Prepare Carbon', icon: <ClipboardList size={15} /> },
+          { path: '/calculate/usage', label: 'สรุปการใช้ปัจจัย', labelEn: 'Input Usage', icon: <BarChart3 size={15} /> },
           { path: '/calculate/footprint', label: 'Carbon Footprint', labelEn: 'Carbon Footprint', icon: <Calculator size={15} /> },
+          { path: '/calculate/soc', label: 'Soil Organic Carbon', labelEn: 'Soil Organic Carbon', icon: <Sprout size={15} /> },
           { path: '/calculate/credit', label: 'Carbon Credit', labelEn: 'Carbon Credit', icon: <Leaf size={15} /> },
+          { path: '/calculate/summary', label: 'สรุปผลการคำนวณ', labelEn: 'Calculation Summary', icon: <BarChart3 size={15} /> },
         ],
       },
     ],
@@ -95,7 +99,9 @@ const NAV_GROUPS: NavGroup[] = [
       { path: '/infra', label: 'โรงงาน / บริการ', labelEn: 'Infrastructure', icon: <Factory size={17} /> },
       { path: '/users', label: 'จัดการผู้ใช้', labelEn: 'Users', icon: <Users size={17} /> },
       { path: '/emission-factors', label: 'EF / GWP / หน่วย', labelEn: 'Emission Factors', icon: <FlaskConical size={17} /> },
+      { path: '/activities/types', label: 'กิจกรรมหลัก / กิจกรรมย่อย', labelEn: 'Activity Types', icon: <GitBranch size={17} /> },
       { path: '/activities/resources', label: 'ปุ๋ย / น้ำมัน', labelEn: 'Activity Resources', icon: <FlaskConical size={17} /> },
+      { path: '/activities/product-years', label: 'ปีการผลิต', labelEn: 'Production Years', icon: <CalendarRange size={17} /> },
     ],
   },
 ]

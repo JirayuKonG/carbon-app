@@ -3,14 +3,17 @@ import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import * as XLSX from "xlsx";
 import { ProcessDoughnut } from "../components/charts/ProcessDoughnut";
+import { SourceBadge } from "../components/common/SourceBadge";
 import { ThailandMap } from "../components/map/ThailandMap";
-import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCfSpatialNodes } from "../services/dashboardApi";
+import { getSpatialProjectGeo, normalizeProjectCampName } from "../data/spatialProjectGeoMappings";
+import { spatialProjectPlots, type SpatialProjectPlot } from "../data/spatialProjectPlots";
+import { getCampCarbonSummaries, getCampFieldCarbonDetails, getCfSpatialNodes, getOverviewKpi } from "../services/dashboardApi";
+import { get } from "@/lib/api";
 import type { CampCarbonSummary, CampFieldCarbonDetail, DataResult, FieldCarbonDetail, ProcessInputComparison, SpatialLevel, SpatialSummaryNode } from "../types/dashboard";
 import { MapPinned } from "lucide-react";
 import "../cf-dashboard.css";
 
 type SpatialPreviewTab = "pdf" | "excel";
-type SpatialProcessPeriod = "baseline" | "current";
 
 interface SpatialExcelRows {
   campRows: Record<string, unknown>[];
@@ -48,6 +51,76 @@ function hasInputComparisonRows(rows?: ProcessInputComparison[]) {
 }
 
 const spatialOrder: Exclude<SpatialLevel, "country">[] = ["region", "province", "district", "subdistrict", "field"];
+const knownGeoValue = (value?: string) => Boolean(value && value !== "-");
+const MAP_FIELD_RENDER_LIMIT = 160;
+const MAP_CAMP_FIELD_RENDER_LIMIT = 220;
+const SPATIAL_DOC_ROWS_PER_PAGE = 10;
+const farmGroupFilterOptions = [
+  { value: "dan-chang", label: "ไร่ด่านช้าง" },
+  { value: "isan", label: "ไร่อีสาน" },
+] as const;
+
+function utmToLatLng(easting: number, northing: number, farmGroup: string) {
+  const zone = farmGroup === "isan" && easting < 300000 ? 48 : 47;
+  const a = 6378137;
+  const e = 0.081819191;
+  const e1sq = 0.006739497;
+  const k0 = 0.9996;
+  const x = easting - 500000;
+  const y = northing;
+  const longOrigin = (zone - 1) * 6 - 180 + 3;
+  const m = y / k0;
+  const mu = m / (a * (1 - (e ** 2) / 4 - (3 * e ** 4) / 64 - (5 * e ** 6) / 256));
+  const e1 = (1 - Math.sqrt(1 - e ** 2)) / (1 + Math.sqrt(1 - e ** 2));
+  const phi1 = mu
+    + (3 * e1 / 2 - 27 * e1 ** 3 / 32) * Math.sin(2 * mu)
+    + (21 * e1 ** 2 / 16 - 55 * e1 ** 4 / 32) * Math.sin(4 * mu)
+    + (151 * e1 ** 3 / 96) * Math.sin(6 * mu);
+  const n1 = a / Math.sqrt(1 - e ** 2 * Math.sin(phi1) ** 2);
+  const t1 = Math.tan(phi1) ** 2;
+  const c1 = e1sq * Math.cos(phi1) ** 2;
+  const r1 = a * (1 - e ** 2) / ((1 - e ** 2 * Math.sin(phi1) ** 2) ** 1.5);
+  const d = x / (n1 * k0);
+  const lat = phi1 - (n1 * Math.tan(phi1) / r1) * (
+    d ** 2 / 2
+    - (5 + 3 * t1 + 10 * c1 - 4 * c1 ** 2 - 9 * e1sq) * d ** 4 / 24
+    + (61 + 90 * t1 + 298 * c1 + 45 * t1 ** 2 - 252 * e1sq - 3 * c1 ** 2) * d ** 6 / 720
+  );
+  const lng = longOrigin + (
+    d
+    - (1 + 2 * t1 + c1) * d ** 3 / 6
+    + (5 - 2 * c1 + 28 * t1 - 3 * c1 ** 2 + 8 * e1sq + 24 * t1 ** 2) * d ** 5 / 120
+  ) / Math.cos(phi1) * (180 / Math.PI);
+  return { lat: lat * (180 / Math.PI), lng };
+}
+
+function summarizeProjectCamps(fields: CampFieldCarbonDetail[]): CampCarbonSummary[] {
+  const grouped = new Map<number, CampFieldCarbonDetail[]>();
+  fields.forEach((field) => grouped.set(field.campId, [...(grouped.get(field.campId) ?? []), field]));
+  return Array.from(grouped.entries()).map(([campId, campFields]) => {
+    const baseline = campFields.reduce((sum, field) => sum + field.baselineEmission, 0);
+    const current = campFields.reduce((sum, field) => sum + field.currentEmission, 0);
+    const area = campFields.reduce((sum, field) => sum + field.areaRai, 0);
+    const currentBreakdown = aggregateProcessBreakdown(campFields);
+    const baselineBreakdown = scaleProcessBreakdown(currentBreakdown, baseline);
+    return {
+      campId,
+      campName: campFields[0]?.campName ?? "-",
+      fieldCount: campFields.length,
+      areaRai: Number(area.toFixed(2)),
+      baselineCo2eTotal: Number(baseline.toFixed(2)),
+      currentCo2eTotal: Number(current.toFixed(2)),
+      co2eTotal: Number(current.toFixed(2)),
+      co2ePerRai: area ? Number((current / area).toFixed(4)) : 0,
+      topActivity: [...currentBreakdown].sort((a, b) => b.emission - a.emission)[0]?.name ?? "-",
+      baselineActivityBreakdown: baselineBreakdown,
+      currentActivityBreakdown: currentBreakdown,
+      baselineProcessActivities: [],
+      currentProcessActivities: [],
+      processInputComparisons: aggregateInputs(campFields.map((field) => field.processInputComparisons ?? [])),
+    };
+  }).sort((a, b) => a.campName.localeCompare(b.campName, "th"));
+}
 
 function aggregateInputs(inputs: ProcessInputComparison[][]): ProcessInputComparison[] {
   const grouped = new Map<string, ProcessInputComparison>();
@@ -91,6 +164,14 @@ function emptySpatialFilters(): Record<Exclude<SpatialLevel, "country">, string>
   return { region: "", province: "", district: "", subdistrict: "", field: "" };
 }
 
+function chunkRows<T>(rows: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < rows.length; index += size) {
+    chunks.push(rows.slice(index, index + size));
+  }
+  return chunks.length ? chunks : [[]];
+}
+
 function filtersFromNode(nodes: SpatialSummaryNode[], nodeId: string, rootId: string) {
   const next: Record<Exclude<SpatialLevel, "country">, string> = {
     region: "",
@@ -107,17 +188,6 @@ function filtersFromNode(nodes: SpatialSummaryNode[], nodeId: string, rootId: st
   return next;
 }
 
-function nodeIsWithin(nodes: SpatialSummaryNode[], nodeId: string | undefined, scopeId: string | undefined) {
-  if (!scopeId || !nodeId) return false;
-  if (scopeId === nodeId) return true;
-  let cur = nodes.find((node) => node.id === nodeId);
-  while (cur?.parentId) {
-    if (cur.parentId === scopeId) return true;
-    cur = nodes.find((node) => node.id === cur?.parentId);
-  }
-  return false;
-}
-
 function formatNumber(value: number, digits = 2) {
   return value.toLocaleString(undefined, { maximumFractionDigits: digits });
 }
@@ -126,9 +196,9 @@ function rowsForSheet<T extends object>(rows: T[]): Record<string, unknown>[] {
   return rows.length ? rows.map((row) => ({ ...row }) as Record<string, unknown>) : [{}];
 }
 
-function creditSummary(baseline: number, current: number) {
+function creditSummary(baseline: number, current: number, actualCredit?: number) {
   const diff = baseline - current;
-  const credit = Math.max(diff, 0);
+  const credit = actualCredit !== undefined && actualCredit !== null ? actualCredit : Math.max(diff, 0);
   return {
     diff,
     credit,
@@ -156,8 +226,9 @@ function buildSpatialExcelRows(fieldsForExport: CampFieldCarbonDetail[], campsFo
       "Number of Plots": campFields.length || camp.fieldCount,
       "Number of Farmers": farmerCount,
       "Area (Rai)": Number((campFields.reduce((sum, field) => sum + field.areaRai, 0) || camp.areaRai).toFixed(2)),
-      "Carbon Footprint (tCO2e)": Number(campCurrent.toFixed(2)),
-      "Carbon Credit (tCO2e)": Number(Math.max(campBaseline - campCurrent, 0).toFixed(2)),
+      "Carbon Footprint (kgCO2e)": Number((campCurrent * 1000).toFixed(2)),
+      "SOC (kgCO2e)": Number(((campFields.reduce((sum, f) => sum + (f.actualSoc ?? 0), 0) || Math.max(campBaseline - campCurrent, 0) * 0.35)) * 1000).toFixed(2),
+      "Carbon Credit (kgCO2e)": Number(((campFields.reduce((sum, f) => sum + (f.actualCredit ?? 0), 0) || Math.max(campBaseline - campCurrent, 0))) * 1000).toFixed(2),
     };
   });
 
@@ -177,8 +248,9 @@ function buildSpatialExcelRows(fieldsForExport: CampFieldCarbonDetail[], campsFo
       "Number of Plots": fields.length,
       "Number of Farmers": farmers.size,
       "Area (Rai)": Number(fields.reduce((sum, field) => sum + field.areaRai, 0).toFixed(2)),
-      "Carbon Footprint (tCO2e)": Number(current.toFixed(2)),
-      "Carbon Credit (tCO2e)": Number(Math.max(baseline - current, 0).toFixed(2)),
+      "Carbon Footprint (kgCO2e)": Number((current * 1000).toFixed(2)),
+      "SOC (kgCO2e)": Number(((fields.reduce((sum, f) => sum + (f.actualSoc ?? 0), 0) || Math.max(baseline - current, 0) * 0.35)) * 1000).toFixed(2),
+      "Carbon Credit (kgCO2e)": Number(((fields.reduce((sum, f) => sum + (f.actualCredit ?? 0), 0) || Math.max(baseline - current, 0))) * 1000).toFixed(2),
     };
   });
 
@@ -191,10 +263,11 @@ function buildSpatialExcelRows(fieldsForExport: CampFieldCarbonDetail[], campsFo
       Farmer: field.farmerName,
       "Area (Rai)": Number(field.areaRai.toFixed(2)),
       "Cane Type": caneTypeForField(field),
-      "Baseline Emission (tCO2e)": Number(field.baselineEmission.toFixed(2)),
-      "Project Emission (tCO2e)": Number(field.currentEmission.toFixed(2)),
-      "Emission Reduction (tCO2e)": Number(reduction.toFixed(2)),
-      "Carbon Credit (tCO2e)": Number(Math.max(reduction, 0).toFixed(2)),
+      "Baseline Emission (kgCO2e)": Number((field.baselineEmission * 1000).toFixed(2)),
+      "Carbon Footprint (kgCO2e)": Number((field.currentEmission * 1000).toFixed(2)),
+      "SOC (kgCO2e)": Number(((field.actualSoc ?? Math.max(reduction, 0) * 0.35)) * 1000).toFixed(2),
+      "Emission Reduction (kgCO2e)": Number((reduction * 1000).toFixed(2)),
+      "Carbon Credit (kgCO2e)": Number(((field.actualCredit ?? Math.max(reduction, 0))) * 1000).toFixed(2),
     };
   });
 
@@ -253,19 +326,25 @@ function fieldThumbnail(field: CampFieldCarbonDetail, index: number) {
   );
 }
 
-function SpatialDocument({ title, fields }: { title: string; fields: CampFieldCarbonDetail[] }) {
+function SpatialDocument({ docInfo, fields }: { docInfo: { title: string; periodLabel: string; filterScope: string }; fields: CampFieldCarbonDetail[] }) {
+  const totalCurr = fields.reduce((s, f) => s + f.currentEmission, 0);
+  const totalSoc = fields.reduce((s, f) => s + (f.actualSoc ?? Math.max(f.baselineEmission - f.currentEmission, 0) * 0.35), 0);
+
   return (
     <div className="spatial-doc-paper">
       <div className="spatial-doc-header">
-        <div className="spatial-doc-logo">Premium<br />T-VER</div>
-        <div>
-          <strong>โครงการลดก๊าซเรือนกระจกภาคสมัครใจตามมาตรฐานของประเทศไทย</strong>
-          <span>มาตรฐานขั้นสูง Premium T-VER</span>
-          <span>{title}</span>
+        <div className="spatial-doc-logo" style={{ display: "grid", alignContent: "center", justifyItems: "center" }}>
+          <MapPinned size={32} strokeWidth={1.5} color="#333" />
         </div>
         <div>
-          <strong>T-VER-P-F003-PDD</strong>
-          <span>VERSION 2.0</span>
+          <strong>รายงานรายละเอียดการปล่อยและกักเก็บก๊าซเรือนกระจกรายแปลง</strong>
+          <span>{docInfo.title}</span>
+          <span style={{ color: "#666" }}>ข้อมูลโครงการประเมินคาร์บอนฟุตพริ้นท์ ไร่บริษัทกลุ่มมิตรผล</span>
+        </div>
+        <div style={{ textAlign: "right", borderRight: 0, paddingRight: "16px" }}>
+          <strong>ปีดำเนินการ: {docInfo.periodLabel}</strong>
+          <span>ขอบเขต: {docInfo.filterScope}</span>
+          <span style={{ color: "#888", fontSize: "10px" }}>ออกรายงาน ณ {new Date().toLocaleDateString("th-TH")}</span>
         </div>
       </div>
       <table className="spatial-doc-table">
@@ -275,29 +354,42 @@ function SpatialDocument({ title, fields }: { title: string; fields: CampFieldCa
             <th>ชื่อแคมป์</th>
             <th>รหัสแปลง</th>
             <th>ชนิดดิน</th>
-            <th>พื้นที่โครงการ (ไร่)</th>
-            <th>พิกัด x</th>
-            <th>พิกัด y</th>
+            <th>พื้นที่ (ไร่)</th>
+            <th>Carbon Footprint<br/>(kgCO2e)</th>
+            <th>SOC<br/>(kgCO2e)</th>
             <th>ภาพลักษณะแปลง</th>
           </tr>
         </thead>
         <tbody>
-          {fields.map((field, index) => (
-            <tr key={`doc-${field.id}`}>
-              <td>{index + 1}</td>
-              <td>{field.campName}</td>
-              <td>{field.fieldCode}</td>
-              <td>{field.soilType || "-"}</td>
-              <td>{formatNumber(field.areaRai, 2)}</td>
-              <td>{field.lng.toFixed(6)}</td>
-              <td>{field.lat.toFixed(6)}</td>
-              <td>{fieldThumbnail(field, index)}</td>
-            </tr>
-          ))}
+          {fields.map((field, index) => {
+            const reduction = field.baselineEmission - field.currentEmission;
+            const carbonFootprint = field.currentEmission * 1000;
+            const soc = (field.actualSoc !== undefined && field.actualSoc !== null ? field.actualSoc : Math.max(reduction, 0) * 0.35) * 1000;
+            return (
+              <tr key={`doc-${field.id}`}>
+                <td>{index + 1}</td>
+                <td>{field.campName}</td>
+                <td>{field.fieldCode}</td>
+                <td>{field.soilType || "-"}</td>
+                <td>{formatNumber(field.areaRai, 2)}</td>
+                <td>{formatNumber(carbonFootprint, 2)}</td>
+                <td>{formatNumber(soc, 2)}</td>
+                <td>{fieldThumbnail(field, index)}</td>
+              </tr>
+            );
+          })}
           {!fields.length && (
             <tr><td colSpan={8}>ยังไม่มีข้อมูลแปลงในขอบเขตที่เลือก</td></tr>
           )}
         </tbody>
+        <tfoot>
+          <tr>
+            <td colSpan={5} className="border p-2">รวมทั้งหมด</td>
+            <td className="border p-2">{totalCurr.toFixed(2)}</td>
+            <td className="border p-2">{(totalSoc * 1000).toFixed(2)}</td>
+            <td className="border p-2"></td>
+          </tr>
+        </tfoot>
       </table>
       <div className="spatial-doc-footer">
         <span>องค์การบริหารจัดการก๊าซเรือนกระจก (องค์การมหาชน)</span>
@@ -310,9 +402,9 @@ function SpatialDocument({ title, fields }: { title: string; fields: CampFieldCa
 const documentCss = `
   body { margin: 0; background: #fff; font-family: "Sarabun", "Tahoma", sans-serif; color: #222; }
   .spatial-doc-paper { width: 760px; padding: 22px 28px; background: #fff; font-size: 11px; }
-  .spatial-doc-header { display: grid; grid-template-columns: 74px 1fr 116px; border: 1px solid #222; margin-bottom: 10px; }
+  .spatial-doc-header { display: grid; grid-template-columns: 74px 1fr 200px; border: 1px solid #222; margin-bottom: 10px; }
   .spatial-doc-header > div { padding: 6px 8px; border-right: 1px solid #222; display: grid; gap: 3px; align-content: center; }
-  .spatial-doc-header > div:last-child { border-right: 0; text-align: center; }
+  .spatial-doc-header > div:last-child { border-right: 0; text-align: right; }
   .spatial-doc-logo { color: #b89119; font-weight: 800; text-align: center; line-height: 1.1; }
   .spatial-doc-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
   .spatial-doc-table th, .spatial-doc-table td { border: 1px solid #222; padding: 5px 4px; text-align: center; vertical-align: middle; }
@@ -328,31 +420,98 @@ export function CfSpatialPage() {
   const [error, setError] = useState("");
   const [pdfUrl, setPdfUrl] = useState("");
   const [selectedId, setSelectedId] = useState("thailand");
-  const [campResult, setCampResult] = useState<DataResult<CampCarbonSummary[]>>({ data: [], source: "mock" });
-  const [campFieldResult, setCampFieldResult] = useState<DataResult<CampFieldCarbonDetail[]>>({ data: [], source: "mock" });
+  const [spatialResult, setSpatialResult] = useState<DataResult<SpatialSummaryNode[]>>({
+    data: [],
+    source: "api",
+    meta: {
+      route: "/analytics/cf-spatial-nodes",
+      techniques: ["NestJS", "Prisma", "PostgreSQL"],
+      rowCount: 0,
+      datasourceStatus: "missing",
+      note: "loading spatial analytics",
+    },
+  });
+  const [campFieldResult, setCampFieldResult] = useState<DataResult<CampFieldCarbonDetail[]>>({
+    data: [],
+    source: "api",
+    meta: {
+      route: "/analytics/cf-camp-fields",
+      techniques: ["NestJS", "Prisma", "PostgreSQL"],
+      rowCount: 0,
+      datasourceStatus: "missing",
+      note: "loading field analytics",
+    },
+  });
   const [selectedCampId, setSelectedCampId] = useState<number | "all">("all");
   const [selectedBoundaryFieldId, setSelectedBoundaryFieldId] = useState("");
-  const [showAllCampRows, setShowAllCampRows] = useState(false);
-  const [processPeriod, setProcessPeriod] = useState<SpatialProcessPeriod>("current");
-  const [generatedDocument, setGeneratedDocument] = useState<{ title: string; fields: CampFieldCarbonDetail[]; camps: CampCarbonSummary[] } | null>(null);
+  const [selectedProjectCampName, setSelectedProjectCampName] = useState("all");
+  const [selectedProjectPlotCode, setSelectedProjectPlotCode] = useState("all");
+  const [generatedDocument, setGeneratedDocument] = useState<{ title: string; periodLabel: string; filterScope: string; fields: CampFieldCarbonDetail[]; camps: CampCarbonSummary[] } | null>(null);
   const [activePreviewTab, setActivePreviewTab] = useState<SpatialPreviewTab>("pdf");
   const [documentRenderId, setDocumentRenderId] = useState(0);
   const [generatingDocument, setGeneratingDocument] = useState(false);
   const [documentNotice, setDocumentNotice] = useState("");
   const [filters, setFilters] = useState<Record<Exclude<SpatialLevel, "country">, string>>(emptySpatialFilters);
+  const [period, setPeriod] = useState<string>("project");
+  const [availableYears, setAvailableYears] = useState<string[]>([]);
+  const [currentYear, setCurrentYear] = useState<string>("-");
   const rootId = nodes.find((node) => !node.parentId)?.id ?? "thailand";
 
+  const applySocMeasurements = (baseResult: DataResult<CampFieldCarbonDetail[]>) => {
+    get<{ data: Array<{ land_id: number; carbon_soc_socIT: number; unit_socIT: number }> }>("/carbon-soc/soc-measurements")
+      .then((socRes) => {
+        const socByLand = new Map<number, number>();
+        const measurements = Array.isArray(socRes) ? socRes : (socRes as { data: Array<{ land_id: number; carbon_soc_socIT: number }> }).data ?? [];
+        measurements.forEach((measurement) => {
+          if (measurement?.land_id && measurement?.carbon_soc_socIT) {
+            socByLand.set(Number(measurement.land_id), Number(measurement.carbon_soc_socIT));
+          }
+        });
+        if (!socByLand.size) {
+          setCampFieldResult(baseResult);
+          return;
+        }
+        const enrichedFields = baseResult.data.map((field) => {
+          const landId = typeof field.id === "string" && field.id.startsWith("field-")
+            ? Number(field.id.replace("field-", ""))
+            : undefined;
+          const actualSoc = landId ? socByLand.get(landId) : undefined;
+          return actualSoc !== undefined ? { ...field, actualSoc } : field;
+        });
+        setCampFieldResult({ ...baseResult, data: enrichedFields });
+      })
+      .catch(() => setCampFieldResult(baseResult));
+  };
+
   useEffect(() => {
-    Promise.all([getCfSpatialNodes(), getCampCarbonSummaries(), getCampFieldCarbonDetails()])
-      .then(([result, campSummaryResult, campFieldDetailResult]) => {
+    Promise.all([getCfSpatialNodes(), getCampCarbonSummaries(), getCampFieldCarbonDetails(), getOverviewKpi()])
+      .then(([result, , campFieldDetailResult, kpiResult]) => {
         setNodes(result.data);
-        setCampResult(campSummaryResult);
-        setCampFieldResult(campFieldDetailResult);
+        setSpatialResult(result);
+        const kpiYears = Array.from(new Set((kpiResult.data.years ?? []).filter((year) => year && year !== "baseline_avg")));
+        setAvailableYears(kpiYears);
+        setCurrentYear(kpiResult.data.currentYear || "-");
         const root = result.data.find((node) => !node.parentId);
         if (root) setSelectedId(root.id);
+        applySocMeasurements(campFieldDetailResult);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "โหลดข้อมูลแผนที่ไม่สำเร็จ"));
   }, []);
+
+  useEffect(() => {
+    if (!spatialResult) return;
+    Promise.all([
+      getCfSpatialNodes({ year: period }),
+      getCampCarbonSummaries({ year: period }),
+      getCampFieldCarbonDetails({ year: period })
+    ])
+      .then(([spatialRes, , campFieldRes]) => {
+        setNodes(spatialRes.data);
+        setSpatialResult(spatialRes);
+        applySocMeasurements(campFieldRes);
+      })
+      .catch((err) => console.error("Failed to load spatial nodes for period", err));
+  }, [period]);
 
   useEffect(() => {
     if (selectedCampId === "all") return;
@@ -372,30 +531,221 @@ export function CfSpatialPage() {
   }, [campFieldResult.data, nodes, rootId, selectedBoundaryFieldId, selectedCampId]);
 
   const selected = nodes.find((node) => node.id === selectedId) ?? nodes[0];
-  const scopedCampFields = useMemo(() => {
-    if (!selected || selected.id === rootId) return campFieldResult.data;
-    return campFieldResult.data.filter((field) => nodeIsWithin(nodes, field.parentId, selected.id) || nodeIsWithin(nodes, field.id, selected.id));
-  }, [campFieldResult.data, nodes, rootId, selected]);
-  const scopedCampIds = useMemo(() => new Set(scopedCampFields.map((field) => field.campId)), [scopedCampFields]);
-  const scopedCamps = useMemo(
-    () => selected?.id === rootId
-      ? campResult.data
-      : campResult.data.filter((camp) => scopedCampIds.has(camp.campId)),
-    [campResult.data, rootId, scopedCampIds, selected?.id],
+  const selectedProjectGroup = filters.region === "dan-chang" || filters.region === "isan" ? filters.region : "all";
+  const projectPlotByCode = useMemo(() => new Map(spatialProjectPlots.map((plot) => [plot.plotCode, plot])), []);
+  const projectFields = useMemo(
+    () => campFieldResult.data.map((field) => {
+      const plot = projectPlotByCode.get(field.fieldCode);
+      const geo = plot ? getSpatialProjectGeo(plot.campName) : undefined;
+      const point = plot ? utmToLatLng(plot.x, plot.y, plot.farmGroup) : undefined;
+      return {
+        ...field,
+        parentId: field.parentId || plot?.farmGroup || field.parentId,
+        campName: field.campName ? normalizeProjectCampName(field.campName) : normalizeProjectCampName(plot?.campName ?? "-"),
+        lat: Number.isFinite(field.lat) && field.lat ? field.lat : (point?.lat ?? field.lat),
+        lng: Number.isFinite(field.lng) && field.lng ? field.lng : (point?.lng ?? field.lng),
+        province: knownGeoValue(field.province) ? field.province : (geo?.province ?? field.province),
+        district: knownGeoValue(field.district) ? field.district : (geo?.district ?? field.district),
+        subdistrict: knownGeoValue(field.subdistrict) ? field.subdistrict : (geo?.subdistrict ?? field.subdistrict),
+      };
+    }),
+    [campFieldResult.data, projectPlotByCode],
   );
-  const selectedCamp = selectedCampId === "all"
+  const projectFieldsForGroup = useMemo(
+    () => selectedProjectGroup === "all"
+      ? projectFields
+      : projectFields.filter((field) => field.parentId === selectedProjectGroup),
+    [projectFields, selectedProjectGroup],
+  );
+  const projectProvinceOptions = useMemo(
+    () => Array.from(new Set(projectFieldsForGroup.map((field) => field.province).filter(knownGeoValue))).sort((a, b) => a.localeCompare(b, "th")),
+    [projectFieldsForGroup],
+  );
+  const projectFieldsForProvince = useMemo(
+    () => filters.province
+      ? projectFieldsForGroup.filter((field) => field.province === filters.province)
+      : projectFieldsForGroup,
+    [filters.province, projectFieldsForGroup],
+  );
+  const projectDistrictOptions = useMemo(
+    () => Array.from(new Set(projectFieldsForProvince.map((field) => field.district).filter(knownGeoValue))).sort((a, b) => a.localeCompare(b, "th")),
+    [projectFieldsForProvince],
+  );
+  const projectFieldsForDistrict = useMemo(
+    () => filters.district
+      ? projectFieldsForProvince.filter((field) => field.district === filters.district)
+      : projectFieldsForProvince,
+    [filters.district, projectFieldsForProvince],
+  );
+  const projectSubdistrictOptions = useMemo(
+    () => Array.from(new Set(projectFieldsForDistrict.map((field) => field.subdistrict).filter(knownGeoValue))).sort((a, b) => a.localeCompare(b, "th")),
+    [projectFieldsForDistrict],
+  );
+  const projectFieldsForArea = useMemo(
+    () => filters.subdistrict
+      ? projectFieldsForDistrict.filter((field) => field.subdistrict === filters.subdistrict)
+      : projectFieldsForDistrict,
+    [filters.subdistrict, projectFieldsForDistrict],
+  );
+  const projectOverviewMapNodes = useMemo<SpatialSummaryNode[]>(() => {
+    const countryNode = nodes.find((node) => node.id === rootId) ?? nodes.find((node) => node.level === "country");
+    const groupNodes = farmGroupFilterOptions.map((option) => {
+      const fields = projectFields.filter((field) => field.parentId === option.value);
+      const denominator = Math.max(fields.length, 1);
+      const inputRows = aggregateInputs(fields.map((field) => field.processInputComparisons ?? []));
+      return {
+        id: option.value,
+        parentId: "thailand",
+        level: "region" as const,
+        name: option.label,
+        lat: fields.reduce((sum, field) => sum + field.lat, 0) / denominator,
+        lng: fields.reduce((sum, field) => sum + field.lng, 0) / denominator,
+        zoom: 7,
+        fields: fields.reduce((sum, field) => sum + field.fields, 0),
+        farmers: fields.reduce((sum, field) => sum + field.farmers, 0),
+        areaRai: fields.reduce((sum, field) => sum + field.areaRai, 0),
+        baselineEmission: Number(fields.reduce((sum, field) => sum + field.baselineEmission, 0).toFixed(2)),
+        currentEmission: Number(fields.reduce((sum, field) => sum + field.currentEmission, 0).toFixed(2)),
+        processBreakdown: aggregateProcessBreakdown(fields),
+        processInputComparisons: hasInputComparisonRows(inputRows) ? inputRows : [],
+        childrenIds: [],
+      };
+    });
+    return [
+      {
+        ...(countryNode ?? {
+          id: "thailand",
+          level: "country" as const,
+          name: "ประเทศไทย",
+          lat: 15.5,
+          lng: 101.2,
+          zoom: 6,
+          fields: 0,
+          farmers: 0,
+          areaRai: 0,
+          baselineEmission: 0,
+          currentEmission: 0,
+          processBreakdown: [],
+          childrenIds: [],
+        }),
+        id: "thailand",
+        childrenIds: groupNodes.map((node) => node.id),
+      },
+      ...groupNodes,
+    ];
+  }, [nodes, projectFields, rootId]);
+  const projectGroupMapNodes = useMemo<SpatialSummaryNode[]>(() => {
+    if (selectedProjectGroup === "all") return projectOverviewMapNodes;
+    const countryNode = projectOverviewMapNodes.find((node) => node.id === "thailand");
+    const groupOption = farmGroupFilterOptions.find((option) => option.value === selectedProjectGroup);
+    const groupFields = projectFields.filter((field) => field.parentId === selectedProjectGroup);
+    const groupDenominator = Math.max(groupFields.length, 1);
+    const groupInputs = aggregateInputs(groupFields.map((field) => field.processInputComparisons ?? []));
+    const groupNode: SpatialSummaryNode = {
+      id: selectedProjectGroup,
+      parentId: "thailand",
+      level: "region",
+      name: groupOption?.label ?? "กลุ่มไร่หลัก",
+      lat: groupFields.reduce((sum, field) => sum + field.lat, 0) / groupDenominator,
+      lng: groupFields.reduce((sum, field) => sum + field.lng, 0) / groupDenominator,
+      zoom: 8,
+      fields: groupFields.length,
+      farmers: groupFields.reduce((sum, field) => sum + field.farmers, 0),
+      areaRai: Number(groupFields.reduce((sum, field) => sum + field.areaRai, 0).toFixed(2)),
+      baselineEmission: Number(groupFields.reduce((sum, field) => sum + field.baselineEmission, 0).toFixed(2)),
+      currentEmission: Number(groupFields.reduce((sum, field) => sum + field.currentEmission, 0).toFixed(2)),
+      processBreakdown: aggregateProcessBreakdown(groupFields),
+      processInputComparisons: hasInputComparisonRows(groupInputs) ? groupInputs : [],
+      childrenIds: [],
+    };
+    const campNodes = summarizeProjectCamps(groupFields).map((camp) => {
+      const campFields = groupFields.filter((field) => field.campId === camp.campId);
+      const denominator = Math.max(campFields.length, 1);
+      return {
+        id: `project-camp-${camp.campId}`,
+        parentId: selectedProjectGroup,
+        level: "subdistrict" as const,
+        name: camp.campName,
+        lat: campFields.reduce((sum, field) => sum + field.lat, 0) / denominator,
+        lng: campFields.reduce((sum, field) => sum + field.lng, 0) / denominator,
+        zoom: 11,
+        fields: camp.fieldCount,
+        farmers: campFields.reduce((sum, field) => sum + field.farmers, 0),
+        areaRai: camp.areaRai,
+        baselineEmission: camp.baselineCo2eTotal,
+        currentEmission: camp.currentCo2eTotal,
+        processBreakdown: camp.currentActivityBreakdown,
+        processInputComparisons: camp.processInputComparisons,
+        childrenIds: [],
+      };
+    });
+    groupNode.childrenIds = campNodes.map((node) => node.id);
+    return [
+      countryNode
+        ? { ...countryNode, childrenIds: [selectedProjectGroup] }
+        : {
+          id: "thailand",
+          level: "country",
+          name: "ประเทศไทย",
+          lat: 15.5,
+          lng: 101.2,
+          zoom: 6,
+          fields: groupNode.fields,
+          farmers: groupNode.farmers,
+          areaRai: groupNode.areaRai,
+          baselineEmission: groupNode.baselineEmission,
+          currentEmission: groupNode.currentEmission,
+          processBreakdown: groupNode.processBreakdown,
+          childrenIds: [selectedProjectGroup],
+        },
+      groupNode,
+      ...campNodes,
+    ];
+  }, [projectFields, projectOverviewMapNodes, selectedProjectGroup]);
+  const scopedCamps = useMemo(() => summarizeProjectCamps(projectFieldsForArea), [projectFieldsForArea]);
+  const selectedCamp = selectedProjectCampName === "all"
     ? undefined
-    : scopedCamps.find((camp) => camp.campId === selectedCampId);
+    : scopedCamps.find((camp) => camp.campName === selectedProjectCampName);
   const selectedCampFields = useMemo(
-    () => selectedCamp ? scopedCampFields.filter((field) => field.campId === selectedCamp.campId) : [],
-    [scopedCampFields, selectedCamp],
+    () => selectedCamp ? projectFieldsForArea.filter((field) => field.campId === selectedCamp.campId) : [],
+    [projectFieldsForArea, selectedCamp],
+  );
+  const projectCampOptions = useMemo(
+    () => scopedCamps.map((camp) => camp.campName).sort((a, b) => a.localeCompare(b, "th")),
+    [scopedCamps],
+  );
+  const projectPlotOptions = useMemo(
+    () => (selectedCamp ? selectedCampFields : projectFieldsForArea)
+      .map((field) => ({ code: field.fieldCode, label: field.fieldName })),
+    [projectFieldsForArea, selectedCamp, selectedCampFields],
   );
   const displayCampFields = useMemo(
-    () => selectedCamp ? selectedCampFields : scopedCampFields,
-    [scopedCampFields, selectedCamp, selectedCampFields],
+    () => {
+      const fields = selectedCamp ? selectedCampFields : projectFieldsForArea;
+      return selectedProjectPlotCode === "all"
+        ? fields
+        : fields.filter((field) => field.fieldCode === selectedProjectPlotCode);
+    },
+    [projectFieldsForArea, selectedCamp, selectedCampFields, selectedProjectPlotCode],
   );
-  const selectedBoundaryField = selectedBoundaryFieldId
-    ? displayCampFields.find((field) => field.id === selectedBoundaryFieldId)
+  const visibleProjectPlots = useMemo(
+    () => displayCampFields
+      .map((field) => projectPlotByCode.get(field.fieldCode))
+      .filter((plot): plot is SpatialProjectPlot => Boolean(plot)),
+    [displayCampFields, projectPlotByCode],
+  );
+  const projectPlotOverview = useMemo(() => {
+    const campCount = new Set(displayCampFields.map((field) => field.campName)).size;
+    const totalAreaRai = displayCampFields.reduce((sum, field) => sum + field.areaRai, 0);
+    return { campCount, totalAreaRai, plotCount: displayCampFields.length };
+  }, [displayCampFields]);
+  const activeBoundaryFieldId = selectedBoundaryFieldId || (
+    selectedProjectPlotCode === "all"
+      ? ""
+      : (displayCampFields.find((field) => field.fieldCode === selectedProjectPlotCode)?.id ?? "")
+  );
+  const selectedBoundaryField = activeBoundaryFieldId
+    ? displayCampFields.find((field) => field.id === activeBoundaryFieldId)
     : undefined;
   const selectedCampNode = useMemo<SpatialSummaryNode | undefined>(() => {
     if (!selectedCamp) return undefined;
@@ -422,48 +772,56 @@ export function CfSpatialPage() {
   }, [selected, selectedCamp, selectedCampFields]);
   const scopedNode = useMemo<SpatialSummaryNode | undefined>(() => {
     if (!selected || selectedCamp || selectedBoundaryField) return undefined;
-    if (!scopedCampFields.length) return selected;
-    const inputRows = aggregateInputs(scopedCampFields.map((field) => field.processInputComparisons ?? []));
+    if (!displayCampFields.length) return selected;
+    const inputRows = aggregateInputs(displayCampFields.map((field) => field.processInputComparisons ?? []));
+    const anchor = displayCampFields[0];
     return {
       ...selected,
-      fields: scopedCampFields.reduce((sum, field) => sum + field.fields, 0),
-      farmers: scopedCampFields.reduce((sum, field) => sum + field.farmers, 0),
-      areaRai: scopedCampFields.reduce((sum, field) => sum + field.areaRai, 0),
-      baselineEmission: scopedCampFields.reduce((sum, field) => sum + field.baselineEmission, 0),
-      currentEmission: scopedCampFields.reduce((sum, field) => sum + field.currentEmission, 0),
-      processBreakdown: aggregateProcessBreakdown(scopedCampFields),
+      id: selectedProjectGroup === "all" ? selected.id : selectedProjectGroup,
+      name: selectedProjectGroup === "all" ? "ประเทศไทย" : anchor.province,
+      lat: displayCampFields.reduce((sum, field) => sum + field.lat, 0) / displayCampFields.length,
+      lng: displayCampFields.reduce((sum, field) => sum + field.lng, 0) / displayCampFields.length,
+      fields: displayCampFields.reduce((sum, field) => sum + field.fields, 0),
+      farmers: displayCampFields.reduce((sum, field) => sum + field.farmers, 0),
+      areaRai: displayCampFields.reduce((sum, field) => sum + field.areaRai, 0),
+      baselineEmission: Number(displayCampFields.reduce((sum, field) => sum + field.baselineEmission, 0).toFixed(2)),
+      currentEmission: Number(displayCampFields.reduce((sum, field) => sum + field.currentEmission, 0).toFixed(2)),
+      actualCredit: Number(displayCampFields.reduce((sum, field) => sum + (field.actualCredit ?? 0), 0).toFixed(4)),
+      actualSoc: Number(displayCampFields.reduce((sum, field) => sum + (field.actualSoc ?? 0), 0).toFixed(4)),
+      processBreakdown: aggregateProcessBreakdown(displayCampFields),
       processInputComparisons: hasInputComparisonRows(inputRows) ? inputRows : selected.processInputComparisons,
     };
-  }, [scopedCampFields, selected, selectedBoundaryField, selectedCamp]);
+  }, [displayCampFields, selected, selectedBoundaryField, selectedCamp, selectedProjectGroup]);
   const focusNode = selectedBoundaryField ?? selectedCampNode ?? scopedNode ?? selected;
   const diff = focusNode ? focusNode.baselineEmission - focusNode.currentEmission : 0;
   const diffPercent = focusNode?.baselineEmission ? (diff / focusNode.baselineEmission) * 100 : 0;
-  const carbonCredit = focusNode ? creditSummary(focusNode.baselineEmission, focusNode.currentEmission) : creditSummary(0, 0);
-  const baselineProcessBreakdown = focusNode ? scaleProcessBreakdown(focusNode.processBreakdown, focusNode.baselineEmission) : [];
+  const focusActualCredit = (focusNode?.actualCredit ?? 0) > 0 ? focusNode?.actualCredit : undefined;
+  const carbonCredit = focusNode ? creditSummary(focusNode.baselineEmission, focusNode.currentEmission, focusActualCredit) : creditSummary(0, 0);
   const currentProcessBreakdown = focusNode?.processBreakdown ?? [];
-  const processBreakdownForPeriod = processPeriod === "baseline" ? baselineProcessBreakdown : currentProcessBreakdown;
-  const processComparisonBreakdown = processPeriod === "baseline" ? currentProcessBreakdown : baselineProcessBreakdown;
-  const processPeriodLabel = processPeriod === "baseline" ? "ปีฐาน" : "ปีดำเนินการ";
   const spatialInputs = focusNode?.processInputComparisons ?? [];
   const inputTotals = sumInputs(spatialInputs);
   const fertilizerDiff = inputTotals.baselineFertilizerKg - inputTotals.currentFertilizerKg;
   const fuelDiff = inputTotals.baselineFuelLiter - inputTotals.currentFuelLiter;
-  const socRemoval = focusNode ? Math.max(focusNode.baselineEmission - focusNode.currentEmission, 0) * 0.35 : 0;
+  const focusActualSoc = focusNode?.actualSoc;
+  const socRemoval = focusActualSoc !== undefined
+    ? focusActualSoc
+    : (focusNode ? Math.max(focusNode.baselineEmission - focusNode.currentEmission, 0) * 0.35 : 0);
+  const totalCreditWithSoc = focusActualCredit !== undefined ? carbonCredit.credit : carbonCredit.credit + socRemoval;
   const socIndex = focusNode?.areaRai ? (socRemoval / focusNode.areaRai) * 100 : 0;
-  const campOverview = useMemo(() => {
-    const totalAreaRai = scopedCamps.reduce((sum, camp) => sum + camp.areaRai, 0);
-    const totalCo2e = scopedCamps.reduce((sum, camp) => sum + camp.co2eTotal, 0);
-    return {
-      totalCamps: scopedCamps.length,
-      totalAreaRai,
-      totalCo2e,
-      co2ePerRai: totalAreaRai ? totalCo2e / totalAreaRai : 0,
-    };
-  }, [scopedCamps]);
-  const visibleCampFields = showAllCampRows ? displayCampFields : displayCampFields.slice(0, 10);
-  const hiddenCampFieldCount = Math.max(displayCampFields.length - visibleCampFields.length, 0);
-  const mapBoundaryFields = selectedCamp ? selectedCampFields : displayCampFields.length ? displayCampFields : isField(selected) ? [selected] : [];
-  const activeBoundaryFieldId = selectedBoundaryFieldId || (isField(selected) ? selected.id : undefined);
+  const mapFieldRenderLimit = selectedCamp ? MAP_CAMP_FIELD_RENDER_LIMIT : MAP_FIELD_RENDER_LIMIT;
+  const hasFocusedProjectPlot = selectedProjectPlotCode !== "all";
+  const hasScopedProjectArea = Boolean(filters.province || filters.district || filters.subdistrict || selectedCamp || hasFocusedProjectPlot);
+  const isProjectOverviewMap = selectedProjectGroup === "all" && !hasScopedProjectArea;
+  const isProjectGroupOverviewMap = selectedProjectGroup !== "all" && !hasScopedProjectArea;
+  const projectMapFields = hasFocusedProjectPlot
+    ? displayCampFields
+    : hasScopedProjectArea && displayCampFields.length <= mapFieldRenderLimit
+    ? displayCampFields
+    : [];
+  const mapBoundaryFields = isProjectOverviewMap || isProjectGroupOverviewMap ? [] : projectMapFields.length ? projectMapFields : isField(selected) ? [selected] : [];
+  const mapActiveBoundaryFieldId = isProjectOverviewMap || isProjectGroupOverviewMap ? undefined : activeBoundaryFieldId || (isField(selected) ? selected.id : undefined);
+  const mapNodes = isProjectOverviewMap ? projectOverviewMapNodes : isProjectGroupOverviewMap ? projectGroupMapNodes : nodes;
+  const mapSelectedId = isProjectOverviewMap ? "thailand" : isProjectGroupOverviewMap ? selectedProjectGroup : selected.id;
   const documentFields = displayCampFields;
   const documentTitle = selectedCamp
     ? `รายละเอียดรายแปลง ${selectedCamp.campName}`
@@ -480,6 +838,27 @@ export function CfSpatialPage() {
     () => generatedDocument ? buildSpatialExcelRows(generatedDocument.fields, generatedDocument.camps) : undefined,
     [generatedDocument],
   );
+  const projectPlotSource = {
+    source: "api" as const,
+    meta: {
+      route: "/analytics/cf-camp-fields + frontend/spatial-project-plots",
+      techniques: ["Carbon Analytics API", "project plot geometry"],
+      rowCount: displayCampFields.length,
+      datasourceStatus: "api_partial" as const,
+      note: "field rows come from API; plot geometry is enriched in frontend",
+    },
+  };
+
+  const clearSpatialDocumentPreview = () => {
+    setGeneratedDocument(null);
+    setActivePreviewTab("pdf");
+    setDocumentRenderId(0);
+    setGeneratingDocument(false);
+    setPdfUrl((old) => {
+      if (old) URL.revokeObjectURL(old);
+      return "";
+    });
+  };
 
   useEffect(() => {
     if (selectedBoundaryFieldId && !displayCampFields.some((field) => field.id === selectedBoundaryFieldId)) {
@@ -488,31 +867,49 @@ export function CfSpatialPage() {
   }, [displayCampFields, selectedBoundaryFieldId]);
 
   useEffect(() => {
+    if (selectedProjectCampName !== "all" && !projectCampOptions.includes(selectedProjectCampName)) {
+      setSelectedProjectCampName("all");
+      setSelectedProjectPlotCode("all");
+    }
+  }, [projectCampOptions, selectedProjectCampName]);
+
+  useEffect(() => {
+    if (selectedProjectPlotCode !== "all" && !projectPlotOptions.some((plot) => plot.code === selectedProjectPlotCode)) {
+      setSelectedProjectPlotCode("all");
+    }
+  }, [projectPlotOptions, selectedProjectPlotCode]);
+
+  useEffect(() => {
     if (!generatedDocument || !spatialDocRef.current) return;
+    let cancelled = false;
     let revoked = "";
     setGeneratingDocument(true);
     const timer = window.setTimeout(() => {
       if (!spatialDocRef.current) return;
-      html2canvas(spatialDocRef.current, { scale: 1.8, backgroundColor: "#ffffff" }).then((canvas) => {
+      const pages = Array.from(spatialDocRef.current.querySelectorAll<HTMLElement>(".spatial-doc-paper"));
+      const renderTargets = pages.length ? pages : [spatialDocRef.current];
+      Promise.all(renderTargets.map((page) => html2canvas(page, { scale: 1.6, backgroundColor: "#ffffff" }))).then((canvases) => {
+        if (cancelled) return;
         const pdf = new jsPDF("p", "mm", "a4");
         const width = pdf.internal.pageSize.getWidth();
         const height = pdf.internal.pageSize.getHeight();
         const margin = 8;
-        const imageWidth = width - margin * 2;
-        const imageHeight = (canvas.height * imageWidth) / canvas.width;
-        const image = canvas.toDataURL("image/png");
-        let position = margin;
-
-        pdf.addImage(image, "PNG", margin, position, imageWidth, imageHeight);
-        let remainingHeight = imageHeight - (height - margin * 2);
-        while (remainingHeight > 0) {
-          position = remainingHeight - imageHeight + margin;
-          pdf.addPage();
-          pdf.addImage(image, "PNG", margin, position, imageWidth, imageHeight);
-          remainingHeight -= height - margin * 2;
+        canvases.forEach((canvas, index) => {
+          const imageWidth = width - margin * 2;
+          const imageHeight = Math.min((canvas.height * imageWidth) / canvas.width, height - margin * 2);
+          const image = canvas.toDataURL("image/png");
+          if (!image.startsWith("data:image/png;base64,")) {
+          throw new Error("ไม่สามารถสร้างรูปภาพสำหรับ PDF preview ได้");
         }
+          if (index > 0) pdf.addPage();
+          pdf.addImage(image, "PNG", margin, margin, imageWidth, imageHeight);
+        });
 
         const url = URL.createObjectURL(pdf.output("blob"));
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
         setPdfUrl((old) => {
           if (old) URL.revokeObjectURL(old);
           return url;
@@ -520,25 +917,38 @@ export function CfSpatialPage() {
         revoked = url;
         setDocumentNotice("อัปเดต Preview เอกสารเรียบร้อยแล้ว");
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "สร้าง PDF preview ไม่สำเร็จ"))
-      .finally(() => setGeneratingDocument(false));
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "สร้าง PDF preview ไม่สำเร็จ");
+      })
+      .finally(() => {
+        if (!cancelled) setGeneratingDocument(false);
+      });
     }, 250);
 
     return () => {
+      cancelled = true;
       window.clearTimeout(timer);
       if (revoked) URL.revokeObjectURL(revoked);
     };
   }, [generatedDocument, documentRenderId]);
 
   const generateSpatialDocument = () => {
+    setError("");
+    setPdfUrl((old) => {
+      if (old) URL.revokeObjectURL(old);
+      return "";
+    });
     setDocumentNotice("กำลังสร้าง Preview เอกสารตามฟิลเตอร์ปัจจุบัน...");
-    setGeneratedDocument({ title: documentTitle, fields: documentFields, camps: documentCamps });
+    const documentPeriodLabel = availableYears.find((year) => year === period) || `ปีดำเนินการ ${currentYear}`;
+    const documentFilterScope = [filters.province, filters.district, filters.subdistrict].filter(Boolean).join(" / ") || "ทุกพื้นที่";
+    setGeneratedDocument({ title: documentTitle, periodLabel: documentPeriodLabel, filterScope: documentFilterScope, fields: documentFields, camps: documentCamps });
     setDocumentRenderId((value) => value + 1);
     setActivePreviewTab("pdf");
   };
 
   const markSpatialFilterChanged = () => {
-    setShowAllCampRows(false);
+    clearSpatialDocumentPreview();
+    setError("");
     setDocumentNotice("ตัวกรองเปลี่ยนแล้ว ข้อมูลหน้าเว็บและแผนที่อัปเดตทันที กดสร้างเอกสารเมื่อพร้อม");
   };
 
@@ -581,9 +991,6 @@ export function CfSpatialPage() {
     return list;
   }, [nodes, selected]);
 
-  const optionsFor = (level: Exclude<SpatialLevel, "country">, parentId?: string) =>
-    nodes.filter((node) => node.level === level && (!parentId || node.parentId === parentId));
-
   const selectSpatialNode = (id: string) => {
     const nextId = id || rootId;
     setSelectedId(nextId);
@@ -593,6 +1000,32 @@ export function CfSpatialPage() {
     markSpatialFilterChanged();
   };
 
+  const selectMapNode = (id: string) => {
+    if (id === "dan-chang" || id === "isan") {
+      setFilters({ ...emptySpatialFilters(), region: id });
+      setSelectedId(id);
+      setSelectedCampId("all");
+      setSelectedBoundaryFieldId("");
+      setSelectedProjectCampName("all");
+      setSelectedProjectPlotCode("all");
+      markSpatialFilterChanged();
+      return;
+    }
+    if (id.startsWith("project-camp-")) {
+      const campId = Number(id.replace("project-camp-", ""));
+      const camp = scopedCamps.find((item) => item.campId === campId);
+      if (camp) {
+        setSelectedProjectCampName(camp.campName);
+        setSelectedProjectPlotCode("all");
+        setSelectedBoundaryFieldId("");
+        setSelectedId(selectedProjectGroup === "all" ? rootId : selectedProjectGroup);
+        markSpatialFilterChanged();
+        return;
+      }
+    }
+    selectSpatialNode(id);
+  };
+
   const selectArea = (level: keyof typeof filters, id: string) => {
     const levelIndex = spatialOrder.indexOf(level);
     const next = { ...filters, [level]: id };
@@ -600,28 +1033,38 @@ export function CfSpatialPage() {
       next[key] = "";
     });
     setFilters(next);
-    setSelectedId(id || next.subdistrict || next.district || next.province || next.region || rootId);
+    setSelectedId(next.region || rootId);
     setSelectedCampId("all");
     setSelectedBoundaryFieldId("");
+    setSelectedProjectCampName("all");
+    setSelectedProjectPlotCode("all");
     markSpatialFilterChanged();
   };
 
   const selectBoundaryField = (id: string) => {
     if (!id) {
-      const parentId = selectedCampFields[0]?.parentId;
-      if (parentId) {
-        setSelectedId(parentId);
-        setFilters(filtersFromNode(nodes, parentId, rootId));
-      }
       setSelectedBoundaryFieldId("");
+      setSelectedProjectPlotCode("all");
       markSpatialFilterChanged();
       return;
     }
-    const field = campFieldResult.data.find((item) => item.id === id);
+    const field = displayCampFields.find((item) => item.id === id) ?? campFieldResult.data.find((item) => item.id === id);
     if (field) {
-      setSelectedCampId(field.campId);
+      setSelectedProjectCampName(field.campName);
+      setSelectedProjectPlotCode(field.fieldCode);
       setSelectedId(field.id);
-      setFilters(filtersFromNode(nodes, field.id, rootId));
+      if (field.parentId === "dan-chang" || field.parentId === "isan") {
+        setFilters({
+          region: field.parentId,
+          province: knownGeoValue(field.province) ? field.province : "",
+          district: knownGeoValue(field.district) ? field.district : "",
+          subdistrict: knownGeoValue(field.subdistrict) ? field.subdistrict : "",
+          field: "",
+        });
+      } else {
+        setSelectedCampId(field.campId);
+        setFilters(filtersFromNode(nodes, field.id, rootId));
+      }
     }
     setSelectedBoundaryFieldId(id);
     markSpatialFilterChanged();
@@ -632,7 +1075,11 @@ export function CfSpatialPage() {
     setFilters(emptySpatialFilters());
     setSelectedCampId("all");
     setSelectedBoundaryFieldId("");
-    markSpatialFilterChanged();
+    setSelectedProjectCampName("all");
+    setSelectedProjectPlotCode("all");
+    clearSpatialDocumentPreview();
+    setError("");
+    setDocumentNotice("Reset Filter แล้ว Preview เอกสารรายแปลงและไฟล์สร้างเอกสารถูกล้างเรียบร้อยแล้ว");
   };
 
   if (!selected) {
@@ -652,7 +1099,8 @@ export function CfSpatialPage() {
 
         <section className="card spatial-picker">
           <div>
-            <div className="card-title">เลือกพื้นที่</div>
+            <div className="card-title">ตัวกรองพื้นที่</div>
+            <p className="muted text-xs font-normal" style={{ marginBottom: "1rem", fontSize: "0.85em", opacity: 0.6 }}>กรุณากำหนดขอบเขตพื้นที่และโครงการ เพื่อใช้เป็นเงื่อนไขในการแสดงผลข้อมูลแผนที่เชิงพื้นที่</p>
             <div className="breadcrumb">
               {breadcrumbs.map((item, index) => (
                 <span key={item.id}>
@@ -667,38 +1115,70 @@ export function CfSpatialPage() {
           </div>
           <div className="spatial-select-grid">
             <label>
-              ภาค
+              ปีดำเนินการ
+              <select value={period} onChange={(event) => setPeriod(event.target.value)}>
+                <option value="project">ปีดำเนินการ {currentYear}</option>
+                {availableYears.map(y => (
+                  <option key={y} value={y}>ปี {y}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              กลุ่มไร่หลัก
               <select value={filters.region} onChange={(event) => selectArea("region", event.target.value)}>
-                <option value="">ทั้งหมด</option>
-                {optionsFor("region", rootId).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+                <option value="">ทุกกลุ่มไร่หลัก</option>
+                {farmGroupFilterOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </label>
             <label>
               จังหวัด
-              <select value={filters.province} onChange={(event) => selectArea("province", event.target.value)} disabled={!filters.region}>
+              <select value={filters.province} onChange={(event) => selectArea("province", event.target.value)} disabled={!projectProvinceOptions.length}>
                 <option value="">ทั้งหมด</option>
-                {optionsFor("province", filters.region).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+                {projectProvinceOptions.map((province) => <option key={province} value={province}>{province}</option>)}
               </select>
             </label>
             <label>
               อำเภอ / เขต
-              <select value={filters.district} onChange={(event) => selectArea("district", event.target.value)} disabled={!filters.province}>
+              <select value={filters.district} onChange={(event) => selectArea("district", event.target.value)} disabled={!projectDistrictOptions.length}>
                 <option value="">ทั้งหมด</option>
-                {optionsFor("district", filters.province).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+                {projectDistrictOptions.map((district) => <option key={district} value={district}>{district}</option>)}
               </select>
             </label>
             <label>
               ตำบล / แขวง
-              <select value={filters.subdistrict} onChange={(event) => selectArea("subdistrict", event.target.value)} disabled={!filters.district}>
+              <select value={filters.subdistrict} onChange={(event) => selectArea("subdistrict", event.target.value)} disabled={!projectSubdistrictOptions.length}>
                 <option value="">ทั้งหมด</option>
-                {optionsFor("subdistrict", filters.district).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+                {projectSubdistrictOptions.map((subdistrict) => <option key={subdistrict} value={subdistrict}>{subdistrict}</option>)}
               </select>
             </label>
-            <label>
+            <label className="filter-level-camp">
+              แคมป์
+              <select
+                value={selectedProjectCampName}
+                onChange={(event) => {
+                  setSelectedProjectCampName(event.target.value);
+                  setSelectedProjectPlotCode("all");
+                  setSelectedBoundaryFieldId("");
+                }}
+              >
+                <option value="all">ทุกแคมป์</option>
+                {projectCampOptions.map((campName) => (
+                  <option key={campName} value={campName}>{campName}</option>
+                ))}
+              </select>
+            </label>
+            <label className="filter-level-field">
               แปลง
-              <select value={filters.field} onChange={(event) => selectArea("field", event.target.value)} disabled={!filters.subdistrict}>
-                <option value="">ทั้งหมด</option>
-                {optionsFor("field", filters.subdistrict).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+              <select
+                value={selectedProjectPlotCode}
+                onChange={(event) => {
+                  setSelectedProjectPlotCode(event.target.value);
+                  setSelectedBoundaryFieldId("");
+                }}
+                disabled={!projectPlotOptions.length}
+              >
+                <option value="all">ทุกแปลง</option>
+                {projectPlotOptions.map((plot) => <option key={plot.code} value={plot.code}>{plot.label}</option>)}
               </select>
             </label>
           </div>
@@ -707,296 +1187,213 @@ export function CfSpatialPage() {
         <section className="card full-span spatial-camp-fields-card">
           <div className="card-title-row">
             <div className="card-title">รายแปลงในแคมป์</div>
+            <SourceBadge source={projectPlotSource.source} meta={projectPlotSource.meta} />
           </div>
-          <div className="camp-selector-row">
-            <label>
-              เลือกแคมป์
-              <select
-                value={selectedCampId}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  const nextCampId = value === "all" ? "all" : Number(value);
-                  const firstField = nextCampId === "all" ? undefined : campFieldResult.data.find((field) => field.campId === nextCampId);
-                  setSelectedCampId(nextCampId);
-                  setSelectedBoundaryFieldId("");
-                  if (firstField?.parentId) {
-                    setSelectedId(firstField.parentId);
-                    setFilters(filtersFromNode(nodes, firstField.parentId, rootId));
-                  }
-                  markSpatialFilterChanged();
-                }}
-              >
-                <option value="all">ภาพรวมทุกแคมป์</option>
-                {scopedCamps.map((camp) => (
-                  <option key={camp.campId} value={camp.campId}>{camp.campName}</option>
-                ))}
-              </select>
-            </label>
-            {selectedCamp && (
-              <label>
-                เลือกแปลงบนแผนที่
-                <select
-                  value={selectedBoundaryFieldId}
-                  onChange={(event) => selectBoundaryField(event.target.value)}
-                  disabled={!selectedCampFields.length}
-                >
-                  <option value="">{selectedCampFields.length ? "แสดงทุกแปลงในแคมป์" : "ยังไม่มี mock รายแปลง"}</option>
-                  {selectedCampFields.map((field) => (
-                    <option key={field.id} value={field.id}>{field.fieldCode} · {field.fieldName}</option>
-                  ))}
-                </select>
-              </label>
-            )}
+          <div className="mini-stat-grid wide">
+            <div><strong>{projectPlotOverview.campCount.toLocaleString()}</strong><span>แคมป์ตามตัวกรอง</span></div>
+            <div><strong>{projectPlotOverview.plotCount.toLocaleString()}</strong><span>แปลงตามตัวกรอง</span></div>
+            <div><strong>{projectPlotOverview.totalAreaRai.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong><span>ไร่โครงการ</span></div>
+            <div><strong>{selectedProjectGroup === "all" ? "ทั้งหมด" : visibleProjectPlots[0]?.farmGroupName ?? "-"}</strong><span>กลุ่มไร่หลัก</span></div>
           </div>
-          {selectedCamp ? (
-            <>
-              <div className="mini-stat-grid wide">
-                <div><strong>{selectedCamp.fieldCount.toLocaleString()}</strong><span>แปลงในแคมป์</span></div>
-                <div><strong>{selectedCamp.areaRai.toLocaleString()}</strong><span>ไร่รวม</span></div>
-                <div><strong>{selectedCamp.co2eTotal.toLocaleString()}</strong><span>tCO2e รวม</span></div>
-                <div><strong>{selectedCamp.co2ePerRai.toFixed(3)}</strong><span>tCO2e/ไร่</span></div>
-              </div>
-              <div className="input-table-wrap">
-                <table className="input-table">
-                  <thead>
-                    <tr>
-                      <th>รหัสแปลง</th>
-                      <th>ชื่อแปลง</th>
-                      <th>เกษตรกร</th>
-                      <th>พื้นที่</th>
-                      <th>โฉนดที่ผูกอยู่</th>
-                      <th>กิจกรรมที่บันทึก</th>
-                      <th>CO2e ของแปลง</th>
-                      <th>ขอบเขต</th>
+          <div className="input-table-wrap spatial-project-table-wrap">
+            <table className="input-table spatial-project-table">
+              <thead>
+                <tr>
+                  <th>ลำดับ</th>
+                  <th>กลุ่มไร่หลัก</th>
+                  <th>ชื่อแคมป์</th>
+                  <th>รหัสแปลง</th>
+                  <th>พื้นที่โครงการ (ไร่)</th>
+                  <th>สถานะคำนวณ</th>
+                  <th>พิกัด X</th>
+                  <th>พิกัด Y</th>
+                  <th>ขอบเขต</th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayCampFields.map((field) => {
+                  const plot = projectPlotByCode.get(field.fieldCode);
+                  const fieldId = field.id;
+                  return (
+                    <tr key={field.id} className={mapActiveBoundaryFieldId === fieldId ? "active-row" : ""}>
+                      <td>{plot?.sequence?.toLocaleString() ?? "-"}</td>
+                      <td>{plot?.farmGroupName ?? (field.parentId === "dan-chang" ? "ไร่ด่านช้าง" : field.parentId === "isan" ? "ไร่อีสาน" : "-")}</td>
+                      <td>{field.campName}</td>
+                      <td>{field.fieldCode}</td>
+                      <td>{field.areaRai.toLocaleString(undefined, { maximumFractionDigits: 3 })}</td>
+                      <td>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                          [1].includes(field.calStatusId ?? 2) ? "bg-surface-100 text-surface-600" :
+                          [2, 3].includes(field.calStatusId ?? 2) ? "bg-blue-100 text-blue-700" :
+                          [4].includes(field.calStatusId ?? 2) ? "bg-amber-100 text-amber-700" :
+                          [5, 6].includes(field.calStatusId ?? 2) ? "bg-emerald-100 text-emerald-700" :
+                          [7, 8].includes(field.calStatusId ?? 2) ? "bg-rose-100 text-rose-700" :
+                          "bg-surface-100 text-surface-600"
+                        }`}>
+                          {field.calStatusId === 1 ? "นำเข้าข้อมูลแล้ว" :
+                           field.calStatusId === 2 ? "การเตรียมข้อมูล" :
+                           field.calStatusId === 3 ? "ประเมินการคำนวณ" :
+                           field.calStatusId === 4 ? "พร้อมคำนวณมาตรฐาน" :
+                           field.calStatusId === 5 ? "คำนวณแล้ว(มาตรฐาน)" :
+                           field.calStatusId === 6 ? "คำนวณแล้ว(มาตรฐาน,C-credit)" :
+                           field.calStatusId === 7 ? "ผิดพลาด(มาตรฐาน)" :
+                           field.calStatusId === 8 ? "ผิดพลาด(cfp)" :
+                           "รอข้อมูล"}
+                        </span>
+                      </td>
+                      <td>{(plot?.x ?? field.lng ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                      <td>{(plot?.y ?? field.lat ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="map-zoom-btn"
+                          onClick={() => selectBoundaryField(fieldId)}
+                          title="ซูมไปที่ขอบเขตแปลง"
+                        >
+                          <MapPinned size={14} />
+                        </button>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {visibleCampFields.map((field) => (
-                      <tr
-                        key={field.id}
-                        className={selectedBoundaryFieldId === field.id ? "active-row" : ""}
-                        onClick={() => selectBoundaryField(field.id)}
-                      >
-                        <td>{field.fieldCode}</td>
-                        <td>{field.fieldName}</td>
-                        <td>{field.farmerName}</td>
-                        <td>{field.areaRai.toLocaleString()} ไร่</td>
-                        <td>{field.chanots.map((chanot) => `${chanot.chanotNo} (${chanot.areaRai} ไร่)`).join(", ") || "-"}</td>
-                        <td>{field.activitiesLogged.join(", ") || "-"}</td>
-                        <td>{field.co2eTotal.toLocaleString()} tCO2e</td>
-                        <td>
-                          <button
-                            type="button"
-                            className="map-zoom-btn"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              selectBoundaryField(field.id);
-                            }}
-                            title="ซูมไปที่ขอบเขตแปลง"
-                          >
-                            <MapPinned size={14} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                    {!displayCampFields.length && (
-                      <tr><td colSpan={8}>ยังไม่มี mock รายแปลงสำหรับขอบเขตที่เลือก</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="mini-stat-grid wide">
-                <div><strong>{campOverview.totalCamps.toLocaleString()}</strong><span>แคมป์ทั้งหมด</span></div>
-                <div><strong>{campOverview.totalAreaRai.toLocaleString()}</strong><span>ไร่รวม</span></div>
-                <div><strong>{campOverview.totalCo2e.toLocaleString()}</strong><span>tCO2e รวม</span></div>
-                <div><strong>{campOverview.co2ePerRai.toFixed(3)}</strong><span>tCO2e/ไร่</span></div>
-              </div>
-              <div className="input-table-wrap">
-                <table className="input-table">
-                  <thead>
-                    <tr>
-                      <th>ชื่อแคมป์</th>
-                      <th>รหัสแปลง</th>
-                      <th>ชื่อแปลง</th>
-                      <th>พื้นที่</th>
-                      <th>กิจกรรมที่บันทึก</th>
-                      <th>CO2e ของแปลง</th>
-                      <th>ขอบเขต</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleCampFields.map((field) => (
-                      <tr
-                        key={`scope-${field.id}`}
-                        className={selectedBoundaryFieldId === field.id ? "active-row" : ""}
-                        onClick={() => selectBoundaryField(field.id)}
-                      >
-                        <td>{field.campName}</td>
-                        <td>{field.fieldCode}</td>
-                        <td>{field.fieldName}</td>
-                        <td>{field.areaRai.toLocaleString()} ไร่</td>
-                        <td>{field.activitiesLogged.join(", ") || "-"}</td>
-                        <td>{field.co2eTotal.toLocaleString()} tCO2e</td>
-                        <td>
-                          <button
-                            type="button"
-                            className="map-zoom-btn"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              selectBoundaryField(field.id);
-                            }}
-                            title="ซูมไปที่ขอบเขตแปลง"
-                          >
-                            <MapPinned size={14} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                    {!displayCampFields.length && (
-                      <tr><td colSpan={7}>ยังไม่มี mock รายแปลงสำหรับขอบเขตที่เลือก</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-          {hiddenCampFieldCount > 0 && (
-            <div className="table-more-row">
-              <button type="button" className="run-btn" onClick={() => setShowAllCampRows(true)}>
-                ดูข้อมูลทั้งหมดอีก {hiddenCampFieldCount.toLocaleString()} รายการ
-              </button>
-            </div>
-          )}
+                  );
+                })}
+                {!displayCampFields.length && (
+                  <tr><td colSpan={9}>ไม่พบข้อมูลรายแปลงตามตัวกรองนี้</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </section>
 
         <section className="card map-card wide-map">
           <ThailandMap
-            nodes={nodes}
-            selectedId={selected.id}
-            onSelect={selectSpatialNode}
+            nodes={mapNodes}
+            selectedId={mapSelectedId}
+            onSelect={selectMapNode}
             boundaryFields={mapBoundaryFields}
-            selectedBoundaryFieldId={activeBoundaryFieldId}
+            selectedBoundaryFieldId={mapActiveBoundaryFieldId}
             onSelectBoundaryField={selectBoundaryField}
           />
         </section>
 
-        <section className="card report-toolbar spatial-export-toolbar">
-          <div>
-            <div className="card-title">เอกสารรายละเอียดรายแปลง</div>
-            <p className="muted">Preview PDF ใช้ตรวจรูปแบบเอกสารรายแปลง ส่วน Excel จะ Export เป็น 3 Sheet: Camp Summary, Province Summary และ Plot Detail</p>
-            <p className="muted export-preview-note">หมายเหตุ: Word ไม่มี preview แยก เพราะเนื้อหาภายในเหมือน PDF และเตรียมไว้ให้ดาวน์โหลดไปแก้ไขต่อใน Word ได้เอง</p>
-          </div>
-          <button className="run-all-btn report-generate-btn" type="button" onClick={generateSpatialDocument} disabled={!documentFields.length || generatingDocument}>
-            สร้างเอกสารใหม่ (Generate Report)
-          </button>
-          <button className="run-btn pdf-download-btn" type="button" onClick={downloadPdf} disabled={!pdfUrl || generatingDocument || !documentIsCurrent}>Download PDF</button>
-          <button className="run-btn word-download-btn" type="button" onClick={downloadWordDraft} disabled={!generatedDocument || !documentIsCurrent}>Download Word</button>
-          <button className="run-all-btn excel-download-btn" type="button" onClick={exportExcel} disabled={!generatedExcelRows || !documentIsCurrent}>Export Excel</button>
-        </section>
+        <div className="spatial-report-layout">
+          <div className="spatial-report-left-column">
+            <article className="card spatial-summary-card">
+              <div className="card-title-row">
+                <div className="card-title">สรุปรายละเอียดพื้นที่ · {focusNode.name}</div>
+                <SourceBadge source={spatialResult.source} meta={spatialResult.meta} />
+              </div>
+              <div className="mini-stat-grid wide spatial-summary-stats">
+                <div><strong>{focusNode.fields}</strong><span>แปลง</span></div>
+                <div><strong>{focusNode.farmers}</strong><span>เกษตรกร</span></div>
+                <div><strong>{focusNode.areaRai.toLocaleString()}</strong><span>ไร่</span></div>
+                <div>
+                  <strong className={diff >= 0 ? "green-text" : "red-text"}>{Math.abs(diff).toFixed(2)}</strong>
+                  <span>{diff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} tCO2e</span>
+                </div>
+              </div>
+              <div className="carbon-compare spatial-carbon-compare">
+                <div><span>เทียบกับปีฐาน</span><strong className={diff >= 0 ? "green-text" : "red-text"}>{diff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(diffPercent).toFixed(1)}%</strong></div>
+                <div><span>Carbon Footprint ปีฐาน</span><strong>{focusNode.baselineEmission.toLocaleString()} tCO2e</strong></div>
+                <div><span>Carbon Footprint ปีดำเนินการ</span><strong>{focusNode.currentEmission.toLocaleString()} tCO2e</strong></div>
+                <div><span>ผลต่าง Footprint</span><strong className={diff >= 0 ? "green-text" : "red-text"}>{carbonCredit.direction} {formatNumber(Math.abs(diff), 2)} tCO2e</strong></div>
+                <div><span>Carbon Credit ปีฐาน</span><strong>0 tCO2e</strong></div>
+                <div><span>Carbon Credit ปีดำเนินการ</span><strong>{formatNumber(carbonCredit.credit, 2)} tCO2e</strong></div>
+                <div><span>เครดิตที่ได้</span><strong className={carbonCredit.credit > 0 ? "green-text" : "red-text"}>{formatNumber(carbonCredit.credit, 2)} tCO2e</strong></div>
+                <div><span>การสะสมคาร์บอนในดิน (SOC)</span><strong className="green-text">{formatNumber(socRemoval, 2)} tCO2e</strong></div>
+                <div><span>SOC index ต่อพื้นที่</span><strong>{formatNumber(socIndex, 2)}</strong></div>
+                <div><span>เครดิตรวมหลังรวม SOC</span><strong className="green-text">{formatNumber(totalCreditWithSoc, 2)} tCO2e</strong></div>
+              </div>
+              {isField(focusNode) && (
+                <div className="field-detail">
+                  <h3>{focusNode.fieldName}</h3>
+                  <div className="field-meta">
+                    <span>รหัสแปลง: {focusNode.fieldCode}</span>
+                    <span>เกษตรกร: {focusNode.farmerName}</span>
+                    <span>จังหวัด: {focusNode.province}</span>
+                    <span>อำเภอ: {focusNode.district}</span>
+                    <span>ตำบล: {focusNode.subdistrict}</span>
+                    <span>โทร: {focusNode.phone}</span>
+                  </div>
+                  <div className="chanot-list">
+                    {focusNode.chanots.map((chanot) => (
+                      <span key={chanot.chanotNo}>{chanot.chanotNo} · {formatNumber(chanot.areaRai, 2)} ไร่</span>
+                    ))}
+                    {!focusNode.chanots.length && <span>ยังไม่มีข้อมูลโฉนดที่ดิน</span>}
+                  </div>
+                </div>
+              )}
+            </article>
 
-        {documentNotice && <div className="report-generate-notice">{documentNotice}</div>}
-
-        <section className="card report-preview-panel spatial-doc-preview-card">
-          <div className="report-preview-tabs spatial-preview-tabs" role="tablist" aria-label="Spatial report preview tabs">
-            {[
-              ["pdf", "PDF"],
-              ["excel", "Excel"],
-            ].map(([tab, label]) => (
-              <button
-                key={tab}
-                type="button"
-                role="tab"
-                aria-selected={activePreviewTab === tab}
-                className={activePreviewTab === tab ? "active" : ""}
-                onClick={() => setActivePreviewTab(tab as SpatialPreviewTab)}
-              >
-                {label}
-              </button>
-            ))}
+            <article className="card">
+              <div className="card-title-row">
+                <div className="card-title">กราฟแท่ง · สัดส่วนกระบวนการในพื้นที่</div>
+                <SourceBadge source={projectPlotSource.source} meta={projectPlotSource.meta} />
+              </div>
+              <ProcessDoughnut
+                title={`${focusNode.name} · ${period === "project" ? `ปีดำเนินการ ${currentYear}` : `ปี ${period}`}`}
+                data={currentProcessBreakdown}
+                variant="bar"
+              />
+            </article>
           </div>
-          <div className="card-title">Preview เอกสารรายแปลง</div>
-          <p className="muted export-preview-note">Preview ไม่ได้มีการแสดงข้อมูลของ Word เนื่องจากใช้เนื้อหาเดียวกันกับ PDF</p>
-          {!generatedDocument && <div className="empty-state">เลือกฟิลเตอร์ให้เรียบร้อย แล้วกดสร้างเอกสารใหม่เพื่อ Render preview</div>}
-          <div className="spatial-doc-preview" style={{ display: generatedDocument && activePreviewTab === "pdf" ? undefined : "none" }}>
-            {generatingDocument && <div className="empty-state">กำลัง Render PDF preview...</div>}
-            <div ref={spatialDocRef}>
-              <SpatialDocument title={generatedDocument?.title ?? documentTitle} fields={generatedDocument?.fields ?? []} />
-            </div>
-          </div>
-          {generatedDocument && activePreviewTab === "excel" && generatedExcelRows && (
-            <div className="excel-preview">
-              <SpatialExcelPreview rows={generatedExcelRows} />
-            </div>
-          )}
-        </section>
 
-        <section className="grid2">
-          <article className="card spatial-summary-card">
-            <div className="card-title">สรุปรายละเอียดพื้นที่ · {focusNode.name}</div>
-            <div className="mini-stat-grid wide spatial-summary-stats">
-              <div><strong>{focusNode.fields}</strong><span>แปลง</span></div>
-              <div><strong>{focusNode.farmers}</strong><span>เกษตรกร</span></div>
-              <div><strong>{focusNode.areaRai.toLocaleString()}</strong><span>ไร่</span></div>
+          <div className="spatial-report-right-column">
+            <section className="card report-toolbar spatial-export-toolbar">
               <div>
-                <strong className={diff >= 0 ? "green-text" : "red-text"}>{Math.abs(diff).toFixed(2)}</strong>
-                <span>{diff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} tCO2e</span>
+                <div className="card-title">เอกสารรายละเอียดรายแปลง</div>
               </div>
-            </div>
-            <div className="carbon-compare spatial-carbon-compare">
-              <div><span>เทียบกับปีฐาน</span><strong className={diff >= 0 ? "green-text" : "red-text"}>{diff >= 0 ? "ลดลง" : "เพิ่มขึ้น"} {Math.abs(diffPercent).toFixed(1)}%</strong></div>
-              <div><span>Carbon Footprint ปีฐาน</span><strong>{focusNode.baselineEmission.toLocaleString()} tCO2e</strong></div>
-              <div><span>Carbon Footprint ปีดำเนินการ</span><strong>{focusNode.currentEmission.toLocaleString()} tCO2e</strong></div>
-              <div><span>ผลต่าง Footprint</span><strong className={diff >= 0 ? "green-text" : "red-text"}>{carbonCredit.direction} {formatNumber(Math.abs(diff), 2)} tCO2e</strong></div>
-              <div><span>Carbon Credit ปีฐาน</span><strong>0 tCO2e</strong></div>
-              <div><span>Carbon Credit ปีดำเนินการ</span><strong>{formatNumber(carbonCredit.credit, 2)} tCO2e</strong></div>
-              <div><span>เครดิตที่ได้</span><strong className={carbonCredit.credit > 0 ? "green-text" : "red-text"}>{formatNumber(carbonCredit.credit, 2)} tCO2e</strong></div>
-              <div><span>การสะสมคาร์บอนในดิน (SOC)</span><strong className="green-text">{formatNumber(socRemoval, 2)} tCO2e</strong></div>
-              <div><span>SOC index ต่อพื้นที่</span><strong>{formatNumber(socIndex, 2)}</strong></div>
-              <div><span>เครดิตรวมหลังรวม SOC</span><strong className="green-text">{formatNumber(carbonCredit.credit + socRemoval, 2)} tCO2e</strong></div>
-            </div>
-            {isField(focusNode) && (
-              <div className="field-detail">
-                <h3>{focusNode.fieldName}</h3>
-                <div className="field-meta">
-                  <span>รหัสแปลง: {focusNode.fieldCode}</span>
-                  <span>เกษตรกร: {focusNode.farmerName}</span>
-                  <span>จังหวัด: {focusNode.province}</span>
-                  <span>อำเภอ: {focusNode.district}</span>
-                  <span>ตำบล: {focusNode.subdistrict}</span>
-                  <span>โทร: {focusNode.phone}</span>
-                </div>
-                <div className="chanot-list">
-                  {focusNode.chanots.map((chanot) => (
-                    <span key={chanot.chanotNo}>{chanot.chanotNo} · {formatNumber(chanot.areaRai, 2)} ไร่</span>
-                  ))}
-                  {!focusNode.chanots.length && <span>ยังไม่มีข้อมูลโฉนดที่ดิน</span>}
-                </div>
+              <div className="report-download-actions">
+                <button className="run-all-btn report-generate-btn" type="button" onClick={generateSpatialDocument} disabled={!documentFields.length || generatingDocument}>
+                  สร้างเอกสารใหม่ <br /> (Generate Report)
+                </button>
+                <button className="run-btn pdf-download-btn" type="button" onClick={downloadPdf} disabled={!pdfUrl || generatingDocument || !documentIsCurrent}>Download PDF</button>
+                <button className="run-btn word-download-btn" type="button" onClick={downloadWordDraft} disabled={!generatedDocument || !documentIsCurrent}>Download Word</button>
+                <button className="run-all-btn excel-download-btn" type="button" onClick={exportExcel} disabled={!generatedExcelRows || !documentIsCurrent}>Export Excel</button>
               </div>
-            )}
-          </article>
+            </section>
 
-          <article className="card">
-            <div className="card-title-row">
-              <div className="card-title">แผนภูมิวงกลม · สัดส่วนกระบวนการในพื้นที่</div>
-              <div className="period-switch spatial-period-switch" role="group" aria-label="เลือกปีข้อมูลแผนภูมิวงกลม">
-                <button type="button" className={processPeriod === "baseline" ? "active" : ""} onClick={() => setProcessPeriod("baseline")}>
-                  ปีฐาน
-                </button>
-                <button type="button" className={processPeriod === "current" ? "active" : ""} onClick={() => setProcessPeriod("current")}>
-                  ปีดำเนินการ
-                </button>
+            {documentNotice && <div className="report-generate-notice">{documentNotice}</div>}
+
+            <section className="card report-preview-panel spatial-doc-preview-card">
+              <div className="report-preview-tabs spatial-preview-tabs" role="tablist" aria-label="Spatial report preview tabs">
+                {[
+                  ["pdf", "PDF"],
+                  ["excel", "Excel"],
+                ].map(([tab, label]) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    role="tab"
+                    aria-selected={activePreviewTab === tab}
+                    className={activePreviewTab === tab ? "active" : ""}
+                    onClick={() => setActivePreviewTab(tab as SpatialPreviewTab)}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
-            </div>
-            <ProcessDoughnut
-              title={`${focusNode.name} · ${processPeriodLabel}`}
-              data={processBreakdownForPeriod}
-              comparisonData={processComparisonBreakdown}
-            />
-          </article>
-        </section>
+              <div className="card-title-row">
+                <div className="card-title">Preview เอกสารรายแปลง</div>
+                <SourceBadge source={projectPlotSource.source} meta={projectPlotSource.meta} />
+              </div>
+              {!generatedDocument && <div className="empty-state">กรุณาสร้างเอกสารใหม่เพื่อดูตัวอย่าง</div>}
+              <div className={`spatial-doc-preview ${activePreviewTab === "pdf" ? "pdf-mode" : ""}`} style={{ display: generatedDocument && activePreviewTab === "pdf" ? undefined : "none" }}>
+                {generatingDocument ? (
+                  <div className="empty-state">กำลัง Render PDF preview...</div>
+                ) : pdfUrl ? (
+                  <iframe title="Spatial Fields PDF Preview" src={pdfUrl} />
+                ) : (
+                  <div className="empty-state">ยังไม่ได้สร้างเอกสาร หรือเกิดข้อผิดพลาดในการโหลด PDF</div>
+                )}
+              </div>
+              {generatedDocument && activePreviewTab === "excel" && generatedExcelRows && (
+                <div className="excel-preview">
+                  <SpatialExcelPreview rows={generatedExcelRows} />
+                </div>
+              )}
+            </section>
+          </div>
+        </div>
 
         <section className="card">
             <div className="card-title">สรุปการใช้ปุ๋ยและน้ำมันในพื้นที่ · {focusNode.name}</div>
@@ -1035,6 +1432,23 @@ export function CfSpatialPage() {
               </div>
             </div>
         </section>
+
+        {/* Off-screen PDF render source */}
+        <div className="pdf-render-source">
+          <div ref={spatialDocRef} className="spatial-doc-pages">
+            {chunkRows(generatedDocument?.fields ?? [], SPATIAL_DOC_ROWS_PER_PAGE).map((pageFields, pageIndex, pages) => (
+              <SpatialDocument
+                key={`spatial-doc-page-${pageIndex}`}
+                docInfo={{
+                  title: `${generatedDocument?.title ?? documentTitle} · Page ${pageIndex + 1}/${pages.length}`,
+                  periodLabel: generatedDocument?.periodLabel ?? "-",
+                  filterScope: generatedDocument?.filterScope ?? "-"
+                }}
+                fields={pageFields}
+              />
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

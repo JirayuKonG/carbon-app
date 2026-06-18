@@ -1,40 +1,71 @@
-import { useState, useCallback, createContext, useContext } from 'react'
-import { CheckCircle, XCircle, AlertTriangle, Info, X } from 'lucide-react'
+import { useState, useCallback, createContext, useContext, useRef } from 'react'
+import { CheckCircle, XCircle, AlertTriangle, Info, LoaderCircle, X } from 'lucide-react'
 
-type ToastType = 'success' | 'error' | 'warning' | 'info'
+type ToastType = 'success' | 'error' | 'warning' | 'info' | 'loading'
 
 interface Toast {
   id: string
   type: ToastType
   title: string
   message?: string
+  durationMs?: number
 }
 
 interface ToastContextValue {
-  addToast: (toast: Omit<Toast, 'id'>) => void
-  success: (title: string, message?: string) => void
-  error:   (title: string, message?: string) => void
-  warning: (title: string, message?: string) => void
-  info:    (title: string, message?: string) => void
+  addToast: (toast: Omit<Toast, 'id'>) => string
+  dismiss: (id?: string) => void
+  success: (title: string, message?: string) => string
+  error:   (title: string, message?: string) => string
+  warning: (title: string, message?: string) => string
+  info:    (title: string, message?: string) => string
+  loading: (title: string, message?: string) => string
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null)
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
+  const timeoutMapRef = useRef<Record<string, number>>({})
 
   const addToast = useCallback((toast: Omit<Toast, 'id'>) => {
     const id = Math.random().toString(36).slice(2)
-    setToasts((prev) => [...prev, { ...toast, id }])
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000)
+    const durationMs = toast.durationMs ?? 4000
+    setToasts((prev) => [...prev, { ...toast, id, durationMs }])
+
+    if (durationMs > 0) {
+      timeoutMapRef.current[id] = window.setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id))
+        delete timeoutMapRef.current[id]
+      }, durationMs)
+    }
+
+    return id
+  }, [])
+
+  const dismiss = useCallback((id?: string) => {
+    if (!id) {
+      Object.values(timeoutMapRef.current).forEach((timeoutId) => window.clearTimeout(timeoutId))
+      timeoutMapRef.current = {}
+      setToasts([])
+      return
+    }
+
+    const timeoutId = timeoutMapRef.current[id]
+    if (timeoutId) {
+      window.clearTimeout(timeoutId)
+      delete timeoutMapRef.current[id]
+    }
+    setToasts((prev) => prev.filter((toast) => toast.id !== id))
   }, [])
 
   const ctx: ToastContextValue = {
     addToast,
+    dismiss,
     success: (title, message) => addToast({ type: 'success', title, message }),
     error:   (title, message) => addToast({ type: 'error',   title, message }),
     warning: (title, message) => addToast({ type: 'warning', title, message }),
     info:    (title, message) => addToast({ type: 'info',    title, message }),
+    loading: (title, message) => addToast({ type: 'loading', title, message, durationMs: 0 }),
   }
 
   const iconMap = {
@@ -42,12 +73,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     error:   <XCircle     size={16} className="text-red-500 shrink-0" />,
     warning: <AlertTriangle size={16} className="text-accent-500 shrink-0" />,
     info:    <Info        size={16} className="text-blue-500 shrink-0" />,
+    loading: <LoaderCircle size={16} className="text-blue-600 shrink-0 animate-spin" />,
   }
   const styleMap = {
     success: 'border-primary-200 bg-primary-50',
     error:   'border-red-200 bg-red-50',
     warning: 'border-accent-200 bg-accent-50',
     info:    'border-blue-200 bg-blue-50',
+    loading: 'border-blue-200 bg-white',
   }
 
   return (
@@ -62,7 +95,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               {t.message && <p className="text-xs text-surface-600 mt-0.5">{t.message}</p>}
             </div>
             <button
-              onClick={() => setToasts((prev) => prev.filter((x) => x.id !== t.id))}
+              onClick={() => dismiss(t.id)}
               className="btn-icon btn-ghost btn-sm text-surface-400"
             >
               <X size={12} />

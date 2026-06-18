@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { DataTable, Column } from '@/components/ui/DataTable'
+import { DataTable, Column, ExpandableTextCell } from '@/components/ui/DataTable'
 import { CsvMappingWizard, TargetColumn, ColumnMapping, type CsvImportHelpers } from '@/components/ui/CsvMappingWizard'
 import { DashboardVisibilityMenu, useDashboardVisibility } from '@/components/ui/DashboardVisibilityMenu'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { DatabaseConnectionNotice } from '@/components/ui/DatabaseConnectionNotice'
-import { getActivityCalStatusBadgeClass, getActivityCalStatusKind, getActivityCalStatusLabel } from '@/features/activities/cal-status'
+import { ACTIVITY_CAL_STATUS_NAMES, getActivityCalStatusBadgeClass, getActivityCalStatusKind, getActivityCalStatusLabel } from '@/features/activities/cal-status'
+import { validateActivityDetailForm } from '@/features/activities/detail-form-validation'
 import { del, get, post, put } from '@/lib/api'
 import { formatBangkokDate, formatBangkokDateKey, formatBangkokDateTime, formatBangkokDateTimeLocal } from '@/lib/datetime'
 import { ActivitySquare, Upload, Plus, Calculator, Leaf, Edit, Trash2, ChevronDown, ChevronUp, CheckCircle2, Clock3, CircleAlert } from 'lucide-react'
@@ -50,6 +51,7 @@ interface DetailHeaderLocation {
 
 interface LogDetail {
   log_act_detail_id: number
+  act_productYear_id?: number
   activities_header_id?: number
   act_header_type_id: number
   act_header_detail_type_id?: number
@@ -71,6 +73,7 @@ interface LogDetail {
   activities_equipments?: { act_equipment_name?: string }
   activities_chemiscals?: { act_chemiscal_name?: string }
   activities_resourceOther?: { act_resourceOther_name?: string }
+  activities_productYear?: { act_productYear_name?: string }
   resource_used_type?: { resc_used_type_name?: string }
   log_act_detail_calStatus?: { log_act_detail_calStatus_name?: string }
   activities_header?: DetailHeaderLocation
@@ -88,6 +91,7 @@ interface Fertilizer { act_fertilizer_id: number; act_fertilizer_name: string }
 interface Equipment  { act_equipment_id: number; act_equipment_name: string }
 interface Chemical   { act_chemiscal_id: number; act_chemiscal_name: string }
 interface ResourceOther { act_resourceOther_id: number; act_resourceOther_name: string }
+interface ProductYear { act_productYear_id: number; act_productYear_name?: string }
 interface Unit       { unit_id: number; unit_name?: string; unit_initial?: string }
 interface UnitPrefix { unit_prefix_id: number; unit_prefix_name?: string; unit_prefix_initial?: string }
 interface ActivityImportFile {
@@ -130,6 +134,7 @@ type ActivityImportChunk = { rows: Record<string, string>[]; startIndex: number;
 // }
 
 type DetailForm = {
+  act_productYear_id: string
   activities_header_id: string
   act_header_type_id: string
   act_header_detail_type_id: string
@@ -171,6 +176,7 @@ type HeaderFilters = {
 }
 
 type DetailFilters = {
+  productYearId: string
   activitiesHeaderId: string
   hasActivitiesHeader: string
   campId: string
@@ -182,6 +188,7 @@ type DetailFilters = {
 }
 
 const emptyDetailForm: DetailForm = {
+  act_productYear_id: '',
   activities_header_id: '',
   act_header_type_id: '',
   act_header_detail_type_id: '',
@@ -223,6 +230,7 @@ const emptyHeaderFilters: HeaderFilters = {
 }
 
 const emptyDetailFilters: DetailFilters = {
+  productYearId: '',
   activitiesHeaderId: '',
   hasActivitiesHeader: '',
   campId: '',
@@ -298,20 +306,21 @@ function getImportFileUpdaterLabel(file: ActivityImportFile) {
           // ประเภทแปลง · ประเภทอ้อย · รายการปัจจัยการผลิต(listEM - ปุ๋ย 23-12-12 Control Release) · ประเภทปัจจัย(UsageType - ปุ๋ย) · 
           // ปริมาณรวม · จำนวน · ปริมาณต่อ1จำนวน · หน่วยนับ · พื้นที่ปฏิบัติรวม            15 colume
 const ACTIVITY_TARGET_COLUMNS: TargetColumn[] = [  // new 05272026  --------------------------------------------------
+  { key: 'act_productYear_name',          label: 'ปีการผลิต',             required: true, type: 'fk', fkTable: 'activities_productYear' },
   { key: 'log_act_detail_create_at',      label: 'วันที่ปฏิบัติ',           required: true, type: 'date' },
   { key: 'act_header_type',               label: 'หมวดหมู่กิจกรรมหลัก',   required: false, type: 'fk', fkTable: 'activities_header_type' },
-  { key: 'act_header_detail_type',        label: 'รายละเอียดกิจกรรมย่อย', required: false, type: 'fk', fkTable: 'activities_detail_type' },
-  { key: 'land_camp_name',                label: 'ไร่ / แคมป์',         required: false, type: 'fk', fkTable: 'lands_camps' },
-  { key: 'land_code',                     label: 'แปลง',                required: false, type: 'fk', fkTable: 'lands' },
+  { key: 'act_header_detail_type',        label: 'รายละเอียดกิจกรรมย่อย', required: true, type: 'fk', fkTable: 'activities_detail_type' },
+  { key: 'land_camp_name',                label: 'ไร่ / แคมป์',         required: true, type: 'fk', fkTable: 'lands_camps' },
+  { key: 'land_code',                     label: 'แปลง',                required: true, type: 'fk', fkTable: 'lands' },
   { key: 'land_size',                     label: 'พื้นที่ตามแปลง',     required: false, type: 'number' },
   { key: 'log_act_detail_areawork',       label: 'พื้นที่ปฏิบัติรวม',        required: false, type: 'number' },
 
-  { key: 'act_header_typeLand_id',        label: 'ประเภทแปลง',        required: false, type: 'fk', fkTable: 'activities_land_type' },
-  { key: 'act_header_typeSugarCane_id',   label: 'ประเภทอ้อย',         required: false, type: 'fk', fkTable: 'activities_header_typeSugarCane' },
+  { key: 'act_header_typeLand_id',        label: 'ประเภทแปลง',        required: true, type: 'fk', fkTable: 'activities_land_type' },
+  { key: 'act_header_typeSugarCane_id',   label: 'ประเภทอ้อย',         required: true, type: 'fk', fkTable: 'activities_header_typeSugarCane' },
   { key: 'resource_item_name',            label: 'รายการปัจจัยการผลิต',  required: true, type: 'fk', fkTable: 'activities_fertilizers / equipments / resourceOther' },
   { key: 'resource_used_type',            label: 'ประเภทปัจจัย',        required: true, type: 'fk', fkTable: 'resource_used_type' },
   { key: 'log_act_detail_volumeAll',      label: 'ปริมาณรวม',          required: false, type: 'number' },
-  { key: 'log_act_detail_quatity',        label: 'จำนวน',             required: false, type: 'number' },
+  { key: 'log_act_detail_quatity',        label: 'จำนวน',             required: true, type: 'number' },
   { key: 'log_act_detail_volumePerUnit',  label: 'ปริมาณต่อ1จำนวน',    required: false, type: 'number' },
   { key: 'unit_name',                     label: 'หน่วยนับ',            required: true, type: 'fk', fkTable: 'units' },
 ]
@@ -390,6 +399,7 @@ export function ActivitiesPage() {
   const [selectedCampId, setSelectedCampId] = useState<number | null>(null)
   const [selectedLandId, setSelectedLandId] = useState<number | null>(null)
   const [selectedHeaderCampId, setSelectedHeaderCampId] = useState<number | null>(null)
+  const [detailFormError, setDetailFormError] = useState<string | null>(null)
   const [detailForm, setDetailForm] = useState<DetailForm>(emptyDetailForm)
   const [headerForm, setHeaderForm] = useState<HeaderForm>(emptyHeaderForm)
   const [headerFilters, setHeaderFilters] = useState<HeaderFilters>(emptyHeaderFilters)
@@ -407,6 +417,7 @@ export function ActivitiesPage() {
   const { data: sugarCaneTypes = [], error: sugarCaneTypesError }       = useQuery({ queryKey: ['sugarcane-types'],    queryFn: () => get<SugarCaneType[]>('/activities/sugarcane-types') })
   const { data: resTypes = [], error: resTypesError }                   = useQuery({ queryKey: ['resource-types'],     queryFn: () => get<ResourceType[]>('/activities/resource-types') })
   const { data: calStatuses = [], error: calStatusesError }             = useQuery({ queryKey: ['cal-statuses'],       queryFn: () => get<CalStatus[]>('/activities/cal-statuses') })
+  const { data: productYears = [], error: productYearsError }           = useQuery({ queryKey: ['activity-product-years'], queryFn: () => get<ProductYear[]>('/activities/product-years') })
   const { data: fertilizers = [], error: fertilizersError }             = useQuery({ queryKey: ['fertilizers'],        queryFn: () => get<Fertilizer[]>('/activities/fertilizers') })
   const { data: equipments = [], error: equipmentsError }               = useQuery({ queryKey: ['equipments'],         queryFn: () => get<Equipment[]>('/activities/equipments') })
   const { data: chemicals = [], error: chemicalsError }                 = useQuery({ queryKey: ['chemicals'],          queryFn: () => get<Chemical[]>('/activities/chemicals') })
@@ -427,6 +438,7 @@ export function ActivitiesPage() {
     { label: 'ประเภทอ้อย', error: sugarCaneTypesError },
     { label: 'ประเภทปัจจัย', error: resTypesError },
     { label: 'สถานะการคำนวณ', error: calStatusesError },
+    { label: 'ปีการผลิต', error: productYearsError },
     { label: 'ปุ๋ย', error: fertilizersError },
     { label: 'อุปกรณ์', error: equipmentsError },
     { label: 'สารเคมี', error: chemicalsError },
@@ -520,6 +532,7 @@ export function ActivitiesPage() {
       qc.invalidateQueries({ queryKey: ['activity-headers'] }),
       qc.invalidateQueries({ queryKey: ['activity-details'] }),
       qc.invalidateQueries({ queryKey: ['activity-import-files'] }),
+      qc.invalidateQueries({ queryKey: ['activity-product-years'] }),
     ])
 
     helpers?.onProgress?.({
@@ -600,6 +613,7 @@ export function ActivitiesPage() {
   const equipmentMap = Object.fromEntries(equipments.map(e => [e.act_equipment_id, e.act_equipment_name]))
   const chemicalMap = Object.fromEntries(chemicals.map(c => [c.act_chemiscal_id, c.act_chemiscal_name]))
   const resourceOtherMap = Object.fromEntries(resourceOthers.map(r => [r.act_resourceOther_id, r.act_resourceOther_name]))
+  const productYearMap = Object.fromEntries(productYears.map((year) => [year.act_productYear_id, year.act_productYear_name ?? `#${year.act_productYear_id}`]))
   const unitMap = Object.fromEntries(units.map(u => [u.unit_id, u.unit_name ?? u.unit_initial ?? `#${u.unit_id}`]))
   const unitPrefixMap = Object.fromEntries(unitPrefixes.map(p => [p.unit_prefix_id, p.unit_prefix_name ?? p.unit_prefix_initial ?? `#${p.unit_prefix_id}`]))
 
@@ -628,6 +642,11 @@ export function ActivitiesPage() {
     if (landId == null) return undefined
     return lands.find((land) => land.land_id === landId)?.land_size
   }
+
+  const getDetailProductYearLabel = (detail: LogDetail) =>
+    detail.activities_productYear?.act_productYear_name
+    ?? productYearMap[detail.act_productYear_id ?? 0]
+    ?? '—'
 
   const getResourceItemName = (detail: LogDetail) =>
     detail.activities_fertilizers?.act_fertilizer_name
@@ -663,7 +682,8 @@ export function ActivitiesPage() {
   })
 
   const filteredDetails = details.filter(detail =>
-    (!detailFilters.activitiesHeaderId || detail.activities_header_id === Number(detailFilters.activitiesHeaderId))
+    (!detailFilters.productYearId || detail.act_productYear_id === Number(detailFilters.productYearId))
+    && (!detailFilters.activitiesHeaderId || detail.activities_header_id === Number(detailFilters.activitiesHeaderId))
     && (!detailFilters.hasActivitiesHeader || (
       detailFilters.hasActivitiesHeader === 'with'
         ? detail.activities_header_id != null
@@ -685,6 +705,8 @@ export function ActivitiesPage() {
   const visibleHeaders = selectedLandId ? headers.filter(h => h.land_id === selectedLandId) : headers
 
   const setFormValue = (key: keyof DetailForm, value: string) => {
+    setDetailFormError(null)
+    createDetailMut.reset()
     setDetailForm(prev => ({ ...prev, [key]: value }))
   }
 
@@ -711,6 +733,8 @@ export function ActivitiesPage() {
   }
 
   const setLandFilter = (landId: number | null) => {
+    setDetailFormError(null)
+    createDetailMut.reset()
     setSelectedLandId(landId)
     setFormValue('activities_header_id', '')
   }
@@ -755,6 +779,8 @@ export function ActivitiesPage() {
       activities_header_id: header ? String(header.activities_header_id) : '',
       act_header_type_id: header?.act_header_type_id ? String(header.act_header_type_id) : '',
     })
+    setDetailFormError(null)
+    createDetailMut.reset()
     setSelectedLandId(header?.land_id ?? null)
     setSelectedHeader(header ?? null)
     setShowForm(true)
@@ -766,6 +792,7 @@ export function ActivitiesPage() {
     setSelectedLandId(header?.land_id ?? null)
     setSelectedHeader(header ?? null)
     setDetailForm({
+      act_productYear_id: detail.act_productYear_id ? String(detail.act_productYear_id) : '',
       activities_header_id: detail.activities_header_id ? String(detail.activities_header_id) : '',
       act_header_type_id: detail.act_header_type_id ? String(detail.act_header_type_id) : '',
       act_header_detail_type_id: detail.act_header_detail_type_id ? String(detail.act_header_detail_type_id) : '',
@@ -782,6 +809,8 @@ export function ActivitiesPage() {
       log_act_detail_volumeAll: detail.log_act_detail_volumeAll != null ? String(detail.log_act_detail_volumeAll) : '',
       log_act_detail_areawork: detail.log_act_detail_areawork != null ? String(detail.log_act_detail_areawork) : '',
     })
+    setDetailFormError(null)
+    createDetailMut.reset()
     setShowForm(true)
   }
 
@@ -789,6 +818,8 @@ export function ActivitiesPage() {
     setShowForm(false)
     setEditingDetail(null)
     setDetailForm(emptyDetailForm)
+    setDetailFormError(null)
+    createDetailMut.reset()
   }
 
   const goToAddLogPage = (header: ActivityHeader) => {
@@ -812,7 +843,13 @@ export function ActivitiesPage() {
 
   const submitDetailForm = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    const errors = validateActivityDetailForm(detailForm, { selectedLandId })
+    if (errors.length) {
+      setDetailFormError(errors[0])
+      return
+    }
     createDetailMut.mutate({
+      act_productYear_id: toNumberOrUndefined(detailForm.act_productYear_id),
       activities_header_id: toNumberOrUndefined(detailForm.activities_header_id),
       act_header_type_id: toNumberOrUndefined(detailForm.act_header_type_id),
       act_header_detail_type_id: toNumberOrUndefined(detailForm.act_header_detail_type_id),
@@ -860,6 +897,15 @@ export function ActivitiesPage() {
   }, [headers, navigate, searchParams, showForm])
 
   useEffect(() => {
+    const productYearId = searchParams.get('productYearId') ?? ''
+    setDetailFilters((prev) => (
+      prev.productYearId === productYearId
+        ? prev
+        : { ...prev, productYearId }
+    ))
+  }, [searchParams])
+
+  useEffect(() => {
     if (!detailFilters.landId) return
 
     const selectedLand = lands.find((land) => land.land_id === Number(detailFilters.landId))
@@ -895,7 +941,15 @@ export function ActivitiesPage() {
     { key: 'act_header_type_id', header: 'ประเภทกิจกรรม', sortable: true, sortValue: (row) => hdrTypeMap[row.act_header_type_id] ?? row.act_header_type_id, render: (r) => hdrTypeMap[r.act_header_type_id] ?? '—' },
     { key: 'act_header_typeLand_id', header: 'ประเภทแปลง', sortable: true, sortValue: (row) => typeLandMap[row.act_header_typeLand_id] ?? row.act_header_typeLand_id, render: (r) => <span className="badge-purple">{typeLandMap[r.act_header_typeLand_id] ?? r.act_header_typeLand_id}</span> },
     { key: 'act_header_typeSugarCane_id', header: 'ประเภทอ้อย', sortable: true, sortValue: (row) => typeSugarCaneMap[row.act_header_typeSugarCane_id] ?? row.act_header_typeSugarCane_id, render: (r) => <span className="badge-pink">{typeSugarCaneMap[r.act_header_typeSugarCane_id] ?? r.act_header_typeSugarCane_id}</span> },
-    { key: 'activities_header_info', header: 'ข้อมูลเพิ่มเติม', sortable: true },
+    {
+      key: 'activities_header_info',
+      header: 'ข้อมูลเพิ่มเติม',
+      sortable: true,
+      width: '320px',
+      minWidth: '220px',
+      resizable: true,
+      render: (row) => <ExpandableTextCell text={row.activities_header_info} title="ข้อมูลเพิ่มเติมกิจกรรม" />,
+    },
   ]
 
 
@@ -916,6 +970,7 @@ export function ActivitiesPage() {
 
   const detailCols: Column<LogDetail>[] = [
     { key: 'activities_header_id', header: 'หัวข้อกิจกรรม', width: '80px', sortable: true, sortValue: (row) => row.activities_header_id != null ? hdrMap[row.activities_header_id] ?? row.activities_header_id : '—', render: (r) => r.activities_header_id != null ? hdrMap[r.activities_header_id] ?? r.activities_header_id : '—' },
+    { key: 'act_productYear_id', header: 'ปีการผลิต', sortable: true, sortValue: (row) => getDetailProductYearLabel(row), render: (r) => getDetailProductYearLabel(r) },
     { key: 'log_act_detail_create_at', header: 'วันที่ปฏิบัติ', sortable: true, sortValue: (row) => row.log_act_detail_create_at ?? row.activities_header?.activities_header_startDate ?? '', render: (r) => formatBangkokDate(r.log_act_detail_create_at ?? r.activities_header?.activities_header_startDate) },
     { key: 'detail_camp', header: 'แคมป์', sortable: true, sortValue: (row) => getDetailCampName(row) ?? '—', render: (r) => getDetailCampName(r) ? <span className="badge-blue">{getDetailCampName(r)}</span> : '—' },
     { key: 'detail_land', header: 'แปลง', sortable: true, sortValue: (row) => getDetailLandLabel(row), render: (r) => getDetailLandId(r) != null ? <span className="badge-green">{getDetailLandLabel(r)}</span> : '—' },
@@ -1023,6 +1078,7 @@ export function ActivitiesPage() {
   const preparingCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'preparing').length
   const readyCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'ready').length
   const standardDoneCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'standardDone').length
+  const creditDoneCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'creditDone').length
   const standardCfpDoneCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'cfpDone').length
   const errorCount = details.filter((detail) => getActivityCalStatusKind(getRawCalStatusLabel(detail), detail.log_act_detail_calStatus_id) === 'error').length
   const totalLogRecords = details.length
@@ -1032,12 +1088,13 @@ export function ActivitiesPage() {
     { key: 'total', label: 'หัวข้อกิจกรรมทั้งหมด' },
     { key: 'totalLogs', label: 'บันทึกกิจกรรมทั้งหมด' },
     { key: 'importFiles', label: 'ไฟล์ที่นำเข้าแล้ว' },
-    { key: 'imported', label: 'นำเข้าข้อมูลแล้ว' },
-    { key: 'preparing', label: 'กำลังเตรียมข้อมูล' },
-    { key: 'ready', label: 'พร้อมคำนวณมาตรฐาน' },
-    { key: 'standardDone', label: 'คำนวณแล้ว(มาตรฐาน)' },
-    { key: 'cfpDone', label: 'คำนวณแล้ว(มาตรฐาน,CFP)' },
-    { key: 'error', label: 'คำนวณผิดพลาด' },
+    { key: 'imported', label: ACTIVITY_CAL_STATUS_NAMES.imported },
+    { key: 'preparing', label: ACTIVITY_CAL_STATUS_NAMES.preparing },
+    { key: 'ready', label: ACTIVITY_CAL_STATUS_NAMES.ready },
+    { key: 'standardDone', label: ACTIVITY_CAL_STATUS_NAMES.standardDone },
+    { key: 'creditDone', label: ACTIVITY_CAL_STATUS_NAMES.creditDone },
+    { key: 'cfpDone', label: ACTIVITY_CAL_STATUS_NAMES.cfpDone },
+    { key: 'error', label: ACTIVITY_CAL_STATUS_NAMES.error },
   ]
 
   const {
@@ -1089,28 +1146,35 @@ export function ActivitiesPage() {
     },
     {
       key: 'ready',
-      label: 'พร้อมคำนวณมาตรฐาน',
+      label: ACTIVITY_CAL_STATUS_NAMES.ready,
       icon: <Clock3 size={14} className="text-accent-500" />,
       value: readyCount,
       valueClassName: 'stat-value text-accent-600',
     },
     {
       key: 'standardDone',
-      label: 'คำนวณแล้ว(มาตรฐาน)',
+      label: ACTIVITY_CAL_STATUS_NAMES.standardDone,
       icon: <CheckCircle2 size={14} className="text-primary-500" />,
       value: standardDoneCount,
       valueClassName: 'stat-value text-primary-700',
     },
     {
+      key: 'creditDone',
+      label: ACTIVITY_CAL_STATUS_NAMES.creditDone,
+      icon: <CheckCircle2 size={14} className="text-purple-600" />,
+      value: creditDoneCount,
+      valueClassName: 'stat-value text-purple-700',
+    },
+    {
       key: 'cfpDone',
-      label: 'คำนวณแล้ว(มาตรฐาน,CFP)',
+      label: ACTIVITY_CAL_STATUS_NAMES.cfpDone,
       icon: <Leaf size={14} className="text-cyan-600" />,
       value: standardCfpDoneCount,
       valueClassName: 'stat-value text-cyan-700',
     },
     {
       key: 'error',
-      label: 'คำนวณผิดพลาด',
+      label: ACTIVITY_CAL_STATUS_NAMES.error,
       icon: <CircleAlert size={14} className="text-red-500" />,
       value: errorCount,
       valueClassName: 'stat-value text-red-700',
@@ -1348,7 +1412,18 @@ export function ActivitiesPage() {
               ล้างตัวกรอง
             </button>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-8 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-9 gap-3">
+            <div>
+              <label className="label">ปีการผลิต</label>
+              <select className="select" value={detailFilters.productYearId} onChange={(e) => setDetailFilterValue('productYearId', e.target.value)}>
+                <option value="">ทั้งหมด</option>
+                {productYears.map((year) => (
+                  <option key={year.act_productYear_id} value={year.act_productYear_id}>
+                    {year.act_productYear_name ?? `#${year.act_productYear_id}`}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="label">หัวข้อกิจกรรม</label>
               <select className="select" value={detailFilters.activitiesHeaderId} onChange={(e) => setDetailFilterValue('activitiesHeaderId', e.target.value)}>
@@ -1442,9 +1517,14 @@ export function ActivitiesPage() {
             <p className="text-xs text-surface-500 mb-5">กรอกข้อมูลและระบบจะคำนวณ CO₂e โดยอัตโนมัติ</p>
 
             <form onSubmit={submitDetailForm} className="space-y-4">
+              {(detailFormError || createDetailMut.error?.message) && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {detailFormError ?? createDetailMut.error?.message}
+                </div>
+              )}
               <FormSection title="หัวข้อกิจกรรมและแปลง">
                 <div className="md:col-span-2">
-                  <label className="label">วิธีเลือกแปลง</label>
+                  <label className="label">วิธีเลือกแปลง *</label>
                   <div className="grid grid-cols-2 gap-2 mb-3">
                     <button type="button" onClick={() => setTrackMethod('direct')}
                       className={`py-1.5 rounded-lg text-xs font-medium border ${trackMethod === 'direct' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-surface-600 border-surface-200'}`}>
@@ -1479,10 +1559,23 @@ export function ActivitiesPage() {
                   )}
                 </div>
 
+                <div>
+                  <label className="label">ปีการผลิต *</label>
+                  <select className="select" required value={detailForm.act_productYear_id} onChange={(e) => setFormValue('act_productYear_id', e.target.value)}>
+                    <option value="">— เลือกปีการผลิต —</option>
+                    {productYears.map((year) => (
+                      <option key={year.act_productYear_id} value={year.act_productYear_id}>
+                        {year.act_productYear_name ?? `#${year.act_productYear_id}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="md:col-span-2">
-                  <label className="label">หัวข้อกิจกรรม</label>
+                  <label className="label">หัวข้อกิจกรรม *</label>
                   <select
                     className="select"
+                    required
                     value={detailForm.activities_header_id}
                     onChange={(e) => {
                       const header = headers.find(h => h.activities_header_id === Number(e.target.value))
@@ -1501,7 +1594,7 @@ export function ActivitiesPage() {
 
                 <div>
                   <label className="label">ประเภทกิจกรรม *</label>
-                  <select className="select" value={detailForm.act_header_type_id} onChange={(e) => {
+                  <select className="select" required value={detailForm.act_header_type_id} onChange={(e) => {
                     setFormValue('act_header_type_id', e.target.value)
                     setFormValue('act_header_detail_type_id', '')
                   }}>
@@ -1510,18 +1603,18 @@ export function ActivitiesPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="label">ประเภทรายละเอียด</label>
-                  <select className="select" value={detailForm.act_header_detail_type_id} onChange={(e) => setFormValue('act_header_detail_type_id', e.target.value)}>
-                    <option value="">— ไม่ระบุ —</option>
+                  <label className="label">ประเภทรายละเอียด *</label>
+                  <select className="select" required value={detailForm.act_header_detail_type_id} onChange={(e) => setFormValue('act_header_detail_type_id', e.target.value)}>
+                    <option value="">— เลือกประเภทรายละเอียด —</option>
                     {detailTypes.map(t => <option key={t.act_header_detail_type_id} value={t.act_header_detail_type_id}>{t.act_header_detail_type_name_th}</option>)}
                   </select>
                 </div>
               </FormSection>
 
-              <FormSection title="ปัจจัยการผลิต">
+              <FormSection title="ปัจจัยการผลิต (เลือกอย่างน้อย 1 รายการ)">
                 <div>
                   <label className="label">ประเภทปัจจัย *</label>
-                  <select className="select" value={detailForm.resource_used_type_id} onChange={(e) => setFormValue('resource_used_type_id', e.target.value)}>
+                  <select className="select" required value={detailForm.resource_used_type_id} onChange={(e) => setFormValue('resource_used_type_id', e.target.value)}>
                     <option value="">— เลือกประเภทปัจจัย —</option>
                     {resTypes.map(t => <option key={t.resource_used_type_id} value={t.resource_used_type_id}>{t.resc_used_type_name}</option>)}
                   </select>
@@ -1606,16 +1699,16 @@ export function ActivitiesPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="label">หน่วยนับ</label>
-                  <select className="select" value={detailForm.unit_id} onChange={(e) => setFormValue('unit_id', e.target.value)}>
-                    <option value="">— ไม่ระบุ —</option>
+                  <label className="label">หน่วยนับ *</label>
+                  <select className="select" required value={detailForm.unit_id} onChange={(e) => setFormValue('unit_id', e.target.value)}>
+                    <option value="">— เลือกหน่วยนับ —</option>
                     {units.map(u => <option key={u.unit_id} value={u.unit_id}>{u.unit_name ?? u.unit_initial ?? `#${u.unit_id}`}</option>)}
                   </select>
                 </div>
-                <div><label className="label">ปริมาณ (จำนวน)</label><input type="number" step="0.001" className="input" value={detailForm.log_act_detail_quatity} onChange={(e) => setFormValue('log_act_detail_quatity', e.target.value)} /></div>
+                <div><label className="label">ปริมาณ (จำนวน) *</label><input type="number" step="0.001" className="input" required value={detailForm.log_act_detail_quatity} onChange={(e) => setFormValue('log_act_detail_quatity', e.target.value)} /></div>
                 <div><label className="label">ปริมาณ/หน่วย</label><input type="number" step="0.001" className="input" value={detailForm.log_act_detail_volumePerUnit} onChange={(e) => setFormValue('log_act_detail_volumePerUnit', e.target.value)} /></div>
-                <div><label className="label">ปริมาณรวม *</label><input type="number" step="0.001" className="input" required value={detailForm.log_act_detail_volumeAll} onChange={(e) => setFormValue('log_act_detail_volumeAll', e.target.value)} /></div>
-                <div><label className="label">พื้นที่ทำงาน (ไร่)</label><input type="number" step="0.01" className="input" value={detailForm.log_act_detail_areawork} onChange={(e) => setFormValue('log_act_detail_areawork', e.target.value)} /></div>
+                <div><label className="label">ปริมาณรวม</label><input type="number" step="0.001" className="input" value={detailForm.log_act_detail_volumeAll} onChange={(e) => setFormValue('log_act_detail_volumeAll', e.target.value)} /></div>
+                <div><label className="label">พื้นที่ทำงาน (ไร่) *</label><input type="number" step="0.01" className="input" required value={detailForm.log_act_detail_areawork} onChange={(e) => setFormValue('log_act_detail_areawork', e.target.value)} /></div>
               </FormSection>
 
               <div className="flex gap-3 mt-5">
@@ -1775,7 +1868,7 @@ export function ActivitiesPage() {
       {showWizard && (
         <CsvMappingWizard
           title="นำเข้ากิจกรรมจาก CSV"
-          subtitle="รองรับคอลัมน์ เช่น วันที่ปฏิบัติ · หมวดหมู่กิจกรรมหลัก · รายละเอียดกิจกรรมย่อย · ไร่/แคมป์ · แปลง · พื้นที่ตามแปลง · ประเภทแปลง · ประเภทอ้อย · รายการปัจจัยการผลิต · ประเภทปัจจัย · ปริมาณรวม · จำนวน · ปริมาณต่อ 1 จำนวน · หน่วยนับ · พื้นที่ปฏิบัติรวม โดยระบบจะใช้ข้อมูลไร่และแปลงเพื่อเชื่อมโยงข้อมูลกิจกรรมให้โดยอัตโนมัติ"
+          subtitle="รองรับคอลัมน์ เช่น ปีการผลิต · วันที่ปฏิบัติ · หมวดหมู่กิจกรรมหลัก · รายละเอียดกิจกรรมย่อย · ไร่/แคมป์ · แปลง · พื้นที่ตามแปลง · ประเภทแปลง · ประเภทอ้อย · รายการปัจจัยการผลิต · ประเภทปัจจัย · ปริมาณรวม · จำนวน · ปริมาณต่อ 1 จำนวน · หน่วยนับ · พื้นที่ปฏิบัติรวม โดยระบบจะใช้ข้อมูลไร่และแปลงเพื่อเชื่อมโยงข้อมูลกิจกรรมให้โดยอัตโนมัติ"
           targetColumns={ACTIVITY_TARGET_COLUMNS}
           onComplete={importActivityCsvInChunks}
           onCancel={() => setShowWizard(false)}

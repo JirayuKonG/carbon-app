@@ -10,6 +10,8 @@ import { EmissionFactorsPage }  from '@/features/emission-factors/EmissionFactor
 import { ActivitiesPage }       from '@/features/activities/ActivitiesPage'
 import { ActivityLogListPage }  from '@/features/activities/ActivityLogListPage'
 import { ActivityResourcesPage } from '@/features/activities/ActivityResourcesPage'
+import { ActivityTypesPage } from '@/features/activities/ActivityTypesPage'
+import { ProductYearsPage } from '@/features/activities/ProductYearsPage'
 import { DashboardPage }        from '@/features/dashboard/DashboardPage'
 import { CfOverviewPage }       from '@/features/cf-dashboard/pages/OverviewPage'
 import { CfProcessPage }        from '@/features/cf-dashboard/pages/ProcessPage'
@@ -18,8 +20,11 @@ import { CfReportPage }         from '@/features/cf-dashboard/pages/ReportPage'
 import { CfFootprintReportPage } from '@/features/cf-dashboard/pages/FootprintReportPage'
 import { CfCalculatePage }      from '@/features/cf-dashboard/pages/CalculatePage' // KONGJIRAYU05JUNE2026
 import { CfPipelinePage }       from '@/features/cf-dashboard/pages/PipelinePage'  // KONGJIRAYU05JUNE2026
+import { InputUsageSummaryPage } from '@/features/cf-dashboard/pages/InputUsageSummaryPage'
 import { CarbonFootprintQueuePage } from '@/features/cf-dashboard/pages/CarbonFootprintQueuePage'
+import { SoilOrganicCarbonPage } from '@/features/cf-dashboard/pages/SoilOrganicCarbonPage'
 import { CarbonCreditPage }     from '@/features/cf-dashboard/pages/CarbonCreditPage'
+import { CalculationSummaryPage } from '@/features/cf-dashboard/pages/CalculationSummaryPage'
 
 function RedirectWithSearch({ to }: { to: string }) {
   const location = useLocation()
@@ -39,8 +44,11 @@ export default function App() {
         <Route path="pipeline"          element={<CfPipelinePage />} />
         <Route path="calculate"         element={<RedirectWithSearch to="/calculate/prepare" />} />
         <Route path="calculate/prepare" element={<CfCalculatePage />} />
+        <Route path="calculate/usage"   element={<InputUsageSummaryPage />} />
         <Route path="calculate/footprint" element={<CarbonFootprintQueuePage />} />
+        <Route path="calculate/soc"     element={<SoilOrganicCarbonPage />} />
         <Route path="calculate/credit"  element={<CarbonCreditPage />} />
+        <Route path="calculate/summary" element={<CalculationSummaryPage />} />
         <Route path="dashboard"         element={<DashboardPage />} />
         <Route path="geo"               element={<GeoPage />} />
         <Route path="infra"             element={<InfraPage />} />
@@ -52,6 +60,8 @@ export default function App() {
         <Route path="activities"        element={<Navigate to="/activities/logs" replace />} />
         <Route path="activities/logs"   element={<ActivityLogListPage />} />
         <Route path="activities/resources" element={<ActivityResourcesPage />} />
+        <Route path="activities/types" element={<ActivityTypesPage />} />
+        <Route path="activities/product-years" element={<ProductYearsPage />} />
         <Route path="activities/manage" element={<ActivitiesPage />} />
         <Route path="activities/logs/new" element={<RedirectWithSearch to="/activities/manage" />} />
         <Route path="*"                 element={<Navigate to="/overview" replace />} />
