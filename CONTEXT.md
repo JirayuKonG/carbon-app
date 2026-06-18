@@ -4,6 +4,15 @@ Last updated: 2026-06-18
 
 This file is a working memory for the project. It summarizes the current repo state, important decisions, active risks, and where future work should start. Update it when major behavior, routes, architecture, or project status changes.
 
+Recent terminology cleanup from user prompt on 2026-06-18:
+
+- Prompt summary: replace project wording that referred to `สารกำจัดศัตรูพืช` with `สารกำจัดวัชพืช` because the project context should use the more accurate weed-control term.
+- Result: the Carbon Analytics process label/fallback wording now shows `สารเคมี/สารกำจัดวัชพืช` instead of the older pesticide-oriented wording.
+- Compatibility note: the chart color-matching logic still recognizes legacy words such as `ศัตรูพืช` and English variants like `pesticide` so older saved/mock labels continue to group correctly.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/ProcessPage.tsx` and `frontend/src/features/cf-dashboard/components/charts/ProcessDoughnut.tsx`.
+- Verification: `npm run build --workspace=frontend`.
+- Related docs updated: `CONTEXT.md`. `COMPONENT_PJ.md`, `README.md`, `GUIDE.md`, and `BUG_LOG.md` were not changed because routes, setup, and bug status did not change.
+
 ## AI Memory Rule
 
 When the user gives a prompt that changes the project, this file should be reviewed and updated in the same task when relevant.
@@ -1071,3 +1080,17 @@ Follow-up Carbon Credit transaction fix on 2026-06-18:
 - Overview hardening: `frontend/src/features/cf-dashboard/pages/OverviewPage.tsx` now treats `/carbon-soc/summary` failure as a SOC-only zero fallback so the whole overview can still show KPI/credit data from analytics.
 - Verification: `npm run build --workspace=frontend` passed. After restarting backend and Vite, `http://127.0.0.1:5173/api/analytics/cf-kpi`, `cf-spatial-nodes`, and `cf-report-summary` returned 200 with real data.
 - Remaining risk: analytics queries are still slow (roughly 20-35 seconds locally for some endpoints), so performance tuning should be a follow-up after the urgent presentation fix.
+
+## Recent Analytics Database Connection Hardening - 2026-06-18
+
+Follow-up analytics database-connection hardening on 2026-06-18:
+
+- Prompt summary: fix a Nest/Prisma runtime error where Carbon Analytics requests failed with `Too many database connections opened`, surfaced at `log_act_detail_calStatus.findMany()`.
+- Backend result:
+  - `backend/src/modules/prisma/prisma.service.ts` now applies safe Prisma pool defaults when `DATABASE_URL` does not already include them: `connection_limit=5` and `pool_timeout=20`. The optional env vars `PRISMA_CONNECTION_LIMIT` and `PRISMA_POOL_TIMEOUT` can tune those defaults without changing code.
+  - `backend/src/modules/analytics/analytics.service.ts` now caches calculated-status IDs for 60 seconds and deduplicates concurrent status lookups.
+  - The same analytics service now deduplicates concurrent `getEmissionRows()` calls and keeps a short 5-second cache, so multiple dashboard endpoints loading at the same time share one heavy joined query instead of opening several at once.
+- Source of truth: `backend/src/modules/prisma/prisma.service.ts` for pool defaults, `backend/src/modules/analytics/analytics.service.ts` for analytics query dedupe/cache, and `backend/.env.example` / `GUIDE.md` / `README.md` for connection-limit guidance.
+- Verification: `npm run build --workspace=backend` passed.
+- Related docs updated: `BUG_LOG.md`, `README.md`, `GUIDE.md`, `backend/.env.example`, and `CONTEXT.md`.
+- Operational note: if the old dev server is still running, restart it so the new Prisma pool settings take effect and old database connections are released.
