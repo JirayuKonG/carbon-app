@@ -22,7 +22,7 @@ type SocMaterialView = "overview" | "area";
 const FOOTPRINT_UNIT = "kgCO2e";
 const TCO2E_UNIT = "tCO2e";
 const SOC_TCO2E_PER_ORGANIC_FERTILIZER_KG = 0.00018;
-const CHEMICAL_ACTIVITY_NAME = "สารเคมี/ยาป้องกันกำจัดศัตรูพืช";
+const CHEMICAL_ACTIVITY_NAME = "สารเคมี/สารกำจัดวัชพืช";
 const PROCESS_ACTIVITY_FALLBACKS: Array<{
   match: RegExp;
   activities: Array<{ name: string; share: number; currentDeltaPct: number }>;
