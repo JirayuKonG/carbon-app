@@ -1,6 +1,6 @@
 # Project Component Map
 
-Last updated: 2026-06-18
+Last updated: 2026-06-23
 
 Use this file to quickly find where a page, component, layout element, or related API code lives.
 
@@ -118,7 +118,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Prisma service | `backend/src/modules/prisma/prisma.service.ts` | Creates and disconnects the Prisma client. |
 | Backend config | `backend/.env` | Contains `DATABASE_URL`; do not commit secrets. |
 | Backend env example | `backend/.env.example` | Template for database connection config. |
-| SQL snapshot | `managementDataSystem_forCalculate_3.0_06152026_postgres.sql` | Latest repo bootstrap snapshot for local or fresh environment setup, including activity production year and newer carbon tables from the 2026-06-15 database update. |
+| SQL snapshot | `managementDataSystem_forCalculate_3.1_06162026_postgres.sql` | Latest repo bootstrap snapshot for local or fresh environment setup, including the 2026-06-16 SOC and soil-improvement per-rai schema alignment. Older `2.0` and `3.0` snapshots are kept as history/reference files. |
 
 ## Common Debug Lookup
 

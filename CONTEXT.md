@@ -1,8 +1,16 @@
 # Project Context Memory
 
-Last updated: 2026-06-18
+Last updated: 2026-06-23
 
 This file is a working memory for the project. It summarizes the current repo state, important decisions, active risks, and where future work should start. Update it when major behavior, routes, architecture, or project status changes.
+
+Recent documentation setup refresh from user prompt on 2026-06-23:
+
+- Prompt summary: read the project Markdown documentation, identify stale or missing setup guidance, then improve `README.md` and `GUIDE.md` with useful installation, environment, dependency, and database notes.
+- Result: `README.md` and `GUIDE.md` now document the required tools, npm workspace install, important frontend/backend libraries, local/prod environment variables, Vite `/api` proxy behavior, Prisma pool settings, and clearer warnings about schema-changing Prisma/database commands.
+- Source-of-truth update: fresh database setup should prefer `managementDataSystem_forCalculate_3.1_06162026_postgres.sql`; older SQL snapshots remain historical/reference files.
+- Related docs updated: `README.md`, `GUIDE.md`, `COMPONENT_PJ.md`, and `CONTEXT.md`.
+- Verification: documentation consistency review only; no frontend/backend code behavior changed.
 
 Recent terminology cleanup from user prompt on 2026-06-18:
 
@@ -76,13 +84,16 @@ Historical work-summary docs still reference branch `idea`. Treat those referenc
 
 - `backend/src/prisma/schema.prisma` is the current schema reference.
 - Repo notes say Prisma was re-introspected from the live Aiven PostgreSQL database on 2026-06-08.
-- The newest SQL snapshot currently stored in the repo is `managementDataSystem_forCalculate_3.0_06152026_postgres.sql`.
+- The newest SQL snapshot currently stored in the repo is `managementDataSystem_forCalculate_3.1_06162026_postgres.sql`.
 - The live database may still be ahead of that SQL snapshot, so when schema behavior is unclear, prefer `schema.prisma` over assumptions from older SQL exports.
 - Repo notes from the 2026-06-08 sync identify these important live-database tables in the current Prisma model set:
   - `activities_fileNameUse`
   - `activities_resourceOther`
+  - `activities_productYear`
   - `carbon_process_queue`
   - `carbon_roundCal`
+  - `carbon_soc`
+  - `carbon_soilImprovementPlants`
   - `carbon_typeCal`
 - Some tables do not have database-generated primary keys, so create flows still need extra care before assuming `autoincrement()`.
 
