@@ -222,14 +222,15 @@ function AuditDetail({ item }: { item: CalculationSummaryAuditItem }) {
 
 export function CalculationSummaryPage() {
   const qc = useQueryClient()
-  const [searchParams] = useSearchParams()
-  const [mode, setMode] = useState<CalculationSummaryMode>('footprint')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialMode = searchParams.get('mode') === 'credit' ? 'credit' : 'footprint'
+  const [mode, setMode] = useState<CalculationSummaryMode>(initialMode)
   const [selectedYears, setSelectedYears] = useState<string[]>([])
   const [yearFrom, setYearFrom] = useState('')
   const [yearTo, setYearTo] = useState('')
   const [scope, setScope] = useState<CalculationSummaryScope>('all')
   const [scopeId, setScopeId] = useState('')
-  const [groupBy, setGroupBy] = useState<CalculationSummaryGroupBy>('year')
+  const [groupBy, setGroupBy] = useState<CalculationSummaryGroupBy>(initialMode === 'credit' ? 'land' : 'year')
   const [baselineYears, setBaselineYears] = useState<string[]>([])
   const [projectYear, setProjectYear] = useState('')
   const [auditRow, setAuditRow] = useState<CalculationSummaryRow | null>(null)
@@ -328,6 +329,14 @@ export function CalculationSummaryPage() {
     setMode(nextMode)
     setGroupBy(nextMode === 'credit' ? 'land' : 'year')
     setAuditRow(null)
+  }
+
+  const handleModeChange = (nextMode: CalculationSummaryMode) => {
+    setModeAndDefaults(nextMode)
+
+    const nextParams = new URLSearchParams(searchParams)
+    nextParams.set('mode', nextMode)
+    setSearchParams(nextParams, { replace: true })
   }
 
   useEffect(() => {
@@ -526,7 +535,7 @@ export function CalculationSummaryPage() {
               key={value}
               type="button"
               className={`calculation-mode-button btn-sm rounded-full border px-4 ${mode === value ? 'active' : ''}`}
-              onClick={() => setModeAndDefaults(value)}
+              onClick={() => handleModeChange(value)}
             >
               {MODE_LABELS[value]}
             </button>

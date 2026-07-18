@@ -1,8 +1,16 @@
 # Project Context Memory
 
-Last updated: 2026-06-23
+Last updated: 2026-07-02
 
 This file is a working memory for the project. It summarizes the current repo state, important decisions, active risks, and where future work should start. Update it when major behavior, routes, architecture, or project status changes.
+
+Recent calculation summary Carbon Credit tab fix from user prompt on 2026-07-02:
+
+- Prompt summary: on the `สรุปผลการคำนวณ` page, the Carbon Credit mode button kept jumping back to Carbon Footprint instead of staying on Carbon Credit.
+- Result: `frontend/src/features/cf-dashboard/pages/CalculationSummaryPage.tsx` now initializes from the `mode` query string and syncs mode-button clicks back into the URL, so `mode=credit` stays active and deep links to the Carbon Credit summary continue to work.
+- Source of truth: `frontend/src/features/cf-dashboard/pages/CalculationSummaryPage.tsx`.
+- Verification: `npm run build --workspace=frontend` passed. Frontend build still reports only the existing Vite chunk-size warning.
+- Related docs updated: `CONTEXT.md` and `BUG_LOG.md`. `README.md`, `GUIDE.md`, and `COMPONENT_PJ.md` were not changed because routes, setup, and file ownership did not change.
 
 Recent documentation setup refresh from user prompt on 2026-06-23:
 

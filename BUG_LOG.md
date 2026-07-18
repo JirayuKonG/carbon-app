@@ -1,10 +1,16 @@
 # Bug Tracking Log
 
-Last updated: 2026-06-16
+Last updated: 2026-07-02
 
 Use the checkboxes to track what is fixed. Keep new findings here so future work can restart quickly.
 
 ## Done
+
+- [x] BUG-020: Calculation Summary Carbon Credit mode button reverted to Carbon Footprint.
+  - Impact: on `/calculate/summary`, clicking the Carbon Credit mode button briefly selected Carbon Credit but then returned to Carbon Footprint, so users could not stay on the Carbon Credit summary from the in-page button.
+  - Evidence: `CalculationSummaryPage.tsx` changed local `mode` state on button click, but the `useEffect` that reads `mode` from the URL defaulted missing query params back to `footprint`.
+  - Fix: the page now initializes mode/grouping from the current query string and writes `mode=credit` or `mode=footprint` back to the URL when the mode button is clicked.
+  - Verify: `npm run build --workspace=frontend`.
 
 - [x] BUG-019: Carbon Analytics could exhaust PostgreSQL connection slots while loading dashboard APIs.
   - Impact: backend requests could fail with `Too many database connections opened`, often surfacing at `log_act_detail_calStatus.findMany()` even though the real pressure came from several analytics endpoints querying large joined datasets at the same time.
