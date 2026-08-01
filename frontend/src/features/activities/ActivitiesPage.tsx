@@ -96,6 +96,7 @@ interface Unit       { unit_id: number; unit_name?: string; unit_initial?: strin
 interface UnitPrefix { unit_prefix_id: number; unit_prefix_name?: string; unit_prefix_initial?: string }
 interface ActivityImportFile {
   activities_fileNameUse_id: number
+  raw_file_id?: number
   activities_fileNameUse_name?: string
   activities_fileNameUse_rowCount?: number
   activities_fileNameUse_columnCount?: number
@@ -109,7 +110,14 @@ interface ActivityImportFile {
     last_name?: string
   }
 }
-type ActivityImportPayload = { mappings: ColumnMapping[]; rows: Record<string, string>[] }
+type ActivityImportPayload = {
+  mappings: ColumnMapping[]
+  rows: Record<string, string>[]
+  rawFileId?: number
+  originalStartIndex?: number
+  fileName?: string
+  isFinalChunk?: boolean
+}
 type ActivityImportResult = { inserted: number; skipped: number; errors: string[] }
 type ActivityImportChunk = { rows: Record<string, string>[]; startIndex: number; sizeBytes: number }
 
@@ -374,13 +382,6 @@ function createActivityImportChunks(mappings: ColumnMapping[], rows: Record<stri
   return chunks
 }
 
-function adjustImportErrorRowNumbers(error: string, startIndex: number) {
-  return error.replace(/^Row (\d+):/i, (_match, rowNumber: string) => {
-    const parsed = Number.parseInt(rowNumber, 10)
-    return Number.isFinite(parsed) ? `Row ${startIndex + parsed}:` : `Row ${rowNumber}:`
-  })
-}
-
 export function ActivitiesPage() {
   const qc = useQueryClient()
   const navigate = useNavigate()
@@ -482,6 +483,24 @@ export function ActivitiesPage() {
 
     reportProgress(0, chunks[0]?.sizeBytes ?? 0, 'กำลังเตรียมชุดข้อมูลนำเข้า')
 
+    let rawFileId: number | undefined
+    const importFileName = helpers?.fileName || `activity-import-${new Date().toISOString()}`
+
+    try {
+      const importFile = await post<ActivityImportFile>('/activities/import-files', {
+        activities_fileNameUse_name: importFileName,
+        activities_fileNameUse_rowCount: helpers?.rowCount ?? rows.length,
+        activities_fileNameUse_columnCount: helpers?.columnCount,
+      })
+
+      rawFileId = importFile.raw_file_id
+      if (!rawFileId) {
+        throw new Error('ไม่พบ raw_file_id จาก Bronze Layer')
+      }
+    } catch (error: any) {
+      throw new Error(`สร้างประวัติไฟล์และ Bronze batch ไม่สำเร็จ: ${error?.message ?? 'Unknown error'}`)
+    }
+
     for (let index = 0; index < chunks.length; index++) {
       const chunk = chunks[index]
       reportProgress(
@@ -494,15 +513,20 @@ export function ActivitiesPage() {
       try {
         const chunkResult = await post<ActivityImportResult>(
           '/activities/import',
-          { mappings, rows: chunk.rows },
+          {
+            mappings,
+            rows: chunk.rows,
+            rawFileId,
+            originalStartIndex: chunk.startIndex,
+            fileName: importFileName,
+            isFinalChunk: index === chunks.length - 1,
+          },
           { timeout: 20 * 60_000 },
         )
 
         result.inserted += chunkResult.inserted ?? 0
         result.skipped += chunkResult.skipped ?? 0
-        result.errors.push(
-          ...(chunkResult.errors ?? []).map((error) => adjustImportErrorRowNumbers(error, chunk.startIndex)),
-        )
+        result.errors.push(...(chunkResult.errors ?? []))
         uploadedBytes += chunk.sizeBytes
         reportProgress(
           index + 1,
@@ -513,18 +537,6 @@ export function ActivitiesPage() {
         throw new Error(
           `นำเข้าชุดที่ ${index + 1}/${chunks.length} ไม่สำเร็จ (${Math.ceil(chunk.sizeBytes / 1024)} KB): ${error?.message ?? 'Internal server error'}`,
         )
-      }
-    }
-
-    if (helpers?.fileName) {
-      try {
-        await post('/activities/import-files', {
-          activities_fileNameUse_name: helpers.fileName,
-          activities_fileNameUse_rowCount: helpers.rowCount ?? rows.length,
-          activities_fileNameUse_columnCount: helpers.columnCount,
-        })
-      } catch (error: any) {
-        result.errors.push(`บันทึกประวัติไฟล์ไม่สำเร็จ: ${error?.message ?? 'Unknown error'}`)
       }
     }
 

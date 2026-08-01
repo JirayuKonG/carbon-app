@@ -1,6 +1,6 @@
 # Project Component Map
 
-Last updated: 2026-06-23
+Last updated: 2026-07-21
 
 Use this file to quickly find where a page, component, layout element, or related API code lives.
 
@@ -107,7 +107,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Lands | `backend/src/modules/lands/*` | `/api/lands` including camp-group CRUD at `/api/lands/camp-groups`, bulk camp-group assignment at `/api/lands/camps/bulk-group`, and the bulk subdistrict update endpoint `/api/lands/bulk/subdistrict`. |
 | Weather | `backend/src/modules/weather/*` | `/api/lands/weather` |
 | Emission factors | `backend/src/modules/emission-factors/*` | `/api/emission-factors` |
-| Activities | `backend/src/modules/activities/*` | `/api/activities` including headers/details, activity type CRUD at `/api/activities/header-types` and `/api/activities/detail-types`, production-year CRUD plus usage metadata at `/api/activities/product-years`, CSV import, import-history endpoints, input usage summary `/api/activities/input-usage-summary`, carbon queue endpoints such as `/api/activities/carbon-process-queue`, and Carbon Credit workflow endpoints at `/api/activities/carbon-credit/*`. |
+| Activities | `backend/src/modules/activities/*` | `/api/activities` including headers/details, activity type CRUD at `/api/activities/header-types` and `/api/activities/detail-types`, production-year CRUD plus usage metadata at `/api/activities/product-years`, CSV import, import-history endpoints, input usage summary `/api/activities/input-usage-summary`, carbon queue endpoints such as `/api/activities/carbon-process-queue`, and Carbon Credit workflow endpoints at `/api/activities/carbon-credit/*`. Activity CSV import now creates a Bronze import batch first and stores raw/mapped rows in `bronze.raw_import_files` and `bronze.raw_activity_rows` before writing normalized activity records. |
 | Prisma database access | `backend/src/modules/prisma/*` | Used by all backend services. |
 
 ## Database And Schema
@@ -118,6 +118,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Prisma service | `backend/src/modules/prisma/prisma.service.ts` | Creates and disconnects the Prisma client. |
 | Backend config | `backend/.env` | Contains `DATABASE_URL`; do not commit secrets. |
 | Backend env example | `backend/.env.example` | Template for database connection config. |
+| Bronze Activity import migration | `backend/src/prisma/manual-migrations/2026-07-21-add-bronze-import-layer.sql` | Additive manual migration that creates `bronze.raw_import_files` and `bronze.raw_activity_rows` for raw Activity CSV import traceability without changing public tables or Prisma models. |
 | SQL snapshot | `managementDataSystem_forCalculate_3.1_06162026_postgres.sql` | Latest repo bootstrap snapshot for local or fresh environment setup, including the 2026-06-16 SOC and soil-improvement per-rai schema alignment. Older `2.0` and `3.0` snapshots are kept as history/reference files. |
 
 ## Common Debug Lookup
@@ -139,6 +140,7 @@ Use this file to quickly find where a page, component, layout element, or relate
 | Where is weather manual/import page? | `frontend/src/features/weather/WeatherPage.tsx` |
 | Where is the activity log page? | `frontend/src/features/activities/ActivityLogListPage.tsx` |
 | Where is the advanced activity management page? | `frontend/src/features/activities/ActivitiesPage.tsx` |
+| Where is Activity CSV Bronze import stored? | Manual migration: `backend/src/prisma/manual-migrations/2026-07-21-add-bronze-import-layer.sql`; backend write path: `backend/src/modules/activities/activities.service.ts`; frontend chunk metadata: `frontend/src/features/activities/ActivitiesPage.tsx`. |
 | Where are activity main/sub type mappings managed? | `frontend/src/features/activities/ActivityTypesPage.tsx`; backend CRUD lives in `backend/src/modules/activities/activities.service.ts`. |
 | Where are production years managed? | `frontend/src/features/activities/ProductYearsPage.tsx`; backend CRUD and usage metadata live in `backend/src/modules/activities/activities.service.ts`. |
 | Where is the bulk subdistrict tool for lands? | `frontend/src/features/lands/LandsPage.tsx`; backend update endpoint is `backend/src/modules/lands/lands.service.ts`. |

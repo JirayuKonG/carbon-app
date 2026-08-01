@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException, HttpException, Logger } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { Co2eEngineService } from './co2e-engine.service'
 import {
@@ -105,6 +106,18 @@ type ImportFilePayload = {
   activities_fileNameUse_rowCount?: number | string | null
   activities_fileNameUse_columnCount?: number | string | null
   activities_fileNameUse_update_uid?: number | string | null
+}
+
+type ActivityCsvImportOptions = {
+  rawFileId?: number | string | null
+  originalStartIndex?: number | string | null
+  fileName?: string | null
+  isFinalChunk?: boolean
+}
+
+type BronzeRawRowReference = {
+  rawRowId: number
+  rowNumber: number
 }
 
 type ProductYearPayload = {
@@ -402,6 +415,156 @@ export class ActivitiesService {
     private prisma:  PrismaService,
     private engine:  Co2eEngineService,
   ) {}
+
+  private inferImportFileType(fileName?: string | null) {
+    const name = fileName?.trim()
+    if (!name || !name.includes('.')) return null
+    return name.slice(name.lastIndexOf('.') + 1).toLowerCase()
+  }
+
+  private getImportRowNumber(rowIndex: number, originalStartIndex?: number | string | null) {
+    const parsedStartIndex = Number(originalStartIndex ?? 0)
+    const startIndex = Number.isFinite(parsedStartIndex) && parsedStartIndex >= 0
+      ? Math.trunc(parsedStartIndex)
+      : 0
+    return startIndex + rowIndex + 2
+  }
+
+  private buildMappedImportRow(row: Record<string, string>, mappings: ColumnMapping[]) {
+    return Object.fromEntries(
+      mappings
+        .filter((mapping) => mapping.sourceKey)
+        .map((mapping) => [
+          mapping.targetKey,
+          row[mapping.sourceKey as string]?.trim() ?? '',
+        ]),
+    )
+  }
+
+  private async createBronzeImportFile(
+    tx: Prisma.TransactionClient,
+    data: ReturnType<ActivitiesService['normalizeImportFilePayload']>,
+  ) {
+    const fileName = data.activities_fileNameUse_name
+    const inserted = await tx.$queryRaw<Array<{ raw_file_id: string }>>(Prisma.sql`
+      INSERT INTO bronze.raw_import_files (
+        source_name,
+        original_file_name,
+        file_type,
+        uploaded_by,
+        row_count,
+        column_count,
+        import_status
+      )
+      VALUES (
+        'activity_csv',
+        ${fileName},
+        ${this.inferImportFileType(fileName)},
+        ${data.activities_fileNameUse_update_uid != null ? String(data.activities_fileNameUse_update_uid) : null},
+        ${data.activities_fileNameUse_rowCount ?? null},
+        ${data.activities_fileNameUse_columnCount ?? null},
+        'pending'
+      )
+      RETURNING raw_file_id::text AS raw_file_id
+    `)
+
+    const rawFileId = Number(inserted[0]?.raw_file_id)
+    if (!Number.isFinite(rawFileId)) {
+      throw new BadRequestException('Bronze import file could not be created')
+    }
+    return rawFileId
+  }
+
+  private parseRequiredRawFileId(rawFileId: ActivityCsvImportOptions['rawFileId']) {
+    const parsed = Number(rawFileId)
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new BadRequestException('CSV import requires a valid rawFileId from /activities/import-files')
+    }
+    return parsed
+  }
+
+  private async createBronzeRawActivityRows(
+    rawFileId: number,
+    rows: Record<string, string>[],
+    mappings: ColumnMapping[],
+    originalStartIndex?: number | string | null,
+  ): Promise<BronzeRawRowReference[]> {
+    const rawRows: BronzeRawRowReference[] = []
+
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index]
+      const mapped = this.buildMappedImportRow(row, mappings)
+      const rowNumber = this.getImportRowNumber(index, originalStartIndex)
+      const inserted = await this.prisma.$queryRaw<Array<{ raw_row_id: string }>>(Prisma.sql`
+        INSERT INTO bronze.raw_activity_rows (
+          raw_file_id,
+          row_number,
+          raw_data,
+          mapped_data,
+          validation_status
+        )
+        VALUES (
+          ${rawFileId},
+          ${rowNumber},
+          CAST(${JSON.stringify(row)} AS jsonb),
+          CAST(${JSON.stringify(mapped)} AS jsonb),
+          'pending'
+        )
+        RETURNING raw_row_id::text AS raw_row_id
+      `)
+
+      const rawRowId = Number(inserted[0]?.raw_row_id)
+      if (!Number.isFinite(rawRowId)) {
+        throw new BadRequestException(`Bronze row could not be created for source row ${rowNumber}`)
+      }
+      rawRows.push({ rawRowId, rowNumber })
+    }
+
+    return rawRows
+  }
+
+  private async updateBronzeRawActivityRowStatus(
+    rawRowId: number,
+    status: 'imported' | 'skipped' | 'failed',
+    errors: string[],
+    logActDetailId?: number,
+  ) {
+    await this.prisma.$executeRaw(Prisma.sql`
+      UPDATE bronze.raw_activity_rows
+      SET
+        validation_status = ${status},
+        validation_errors = ${errors.length ? Prisma.sql`CAST(${JSON.stringify(errors)} AS jsonb)` : Prisma.sql`NULL`},
+        log_act_detail_id = ${logActDetailId ?? null},
+        updated_at = now()
+      WHERE raw_row_id = ${rawRowId}
+    `)
+  }
+
+  private async updateBronzeImportFileProgress(
+    rawFileId: number,
+    result: { inserted: number; skipped: number; errors: string[] },
+    isFinalChunk?: boolean,
+  ) {
+    const note = result.errors.length > 0
+      ? result.errors.slice(0, 20).join('\n')
+      : null
+
+    await this.prisma.$executeRaw(Prisma.sql`
+      UPDATE bronze.raw_import_files
+      SET
+        import_status = CASE
+          WHEN ${isFinalChunk ? 1 : 0} = 1 AND error_count + ${result.errors.length} > 0 THEN 'completed_with_errors'
+          WHEN ${isFinalChunk ? 1 : 0} = 1 THEN 'completed'
+          ELSE 'processing'
+        END,
+        inserted_count = inserted_count + ${result.inserted},
+        skipped_count = skipped_count + ${result.skipped},
+        error_count = error_count + ${result.errors.length},
+        note = COALESCE(${note}, note),
+        updated_at = now()
+      WHERE raw_file_id = ${rawFileId}
+    `)
+  }
 
   // ── Headers ────────────────────────────────────────────────
   getHeaders(landId?: number, farmerId?: number) {
@@ -2012,21 +2175,32 @@ export class ActivitiesService {
     const normalized = this.normalizeImportFilePayload(data)
     const now = new Date()
 
-    return this.prisma.$transaction(async (tx) => {
-      const last = await tx.activities_fileNameUse.aggregate({
-        _max: { activities_fileNameUse_id: true },
-      })
-      const nextId = (last._max.activities_fileNameUse_id ?? 0) + 1
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const last = await tx.activities_fileNameUse.aggregate({
+          _max: { activities_fileNameUse_id: true },
+        })
+        const nextId = (last._max.activities_fileNameUse_id ?? 0) + 1
+        const rawFileId = await this.createBronzeImportFile(tx, normalized)
 
-      return tx.activities_fileNameUse.create({
-        data: {
-          activities_fileNameUse_id: nextId,
-          ...this.cleanData(normalized),
-          activities_fileNameUse_create_at: now,
-          activities_fileNameUse_update_at: now,
-        },
+        const importFile = await tx.activities_fileNameUse.create({
+          data: {
+            activities_fileNameUse_id: nextId,
+            ...this.cleanData(normalized),
+            activities_fileNameUse_create_at: now,
+            activities_fileNameUse_update_at: now,
+          },
+        })
+
+        return {
+          ...importFile,
+          raw_file_id: rawFileId,
+        }
       })
-    })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      throw new BadRequestException(`Create import file failed: ${message}`)
+    }
   }
 
   async moveDetailToWorkflowStatus(
@@ -4725,10 +4899,18 @@ export class ActivitiesService {
     mappings: ColumnMapping[],
     rows: Record<string, string>[],
     _calcMode: 'standard' | 'tver' = 'standard',
+    options: ActivityCsvImportOptions = {},
   ) {
     if (!rows.length) throw new BadRequestException('No rows')
 
     const mapIdx = Object.fromEntries(mappings.filter(m => m.sourceKey).map(m => [m.targetKey, m.sourceKey!]))
+    const rawFileId = this.parseRequiredRawFileId(options.rawFileId)
+    const bronzeRows = await this.createBronzeRawActivityRows(
+      rawFileId,
+      rows,
+      mappings,
+      options.originalStartIndex,
+    )
 
     // Pre-load lookup tables
     const [
@@ -5210,6 +5392,11 @@ export class ActivitiesService {
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]
+      const bronzeRow = bronzeRows[i]
+      if (!bronzeRow) {
+        throw new BadRequestException(`Missing Bronze row reference for import row ${i + 1}`)
+      }
+      const rowNumber = bronzeRow?.rowNumber ?? this.getImportRowNumber(i, options.originalStartIndex)
       const get = (key: string) => (mapIdx[key] ? row[mapIdx[key]]?.trim() ?? '' : '')
 
       try {
@@ -5221,16 +5408,20 @@ export class ActivitiesService {
         const importedLandSize = importedLandSizeRaw ? Number.parseFloat(importedLandSizeRaw) : undefined
 
         if (!landCode && !campName) {
-          results.errors.push(`Row ${i + 2}: ไม่พบไร่/แปลง - ไม่มีทั้ง land_code และ land_camp_name จึงไม่สามารถสร้างกิจกรรมได้`)
+          const message = `Row ${rowNumber}: ไม่พบไร่/แปลง - ไม่มีทั้ง land_code และ land_camp_name จึงไม่สามารถสร้างกิจกรรมได้`
+          results.errors.push(message)
           results.skipped++
+          await this.updateBronzeRawActivityRowStatus(bronzeRow.rawRowId, 'skipped', [message])
           continue
         }
 
         const activityDateRaw = get('log_act_detail_create_at')
         const activityDate = this.parseImportDate(activityDateRaw)
         if (!activityDate) {
-          results.errors.push(`Row ${i + 2}: วันที่ผิด/หาย - log_act_detail_create_at ว่างหรือรูปแบบวันที่ไม่ถูกต้อง`)
+          const message = `Row ${rowNumber}: วันที่ผิด/หาย - log_act_detail_create_at ว่างหรือรูปแบบวันที่ไม่ถูกต้อง`
+          results.errors.push(message)
           results.skipped++
+          await this.updateBronzeRawActivityRowStatus(bronzeRow.rawRowId, 'skipped', [message])
           continue
         }
 
@@ -5246,8 +5437,10 @@ export class ActivitiesService {
         }
 
         if (!landId) {
-          results.errors.push(`Row ${i + 2}: ไม่พบ land_code และไม่มี land_camp_name จึงไม่สามารถสร้างกิจกรรมได้`)
+          const message = `Row ${rowNumber}: ไม่พบ land_code และไม่มี land_camp_name จึงไม่สามารถสร้างกิจกรรมได้`
+          results.errors.push(message)
           results.skipped++
+          await this.updateBronzeRawActivityRowStatus(bronzeRow.rawRowId, 'skipped', [message])
           continue
         }
 
@@ -5319,7 +5512,7 @@ export class ActivitiesService {
           : 1
         const areawork      = parseFloat(get('log_act_detail_areawork'))   || undefined
 
-        await this.createDetail({
+        const createdDetail = await this.createDetail({
           act_productYear_id:        actProductYearId,
           activities_header_id:      activitiesHeaderId,
           act_header_type_id:        actTypeId,
@@ -5339,11 +5532,21 @@ export class ActivitiesService {
         })
 
         results.inserted++
+        await this.updateBronzeRawActivityRowStatus(
+          bronzeRow.rawRowId,
+          'imported',
+          [],
+          createdDetail.log_act_detail_id,
+        )
       } catch (e: any) {
-        results.errors.push(`Row ${i + 2}: ${e.message}`)
+        const message = `Row ${rowNumber}: ${e.message}`
+        results.errors.push(message)
         results.skipped++
+        await this.updateBronzeRawActivityRowStatus(bronzeRow.rawRowId, 'failed', [message])
       }
     }
+
+    await this.updateBronzeImportFileProgress(rawFileId, results, options.isFinalChunk)
 
     return results
   }

@@ -4,7 +4,7 @@ import { formatFriendlyErrorMessage } from '@/lib/friendly-text'
 
 const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
 const normalizedApiBaseUrl = rawApiBaseUrl
-  ? rawApiBaseUrl.replace(/\/+$/, '')
+  ? rawApiBaseUrl.replace(/\/+$/, '')  // Remove trailing slashes doing this to avoid double slashes when concatenating with endpoint paths
   : '/api'
 
 export const api = axios.create({
@@ -13,8 +13,9 @@ export const api = axios.create({
   timeout: 30_000,
 })
 
+// this is a workaround for the fact that axios does not support sending cookies with cross-origin requests by default.
 // Request interceptor — attach JWT token
-api.interceptors.request.use((config) => {
+api.interceptors.request.use((config) => { // this doing the same thing as the auth middleware in the backend, but for the frontend
   const token = localStorage.getItem('access_token')
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config

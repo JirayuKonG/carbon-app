@@ -1,6 +1,6 @@
 # Carbon Footprint System Setup Guide
 
-Last updated: 2026-06-23
+Last updated: 2026-07-21
 
 This guide is the step-by-step setup and runbook for the project. For the high-level overview, start with [README.md](README.md).
 
@@ -75,6 +75,18 @@ Example local `DATABASE_URL`:
 DATABASE_URL="postgresql://postgres:PASSWORD@localhost:5432/managementDataSystem_forCalculate?schema=public"
 ```
 
+### Apply manual migrations
+
+After importing the SQL snapshot, apply manual migrations that are newer than the snapshot. The Activity CSV import Bronze Layer currently needs:
+
+```bash
+psql -d managementDataSystem_forCalculate -f backend/src/prisma/manual-migrations/2026-07-21-add-bronze-import-layer.sql
+```
+
+For Aiven, use the Aiven connection string instead of `-d managementDataSystem_forCalculate`.
+
+The Bronze migration only adds `bronze.raw_import_files` and `bronze.raw_activity_rows`; it does not change existing public tables or `backend/src/prisma/schema.prisma`.
+
 ## Configure Environment Variables
 
 PowerShell:
@@ -88,6 +100,8 @@ Required backend values:
 
 ```dotenv
 DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DB_NAME?schema=public"
+DATABASE_HOST=localhost
+DATABASE_SSL_MODE=disable
 PORT=3000
 NODE_ENV=development
 ALLOWED_ORIGINS=http://localhost:5173,http://localhost:4173
@@ -115,6 +129,8 @@ Notes:
 - Local frontend development normally uses `VITE_API_BASE_URL=/api` because `frontend/vite.config.ts` proxies `/api` to `http://localhost:3000`.
 - For Aiven, keep `sslmode=require` in `DATABASE_URL`.
 - Keep `connection_limit=5&pool_timeout=20` in the URL for small managed database plans, or keep `PRISMA_CONNECTION_LIMIT=5` and `PRISMA_POOL_TIMEOUT=20` so `PrismaService` can apply safe defaults.
+- `DATABASE_HOST` and `DATABASE_SSL_MODE=disable` are optional local overrides. Use them when a copied Docker/Aiven URL has `postgres` as its host or requires TLS, but the backend is running directly on Windows with local PostgreSQL.
+- Encode reserved password characters before saving `DATABASE_URL` (`#` becomes `%23`, `?` becomes `%3F`, and `@` becomes `%40`). The backend normalizes existing unencoded local credentials at startup, but encoding the URL remains the portable format for Prisma tooling.
 
 ## Generate Prisma Client
 
@@ -239,6 +255,7 @@ Notes:
 - Check that `backend/.env` has the right host, port, user, and password.
 - For Aiven, keep `sslmode=require`.
 - Make sure the connection string includes `schema=public`.
+- For local PostgreSQL that does not support TLS, set `DATABASE_SSL_MODE=disable`. If the URL has `@postgres:5432` from Docker, set `DATABASE_HOST=localhost`.
 
 ### Backend starts but API calls fail
 

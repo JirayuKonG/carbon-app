@@ -1,8 +1,25 @@
 # Project Context Memory
 
-Last updated: 2026-07-02
+Last updated: 2026-07-21
 
 This file is a working memory for the project. It summarizes the current repo state, important decisions, active risks, and where future work should start. Update it when major behavior, routes, architecture, or project status changes.
+
+Recent Activity CSV Bronze Layer update from user prompt on 2026-07-21:
+
+- Prompt summary: add a PostgreSQL Bronze Layer for Activity CSV import using the earlier Medallion Architecture design, then send imported raw rows into that database structure before writing normalized application records.
+- Database result: `backend/src/prisma/manual-migrations/2026-07-21-add-bronze-import-layer.sql` adds the `bronze` schema plus `bronze.raw_import_files` and `bronze.raw_activity_rows`. This is an additive manual migration only; the existing public tables, SQL snapshots, and `backend/src/prisma/schema.prisma` were not changed.
+- Backend result: Activity import now creates an import-file history row and matching Bronze file record first. Each `/api/activities/import` chunk requires `rawFileId`, stores every raw row and mapped row into `bronze.raw_activity_rows`, then updates each Bronze row to `imported`, `skipped`, or `failed` with row-level errors and `log_act_detail_id` when a normalized detail is created.
+- Frontend result: `frontend/src/features/activities/ActivitiesPage.tsx` now creates the import file/Bronze batch before chunk upload and sends `rawFileId`, `originalStartIndex`, `fileName`, and `isFinalChunk` with every chunk, so one user file remains one Bronze batch even when split into multiple requests.
+- Operational note: existing databases must apply the new manual migration before Activity CSV import. If the Bronze write fails, import stops before writing normalized rows so raw-data traceability is preserved.
+- Related docs updated: `CONTEXT.md`, `GUIDE.md`, and `COMPONENT_PJ.md`.
+
+Recent local PostgreSQL connection update from user prompt on 2026-07-19:
+
+- Prompt summary: local frontend/backend could not connect to the local PostgreSQL database.
+- Result: `PrismaService` now safely normalizes database-password URL encoding, supports `DATABASE_HOST` for a Docker-style `postgres` hostname, and supports `DATABASE_SSL_MODE=disable` for local PostgreSQL without TLS. Local `backend/.env` sets `DATABASE_HOST=localhost` and `DATABASE_SSL_MODE=disable`; frontend `VITE_API_BASE_URL=/api` and the Vite proxy stay unchanged.
+- Source of truth: `backend/src/modules/prisma/prisma.service.ts`, `backend/.env`, `backend/.env.example`, and `GUIDE.md`.
+- Verification: `npm run build --workspace=backend` passed; Prisma query connected to `local_carbonfootprint_db` as `postgres`; a temporary backend on port 3001 returned HTTP 200 from `GET /api/geo/geographies`.
+- Related docs updated: `CONTEXT.md`, `GUIDE.md`, and `backend/.env.example`. `README.md`, `COMPONENT_PJ.md`, and `BUG_LOG.md` do not need updates because routes and known-bug scope did not change.
 
 Recent calculation summary Carbon Credit tab fix from user prompt on 2026-07-02:
 

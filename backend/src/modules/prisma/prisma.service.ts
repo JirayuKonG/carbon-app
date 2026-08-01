@@ -11,11 +11,49 @@ function positiveIntegerEnv(name: string, fallback: number) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback
 }
 
+function decodeURIComponentSafe(value: string) {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+function encodeDatabaseUrlCredentials(databaseUrl: string) {
+  const schemeSeparatorIndex = databaseUrl.indexOf('://')
+  if (schemeSeparatorIndex < 0) return databaseUrl
+
+  const authorityAndPath = databaseUrl.slice(schemeSeparatorIndex + 3)
+  const credentialsEndIndex = authorityAndPath.lastIndexOf('@')
+  if (credentialsEndIndex < 0) return databaseUrl
+
+  const credentials = authorityAndPath.slice(0, credentialsEndIndex)
+  const passwordStartIndex = credentials.indexOf(':')
+  if (passwordStartIndex < 0) return databaseUrl
+
+  const username = credentials.slice(0, passwordStartIndex)
+  const rawPassword = credentials.slice(passwordStartIndex + 1)
+  const hostAndPath = authorityAndPath.slice(credentialsEndIndex + 1)
+  const password = decodeURIComponentSafe(rawPassword)
+
+  return `${databaseUrl.slice(0, schemeSeparatorIndex + 3)}${username}:${encodeURIComponent(password)}@${hostAndPath}`
+}
+
 function databaseUrlWithSafePoolDefaults(databaseUrl: string | undefined) {
   if (!databaseUrl) return undefined
 
   try {
-    const url = new URL(databaseUrl)
+    const url = new URL(encodeDatabaseUrlCredentials(databaseUrl))
+    const databaseHost = process.env.DATABASE_HOST?.trim()
+    if (databaseHost) {
+      url.hostname = databaseHost
+    }
+    const databaseSslMode = process.env.DATABASE_SSL_MODE?.trim()
+    if (databaseSslMode?.toLowerCase() === 'disable') {
+      url.searchParams.delete('sslmode')
+    } else if (databaseSslMode) {
+      url.searchParams.set('sslmode', databaseSslMode)
+    }
     if (!url.searchParams.has('connection_limit')) {
       url.searchParams.set('connection_limit', String(positiveIntegerEnv('PRISMA_CONNECTION_LIMIT', DEFAULT_CONNECTION_LIMIT)))
     }

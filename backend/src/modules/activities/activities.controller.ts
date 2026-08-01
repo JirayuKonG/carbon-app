@@ -184,15 +184,28 @@ export class ActivitiesController {
     return this.engine.calculate(b)
   }
 
-  // CSV import — body: { mappings, rows, calcMode? }
+  // CSV import — body: { mappings, rows, calcMode?, rawFileId, originalStartIndex?, fileName?, isFinalChunk? }
   @Post('import')
-  async importCsv(@Body() b: { mappings: any[]; rows: Record<string, string>[]; calcMode?: 'standard' | 'tver' }) {
+  async importCsv(@Body() b: {
+    mappings: any[]
+    rows: Record<string, string>[]
+    calcMode?: 'standard' | 'tver'
+    rawFileId?: number | string
+    originalStartIndex?: number | string
+    fileName?: string
+    isFinalChunk?: boolean
+  }) {
     if (!Array.isArray(b?.mappings) || !Array.isArray(b?.rows)) {
       throw new BadRequestException('CSV import requires mappings and rows arrays')
     }
 
     try {
-      return await this.svc.importFromCsv(b.mappings, b.rows, b.calcMode)
+      return await this.svc.importFromCsv(b.mappings, b.rows, b.calcMode, {
+        rawFileId: b.rawFileId,
+        originalStartIndex: b.originalStartIndex,
+        fileName: b.fileName,
+        isFinalChunk: b.isFinalChunk,
+      })
     } catch (error) {
       const message = this.getErrorMessage(error)
       this.logger.error(`CSV import failed: ${message}`, error instanceof Error ? error.stack : undefined)
