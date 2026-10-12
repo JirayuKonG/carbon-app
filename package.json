@@ -9,7 +9,7 @@
     "shared"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev --workspace=frontend\" \"npm run start:dev --workspace=backend\"",
+    "dev": "node scripts/dev.cjs",
     "build": "npm run build --workspace=frontend && npm run build --workspace=backend",
     "install:all": "npm install --workspaces"
   },

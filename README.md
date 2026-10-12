@@ -171,3 +171,14 @@ Run the app locally first with:
 ```bash
 npm run dev
 ```
+
+## Running after the drive migration (2026-10-08)
+
+Project root: `D:\Project_Tesis\carbon-app`. Run `./start.ps1` to start both workspaces, or use `-Mode Backend` / `-Mode Frontend` in separate terminals. `npm run dev` from the root remains supported.
+The backend/frontend workspace junctions in `node_modules` now point to the D-drive folders. Existing `.env` files and database connection settings are preserved. Do not import a database or run schema migrations merely because the project moved.
+
+The combined `npm run dev` command uses `scripts/dev.cjs` to launch the existing Nest and Vite CLIs without requiring `concurrently`. Both workspace working directories are set explicitly.
+
+## Copying to an external SSD or another computer
+
+See [PORTABLE_SETUP.md](PORTABLE_SETUP.md) for drive-independent setup, dependency reinstallation, environment files and database connectivity. Do not hardcode F: or reuse workspace junctions from the original node_modules.

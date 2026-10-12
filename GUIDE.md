@@ -217,3 +217,7 @@ Notes:
 - Update `COMPONENT_PJ.md` when routes, modules, or shared components move.
 - Update `BUG_LOG.md` when a bug is found, fixed, or re-tested.
 - Update `CONTEXT.md` when a change affects project memory or source-of-truth guidance.
+
+## Copying to an external SSD or another computer
+
+See [PORTABLE_SETUP.md](PORTABLE_SETUP.md) for drive-independent setup, dependency reinstallation, environment files and database connectivity. Do not hardcode F: or reuse workspace junctions from the original node_modules.

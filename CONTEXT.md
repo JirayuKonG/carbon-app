@@ -1094,3 +1094,32 @@ Follow-up analytics database-connection hardening on 2026-06-18:
 - Verification: `npm run build --workspace=backend` passed.
 - Related docs updated: `BUG_LOG.md`, `README.md`, `GUIDE.md`, `backend/.env.example`, and `CONTEXT.md`.
 - Operational note: if the old dev server is still running, restart it so the new Prisma pool settings take effect and old database connections are released.
+
+## Drive migration follow-up (2026-10-08)
+
+- Request: restore launch paths after moving from C to D.
+- Root: `D:\Project_Tesis\carbon-app`.
+- Repaired `node_modules/backend` and `node_modules/frontend` junctions to target the migrated workspaces.
+- Added `start.ps1` with All/Backend/Frontend modes; updated README setup instructions.
+- `frontend/fix.js` is an obsolete maintenance script with existing syntax/encoding problems, outside the normal start/build commands. It is preserved and was not executed.
+- Existing user changes, database schema, SQL snapshots, Prisma generated state and connection secrets are preserved.
+- Build and read-only connection validation are recorded in `../MIGRATION_RUN_STATUS.md` after verification.
+- `GUIDE.md`, `COMPONENT_PJ.md` and `BUG_LOG.md` unchanged: API routes and app behavior unchanged.
+
+- Combined dev command previously referenced missing `concurrently`. `package.json` now uses `scripts/dev.cjs` to start Nest and Vite with correct workspace working directories, without a new dependency, and to stop both child process trees together.
+
+- Verification complete: frontend/backend build passed; Prisma read-only SELECT passed; OpenAPI and geography API returned HTTP 200; combined dev runner returned HTTP 200 from both servers. Temporary test server process trees were stopped.
+
+## Portable copy documentation (2026-10-12)
+
+- Request: explain SSD copies and changing drive letters on another computer.
+- Added PORTABLE_SETUP.md as the setup reference; linked from README.md and GUIDE.md.
+- Use existing relative-path launchers and reinstall dependencies in a clean destination without copied node_modules; npm recreates workspace links for the actual location.
+- Documented .env handling, lockfile install, destination-only Prisma Client generation, external/local PostgreSQL differences, shared-database effects, and port checks.
+- Documentation only: no SSD copy, package installation, Prisma generation, source changes, database changes, or changes to existing D-drive junctions performed. Another computer has not been tested.
+
+## SSD copy (2026-10-12)
+
+- Authorized copy to F:\Project_Tesis\carbon-app, preserving the D source, excluding all node_modules/dist/.vite/.cache directories and *.log.
+- Fixed corrupted Thai encoding in PORTABLE_SETUP.md; added exFAT limitation. Use SSD as transport and install/run on the destination computer's NTFS drive, since npm workspace junctions require support unavailable on exFAT.
+- No dependency installation, database changes or SSD formatting performed.
